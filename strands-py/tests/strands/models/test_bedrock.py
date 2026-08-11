@@ -4402,6 +4402,61 @@ def test_format_request_applies_the_configured_ttl_when_the_request_carries_no_t
     assert tru_point == {"cachePoint": {"type": "default", "ttl": "1h"}}
 
 
+def test_format_request_drops_an_empty_system_cache_point_ttl_when_none_is_configured(bedrock_client, messages):
+    """A falsy TTL is not a TTL: Bedrock validates ttl against an enum and rejects "".
+
+    The fill-in does not apply here, so normalizing is the only thing standing between a caller's empty
+    TTL and a rejected request.
+    """
+    _ = bedrock_client
+    model = BedrockModel()
+    system_blocks = [{"text": "s"}, {"cachePoint": {"type": "default", "ttl": ""}}]
+
+    tru_point = model.format_request(messages, system_prompt_content=system_blocks)["system"][1]
+
+    assert tru_point == {"cachePoint": {"type": "default"}}
+
+
+def test_format_request_drops_an_empty_system_cache_point_ttl_behind_a_shorter_tools_ttl(
+    bedrock_client, messages, tool_spec
+):
+    """The fill-in stands down behind a shorter tools TTL, but the caller's empty TTL still must not ship."""
+    _ = bedrock_client
+    model = BedrockModel(
+        cache_config=CacheConfig(strategy="anthropic", ttl="1h"), cache_tools=CacheToolsConfig(ttl="5m")
+    )
+    system_blocks = [{"text": "s"}, {"cachePoint": {"type": "default", "ttl": ""}}]
+
+    tru_request = model.format_request(messages, tool_specs=[tool_spec], system_prompt_content=system_blocks)
+
+    assert tru_request["toolConfig"]["tools"][-1] == {"cachePoint": {"type": "default", "ttl": "5m"}}
+    assert tru_request["system"][1] == {"cachePoint": {"type": "default"}}
+
+
+def test_format_request_drops_a_null_system_cache_point_ttl(bedrock_client, messages):
+    """botocore rejects a null ttl before the request is even sent, so it is dropped like an empty one."""
+    _ = bedrock_client
+    model = BedrockModel()
+    system_blocks = [{"text": "s"}, {"cachePoint": {"type": "default", "ttl": None}}]
+
+    tru_point = model.format_request(messages, system_prompt_content=system_blocks)["system"][1]
+
+    assert tru_point == {"cachePoint": {"type": "default"}}
+
+
+def test_format_request_does_not_mutate_a_system_cache_point_it_normalizes(bedrock_client, messages):
+    """The caller owns the block, so dropping their empty TTL must not reach back into their own dict."""
+    _ = bedrock_client
+    model = BedrockModel()
+    cache_point = {"type": "default", "ttl": ""}
+    system_blocks = [{"text": "s"}, {"cachePoint": cache_point}]
+
+    tru_point = model.format_request(messages, system_prompt_content=system_blocks)["system"][1]
+
+    assert tru_point == {"cachePoint": {"type": "default"}}
+    assert cache_point == {"type": "default", "ttl": ""}
+
+
 def test_format_request_passes_an_empty_system_cache_point_through(bedrock_client, messages):
     """An off-type cache point is the provider's to reject, not something to raise on while formatting."""
     _ = bedrock_client

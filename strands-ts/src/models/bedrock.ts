@@ -513,35 +513,45 @@ export class BedrockModel extends Model<BedrockModelConfig> {
    * as written - two conflicting TTLs are theirs to reconcile.
    *
    * The tools checkpoint runs ahead of the system one, so the fill-in only happens when it cannot land
-   * a longer TTL behind a shorter one: either no tools checkpoint is emitted, or it already carries the
-   * very TTL being filled in. A `toolsTTL` that differs leaves the system point at the provider default,
-   * exactly as it was before a `ttl` was configured, rather than trading one rejected request for
-   * another. A differing `toolsTTL` is the caller's to reconcile, the same as a TTL they wrote by hand.
+   * a longer TTL behind a shorter one: it stands down whenever the tools checkpoint carries a TTL that
+   * differs from this one at all. Comparing two durations means parsing them, and `CacheTTL` accepts
+   * arbitrary strings for forward compatibility, so any difference is treated the same rather than only a
+   * shorter one. The system point is then left at the provider default of 5 minutes, exactly where it sat
+   * before a `ttl` was configured, rather than trading one rejected request for another. A differing
+   * `toolsTTL` is the caller's to reconcile, the same as a TTL they wrote by hand.
+   *
+   * A falsy TTL the caller wrote is dropped either way, because Bedrock validates `ttl` against an enum
+   * and rejects `''`, so it cannot reach the wire on its own merits. That is what the message path already
+   * does in {@link _honorPlacedCachePoint}; normalizing before the fill-in is decided keeps the guard
+   * above from handing a rejected request back to the caller.
    *
    * @param request - The formatted request, with `system` and `toolConfig` already populated.
    */
   private _applySystemCacheTTL(request: ConverseStreamCommandInput): void {
     const system = request.system
-    if (!system || !this._shouldEnableCaching()) {
+    if (!system) {
       return
     }
 
-    const ttl = this._config.cacheConfig?.ttl
-    if (!ttl) {
-      return
-    }
-
-    const toolsPoint = request.toolConfig?.tools?.find((tool) => 'cachePoint' in tool)
-    if (toolsPoint && 'cachePoint' in toolsPoint && toolsPoint.cachePoint?.ttl !== ttl) {
-      return
+    // An empty configured TTL is not a TTL either, so it leaves the caller's point unstamped rather than
+    // forwarding '' for the enum to reject.
+    let ttl = this._shouldEnableCaching() ? this._config.cacheConfig?.ttl || undefined : undefined
+    if (ttl) {
+      const toolsPoint = request.toolConfig?.tools?.find((tool) => 'cachePoint' in tool)
+      if (toolsPoint && 'cachePoint' in toolsPoint && toolsPoint.cachePoint?.ttl !== ttl) {
+        ttl = undefined
+      }
     }
 
     for (const block of system) {
-      // An empty TTL is not a TTL, so it falls through to the configured one rather than reaching the
-      // wire for the enum to reject.
+      // A TTL the caller wrote is theirs, so only a falsy one is rewritten. These blocks are freshly
+      // formatted, so writing to them cannot reach back into the caller's own.
       if ('cachePoint' in block && block.cachePoint && !block.cachePoint.ttl) {
-        // Bedrock validates TTL values server-side, so accept any string here.
-        block.cachePoint.ttl = ttl as BedrockSdkCacheTTL
+        delete block.cachePoint.ttl
+        if (ttl) {
+          // Bedrock validates TTL values server-side, so accept any string here.
+          block.cachePoint.ttl = ttl as BedrockSdkCacheTTL
+        }
       }
     }
   }

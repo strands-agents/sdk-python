@@ -2357,6 +2357,37 @@ describe('BedrockModel', () => {
         expect(systemCachePoints()).toStrictEqual([{ type: 'default' }])
       })
 
+      it('drops an empty system cache point ttl when no ttl is configured', async () => {
+        // A falsy TTL is not a TTL: Bedrock validates ttl against an enum and rejects ''. No fill-in applies
+        // here, so normalizing is the only thing standing between the caller's '' and a rejected request.
+        const provider = new BedrockModel({})
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt: systemPromptWith('') }))
+
+        expect(systemCachePoints()).toStrictEqual([{ type: 'default' }])
+      })
+
+      it('drops an empty system cache point ttl behind a shorter tools ttl', async () => {
+        // The fill-in stands down behind a shorter tools TTL, but the caller's empty TTL still must not ship.
+        const provider = new BedrockModel({ cacheConfig: { ttl: '1h', toolsTTL: '5m', messagesTTL: false } })
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt: systemPromptWith('') }))
+
+        const [tools] = cachePoints()
+        expect([tools, systemCachePoints()]).toStrictEqual([{ type: 'default', ttl: '5m' }, [{ type: 'default' }]])
+      })
+
+      it('does not mutate a system cache point whose empty ttl it drops', async () => {
+        // The caller owns the block, so normalizing must not reach back into it.
+        const provider = new BedrockModel({})
+        const systemPrompt = systemPromptWith('')
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt }))
+
+        expect(systemCachePoints()).toStrictEqual([{ type: 'default' }])
+        expect((systemPrompt[1] as CachePointBlock).ttl).toBe('')
+      })
+
       it('leaves a system cache point alone when the tools checkpoint ahead of it is shorter', async () => {
         // Bedrock rejects a TTL longer than an earlier checkpoint's, so filling in the shared ttl over a
         // shorter toolsTTL would trade one invalid request for another.
@@ -2369,8 +2400,10 @@ describe('BedrockModel', () => {
       })
 
       it('leaves a system cache point alone when the tools checkpoint ahead of it is longer', async () => {
-        // The shared ttl is the caller's ceiling for a point they did not stamp; lengthening it to the
-        // tools TTL would buy a longer cache entry than they asked to pay for.
+        // The fill-in stands down on ANY difference from the tools TTL, not only a shortening one.
+        // Comparing two durations means parsing them, and CacheTTL accepts arbitrary strings, so a longer
+        // tools TTL is treated the same. The emitted request is equivalent either way: the provider
+        // default this leaves the point at is 5m, which is what the shared ttl would have stamped here.
         const provider = new BedrockModel({ cacheConfig: { ttl: '5m', toolsTTL: '1h' } })
 
         collectIterator(provider.stream(messages, { toolSpecs, systemPrompt: systemPromptWith() }))

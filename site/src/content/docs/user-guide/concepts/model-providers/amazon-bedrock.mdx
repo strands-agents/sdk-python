@@ -551,7 +551,9 @@ For complete details on supported models, token requirements, and cache field su
 
 Cache system prompts that remain static across multiple requests. This is useful when your system prompt contains no variables, timestamps, or dynamic content, exceeds the minimum cacheable token threshold for your model, and you make multiple requests with the same system prompt.
 
-Bedrock requires checkpoint TTLs to be non-increasing across `toolConfig`, system and messages, and rejects a longer TTL that follows a shorter one. A system prompt cache point you place by hand therefore takes the TTL configured on `cacheConfig`/`cache_config` when it carries none of its own, so a single `ttl` keeps every checkpoint in step. A TTL you write on the point yourself is left as written, and a tools TTL that differs from the shared one leaves the point at the Bedrock default instead of putting a longer TTL behind a shorter checkpoint - either way, two TTLs in tension are yours to reconcile.
+Bedrock requires checkpoint TTLs to be non-increasing across `toolConfig`, system and messages, and rejects a longer TTL that follows a shorter one. A system prompt cache point you place by hand therefore takes the TTL configured on `cacheConfig`/`cache_config` when it carries none of its own, so a single `ttl` keeps every checkpoint in step.
+
+The configured TTL stands down in two cases, leaving the point at Bedrock's default of 5 minutes: when you wrote a TTL on the point yourself, which is used as written; and when the tools TTL differs from the shared one at all, whether shorter or longer. Two TTLs in tension are yours to reconcile. A falsy TTL is not a TTL - an empty or null `ttl` on a cache point you placed is dropped rather than sent, since Bedrock validates it against an enum.
 
 <Tabs>
 <Tab label="Python">

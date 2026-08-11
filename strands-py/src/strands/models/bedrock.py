@@ -23,7 +23,7 @@ from .._exception_notes import add_exception_note
 from ..event_loop import streaming
 from ..tools import convert_pydantic_to_tool_spec
 from ..tools._tool_helpers import noop_tool
-from ..types.content import ContentBlock, Messages, SystemContentBlock
+from ..types.content import CachePoint, ContentBlock, Messages, SystemContentBlock
 from ..types.exceptions import (
     ContextWindowOverflowException,
     ModelThrottledException,
@@ -289,6 +289,10 @@ class BedrockModel(Model):
             system_blocks.append({"cachePoint": {"type": cache_prompt}})
 
         # Built ahead of the request so the tools checkpoint is known to the system cache point behind it.
+        # These are the tool specs *after* the noop substitution above, so an agent configured without
+        # tools starts emitting a tools checkpoint once its history carries tool blocks. A differing
+        # cache_tools TTL therefore stops filling the system point in from that turn on. Both requests are
+        # valid, and the cached prefix changes on that turn anyway, so no cache read is lost.
         tools_cache_point = self._build_tools_cache_point() if tool_specs else []
 
         return {
@@ -401,40 +405,57 @@ class BedrockModel(Model):
         wrote is left as written - two conflicting TTLs are theirs to reconcile.
 
         The tools checkpoint runs ahead of the system one, so the fill-in only happens when it cannot land
-        a longer TTL behind a shorter one: either no tools checkpoint is emitted, or it already carries the
-        very TTL being filled in. A ``cache_tools`` TTL that differs leaves the system point at the Bedrock
-        default, exactly as it was before a ``ttl`` was configured, rather than trading one rejected
-        request for another. That mismatch is the caller's to reconcile, the same as a TTL they wrote.
+        a longer TTL behind a shorter one: it stands down whenever the tools checkpoint carries a TTL that
+        differs from this one at all. Comparing two durations means parsing them, and ``CacheTTL`` accepts
+        arbitrary strings for forward compatibility, so any difference is treated the same rather than only
+        a shorter one. The system point is then left at the Bedrock default of 5 minutes, exactly where it
+        sat before a ``ttl`` was configured, rather than trading one rejected request for another. That
+        mismatch is the caller's to reconcile, the same as a TTL they wrote.
+
+        A falsy TTL the caller wrote is dropped either way. botocore rejects ``None`` and Bedrock rejects
+        ``""`` against its enum, so neither can reach the wire on its own merits, and dropping is what the
+        message path already does in :meth:`_honor_placed_cache_point`. Normalizing before the fill-in is
+        decided keeps the guard above from handing a rejected request back to the caller.
 
         Args:
             system_blocks: System content blocks for the request.
             tools_cache_point: The toolConfig cache point emitted for this request, if any.
 
         Returns:
-            The blocks, carrying the configured TTL where a cache point had none. A cache point is
-            replaced rather than mutated, since the caller owns the block.
+            The blocks, carrying the configured TTL where a cache point had none and no TTL at all where
+            the caller wrote a falsy one. A cache point is replaced rather than mutated, since the caller
+            owns the block.
         """
+        ttl: str | None = None
         cache_config = self.config.get("cache_config")
-        if not cache_config or not cache_config.ttl:
-            return system_blocks
+        if cache_config and cache_config.ttl:
+            strategy: str | None = cache_config.strategy
+            if strategy == "auto":
+                strategy = self._cache_strategy
+            tools_ttl_differs = bool(tools_cache_point) and (
+                tools_cache_point[0]["cachePoint"].get("ttl") != cache_config.ttl
+            )
+            if strategy == "anthropic" and not tools_ttl_differs:
+                ttl = cache_config.ttl
 
-        strategy: str | None = cache_config.strategy
-        if strategy == "auto":
-            strategy = self._cache_strategy
-        if strategy != "anthropic":
-            return system_blocks
-
-        if tools_cache_point and tools_cache_point[0]["cachePoint"].get("ttl") != cache_config.ttl:
-            return system_blocks
-
-        return [
-            # An empty TTL is not a TTL, so it falls through to the configured one.
-            SystemContentBlock(**{**block, "cachePoint": {**block["cachePoint"], "ttl": cache_config.ttl}})
+        normalized: list[SystemContentBlock] = []
+        for block in system_blocks:
+            cache_point = block.get("cachePoint")
             # An off-type cache point is Bedrock's to reject, not something to raise on while formatting.
-            if block.get("cachePoint") is not None and not block["cachePoint"].get("ttl")
-            else block
-            for block in system_blocks
-        ]
+            # A TTL the caller wrote is theirs, so only a falsy one is rewritten.
+            if cache_point is None or cache_point.get("ttl"):
+                normalized.append(block)
+                continue
+
+            point: CachePoint = {**cache_point}
+            # pop() rather than a conditional write, exactly as the message path does, so both paths drop
+            # a falsy TTL by the same rule.
+            point.pop("ttl", None)
+            if ttl:
+                point["ttl"] = ttl
+            normalized.append(SystemContentBlock(**{**block, "cachePoint": point}))
+
+        return normalized
 
     def _build_tools_cache_point(self) -> list[dict[str, Any]]:
         """Build the cache point block appended to ``toolConfig.tools`` if ``cache_tools`` is configured.
