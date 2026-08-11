@@ -39,7 +39,8 @@ class RoutingContext:
     """Read-only inputs a strategy sees when choosing a candidate.
 
     ``messages``, ``system_prompt``, and ``tool_specs`` are fresh deep copies per ask, so mutating them
-    changes nothing outside the ask and their object identity is not stable across asks. ``candidates``
+    changes nothing outside the ask and their object identity is not stable across asks. One failure can
+    bring more than one ask, so that copy is paid per ask rather than per failure. ``candidates``
     and the ``candidate`` on each ``RoutingAttempt`` are the router's own instances and are stable for the
     router's lifetime, so a strategy may correlate attempts with candidates by identity.
 
