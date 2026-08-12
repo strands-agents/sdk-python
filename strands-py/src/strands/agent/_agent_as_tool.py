@@ -17,7 +17,7 @@ from ..agent.state import AgentState
 from ..types._events import AgentAsToolStreamEvent, ToolInterruptEvent, ToolResultEvent
 from ..types.content import Messages
 from ..types.interrupt import InterruptResponseContent
-from ..types.tools import AgentTool, ToolGenerator, ToolSpec, ToolUse
+from ..types.tools import AgentTool, ToolGenerator, ToolResultContent, ToolSpec, ToolUse
 
 if TYPE_CHECKING:
     from .agent import Agent
@@ -247,12 +247,30 @@ class _AgentAsTool(AgentTool):
                     }
                 )
             elif self._delegate:
-                # Strip newline __str__ adds so that content matches the result more closely
+                # Copy content blocks verbatim; falls back to str(result) minus trailing \n.
+                content = result.message.get("content", [])
+                tool_result_content: list[ToolResultContent] = []
+                for block in content:
+                    if isinstance(block, dict):
+                        if "text" in block:
+                            tool_result_content.append(ToolResultContent(text=block["text"]))
+                        elif "json" in block:
+                            tool_result_content.append(ToolResultContent(json=block["json"]))
+                        elif "citationsContent" in block:
+                            cited = [
+                                inner["text"]
+                                for inner in block["citationsContent"].get("content", [])
+                                if isinstance(inner, dict) and "text" in inner
+                            ]
+                            if cited:
+                                tool_result_content.append(ToolResultContent(text="\n".join(cited)))
+                if not tool_result_content:
+                    tool_result_content = [ToolResultContent(text=str(result).rstrip("\n"))]
                 yield ToolResultEvent(
                     {
                         "toolUseId": tool_use_id,
                         "status": "success",
-                        "content": [{"text": str(result).rstrip("\n")}],
+                        "content": tool_result_content,
                     }
                 )
             else:

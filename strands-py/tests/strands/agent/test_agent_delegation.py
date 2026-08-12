@@ -919,3 +919,80 @@ async def test_delegation_preserves_content_verbatim_across_hops():
     assert len(result.message["content"]) == 1
     delivered_text = result.message["content"][0]["text"]
     assert delivered_text == exact_payload, f"Expected verbatim {exact_payload!r}, got {delivered_text!r}"
+
+
+@pytest.mark.asyncio
+async def test_delegation_preserves_json_block_verbatim():
+    """A child returning a json content block in the tool result is serialized to text by _to_content_blocks."""
+
+    json_payload = {"status": "ok", "count": 3}
+
+    # Unit-test the delegation branch directly: simulate a sub-agent result with a json block.
+    sub = Agent(
+        model=MockedModelProvider([{"role": "assistant", "content": [{"text": "unused"}]}]),
+        name="leaf",
+        callback_handler=None,
+    )
+    tool = sub.as_tool(delegate=True)
+
+    # Patch the agent's invoke to return a result with a json content block.
+    from strands.agent.agent_result import AgentResult
+    from strands.telemetry.metrics import EventLoopMetrics
+
+    fake_result = AgentResult(
+        stop_reason="end_turn",
+        message={"role": "assistant", "content": [{"json": json_payload}]},
+        metrics=EventLoopMetrics(),
+        state={},
+    )
+
+    async def fake_stream(prompt):
+        yield {"result": fake_result}
+
+    tool._agent.stream_async = fake_stream
+
+    tool_use = {"toolUseId": "t1", "name": "leaf", "input": {"input": "go"}}
+    events = [e async for e in tool.stream(tool_use, {})]
+    result_events = [e for e in events if isinstance(e, ToolResultEvent)]
+
+    assert len(result_events) == 1
+    content = result_events[0]["tool_result"]["content"]
+    assert len(content) == 1
+    assert content[0]["json"] == json_payload
+
+
+@pytest.mark.asyncio
+async def test_delegation_citations_only_no_trailing_newline():
+    """A child returning only citationsContent must not inject a trailing newline."""
+    from strands.agent.agent_result import AgentResult
+    from strands.telemetry.metrics import EventLoopMetrics
+
+    cited_text = "cited fact"
+
+    sub = Agent(
+        model=MockedModelProvider([{"role": "assistant", "content": [{"text": "unused"}]}]),
+        name="leaf",
+        callback_handler=None,
+    )
+    tool = sub.as_tool(delegate=True)
+
+    fake_result = AgentResult(
+        stop_reason="end_turn",
+        message={"role": "assistant", "content": [{"citationsContent": {"content": [{"text": cited_text}]}}]},
+        metrics=EventLoopMetrics(),
+        state={},
+    )
+
+    async def fake_stream(prompt):
+        yield {"result": fake_result}
+
+    tool._agent.stream_async = fake_stream
+
+    tool_use = {"toolUseId": "t1", "name": "leaf", "input": {"input": "go"}}
+    events = [e async for e in tool.stream(tool_use, {})]
+    result_events = [e for e in events if isinstance(e, ToolResultEvent)]
+
+    assert len(result_events) == 1
+    content = result_events[0]["tool_result"]["content"]
+    assert len(content) == 1
+    assert content[0]["text"] == cited_text
