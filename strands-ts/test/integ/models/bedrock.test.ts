@@ -526,7 +526,7 @@ describe.skipIf(bedrock.skip)('BedrockModel Integration Tests', () => {
     }, 60000)
 
     describe('Input Intervention', () => {
-      it.each(['enabled', 'enabled_full'] as const)(
+      it.each(['disabled', 'enabled', 'enabled_full'] as const)(
         'blocks input and redacts message with trace=%s',
         async (guardrailTrace) => {
           const model = bedrock.createModel({
