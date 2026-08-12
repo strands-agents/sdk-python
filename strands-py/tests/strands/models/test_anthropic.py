@@ -306,6 +306,21 @@ def test_format_request_with_webp_image_does_not_depend_on_mimetypes(model, mode
     assert tru_request["messages"][0]["content"][0]["source"]["media_type"] == "image/webp"
 
 
+# Guards against https://github.com/strands-agents/harness-sdk/issues/3789: formats Anthropic cannot
+# accept must raise client-side instead of being sent with a media type the API rejects.
+def test_format_request_with_unsupported_image_format(model):
+    messages = [
+        {
+            "role": "user",
+            "content": [{"image": {"format": "bmp", "source": {"bytes": b"bmpimage"}}}],
+        },
+    ]
+
+    expected_message = "content_type=<image>, format=<bmp> | unsupported format"
+    with pytest.raises(TypeError, match=re.escape(expected_message)):
+        model.format_request(messages)
+
+
 def test_format_request_with_reasoning(model, model_id, max_tokens):
     messages = [
         {

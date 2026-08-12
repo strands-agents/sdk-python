@@ -6,7 +6,6 @@
 import base64
 import json
 import logging
-import mimetypes
 from collections.abc import AsyncGenerator
 from typing import Any, TypeVar, cast
 
@@ -164,13 +163,13 @@ class AnthropicModel(Model):
 
         if "image" in content:
             image_format = content["image"]["format"]
+            if image_format not in _IMAGE_MEDIA_TYPES:
+                raise TypeError(f"content_type=<image>, format=<{image_format}> | unsupported format")
+
             return {
                 "source": {
                     "data": base64.b64encode(content["image"]["source"]["bytes"]).decode("utf-8"),
-                    "media_type": _IMAGE_MEDIA_TYPES.get(
-                        image_format,
-                        mimetypes.types_map.get(f".{image_format}", "application/octet-stream"),
-                    ),
+                    "media_type": _IMAGE_MEDIA_TYPES[image_format],
                     "type": "base64",
                 },
                 "type": "image",
