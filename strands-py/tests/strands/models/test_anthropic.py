@@ -251,6 +251,21 @@ def test_format_request_with_unsupported_document_format(document_format, model)
         model.format_request(messages)
 
 
+def test_format_request_with_non_utf8_text_document(model):
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"document": {"format": "csv", "name": "test doc", "source": {"bytes": b"caf\xe9"}}},
+            ],
+        },
+    ]
+
+    expected_message = "content_type=<document>, format=<csv> | document is not valid utf-8 text"
+    with pytest.raises(TypeError, match=re.escape(expected_message)):
+        model.format_request(messages)
+
+
 def test_format_request_with_image(model, model_id, max_tokens):
     messages = [
         {

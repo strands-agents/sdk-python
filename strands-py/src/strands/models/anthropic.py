@@ -140,23 +140,29 @@ class AnthropicModel(Model):
         """
         if "document" in content:
             document_format = content["document"]["format"]
-            if document_format != "pdf" and document_format not in _TEXT_FILE_FORMATS:
+            if document_format == "pdf":
+                source: dict[str, Any] = {
+                    "data": base64.b64encode(content["document"]["source"]["bytes"]).decode("utf-8"),
+                    "media_type": "application/pdf",
+                    "type": "base64",
+                }
+            elif document_format in _TEXT_FILE_FORMATS:
+                try:
+                    text_data = content["document"]["source"]["bytes"].decode("utf-8")
+                except UnicodeDecodeError as decode_error:
+                    raise TypeError(
+                        f"content_type=<document>, format=<{document_format}> | document is not valid utf-8 text"
+                    ) from decode_error
+                source = {
+                    "data": text_data,
+                    "media_type": "text/plain",
+                    "type": "text",
+                }
+            else:
                 raise TypeError(f"content_type=<document>, format=<{document_format}> | unsupported format")
 
             return {
-                "source": (
-                    {
-                        "data": base64.b64encode(content["document"]["source"]["bytes"]).decode("utf-8"),
-                        "media_type": "application/pdf",
-                        "type": "base64",
-                    }
-                    if document_format == "pdf"
-                    else {
-                        "data": content["document"]["source"]["bytes"].decode("utf-8"),
-                        "media_type": "text/plain",
-                        "type": "text",
-                    }
-                ),
+                "source": source,
                 "title": content["document"]["name"],
                 "type": "document",
             }
