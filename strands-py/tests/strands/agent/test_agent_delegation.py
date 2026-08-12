@@ -872,3 +872,49 @@ async def test_middleware_rejects_delegation_when_batch_count_exceeds_one():
     assert len(tru_events) == 1
     assert tru_events[0].tool_result["status"] == "error"
     assert "only tool" in tru_events[0].tool_result["content"][0]["text"].lower()
+
+
+# --- Byte-verbatim fidelity ---
+
+
+@pytest.mark.asyncio
+async def test_delegation_preserves_content_verbatim_across_hops():
+    """Delegated content must be byte-identical across a multi-level chain."""
+    exact_payload = '{"name": "User", "roles": ["admin"]}'
+
+    leaf = Agent(
+        model=MockedModelProvider([{"role": "assistant", "content": [{"text": exact_payload}]}]),
+        name="leaf",
+        callback_handler=None,
+    )
+    mid = Agent(
+        model=MockedModelProvider(
+            [
+                {
+                    "role": "assistant",
+                    "content": [{"toolUse": {"toolUseId": "m1", "name": "leaf", "input": {"input": "go"}}}],
+                }
+            ]
+        ),
+        name="mid",
+        tools=[leaf.as_tool(delegate=True)],
+        callback_handler=None,
+    )
+    top = Agent(
+        model=MockedModelProvider(
+            [
+                {
+                    "role": "assistant",
+                    "content": [{"toolUse": {"toolUseId": "t1", "name": "mid", "input": {"input": "go"}}}],
+                }
+            ]
+        ),
+        name="top",
+        tools=[mid.as_tool(delegate=True)],
+        callback_handler=None,
+    )
+
+    result = await top.invoke_async("run")
+
+    delivered_text = result.message["content"][0]["text"]
+    assert delivered_text == exact_payload, f"Expected verbatim {exact_payload!r}, got {delivered_text!r}"

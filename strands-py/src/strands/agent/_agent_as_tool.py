@@ -17,7 +17,7 @@ from ..agent.state import AgentState
 from ..types._events import AgentAsToolStreamEvent, ToolInterruptEvent, ToolResultEvent
 from ..types.content import Messages
 from ..types.interrupt import InterruptResponseContent
-from ..types.tools import AgentTool, ToolGenerator, ToolSpec, ToolUse
+from ..types.tools import AgentTool, ToolGenerator, ToolResultContent, ToolSpec, ToolUse
 
 if TYPE_CHECKING:
     from .agent import Agent
@@ -244,6 +244,25 @@ class _AgentAsTool(AgentTool):
                         "toolUseId": tool_use_id,
                         "status": "success",
                         "content": [{"json": result.structured_output.model_dump(mode="json")}],
+                    }
+                )
+            elif self._delegate:
+                # Bypass str(result) which appends \n per text block, accumulating with delegation depth.
+                content = result.message.get("content", [])
+                tool_result_content: list[ToolResultContent] = []
+                for block in content:
+                    if isinstance(block, dict):
+                        if "text" in block:
+                            tool_result_content.append(ToolResultContent(text=block["text"]))
+                        elif "json" in block:
+                            tool_result_content.append(ToolResultContent(json=block["json"]))
+                if not tool_result_content:
+                    tool_result_content = [ToolResultContent(text=str(result))]
+                yield ToolResultEvent(
+                    {
+                        "toolUseId": tool_use_id,
+                        "status": "success",
+                        "content": tool_result_content,
                     }
                 )
             else:
