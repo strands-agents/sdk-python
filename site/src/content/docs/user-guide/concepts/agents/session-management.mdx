@@ -496,145 +496,25 @@ Both file and S3 backends use the same key structure:
 
 ## Sessions, Agents, and Concurrency
 
-A session manager assumes it is the only writer for its key: session ID plus agent ID, or
-session ID plus orchestrator ID for a Graph or Swarm. Lost or interleaved conversation
-history almost always traces back to that assumption being broken.
+A session manager assumes it is the only writer for its key: the session ID plus the agent ID (<Syntax py="agent_id" ts="id" />), or the orchestrator ID for a Graph or Swarm. Lost or interleaved conversation history almost always traces back to that assumption breaking.
 
 ### One Conversation per Session
 
-Give each conversation its own session ID. The session ID and the agent ID
-(<Syntax py="agent_id" ts="id" />) together address one conversation thread in storage,
-so a second conversation with the same agent needs a second session ID.
+Give each conversation its own session ID. Several agents can share one session ID as long as their agent IDs differ, since each agent keeps its own messages and state inside the session. What corrupts data is two live agents addressing the same session ID *and* agent ID, which the default IDs (<Syntax py='agent_id="default"' ts="id: 'agent'" />) make easy to do by accident.
 
-Several agents can share one session ID as long as their agent IDs differ. The session
-acts as a namespace, and each agent keeps its own message history and state inside it.
-Agents inside a Graph or Swarm are the exception: only the orchestrator takes a session
-manager, as described under [Multi-Agent Sessions](#multi-agent-sessions). What corrupts
-data is two live agents addressing the same session ID and agent ID.
+Only Python catches part of this: handing one session manager to two agents with the same agent ID raises `SessionException`. Nothing catches two agents that each hold their own session manager, whether that is a second Lambda execution or a server that builds a manager per request. Their invocations either overlap, and one agent's turn is overwritten, or they do not, and the second agent restores the first one's messages and appends to them, leaving one history that holds two conversations.
 
-<Tabs>
-<Tab label="Python">
-
-Handing one session manager to two agents with the same agent ID fails immediately with
-a `SessionException`: agent IDs must be unique within a session. The default `agent_id`
-is `"default"`, so two agents that both leave it unset collide.
-
-Nothing detects two agents that each have their own session manager, whether they run in
-separate processes or in one process that builds a manager per request, addressing the
-same session ID and agent ID. A manager seeds its message index from the last message it
-saw when it restored the session, then increments that index locally. Managers whose
-invocations overlap claim the same index, and the second write replaces the first agent's
-turn. Invocations that do not overlap merge instead: the later agent
-restores the earlier one's messages and appends to them, leaving one history that holds
-two conversations.
-
-A brand-new session can also fail outright: the session manager creates the session
-record when you construct it, and a record that another caller just created raises
-`SessionException`. That check is not atomic, so two simultaneous cold starts can instead
-both succeed, with the later write winning. Treat the exception as a symptom of duplicate
-callers, not a guard against them.
-
-</Tab>
-<Tab label="TypeScript">
-
-Nothing detects two agents addressing the same session ID and agent ID. The default
-agent `id` is `'agent'`, so two agents that both leave it unset collide.
-
-Every save overwrites `snapshot_latest` with the saving agent's full in-memory history.
-When invocations overlap, the last writer wins and the other agent's turn disappears even
-though both reported success. When they do not overlap, the later agent restores the
-earlier one's history and continues it, leaving one history that holds two conversations.
-
-</Tab>
-</Tabs>
-
-A single agent instance rejects overlapping invocations, described in
-[Concurrent Invocations](./agent-loop.md#concurrent-invocations). That guard is
-in-process, so it sees nothing happening outside the current process.
+A single agent instance does reject overlapping invocations, described in [Concurrent Invocations](./agent-loop.md#concurrent-invocations), but that guard is in-process: it sees nothing running anywhere else.
 
 ### Create an Agent per Conversation
 
-Constructing an agent is cheap: it wires up tools, hooks, and plugins in memory and makes
-no model call. The model provider often costs more, since providers such as `BedrockModel`
-build their client in the constructor, so create the provider once per process and hand
-the same instance to every agent. Then build an agent per request, invoke it, and let it
-go out of scope. An agent binds to its session at construction time, so a long-lived
-agent shared across conversations cannot switch between them.
-
-<Tabs>
-<Tab label="Python">
-
-Creating an agent with a session manager also restores the session. `FileSessionManager`
-and `S3SessionManager` read one object per stored message, so a long conversation costs
-more to restore than a short one.
-
-The session manager is per request as well, since it binds to a single session ID. Its
-constructor builds an S3 client, so in a single-threaded environment such as AWS Lambda,
-pass a `boto_session` created once per process to avoid repeating that work. The example
-below leaves it out, since one `boto3.Session` cannot be shared safely across threads.
-
-```python
-from strands import Agent
-from strands.models import BedrockModel
-from strands.session.s3_session_manager import S3SessionManager
-
-# Built once per process and shared by every request
-model = BedrockModel()
-
-
-def handle_request(conversation_id: str, prompt: str) -> str:
-    # One agent per request, scoped to the caller's conversation
-    session_manager = S3SessionManager(
-        session_id=conversation_id,
-        bucket="my-agent-sessions",
-    )
-    agent = Agent(model=model, session_manager=session_manager)
-
-    return str(agent(prompt))
-```
-
-</Tab>
-<Tab label="TypeScript">
-
-Restore runs on the first invocation rather than in the constructor, so constructing the
-agent does no I/O. The storage backend holds no session state, so build it once as well
-and give each request its own session manager.
-
-```typescript
---8<-- "user-guide/concepts/agents/session-manager_imports.ts:per_request_agent_imports"
-
---8<-- "user-guide/concepts/agents/session-manager.ts:per_request_agent"
-```
-
-</Tab>
-</Tabs>
+Constructing an agent is cheap, since it wires up tools, hooks, and plugins in memory and makes no model call. Build one per request, invoke it, and let it go out of scope. An agent binds to its session at construction, so a long-lived agent shared across conversations cannot switch between them. The model provider is the part worth reusing: providers such as `BedrockModel` build their client in the constructor, so create the provider once per process and pass the same instance to every agent.
 
 ### Serializing Access to a Shared Session
 
-When two invocations for the same session ID can overlap, the lock has to live outside
-Strands. The built-in session managers take no lock, and the per-instance invocation
-guard cannot see an agent running in another process.
+When two invocations for one session ID can overlap, the lock has to live outside Strands, because no built-in session manager takes one. AWS Lambda is where this surfaces most often: a retried or duplicated event starts a second execution with the same session ID, and both executions write the same keys. Queue redelivery and a double-submitted form produce the same race.
 
-AWS Lambda is where this surfaces most often: a retried or duplicated event starts a
-second execution with the same session ID, that execution builds its own agent, and both
-write the same keys. Queue redelivery, a double-submitted form, and a user with two open
-browser tabs produce the same race. Deduplication that lives inside one agent instance,
-including the Python SDK's idempotency token, does not help, because each retry arrives
-in a fresh process with a fresh agent.
-
-Two approaches work:
-
-- **A distributed lock keyed by session ID.** Take it before constructing the agent,
-  release it after the invocation completes, and give it a TTL or lease so a crashed
-  holder cannot block the session forever. A conditional write on a DynamoDB item and
-  `SET key value NX PX` in Redis both do the job. Reject the duplicate request rather
-  than waiting on the lock when the caller can retry.
-- **A per-session FIFO queue.** Route requests through a FIFO queue partitioned by
-  session ID (in Amazon SQS, the session ID becomes the message group ID) so the second
-  request queues behind the first instead of racing it.
-
-Use the lock when a caller is waiting on the response, and the queue when the work can
-be processed asynchronously.
+Take a distributed lock keyed by the session ID before constructing the agent, release it after the invocation, and give it a TTL so a crashed holder cannot block the session forever. A conditional write on a DynamoDB item and `SET key value NX PX` in Redis both do the job. Where the work does not have to be synchronous, a FIFO queue partitioned by session ID (in Amazon SQS, the session ID becomes the message group ID) serializes the requests instead of racing them.
 
 ## Session Persistence Best Practices
 
@@ -643,7 +523,5 @@ When implementing session persistence in your applications, consider these best 
 - **Use Unique Session IDs**: Generate unique session IDs for each user or conversation context to prevent data overlap.
 - **Session Cleanup**: Implement a strategy for cleaning up old or inactive sessions. Consider adding TTL (Time To Live) for sessions in production environments.
 - **Understand Persistence Triggers**: Remember that changes to agent state or messages are only persisted during specific lifecycle events.
-- **Concurrent Access**: Session managers are not thread-safe and take no distributed
-  lock. Keep one writer per session, and serialize overlapping invocations yourself: see
-  [Sessions, Agents, and Concurrency](#sessions-agents-and-concurrency).
+- **Concurrent Access**: Session managers are not thread-safe and take no distributed lock. See [Sessions, Agents, and Concurrency](#sessions-agents-and-concurrency).
 - **Secure Storage Directories**: The session storage directory is a trusted data store. Restrict filesystem permissions so that only the agent process can read and write to it. In shared or multi-tenant environments (shared volumes, containers), be aware that the SDK does not block symlinks in the session storage directory. If an attacker with write access to the storage directory creates a symlink (e.g., `message_0.json` pointing to an arbitrary file), the SDK will follow it, which could cause sensitive file contents to be loaded into the agent's conversation history.
