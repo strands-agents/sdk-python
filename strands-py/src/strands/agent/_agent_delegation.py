@@ -257,22 +257,10 @@ class AgentDelegation(Plugin):
                 yield event
             return
 
-        # Reject runtime-added delegate on stateful model.
+        # Stateful model: skip delegation, execute as a normal tool.
         if context.agent.model.stateful:
-            yield ToolResultEvent(
-                {
-                    "toolUseId": context.tool_use["toolUseId"],
-                    "status": "error",
-                    "content": [
-                        {
-                            "text": (
-                                "Delegation failed: this tool is not supported with stateful models. "
-                                "Respond to the user directly instead of delegating."
-                            )
-                        }
-                    ],
-                }
-            )
+            async for event in next_fn(context):
+                yield event
             return
 
         # Enforce single-call constraint.

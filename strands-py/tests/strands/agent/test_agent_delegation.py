@@ -458,7 +458,8 @@ def test_init_ok_without_delegation_on_stateful():
 
 
 @pytest.mark.asyncio
-async def test_runtime_stateful_delegate_returns_error():
+async def test_runtime_stateful_delegate_passes_through():
+    """A delegation tool on a stateful model silently behaves as a normal tool (TS parity)."""
     tool = _make_delegation_tool()
     parent = Agent(name="p", callback_handler=None)
     plugin = _get_plugin(parent)
@@ -473,13 +474,13 @@ async def test_runtime_stateful_delegate_returns_error():
             _interrupt_state=parent._interrupt_state,
         )
 
-        async def unreachable(c):
-            yield ToolResultEvent({"toolUseId": "t1", "status": "success", "content": [{"text": "nope"}]})
+        async def normal_execution(c):
+            yield ToolResultEvent({"toolUseId": "t1", "status": "success", "content": [{"text": "normal result"}]})
 
-        tru_events = [e async for e in plugin._handle_tool_execution(ctx, unreachable)]
+        tru_events = [e async for e in plugin._handle_tool_execution(ctx, normal_execution)]
         assert len(tru_events) == 1
-        assert tru_events[0].tool_result["status"] == "error"
-        assert "stateful" in tru_events[0].tool_result["content"][0]["text"].lower()
+        assert tru_events[0].tool_result["status"] == "success"
+        assert tru_events[0].tool_result["content"][0]["text"] == "normal result"
     finally:
         del type(parent.model).stateful
 
