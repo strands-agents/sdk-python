@@ -23,6 +23,7 @@ import { Offload } from './strategies/offload.js'
  * `contextManager` parameter on the Agent constructor. When present, it owns
  * overflow recovery — no separate ConversationManager is needed.
  *
+ * @experimental
  * @internal
  */
 export class ContextManager implements Plugin {
@@ -129,7 +130,7 @@ export class ContextManager implements Plugin {
     const targetRemoval = Math.max(2, Math.floor(messages.length * 0.2))
     const targetSplitIndex = Math.min(startIndex + targetRemoval, messages.length - 1)
 
-    const validSplitIndex = findValidTrimPoint(messages, targetSplitIndex)
+    const validSplitIndex = this._findValidTrimPoint(messages, targetSplitIndex)
     const splitIndex = validSplitIndex < messages.length ? validSplitIndex : targetSplitIndex
 
     const removeCount = splitIndex - startIndex
@@ -174,44 +175,38 @@ export class ContextManager implements Plugin {
     }
     return false
   }
-}
 
-// --- Truncation helpers (inlined to avoid depending on conversation-manager) ---
+  private _findValidTrimPoint(messages: Message[], startIndex: number): number {
+    let trimIndex = startIndex
 
-/**
- * Finds a valid trim point: a user message that isn't an orphaned tool result.
- * Returns `messages.length` if no valid point exists.
- */
-function findValidTrimPoint(messages: Message[], startIndex: number): number {
-  let trimIndex = startIndex
+    while (trimIndex < messages.length) {
+      const message = messages[trimIndex]
+      if (!message) break
 
-  while (trimIndex < messages.length) {
-    const message = messages[trimIndex]
-    if (!message) break
-
-    if (message.role !== 'user') {
-      trimIndex++
-      continue
-    }
-
-    const hasToolResult = message.content.some((block) => block.type === 'toolResultBlock')
-    if (hasToolResult) {
-      trimIndex++
-      continue
-    }
-
-    const hasToolUse = message.content.some((block) => block.type === 'toolUseBlock')
-    if (hasToolUse) {
-      const nextMessage = messages[trimIndex + 1]
-      const nextHasToolResult = nextMessage?.content.some((block) => block.type === 'toolResultBlock')
-      if (!nextHasToolResult) {
+      if (message.role !== 'user') {
         trimIndex++
         continue
       }
+
+      const hasToolResult = message.content.some((block) => block.type === 'toolResultBlock')
+      if (hasToolResult) {
+        trimIndex++
+        continue
+      }
+
+      const hasToolUse = message.content.some((block) => block.type === 'toolUseBlock')
+      if (hasToolUse) {
+        const nextMessage = messages[trimIndex + 1]
+        const nextHasToolResult = nextMessage?.content.some((block) => block.type === 'toolResultBlock')
+        if (!nextHasToolResult) {
+          trimIndex++
+          continue
+        }
+      }
+
+      break
     }
 
-    break
+    return trimIndex
   }
-
-  return trimIndex
 }

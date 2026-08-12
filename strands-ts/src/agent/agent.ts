@@ -609,6 +609,12 @@ export class Agent implements LocalAgent, InvokableAgent {
     const hasOffloader = (config?.plugins ?? []).some((p) => p.name === 'strands:context-offloader')
     const hasContextManager = (config?.plugins ?? []).some((p) => p.name === 'strands:context-manager')
 
+    if (hasContextManager && config?.contextManager && !(config.contextManager instanceof ContextManager)) {
+      logger.warn(
+        'ContextManager found in plugins array while contextManager param is also set, the param takes precedence'
+      )
+    }
+
     // Always register AgentDelegation so delegation semantics work regardless of
     // when a delegate tool is added (construction, plugin getTools, MCP, runtime).
     // The plugin is a no-op when no delegation tools fire.
