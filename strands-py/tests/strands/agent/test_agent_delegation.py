@@ -916,5 +916,6 @@ async def test_delegation_preserves_content_verbatim_across_hops():
 
     result = await top.invoke_async("run")
 
+    assert len(result.message["content"]) == 1
     delivered_text = result.message["content"][0]["text"]
     assert delivered_text == exact_payload, f"Expected verbatim {exact_payload!r}, got {delivered_text!r}"
