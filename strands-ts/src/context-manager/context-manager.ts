@@ -36,7 +36,7 @@ export class ContextManager implements Plugin {
   constructor(config?: ContextManagerConfig) {
     this._strategies = config?.strategies ?? [
       Offload.truncate('toolResults').when({ threshold: 2500 }),
-      Offload.summarize('toolResults').when({ threshold: 1000, utilization: 0.85 }),
+      Offload.summarize('*').when({ threshold: 1000, utilization: 0.85 }),
     ]
   }
 
