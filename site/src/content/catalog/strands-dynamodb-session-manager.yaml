@@ -1,0 +1,9 @@
+name: strands-dynamodb-session-manager
+description: Amazon DynamoDB session manager for Strands Agents that persists sessions, agent state, and messages for durable, resumable conversations.
+integrationType: session-manager
+languages:
+  python:
+    package: strands-dynamodb-session-manager
+github: https://github.com/skamalj/strands-agents-session
+docsUrl: https://skamalj.github.io/agentstate-reducer/strands/providers/dynamodb/
+addedDate: 2026-08-12
