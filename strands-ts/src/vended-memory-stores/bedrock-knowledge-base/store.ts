@@ -47,12 +47,7 @@ function toAttributeValue(value: JSONValue): MetadataAttributeValue | undefined 
   return undefined
 }
 
-/**
- * Restores a retrieved numeric metadata attribute to the number the caller stored. Affected
- * `@aws-sdk/core` versions surface Bedrock NUMBER attributes as a `NumericValue` wrapper
- * `{ string: '3.0', type: 'bigDecimal' }` (aws/aws-sdk-js-v3#8246). A value that is not a
- * `NumericValue` or does not parse to a finite number is returned untouched.
- */
+/** Unwraps the `NumericValue` wrapper (aws/aws-sdk-js-v3#8246) to the stored number; anything else passes through. */
 function fromAttributeValue(value: JSONValue): JSONValue {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return value
   const { string: encoded, type } = value as { string?: JSONValue; type?: JSONValue }
