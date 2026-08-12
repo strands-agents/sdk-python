@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from mcp.types import Tool as MCPTool
+from mcp.types import ToolAnnotations
 
 from strands.tools.mcp import MCPAgentTool, MCPClient
 from strands.types._events import ToolResultEvent
@@ -16,6 +17,7 @@ def mock_mcp_tool():
     mock_tool.description = "A test tool"
     mock_tool.inputSchema = {"type": "object", "properties": {}}
     mock_tool.outputSchema = None  # MCP tools can have optional outputSchema
+    mock_tool.annotations = None  # MCP tools can have optional annotations
     return mock_tool
 
 
@@ -79,6 +81,51 @@ def test_tool_spec_without_output_schema(mock_mcp_tool, mock_mcp_client):
     tool_spec = agent_tool.tool_spec
 
     assert "outputSchema" not in tool_spec
+
+
+def test_tool_spec_with_annotations(mock_mcp_tool, mock_mcp_client):
+    mock_mcp_tool.annotations = ToolAnnotations(title="Test Tool", readOnlyHint=True)
+
+    agent_tool = MCPAgentTool(mock_mcp_tool, mock_mcp_client)
+    tool_spec = agent_tool.tool_spec
+
+    assert tool_spec["annotations"] == {"title": "Test Tool", "readOnlyHint": True}
+
+
+def test_tool_spec_without_annotations(mock_mcp_tool, mock_mcp_client):
+    mock_mcp_tool.annotations = None
+
+    agent_tool = MCPAgentTool(mock_mcp_tool, mock_mcp_client)
+    tool_spec = agent_tool.tool_spec
+
+    assert "annotations" not in tool_spec
+
+
+def test_tool_spec_with_empty_annotations(mock_mcp_tool, mock_mcp_client):
+    mock_mcp_tool.annotations = ToolAnnotations()
+
+    agent_tool = MCPAgentTool(mock_mcp_tool, mock_mcp_client)
+    tool_spec = agent_tool.tool_spec
+
+    assert "annotations" not in tool_spec
+
+
+def test_tool_spec_preserves_explicit_false_hints(mock_mcp_tool, mock_mcp_client):
+    mock_mcp_tool.annotations = ToolAnnotations(readOnlyHint=False, destructiveHint=False)
+
+    agent_tool = MCPAgentTool(mock_mcp_tool, mock_mcp_client)
+    tool_spec = agent_tool.tool_spec
+
+    assert tool_spec["annotations"] == {"readOnlyHint": False, "destructiveHint": False}
+
+
+def test_tool_spec_preserves_unknown_annotation_keys(mock_mcp_tool, mock_mcp_client):
+    mock_mcp_tool.annotations = ToolAnnotations(readOnlyHint=True, futureHint="x")
+
+    agent_tool = MCPAgentTool(mock_mcp_tool, mock_mcp_client)
+    tool_spec = agent_tool.tool_spec
+
+    assert tool_spec["annotations"] == {"readOnlyHint": True, "futureHint": "x"}
 
 
 @pytest.mark.asyncio
