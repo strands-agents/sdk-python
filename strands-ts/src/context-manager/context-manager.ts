@@ -141,7 +141,7 @@ export class ContextManager implements Plugin {
 
   /**
    * Finds a safe start index for truncation that doesn't orphan tool-use/tool-result pairs.
-   * Walks forward from index 1, skipping any message whose tool results pair with a tool-use
+   * Walks forward from index 2, skipping any message whose tool results pair with a tool-use
    * in the preceding preserved messages.
    */
   private _findSafeStartIndex(messages: Message[]): number {
