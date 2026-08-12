@@ -644,6 +644,98 @@ describe('AnthropicModel', () => {
         expect(content.title).toBe('doc.pdf')
       })
 
+      // Guards against https://github.com/strands-agents/harness-sdk/issues/3785: documents the
+      // provider cannot deliver must fail loudly, not be silently omitted from the request.
+      it('throws for a document format with no Anthropic mapping', async () => {
+        const { mockClient } = setupCapture()
+        const provider = new AnthropicModel({ client: mockClient })
+        const messages = [
+          new Message({
+            role: 'user',
+            content: [
+              new DocumentBlock({
+                name: 'report',
+                format: 'docx',
+                source: { bytes: new Uint8Array([1, 2, 3]) },
+              }),
+            ],
+          }),
+        ]
+
+        await expect(collectIterator(provider.stream(messages))).rejects.toThrow(
+          'Unsupported document format or source for Anthropic: format=docx, source=documentSourceBytes'
+        )
+      })
+
+      it('throws for a supported document format with an unsupported source', async () => {
+        const { mockClient } = setupCapture()
+        const provider = new AnthropicModel({ client: mockClient })
+        const messages = [
+          new Message({
+            role: 'user',
+            content: [
+              new DocumentBlock({
+                name: 'doc.pdf',
+                format: 'pdf',
+                source: { text: 'not deliverable as a pdf' },
+              }),
+            ],
+          }),
+        ]
+
+        await expect(collectIterator(provider.stream(messages))).rejects.toThrow(
+          'Unsupported document format or source for Anthropic: format=pdf, source=documentSourceText'
+        )
+      })
+
+      it('throws for a document with a content block source', async () => {
+        const { mockClient } = setupCapture()
+        const provider = new AnthropicModel({ client: mockClient })
+        const messages = [
+          new Message({
+            role: 'user',
+            content: [
+              new DocumentBlock({
+                name: 'notes',
+                format: 'txt',
+                source: { content: [{ text: 'inline content' }] },
+              }),
+            ],
+          }),
+        ]
+
+        await expect(collectIterator(provider.stream(messages))).rejects.toThrow(
+          'Unsupported document format or source for Anthropic: format=txt, source=documentSourceContentBlock'
+        )
+      })
+
+      it('throws for an undeliverable document nested in a tool result', async () => {
+        const { mockClient } = setupCapture()
+        const provider = new AnthropicModel({ client: mockClient })
+        const messages = [
+          new Message({
+            role: 'user',
+            content: [
+              new ToolResultBlock({
+                toolUseId: 't1',
+                status: 'success',
+                content: [
+                  new DocumentBlock({
+                    name: 'report',
+                    format: 'docx',
+                    source: { bytes: new Uint8Array([1, 2, 3]) },
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ]
+
+        await expect(collectIterator(provider.stream(messages))).rejects.toThrow(
+          'Unsupported document format or source for Anthropic: format=docx, source=documentSourceBytes'
+        )
+      })
+
       it('logs warning for unsupported GuardContentBlock in user message', async () => {
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {}) // Spy on console.warn (via logger)
         const { captured, mockClient } = setupCapture()
