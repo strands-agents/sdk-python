@@ -95,7 +95,7 @@ The `model_config` configures the underlying model selected for inference. The s
 | `max_tokens` | Maximum number of tokens to generate before stopping | `1028` | [reference](https://platform.claude.com/docs/en/api/messages/create#create.max_tokens)
 | `model_id` | ID of a model to use | `claude-sonnet-4-6` | [reference](https://platform.claude.com/docs/en/api/messages/create#create.model)
 | `params` | Additional pass-through parameters | `{"metadata": {"user_id": "u1"}}` | [reference](https://platform.claude.com/docs/en/api/messages/create)
-| `cache_config` | Enables [prompt caching](#prompt-caching) on the conversation | `CacheConfig(strategy="auto")` | [reference](https://docs.claude.com/en/docs/build-with-claude/prompt-caching)
+| `cache_config` | Enables [prompt caching](#prompt-caching) on the conversation | `CacheConfig(ttl="1h")` | [reference](https://docs.claude.com/en/docs/build-with-claude/prompt-caching)
 | `cache_tools` | Caches the tool definitions | `"default"` or `CacheToolsConfig(ttl="1h")` | [reference](https://docs.claude.com/en/docs/build-with-claude/prompt-caching)
 </Tab>
 <Tab label="TypeScript">
@@ -209,16 +209,13 @@ For schema patterns, error handling, and per-invocation overrides, see [Structur
 
 ### Prompt Caching
 
-[Prompt caching](https://docs.claude.com/en/docs/build-with-claude/prompt-caching) lets Claude reuse
-an already-processed prefix of your prompt instead of reprocessing it on every call. In a long
-session, the system prompt, the tool definitions, and every earlier turn are identical from one
-request to the next, so caching them stops you paying full input price for them again.
+[Prompt caching](https://docs.claude.com/en/docs/build-with-claude/prompt-caching) lets
+Claude reuse an already-processed prefix of your prompt instead of reprocessing it on
+every call. The mechanism, the cost model, and the cache metrics match
+[Amazon Bedrock](./amazon-bedrock#caching); this section covers what differs here.
 
-Caching is off unless you ask for it.
-
-In Python, set `cache_config` to add a cache breakpoint to the last user message, which caches
-everything before it, and `cache_tools` to cache the tool definitions. In TypeScript, a single
-`cacheConfig` covers both sections, and either can be turned off on its own:
+Caching is off by default. Set <Syntax py="cache_config" ts="cacheConfig" /> to add a
+cache point to the last user message, which caches everything before it:
 
 <Tabs>
 <Tab label="Python">
@@ -231,13 +228,15 @@ from strands.models import CacheConfig, CacheToolsConfig
 model = AnthropicModel(
     model_id="claude-sonnet-4-6",
     max_tokens=1028,
-    cache_config=CacheConfig(strategy="auto"),
+    cache_config=CacheConfig(ttl="1h"),
     cache_tools=CacheToolsConfig(ttl="1h"),
 )
 
 agent = Agent(model=model)
 result = agent("Summarize the attached report.")
 print(result.metrics.accumulated_usage)
+
+# Typical output:
 # {'inputTokens': 12, ..., 'cacheReadInputTokens': 2505}
 ```
 </Tab>
@@ -251,79 +250,55 @@ print(result.metrics.accumulated_usage)
 </Tab>
 </Tabs>
 
-Cache activity is reported in the usage metrics: `cacheWriteInputTokens` counts tokens written to the
-cache and `cacheReadInputTokens` counts tokens served from it.
+Cache activity is reported in the usage metrics, in the same fields Bedrock uses: see
+[cache metrics](./amazon-bedrock#cache-metrics).
 
-#### Choosing a strategy
+#### Choosing what to cache
 
-`cache_config` accepts two strategies, and **on this provider they behave identically**:
+<Tabs>
+<Tab label="Python">
 
-| Strategy | Meaning |
-|----------|---------|
-| `"auto"` (default) | Cache normally. On providers that serve non-Claude models this also checks that the selected model supports caching. |
-| `"anthropic"` | Cache normally, skipping that support check. |
+`cache_config` caches the conversation. `cache_tools` caches the tool definitions and
+works on its own, so tool definitions can be cached without caching the conversation.
+Passing a plain string (`"default"`) only switches it on: the value is not a TTL. Use
+`CacheToolsConfig(ttl=...)` to set one.
 
-The check is what makes them differ elsewhere: [Amazon Bedrock](./amazon-bedrock)
-serves models from several vendors, so `"auto"` inspects the model ID and does nothing when the model
-cannot cache. The Anthropic API serves only Claude models and prompt caching is supported on all
-active ones, so there is nothing to check and nothing to skip. Both values are accepted so the same
-`CacheConfig` can move between providers unchanged, and `strategy` can be omitted entirely.
+`strategy` is ignored by this provider.
+</Tab>
+<Tab label="TypeScript">
 
-#### Choosing what to cache (TypeScript)
+One `cacheConfig` covers both the tool definitions and the conversation, with `toolsTTL`
+and `messagesTTL` controlling them independently. The shape and the per-field behavior
+are the same as on [Amazon Bedrock](./amazon-bedrock#tool-caching), so a configuration
+survives a provider switch unchanged.
 
-`cacheConfig` caches both the tool definitions and the conversation. Each section is on by default,
-so you opt a section *out* rather than in. `toolsTTL` and `messagesTTL` take either a TTL for that
-section or `false` to turn it off:
+`strategy` is ignored by this provider.
+</Tab>
+</Tabs>
 
-| Configuration | Caches |
-|---------------|--------|
-| `{}` | tool definitions and conversation |
-| `{ messagesTTL: false }` | tool definitions only |
-| `{ toolsTTL: false }` | conversation only |
-| `{ ttl: '1h' }` | both, with a one-hour TTL |
-| `{ ttl: '1h', messagesTTL: '5m' }` | both, tools at one hour and the conversation at five minutes |
+#### Placing cache points by hand
 
-Turning both sections off is the same as leaving `cacheConfig` unset.
+Placement works as it does on [Amazon Bedrock](./amazon-bedrock#messages-caching): a
+cache point you put in the last user message is kept where you put it, automatic
+placement is suspended for that message, and points in earlier messages are removed.
+Place your point *ahead* of content that is rebuilt on every call, otherwise it lands
+inside the cached prefix and every request writes an entry that none ever reads.
 
-#### Things to know
+Two constraints are specific to this API:
 
-- **A prompt below the minimum length is not cached, and no error is raised.** The minimum cacheable
-  prefix depends on the model (1,024 tokens for Claude Sonnet 4.5, more for some others — see the
-  [cache limitations](https://docs.claude.com/en/docs/build-with-claude/prompt-caching#cache-limitations)).
-  If both `cacheReadInputTokens` and `cacheWriteInputTokens` stay at zero, the prompt was too short.
-- **The breakpoint moves with the conversation instead of accumulating.** While `cache_config` is set
-  each request carries exactly one message breakpoint, so a long session does not accumulate one per
-  turn. Cache points in earlier messages, and extra points in the newest turn, are removed, and a
-  warning reports how many were removed.
-- **`cache_config` and a hand-placed cache point compose.** A cache point you place in the last user
-  message is kept where you put it, and automatic placement steps aside. That matters when the newest
-  turn ends with content rebuilt on every call — retrieved context, a timestamp, injected state —
-  because a boundary *after* that content puts it inside the cached prefix, so every request writes a
-  new entry and none ever reads one. Since a cache write costs more than an uncached token, that is more
-  expensive than not caching at all. Place the cache point ahead of the per-call content to keep the
-  durable prefix cacheable. Your point needs something ahead of it that can carry a breakpoint: if only
-  a reasoning block, a media block with a location source, or nothing at all precedes it, the point is
-  dropped and automatic placement applies instead. A `ttl` on your point is used as written; a point
-  without one inherits `cache_config`'s.
-- **Without a cache point of your own, the breakpoint goes on the last block of the newest turn that can
-  carry one.** Blocks the API rejects a breakpoint on (a reasoning block, for example) and blocks that
-  are dropped when the request is built (media with a location source) are skipped, so the breakpoint
-  lands on the nearest block before them. If the newest turn has no such block, no message breakpoint is
-  emitted — the request is not cached against an older turn, because a prefix that has stopped growing
-  would go stale.
-- **Caching a section is not free of the four-breakpoint limit.** The API accepts at most four cache
-  breakpoints per request, shared across tools, system and messages. Automatic placement contributes
-  one per enabled section, so hand-placing several of your own alongside it can exceed the limit and
-  the API rejects the request.
-- **`ttl` defaults to 5 minutes; `"1h"` costs more to write.** See
-  [pricing](https://docs.claude.com/en/docs/build-with-claude/prompt-caching#pricing). An empty `ttl`
-  counts as unset and falls back to the default rather than being sent.
-- **In Python, `cache_tools` works on its own.** It does not require `cache_config`, so tool
-  definitions can be cached without caching the conversation. Passing a plain string (`"default"`)
-  only switches it on — the value is not a TTL. Use `CacheToolsConfig(ttl=...)` to set one.
-- **In TypeScript, one `cacheConfig` moves between providers unchanged.** `AnthropicModel` and
-  `BedrockModel` accept the same shape with the same meaning, so a configuration can be reused as-is
-  when switching provider.
+- **Only some block types accept a cache point.** Text, image, tool use, tool result,
+  and document blocks do; a reasoning block does not. A point with only a reasoning
+  block, or a media block sourced by location, ahead of it cannot be honored, so
+  automatic placement applies instead.
+- **Maximum of four cache points per request**, shared across the tool definitions, the
+  system prompt, and the messages. Automatic placement uses one per part it caches, so
+  hand-placing several of your own alongside it can exceed the limit, and the API rejects
+  the request.
+
+A prompt below the model's minimum cacheable length is not cached: if both cache metrics
+stay at zero, that is the likely cause. See
+[cache limitations](https://docs.claude.com/en/docs/build-with-claude/prompt-caching#cache-limitations)
+for per-model thresholds.
 
 ### Token Counting
 

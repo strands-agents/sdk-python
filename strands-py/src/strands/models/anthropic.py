@@ -272,9 +272,7 @@ class AnthropicModel(Model):
             ttl: Optional TTL duration carried by the cache point.
 
         Returns:
-            True when a block was marked, False when none of the blocks can carry a breakpoint. Callers
-            log the outcome, because a missed breakpoint is a warning on the caller's own placement and
-            only a fallback on the managed path.
+            True when a block was marked, False when none of the blocks can carry a breakpoint. 
         """
         for block in reversed(formatted_contents):
             if block.get("type") in _CACHEABLE_BLOCK_TYPES:
@@ -308,7 +306,7 @@ class AnthropicModel(Model):
         """Build an Anthropic ``cache_control`` value.
 
         Args:
-            ttl: Optional TTL duration (e.g. "5m", "1h"). Omitted when None, which leaves the API default.
+            ttl: TTL duration (e.g. "5m", "1h"). A falsy value is omitted, leaving the API default.
 
         Returns:
             An Anthropic cache_control dict.

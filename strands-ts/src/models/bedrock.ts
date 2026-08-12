@@ -51,7 +51,6 @@ import {
   type CacheTTL,
   type CountTokensOptions,
   Model,
-  type ResolvedCacheSection,
   type StreamOptions,
   resolveCacheSection,
   resolveConfigMetadata,
@@ -490,21 +489,6 @@ export class BedrockModel extends Model<BedrockModelConfig> {
   }
 
   /**
-   * Resolves a section of `cacheConfig` to whether it is enabled and which TTL it carries.
-   *
-   * @param section - The section to resolve.
-   * @returns The section's enabled state and TTL, disabled when caching is off.
-   */
-  private _cacheSection(section: 'toolsTTL' | 'messagesTTL'): ResolvedCacheSection {
-    if (!this._shouldEnableCaching()) {
-      return { enabled: false }
-    }
-
-    const cacheConfig = this._config.cacheConfig
-    return resolveCacheSection(cacheConfig?.[section], cacheConfig?.ttl)
-  }
-
-  /**
    * Applies `cacheConfig.ttl` to a caller-placed system cache point that carries no TTL of its own.
    *
    * Bedrock processes cache points in the order toolConfig, system, messages and rejects a TTL that
@@ -532,9 +516,6 @@ export class BedrockModel extends Model<BedrockModelConfig> {
     if (!system) {
       return
     }
-
-    // An empty configured TTL is not a TTL either, so it leaves the caller's point unstamped rather than
-    // forwarding '' for the enum to reject.
     let ttl = this._shouldEnableCaching() ? this._config.cacheConfig?.ttl || undefined : undefined
     if (ttl) {
       const toolsPoint = request.toolConfig?.tools?.find((tool) => 'cachePoint' in tool)
@@ -544,12 +525,9 @@ export class BedrockModel extends Model<BedrockModelConfig> {
     }
 
     for (const block of system) {
-      // A TTL the caller wrote is theirs, so only a falsy one is rewritten. These blocks are freshly
-      // formatted, so writing to them cannot reach back into the caller's own.
       if ('cachePoint' in block && block.cachePoint && !block.cachePoint.ttl) {
         delete block.cachePoint.ttl
         if (ttl) {
-          // Bedrock validates TTL values server-side, so accept any string here.
           block.cachePoint.ttl = ttl as BedrockSdkCacheTTL
         }
       }
@@ -769,7 +747,10 @@ export class BedrockModel extends Model<BedrockModelConfig> {
           }) as Tool
       )
 
-      const toolsCache = this._cacheSection('toolsTTL')
+      const cacheConfig = this._config.cacheConfig
+      const toolsCache = this._shouldEnableCaching()
+        ? resolveCacheSection(cacheConfig?.toolsTTL, cacheConfig?.ttl)
+        : { enabled: false }
       if (toolsCache.enabled) {
         const cachePoint: BedrockCachePointBlock = { type: 'default' }
         if (toolsCache.ttl) {
@@ -888,7 +869,10 @@ export class BedrockModel extends Model<BedrockModelConfig> {
       return acc
     }, [])
 
-    const messagesCache = this._cacheSection('messagesTTL')
+    const cacheConfig = this._config.cacheConfig
+    const messagesCache = this._shouldEnableCaching()
+      ? resolveCacheSection(cacheConfig?.messagesTTL, cacheConfig?.ttl)
+      : { enabled: false }
     if (messagesCache.enabled) {
       this._injectCachePoint(formattedMessages, messagesCache.ttl)
     }

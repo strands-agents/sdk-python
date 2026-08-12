@@ -89,6 +89,8 @@ async function promptCaching() {
   const agent = new Agent({ model })
   const result = await agent.invoke('Summarize the attached report.')
   console.log(result.metrics?.accumulatedUsage)
+
+  // Typical output:
   // { inputTokens: 12, ..., cacheReadInputTokens: 2505 }
   // --8<-- [end:prompt_caching]
 }
