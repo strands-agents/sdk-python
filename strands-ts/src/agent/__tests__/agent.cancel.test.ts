@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Agent } from '../agent.js'
 import { AfterInvocationEvent, AfterModelCallEvent, BeforeModelCallEvent } from '../../hooks/index.js'
 import { MockMessageModel } from '../../__fixtures__/mock-message-model.js'
@@ -213,6 +213,55 @@ describe('Agent Cancellation', () => {
       const result = await agent.invoke('Hi', { cancelSignal: controller.signal })
 
       expect(result.stopReason).toBe('cancelled')
+    })
+
+    it('aborts the in-flight model stream and returns cancelled', async () => {
+      const model = new MockMessageModel()
+      let modelSignal: AbortSignal | undefined
+      let resolveTransportPending!: () => void
+      const transportPending = new Promise<void>((resolve) => {
+        resolveTransportPending = resolve
+      })
+      vi.spyOn(model, 'stream').mockImplementation(async function* (_messages, options) {
+        const signal = options?.cancelSignal
+        modelSignal = signal
+
+        yield { type: 'modelMessageStartEvent', role: 'assistant' }
+        resolveTransportPending()
+        if (!signal) {
+          yield { type: 'modelMessageStopEvent', stopReason: 'endTurn' }
+          return
+        }
+
+        await new Promise<void>((_resolve, reject) => {
+          const rejectWithAbort = (): void => {
+            const error = new Error('transport aborted')
+            error.name = 'AbortError'
+            reject(error)
+          }
+
+          if (signal.aborted) {
+            rejectWithAbort()
+          } else {
+            signal.addEventListener('abort', rejectWithAbort, { once: true })
+          }
+        })
+      })
+      const agent = new Agent({ model, printer: false })
+      const controller = new AbortController()
+
+      const invocation = agent.invoke('Hi', { cancelSignal: controller.signal })
+
+      await transportPending
+      expect(modelSignal).toBeDefined()
+      expect(modelSignal).not.toBe(controller.signal)
+      expect(modelSignal?.aborted).toBe(false)
+
+      controller.abort()
+      const result = await invocation
+
+      expect(result.stopReason).toBe('cancelled')
+      expect(modelSignal?.aborted).toBe(true)
     })
   })
 

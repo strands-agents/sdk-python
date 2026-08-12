@@ -1206,6 +1206,81 @@ describe('BedrockModel', () => {
   })
 
   describe('stream', () => {
+    it.each([
+      { mode: 'streaming', stream: true },
+      { mode: 'non-streaming', stream: false },
+    ])('passes the cancellation signal to the $mode Bedrock request', async ({ stream }) => {
+      const mockSend = vi.fn(async () => {
+        if (stream) {
+          return {
+            stream: (async function* (): AsyncGenerator<unknown> {
+              yield { messageStart: { role: 'assistant' } }
+              yield { messageStop: { stopReason: 'end_turn' } }
+            })(),
+          }
+        }
+        return {
+          output: { message: { role: 'assistant', content: [{ text: 'Hello' }] } },
+          stopReason: 'end_turn',
+          usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+          metrics: { latencyMs: 100 },
+        }
+      })
+      mockBedrockClientImplementation({ send: mockSend })
+      const controller = new AbortController()
+      const provider = new BedrockModel({ stream })
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+
+      await collectIterator(provider.stream(messages, { cancelSignal: controller.signal }))
+
+      expect(mockSend).toHaveBeenCalledWith(expect.anything(), { abortSignal: controller.signal })
+    })
+
+    it('stops a fake in-flight Bedrock producer when the signal aborts', async () => {
+      let producedTokens = 0
+      let producerStopped = false
+      let resolveFirstToken!: () => void
+      const firstTokenProduced = new Promise<void>((resolve) => {
+        resolveFirstToken = resolve
+      })
+      const mockSend = vi.fn(async (_command: unknown, sendOptions?: unknown) => {
+        const signal = (sendOptions as { abortSignal?: AbortSignal } | undefined)?.abortSignal
+        return {
+          stream: (async function* (): AsyncGenerator<unknown> {
+            yield { messageStart: { role: 'assistant' } }
+            yield { contentBlockStart: { start: {}, contentBlockIndex: 0 } }
+            while (producedTokens < 20) {
+              if (signal?.aborted) {
+                producerStopped = true
+                break
+              }
+              producedTokens += 1
+              if (producedTokens === 1) {
+                resolveFirstToken()
+              }
+              yield { contentBlockDelta: { delta: { text: 'token ' }, contentBlockIndex: 0 } }
+              await new Promise<void>((resolve) => setTimeout(resolve, 1))
+            }
+            yield { contentBlockStop: { contentBlockIndex: 0 } }
+            yield { messageStop: { stopReason: 'end_turn' } }
+          })(),
+        }
+      })
+      mockBedrockClientImplementation({ send: mockSend })
+      const controller = new AbortController()
+      const provider = new BedrockModel()
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+
+      const streamResult = collectIterator(provider.stream(messages, { cancelSignal: controller.signal }))
+      await firstTokenProduced
+      const tokensAtCancel = producedTokens
+      controller.abort()
+      await streamResult
+
+      expect(producerStopped).toBe(true)
+      expect(producedTokens).toBe(tokensAtCancel)
+    })
+
     it('handles tool use input delta', async () => {
       setupMockSend(async function* () {
         yield { messageStart: { role: 'assistant' } }

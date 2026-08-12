@@ -247,6 +247,7 @@
   },
   "homepage": "https://github.com/strands-agents/harness-sdk#readme",
   "dependencies": {
+    "@smithy/fetch-http-handler": "^5.6.10",
     "@aws-sdk/client-bedrock-runtime": "^3.1097.0",
     "@types/json-schema": "^7.0.15",
     "uuid": "^14.0.1",
