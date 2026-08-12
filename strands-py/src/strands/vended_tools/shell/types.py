@@ -20,7 +20,7 @@ class ShellExecutionError(RuntimeError):
 
     Subclasses :class:`RuntimeError` so existing ``except RuntimeError`` handlers
     keep working, while giving callers a shell-specific type to branch on. Mirrors
-    ``ShellExecutionError`` in ``strands-ts/src/vended-tools/bash/types.ts``.
+    ``ShellExecutionError`` in ``strands-ts/src/vended-tools/shell/types.ts``.
     """
 
 

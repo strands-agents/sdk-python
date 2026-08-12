@@ -107,20 +107,43 @@ class TestToolMetadata:
 
 
 class TestDeprecatedBashAliases:
-    """The ``bash`` name is retained until v2.0.0 but warns and resolves to ``shell``."""
+    """The ``bash`` aliases are retained until v2.0.0, warn, and keep the pre-rename name.
 
-    def test_bash_alias_warns_and_returns_shell(self):
+    Keeping ``tool_name == "bash"`` is what makes the alias backwards compatible:
+    consumers key registries, hooks, and defaults lists on the runtime name, so an
+    alias that returned a tool named ``shell`` would still break them (see
+    awsarron/stan#6).
+    """
+
+    def test_bash_alias_warns_and_keeps_its_name(self):
         import strands.vended_tools as vended_tools
 
         with pytest.deprecated_call(match="bash is deprecated"):
-            assert vended_tools.bash is shell
+            tool = vended_tools.bash
+        assert tool.tool_name == "bash"
 
-    def test_make_bash_alias_warns_and_builds_a_shell_tool(self):
+    def test_bash_alias_returns_the_same_instance_each_time(self):
+        import strands.vended_tools as vended_tools
+
+        with pytest.deprecated_call(match="bash is deprecated"):
+            first = vended_tools.bash
+        with pytest.deprecated_call(match="bash is deprecated"):
+            second = vended_tools.bash
+        assert first is second
+
+    def test_bash_alias_matches_shell_apart_from_the_name(self):
+        import strands.vended_tools as vended_tools
+
+        with pytest.deprecated_call(match="bash is deprecated"):
+            tool = vended_tools.bash
+        assert tool.tool_spec == {**shell.tool_spec, "name": "bash"}
+
+    def test_make_bash_alias_warns_and_builds_a_bash_named_tool(self):
         import strands.vended_tools as vended_tools
 
         with pytest.deprecated_call(match="make_bash is deprecated"):
             tool = vended_tools.make_bash()
-        assert tool.tool_name == "shell"
+        assert tool.tool_name == "bash"
 
     def test_make_bash_alias_forwards_arguments(self):
         import strands.vended_tools as vended_tools
@@ -134,6 +157,29 @@ class TestDeprecatedBashAliases:
         import strands.vended_tools as vended_tools
 
         assert "make_shell" in vended_tools.make_bash.__deprecated__
+
+    def test_make_bash_deprecation_message_is_a_literal(self):
+        """PEP 702 checkers only honor @deprecated when the argument is a string literal.
+
+        An f-string over _RENAME_RATIONALE keeps the runtime warning and __deprecated__
+        attribute working while mypy silently reports nothing, so guard the source.
+        """
+        import ast
+        import inspect
+
+        import strands.vended_tools._bash as _bash
+
+        tree = ast.parse(inspect.getsource(_bash))
+        decorators = [
+            decorator
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "make_bash"
+            for decorator in node.decorator_list
+            if isinstance(decorator, ast.Call) and getattr(decorator.func, "id", None) == "deprecated"
+        ]
+
+        assert len(decorators) == 1
+        assert isinstance(decorators[0].args[0], ast.Constant)
 
     def test_unknown_attribute_still_raises(self):
         import strands.vended_tools as vended_tools

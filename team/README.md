@@ -12,6 +12,7 @@ This folder contains internal documentation about how the Strands team builds an
 | [FEATURE_LIFECYCLE.md](./FEATURE_LIFECYCLE.md) | How features are added, marked experimental, and deprecated under semantic versioning |
 | [PR.md](./PR.md) | Pull request description guidelines (applies to both SDKs) |
 | [COMPATIBILITY.md](./COMPATIBILITY.md) | What changes are not considered breaking under semantic versioning (both SDKs) |
+| [COMPLEXITY.md](./COMPLEXITY.md) | Why PRs are labeled by cognitive complexity and how to keep code under the thresholds |
 | [AGENT_GUIDELINES.md](./AGENT_GUIDELINES.md) | Guidelines for AI agents that interact with Strands repositories |
 | [designs/](./designs/) | Design proposals for significant features (RFC-style) |
 
