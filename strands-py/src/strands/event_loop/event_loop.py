@@ -283,8 +283,8 @@ async def event_loop_cycle(
 
     with trace_api.use_span(cycle_span, end_on_exit=False):
         try:
-            # Skipping model invocation if in interrupt state as interrupts are currently only supported for tool calls.
-            if agent._interrupt_state.activated:
+            # Resume a tool interrupt by replaying its stored message instead of calling the model.
+            if agent._interrupt_state.activated and "tool_use_message" in agent._interrupt_state.context:
                 stop_reason: StopReason = "tool_use"
                 message = agent._interrupt_state.context["tool_use_message"]
             # Skip model invocation if the latest message contains ToolUse
@@ -318,8 +318,12 @@ async def event_loop_cycle(
                 )
 
             if stop_reason == "tool_use":
-                # Emit after_model checkpoint, unless we just resumed from one or an interrupt.
-                if agent._checkpointing and not agent._cancel_signal.is_set() and not agent._interrupt_state.activated:
+                # Emit after_model checkpoint, unless we just resumed from one or a tool interrupt.
+                if (
+                    agent._checkpointing
+                    and not agent._cancel_signal.is_set()
+                    and not agent._interrupt_state.has_pending_tool_execution
+                ):
                     resume_position = agent._checkpoint_resume_position
                     agent._checkpoint_resume_position = None
                     if resume_position != "after_model":
@@ -773,7 +777,8 @@ async def _handle_tool_execution(
     tool_uses: list[ToolUse] = [content["toolUse"] for content in message["content"] if "toolUse" in content]
     tool_results: list[ToolResult] = []
 
-    if agent._interrupt_state.activated:
+    # Merge tool results from a resumed tool interrupt.
+    if agent._interrupt_state.activated and "tool_results" in agent._interrupt_state.context:
         tool_results.extend(agent._interrupt_state.context["tool_results"])
 
         # Filter to only the interrupted tools when resuming from interrupt (tool uses without results)
@@ -882,7 +887,12 @@ async def _handle_tool_execution(
             yield interrupt_event
         return
 
-    agent._interrupt_state.deactivate()
+    # Reset interrupt state if tools ran so the next cycle starts clean.
+    if not agent._cancel_signal.is_set():
+        agent._interrupt_state.end_tool_cycle()
+    # Update stored results so replay filter skips already-executed tools on next resume.
+    elif cancel_message is None and agent._interrupt_state.has_pending_tool_execution:
+        agent._interrupt_state.context["tool_results"] = tool_results
 
     await agent._append_messages(tool_result_message)
 

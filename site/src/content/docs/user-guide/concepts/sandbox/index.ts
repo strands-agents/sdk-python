@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { Agent, tool, type Tool } from '@strands-agents/sdk'
-import { makeShell } from '@strands-agents/sdk/vended-tools/bash'
+import { makeShell } from '@strands-agents/sdk/vended-tools/shell'
 import { makeFileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
 import { PosixShellSandbox } from '@strands-agents/sdk/sandbox'
 import type {

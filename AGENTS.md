@@ -35,6 +35,7 @@ Before designing a feature or changing an API, read the relevant context in `tea
 ## Writing Code
 
 - **Code conventions**: Follow the conventions in the sub-project's own `AGENTS.md` (`strands-py/AGENTS.md`, `strands-ts/AGENTS.md`, `site/AGENTS.md`) — they define the style, patterns, and directory layout for that toolchain.
+- **Write for low complexity**: every PR is labeled with the [cognitive complexity](https://www.sonarsource.com/docs/CognitiveComplexity.pdf) of the most complex function it touches, and nesting drives the score. Write flat control flow (guard clauses, extracted helpers, lookup tables over branch ladders) and keep refactors in their own PR. Why we measure and how the score works: [team/COMPLEXITY.md](./team/COMPLEXITY.md). Check before pushing with `npm run complexity` (or `hatch run complexity` from `strands-py/`).
 - **Branching**: `git checkout -b agent-tasks/{ISSUE_NUMBER}`
 - **Commits**: Use [conventional commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `refactor:`, `docs:`, etc.
 - **CI**: The `ci.yml` merge gate detects which paths changed and runs only relevant checks.
