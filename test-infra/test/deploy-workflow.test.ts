@@ -1,32 +1,21 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import {
-  DEPLOY_APPROVAL_ENVIRONMENT,
-  DEPLOY_ENVIRONMENT,
-  DEPLOY_WORKFLOW_BRANCH,
-  DEPLOY_WORKFLOW_PATH,
+  DEPLOY_ENVIRONMENTS,
   DIFF_ENVIRONMENTS,
-} from '../lib/constructs/github-oidc';
-import { DIFF_ROLE_NAME } from '../lib/constructs/github-diff-role';
+  DIFF_ROLE_NAME,
+  WORKFLOW_PATH,
+} from '../lib/constructs/github-ci-roles';
 
-/**
- * The deploy workflow and the stack are two halves of one mechanism: the roles
- * trust one workflow file on one branch, running in specific GitHub
- * environments, and the workflow has to supply every environment variable
- * internal mode requires. Neither half fails visibly when the other drifts — the
- * deploy just breaks, or worse, deploys a role with an emptied list, or hands a
- * pull request's code credentials it should not have. These assertions are what
- * notice.
- */
-const workflowPath = path.join(__dirname, '..', '..', DEPLOY_WORKFLOW_PATH);
-const workflow = fs.readFileSync(workflowPath, 'utf-8');
+// The workflow and the roles are two halves of one mechanism: the roles trust one
+// workflow file on main running in named environments, and the workflow has to
+// supply every value internal mode needs. Neither half fails visibly when the
+// other drifts — the deploy just breaks, or deploys a role with an emptied list,
+// or hands a pull request credentials it should not have.
+const workflow = fs.readFileSync(path.join(__dirname, '..', '..', WORKFLOW_PATH), 'utf-8');
 
-/**
- * The YAML block of one job, from `  <name>:` to the next key at the same
- * indent. Enough to assert what a single job does and does not have, without
- * adding a YAML parser to this package's dependencies.
- */
-function jobBlock(name: string): string {
+/** One job's YAML block, from `  <name>:` to the next key at that indent. */
+function job(name: string): string {
   const start = workflow.indexOf(`\n  ${name}:\n`);
   expect(start).toBeGreaterThan(-1);
   const rest = workflow.slice(start + 1);
@@ -34,192 +23,115 @@ function jobBlock(name: string): string {
   return next === -1 ? rest : rest.slice(0, next + 1);
 }
 
-/** The `for name in … ; do` list of a job's preflight step. */
-function preflightList(block: string): string {
-  const start = block.indexOf('for name in');
-  expect(start).toBeGreaterThan(-1);
-  return block.slice(start, block.indexOf('; do', start));
+/** The inlined redactor of one job, between the heredoc markers. */
+function redactor(name: string): string {
+  const block = job(name);
+  const open = block.indexOf(`cat > "$RUNNER_TEMP/redact.py" <<'PY'`);
+  expect(open).toBeGreaterThan(-1);
+  const from = block.indexOf('\n', open) + 1;
+  return block.slice(from, block.indexOf('\n          PY', from));
 }
 
-const INTERNAL_ENV_LISTS = [
+const SECRET_LISTS = [
   'STRANDS_TEST_INFRA_PRIVATE_REPOS',
   'STRANDS_TEST_INFRA_BUCKET_NAMES',
   'STRANDS_TEST_INFRA_PERSISTENT_BUCKET_NAMES',
   'STRANDS_TEST_INFRA_SECRET_NAMES',
   'STRANDS_TEST_INFRA_RUNNER_ROLES',
+  'STRANDS_TEST_INFRA_DEPLOYMENT_ACCOUNT',
 ];
 
-test('the workflow the CI roles trust exists at that path', () => {
-  expect(fs.existsSync(workflowPath)).toBe(true);
-});
-
-test('the workflow deploys internal mode from the trusted branch', () => {
+test('the workflow the roles trust exists, and deploys internal mode from main', () => {
   expect(workflow).toContain("STRANDS_TEST_INFRA_INTERNAL: 'true'");
-  expect(workflow).toContain(`refs/heads/${DEPLOY_WORKFLOW_BRANCH}`);
-  expect(workflow).toContain(`branches: [${DEPLOY_WORKFLOW_BRANCH}]`);
+  expect(workflow).toContain('branches: [main]');
 });
 
-// `job_workflow_ref` carries the branch the workflow file lives on, and
-// pull_request_target is the only pull-request trigger that runs the base
-// branch's copy. On `pull_request` the file would come from the pull request
-// itself — and a fork PR would get no secrets, so the diff would be wrong even
-// if it ran.
-test('pull requests trigger through pull_request_target, not pull_request', () => {
+// job_workflow_ref carries the branch the file lives on, and pull_request_target
+// is the only PR trigger that runs the base branch's copy. On `pull_request` the
+// file would come from the PR, and a fork would get no secrets anyway.
+test('pull requests trigger through pull_request_target', () => {
   expect(workflow).toContain('pull_request_target:');
   expect(workflow).not.toMatch(/^ {2}pull_request:/m);
 });
 
-test.each([
-  ['deploy', ['STRANDS_TEST_INFRA_DEPLOY_ROLE', 'STRANDS_TEST_INFRA_DEPLOYMENT_ACCOUNT']],
-  ['diff', ['STRANDS_TEST_INFRA_DEPLOYMENT_ACCOUNT']],
-])('the %s job supplies and preflights every value internal mode needs', (job, extras) => {
-  const block = jobBlock(job);
-  const preflight = preflightList(block);
-
-  for (const name of extras) {
-    expect(preflight).toContain(name);
+// Every one of these is read by IntegTestRole in internal mode, and an empty value
+// narrows the deployed role (or misreports the diff) instead of failing.
+test.each(['diff', 'deploy'])('the %s job supplies and preflights every value', (name) => {
+  const block = job(name);
+  for (const secret of SECRET_LISTS) {
+    expect(workflow).toContain(`REDACT: >-`);
+    expect(workflow).toContain(secret);
+    expect(block).toContain(`${secret}: \${{ secrets.${secret} }}`);
   }
-
-  // Each of these is read by IntegTestRole in internal mode, and an unset or
-  // empty value narrows the deployed role (or misreports the diff) instead of
-  // failing — so the job both supplies it and refuses to start without it.
-  for (const name of INTERNAL_ENV_LISTS) {
-    expect(block).toContain(`${name}: \${{ secrets.${name} }}`);
-    expect(preflight).toContain(name);
-  }
+  expect(block).toContain('REQUIRED: ${{ env.REDACT }}');
+  expect(block).toMatch(/for name in \$REQUIRED; do \[ -n "\$\{!name:-\}" \] \|\| missing\+=/);
 });
 
-// --- The environment gate ---
+test('only the deploy job requires the deploy-role secret', () => {
+  expect(job('deploy')).toContain('REQUIRED: ${{ env.REDACT }} STRANDS_TEST_INFRA_DEPLOY_ROLE');
+  expect(job('diff')).not.toContain('STRANDS_TEST_INFRA_DEPLOY_ROLE');
+});
 
-// The deploy role's trust policy names exactly these two subjects, so this
-// expression is the whole authorization decision: unprotected environment for a
-// merge, required-reviewer environment for a pull request.
-test('the deploy job runs in the two environments the deploy role trusts', () => {
-  const block = jobBlock('deploy');
-
-  expect(block).toContain(`'${DEPLOY_APPROVAL_ENVIRONMENT}'`);
-  expect(block).toContain(`'${DEPLOY_ENVIRONMENT}'`);
-  expect(block).toMatch(
-    new RegExp(
-      `environment:\\s*\\n\\s*name: \\$\\{\\{ github.event_name == 'pull_request_target' && '${DEPLOY_APPROVAL_ENVIRONMENT}' \\|\\| '${DEPLOY_ENVIRONMENT}' \\}\\}`,
-    ),
+// The deploy role's trust names exactly these two subjects, so this expression is
+// the whole authorization decision: unprotected for a merge, required reviewers
+// for a pull request.
+test('the deploy job runs in the environments the deploy role trusts', () => {
+  const [unprotected, approval] = DEPLOY_ENVIRONMENTS;
+  expect(job('deploy')).toContain(
+    `name: \${{ github.event_name == 'pull_request_target' && '${approval}' || '${unprotected}' }}`,
   );
 });
 
-test('the diff job runs in the environments the diff role trusts', () => {
-  const block = jobBlock('diff');
-
-  expect(block).toContain('name: ${{ needs.authorization-check.outputs.approval-env }}');
-  // The approval-env output is one of these two, which is what the diff role
-  // trusts; the gate that produces it must stay in the workflow.
+test('the diff job runs in the authorization-check environments', () => {
+  expect(job('diff')).toContain('name: ${{ needs.authorization-check.outputs.approval-env }}');
   expect(workflow).toContain('strands-agents/devtools/authorization-check@main');
-  for (const environment of DIFF_ENVIRONMENTS) {
-    expect(['auto-approve', 'manual-approval']).toContain(environment);
-  }
+  expect(DIFF_ENVIRONMENTS).toEqual(['auto-approve', 'manual-approval']);
 });
 
-// The isolation between the two roles is the environment name and nothing else.
-// If a diff job could run in a deploy environment, unreviewed pull-request code
-// would hold an OIDC token that satisfies the deploy role's trust policy.
-test('the diff and deploy environments are disjoint', () => {
-  const deployEnvironments = [DEPLOY_ENVIRONMENT, DEPLOY_APPROVAL_ENVIRONMENT];
-  expect(DIFF_ENVIRONMENTS.filter((name) => deployEnvironments.includes(name))).toEqual([]);
-});
-
-// Every deploy touches the one stack, and CloudFormation rejects a second UPDATE
-// while one is in flight. The workflow-level group is per pull request, so
-// without a constant group of its own a PR deploy could overlap a main deploy.
-test('all deploys serialize on one concurrency group', () => {
-  const block = jobBlock('deploy');
-
-  expect(block).toMatch(/concurrency:\s*\n\s*group: test-infra-deploy-stack\s*\n\s*cancel-in-progress: false/);
-});
-
-// --- The diff job's containment ---
-
-// The default diff method creates a change set with the *deploy* role, which the
-// diff role cannot assume; --method=template uses the read-only lookup role.
-// Without this flag the diff job fails, and the fix would look like "give the
-// diff role more permissions".
-test('the diff job diffs through the lookup role', () => {
-  expect(jobBlock('diff')).toContain('--method=template');
-});
-
-test('the diff job never sees the deploy role', () => {
-  const block = jobBlock('diff');
-
-  expect(block).not.toContain('STRANDS_TEST_INFRA_DEPLOY_ROLE');
+// The default diff method creates a change set with the deploy role, which the
+// diff role cannot assume. Without this flag the diff job fails, and the tempting
+// fix would be to widen the role.
+test('the diff job diffs through the lookup role and holds only the diff role', () => {
+  const block = job('diff');
+  expect(block).toContain('--method=template');
   expect(block).toContain(
     `role-to-assume: arn:aws:iam::\${{ secrets.STRANDS_TEST_INFRA_DEPLOYMENT_ACCOUNT }}:role/${DIFF_ROLE_NAME}`,
   );
 });
 
-// Anything printed by a job that holds these lists ends up in a world-readable
-// log, job summary or artifact. Masking covers the log; the redactor covers the
-// files, and it is inlined in the workflow rather than read from the (untrusted)
-// pull-request checkout. Both jobs hold the lists, so both need both — the deploy
-// job especially, because its post-merge path publishes a summary with no human
-// in the loop at all.
-test.each(['diff', 'deploy'])('the %s job masks and redacts the secret-derived names', (job) => {
-  const block = jobBlock(job);
-
+// Anything either job prints lands in a world-readable log or job summary, and
+// ::add-mask:: covers neither a summary (a file) nor the individual entries of a
+// comma-separated secret.
+test.each(['diff', 'deploy'])('the %s job masks and redacts before printing', (name) => {
+  const block = job(name);
   expect(block).toContain('::add-mask::');
-  expect(block).toContain('cat > "$RUNNER_TEMP/redact.py"');
   expect(block).toContain('python3 "$RUNNER_TEMP/redact.py"');
-  for (const name of [...INTERNAL_ENV_LISTS, 'STRANDS_TEST_INFRA_DEPLOYMENT_ACCOUNT']) {
-    // Every list the job holds has to reach the redactor, or its entries survive
-    // into the published output.
-    expect(block.slice(block.indexOf('redact.py'))).toContain(`'${name}'`);
-  }
-  // Nothing may reach the log or the summary except through the redactor.
-  expect(block).not.toMatch(/cat "\$RUNNER_TEMP\/cdk-diff-raw\.txt"/);
+  expect(block).not.toMatch(/cat "\$RUNNER_TEMP\/raw\.txt"/);
+  // Newline-terminated, or `read` drops each list's last entry and a
+  // single-value secret is never masked at all.
+  expect(block).toContain(`printf '%s\\n' "\${!name:-}"`);
 });
 
-// `cdk deploy` streams CloudFormation events for minutes, so the redactor has to
-// work as a filter, not only on a finished file. `2>&1` included: CDK writes
-// progress and errors to stderr, and an unredacted stderr is still a leak.
+// Inlined per job because a composite action or tracked script would be the pull
+// request's own code on pull_request_target. Drift between the copies is the risk
+// that buys: a reviewer broke one copy's sort order and nothing failed.
+test('the two redactor copies are identical, and neutralize commands and fences', () => {
+  expect(redactor('deploy')).toBe(redactor('diff'));
+  expect(redactor('diff')).toContain('key=len, reverse=True');
+  expect(redactor('diff')).toContain("re.sub('`{3,}'");
+  expect(redactor('diff')).toContain("re.sub('^([ \\t]*)::'");
+});
+
+// cdk deploy streams for minutes, so the redactor has to work as a filter. 2>&1
+// included: CDK writes progress and errors to stderr.
 test('the deploy job pipes cdk deploy, stderr included, through the redactor', () => {
-  const block = jobBlock('deploy');
-
-  expect(block).toMatch(/npx cdk deploy [^\n]*2>&1 \|\n\s*python3 "\$RUNNER_TEMP\/redact\.py"/);
+  expect(job('deploy')).toMatch(
+    /npx cdk deploy [^\n]*2>&1 \|\n\s*python3 "\$RUNNER_TEMP\/redact\.py"/,
+  );
 });
 
-// The redactor is inlined twice, once per credentialed job, because on
-// pull_request_target a composite action read from the tree would be the pull
-// request's action. Duplication is the price of that, and drift is the risk it
-// creates: a round-2 review mutated only the deploy copy's sort order — losing
-// the longest-match-first property — and every test still passed.
-test('the two inlined redactor copies are identical', () => {
-  const script = (job: string): string => {
-    const block = jobBlock(job);
-    const open = block.indexOf(`cat > "$RUNNER_TEMP/redact.py" <<'PY'`);
-    expect(open).toBeGreaterThan(-1);
-    const from = block.indexOf('\n', open) + 1;
-    const end = block.indexOf('\n          PY', from);
-    expect(end).toBeGreaterThan(from);
-    return block.slice(from, end);
-  };
-
-  expect(script('deploy')).toBe(script('diff'));
-  expect(script('diff')).toContain('key=len, reverse=True');
-});
-
-// The diff text is a rendering of the pull request's own CDK code, so a resource
-// named `::stop-commands::…` would be executed as a workflow command when printed.
-test('the redactor neutralizes workflow commands and fences', () => {
-  const redactor = workflow.slice(workflow.indexOf('redact.py'));
-
-  expect(redactor).toContain("re.sub('`{3,}'");
-  expect(redactor).toContain("re.sub('^([ \\t]*)::'");
-});
-
-// A job that runs pull-request code must not also hold a token that can write to
-// the pull request, so the comment is posted from a job with no checkout.
-test('the diff is published from a job that runs no pull-request code', () => {
-  const block = jobBlock('publish-diff');
-
-  expect(block).toContain('pull-requests: write');
-  expect(block).not.toContain('actions/checkout');
-  expect(block).not.toContain('npm ci');
-  expect(jobBlock('diff')).not.toContain('pull-requests: write');
+// Every deploy touches the one stack and CloudFormation rejects a concurrent
+// UPDATE, but the workflow-level group is per pull request.
+test('all deploys serialize on one concurrency group', () => {
+  expect(job('deploy')).toMatch(/concurrency:\s*\n\s*group: test-infra-deploy-stack/);
 });

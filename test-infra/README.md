@@ -91,81 +91,43 @@ All resources use `DESTROY` removal policies — `cdk destroy` cleans up everyth
 
 ## Automated deployment (team account)
 
-`.github/workflows/test-infra-deploy.yml` keeps the deployed stack in sync with this directory. Without it the stack drifts silently: a permission added to `integ-test-role.ts` has no effect until someone remembers to run `cdk deploy`, and the integ test that needs it fails with an `AccessDenied` that looks like a missing grant rather than a missing deployment.
-
-It always deploys with `STRANDS_TEST_INFRA_INTERNAL=true` — that is the whole point of it, and why it must stay pointed at the team account.
+`.github/workflows/test-infra-deploy.yml` keeps the deployed stack in sync with this directory. Without it a permission added to `integ-test-role.ts` has no effect until someone remembers to run `cdk deploy`, and the integ test that needs it fails with an `AccessDenied` that looks like a missing grant rather than a missing deployment. It always deploys with `STRANDS_TEST_INFRA_INTERNAL=true`, which is why it must stay pointed at the team account.
 
 | Trigger | What runs | Identity | Waits for a human? |
 |---|---|---|---|
-| Push to `main` under `test-infra/**`, or **Run workflow** from `main` | `cdk diff` then `cdk deploy` | `StrandsTestInfraDeployRole` in the `test-infra-deploy` environment | No |
-| Pull request | Type-check, unit tests, and a read-only `cdk diff` posted to the PR | `StrandsTestInfraDiffRole` in `auto-approve` / `manual-approval` | Only if the author lacks write access |
-| Pull request, `deploy` job | `cdk diff` then `cdk deploy` of **the PR's** code | `StrandsTestInfraDeployRole` in the `test-infra-deploy-approval` environment | **Always** |
+| Push to `main`, or **Run workflow** from `main` | `cdk diff` → `cdk deploy` | `StrandsTestInfraDeployRole` in `test-infra-deploy` | No |
+| Pull request | Type-check, unit tests, read-only `cdk diff` in the job summary | `StrandsTestInfraDiffRole` in `auto-approve` / `manual-approval` | Only if the author lacks write access |
+| Pull request, `deploy` job | `cdk diff` → `cdk deploy` of **the PR's** code | `StrandsTestInfraDeployRole` in `test-infra-deploy-approval` | **Always** |
 
-### Reviewing a pull request's diff
+**Approving a pull-request deploy runs that pull request's TypeScript with credentials that can change the account** — `cdk deploy` executes `bin/test-infra.ts` and everything it imports, from the PR, fork included. The approval is the only gate; read the code, not just the diff. The account then holds an unmerged stack until `main` deploys again.
 
-`test-infra/` computes IAM from repository secrets, so reading the TypeScript diff does not tell you what the live role ends up with. The `diff` job synthesizes the PR's code with the same `STRANDS_TEST_INFRA_*` values the real deploy uses and posts the result as a comment (updated in place on each push), a job summary, and the `test-infra-cdk-diff` artifact.
+### Reading the diff
 
-Because this repository is public and all three are world-readable, secret-derived names — the account id, private repos, bucket names, secret names, runner roles — are replaced with `***` before anything is written. The structure of the change stays visible; the literals do not. The deploy job redacts its own `cdk diff` and streams `cdk deploy` through the same filter, for the same reason: the post-merge path publishes a job summary with no human in the loop. So no run of this workflow prints a resolved name — read the live template in CloudFormation if you need one.
+`test-infra/` computes IAM from repository secrets, so the TypeScript diff does not tell you what the live role ends up with. The `diff` job synthesizes the PR's code with the live values and writes the result to its job summary, on the same run page as the approval button. It uses `--method=template` (compare templates via the bootstrap lookup role) rather than the default change set, which needs the deploy role — so it will not show resource replacements a change set would catch.
 
-Two caveats on the read-only diff. It uses `--method=template` (compare templates through the bootstrap lookup role) rather than the default change set, which needs the deploy role — so it will not show resource replacements a change set would catch. And `pull_request_target` runs `main`'s copy of the workflow, so a PR that edits the workflow itself is diffed by the *old* workflow; that change only takes effect once merged.
+Secret-derived names are redacted to `***` everywhere the workflow prints, including the deploy job: this repository is public, and `::add-mask::` covers neither a job summary (a file) nor the individual entries of a comma-separated secret. Read the live template in CloudFormation if you need a resolved name.
 
-### Deploying a pull request before merge
-
-Approve the run's `test-infra-deploy-approval` deployment. Two things to know before you do:
-
-- **It runs the pull request's code with credentials that can change the account.** `cdk deploy` executes `bin/test-infra.ts` and everything it imports, from the PR — including a fork's. The environment approval is the only gate. Read the code, not just the diff.
-- **The account then holds an unmerged stack** until `main` deploys again. The job says so in its summary. Merging the PR (or re-running the workflow on `main`) restores it.
+Note that `pull_request_target` runs `main`'s copy of the workflow, so a PR that edits the workflow is handled by the *old* one; the change takes effect on merge.
 
 ### Credentials
 
-Two roles, both internal mode only, both defined in `lib/constructs/` and trusted through GitHub OIDC:
+Both roles are defined in `lib/constructs/github-ci-roles.ts`, internal mode only, and are created by the stack they deploy — so repairing a broken trust policy means a human running `cdk deploy`.
 
-- **`StrandsTestInfraDeployRole`** (`github-deploy-role.ts`) — its only permission is to assume the CDK bootstrap roles, so `cdk deploy` works and nothing else does. That is narrow on paper but powerful in effect: the bootstrap deploy role can pass CloudFormation's execution role, which `cdk bootstrap` grants AdministratorAccess. So the trust policy is what really contains it.
-- **`StrandsTestInfraDiffRole`** (`github-diff-role.ts`) — can assume the bootstrap **lookup** role only (`ReadOnlyAccess`). This is the role a pull request's own code holds, so it deliberately cannot reach the deploy role or the execution role behind it.
+- **`StrandsTestInfraDeployRole`** may assume the CDK bootstrap roles, which is all `cdk deploy` needs. Narrow on paper, powerful in effect: the bootstrap deploy role can pass CloudFormation's execution role, which `cdk bootstrap` grants AdministratorAccess.
+- **`StrandsTestInfraDiffRole`** may assume the bootstrap **lookup** role only (`ReadOnlyAccess`). This is the role a pull request's own code holds.
 
-Both pin the same two claims (`github-oidc.ts`):
-
-- **`job_workflow_ref`** — this workflow file, on `main`. No other workflow can assume either role, and a `workflow_dispatch` from another branch is refused (the workflow also fails its first step with a clear message rather than an opaque STS error).
-- **`sub`** — the GitHub environment, e.g. `repo:strands-agents/harness-sdk:environment:test-infra-deploy`. GitHub mints that subject only for a job declaring that environment, so a protected environment's required reviewers are enforced by IAM as well as by GitHub.
-
-The subject deliberately does **not** pin `ref:refs/heads/main`. `pull_request_target` reports the default branch in `GITHUB_REF`, so a ref subject cannot distinguish a reviewed push from a pull request — the environment can. Which means the diff job's environments must stay disjoint from the deploy job's, or unreviewed code would hold a token the deploy role accepts. A unit test asserts that.
-
-### Repository secrets
-
-| Secret | Purpose |
-|---|---|
-| `STRANDS_TEST_INFRA_DEPLOY_ROLE` | ARN of `StrandsTestInfraDeployRole` — `arn:aws:iam::<account>:role/StrandsTestInfraDeployRole` |
-| `STRANDS_TEST_INFRA_DEPLOYMENT_ACCOUNT` | The team test account id. Pins the deployment: the CDK CLI refuses to deploy if the assumed role belongs to a different account, so a mis-set role ARN cannot apply internal mode elsewhere. The diff role's ARN is built from this plus its fixed name, so it needs no secret of its own |
-| `STRANDS_TEST_INFRA_PRIVATE_REPOS` | Comma-separated private repos trusted to assume the integ test role |
-| `STRANDS_TEST_INFRA_BUCKET_NAMES` | Comma-separated bucket name patterns the integ test role may manage |
-| `STRANDS_TEST_INFRA_PERSISTENT_BUCKET_NAMES` | Comma-separated persistent bucket name patterns (no `DeleteBucket`) |
-| `STRANDS_TEST_INFRA_SECRET_NAMES` | Comma-separated Secrets Manager secret names the integ test role may read |
-| `STRANDS_TEST_INFRA_RUNNER_ROLES` | Comma-separated role names also trusted to assume the integ test role |
-
-The deploy job fails on its first step if **any** of these is missing, and the diff job if any but the deploy-role ARN is (it never receives that one). Every list is load-bearing: an empty value does not fail the deploy, it deploys a role with those entries removed. That includes `STRANDS_TEST_INFRA_RUNNER_ROLES`, which the stack treats as optional — set it to the live list even though a local community deploy can leave it unset.
-
-### GitHub environments
-
-Three must exist, or the roles are unassumable:
-
-| Environment | Protection | Used by |
-|---|---|---|
-| `test-infra-deploy` | **None** — a merge must deploy unattended | The post-merge / `workflow_dispatch` deploy |
-| `test-infra-deploy-approval` | **Required reviewers** | A pull-request deploy. This approval is the entire gate |
-| `auto-approve`, `manual-approval` | As the rest of the repo has them (none / required reviewers) | The read-only diff job, via `strands-agents/devtools/authorization-check` |
-
-Neither `test-infra-*` environment may be reused by another workflow: their names are what the deploy role trusts.
+Both pin `job_workflow_ref` (this workflow file, on `main` — so no other workflow can assume them, and a `workflow_dispatch` from another branch is refused) and a `sub` list of `repo:strands-agents/harness-sdk:environment:<name>`. GitHub mints that subject only for a job declaring that environment, so required reviewers are enforced by IAM as well as by GitHub. The subject deliberately does **not** pin `ref:refs/heads/main`: `pull_request_target` reports the default branch in `GITHUB_REF`, so a ref subject cannot distinguish a reviewed push from a pull request. Which means the two roles' environment sets must stay disjoint, or unreviewed code would hold a token the deploy role accepts. A unit test asserts it.
 
 ### One-time setup
 
-The stack defines the roles that deploy it, so the first deployment is manual:
+1. **Environments:** `test-infra-deploy` with **no** protection rules (a merge must deploy unattended) and `test-infra-deploy-approval` with **required reviewers**. Neither may be reused by another workflow — their names are what the deploy role trusts. `auto-approve` / `manual-approval` already exist for the rest of the repo.
+2. **Secrets:** `STRANDS_TEST_INFRA_DEPLOY_ROLE` (the deploy role ARN), `STRANDS_TEST_INFRA_DEPLOYMENT_ACCOUNT` (the team account id, which pins the target — the CDK CLI refuses a mismatch), and the lists `STRANDS_TEST_INFRA_PRIVATE_REPOS`, `_BUCKET_NAMES`, `_PERSISTENT_BUCKET_NAMES`, `_SECRET_NAMES`, `_RUNNER_ROLES`. Every list is load-bearing: an empty value does not fail the deploy, it deploys a role with those entries **removed**, so the workflow refuses to start if any is unset. The diff role needs no secret — its ARN is derived from the account id.
+3. **The first deploy is manual**, since the stack defines the roles that deploy it:
 
 ```sh
 cd test-infra
 npx cdk bootstrap   # once per account/region
 
-# Internal mode needs every list below; it throws rather than deploy a role with
-# one of them empty. Use the same values as the repository secrets.
 STRANDS_TEST_INFRA_INTERNAL=true \
 STRANDS_TEST_INFRA_PRIVATE_REPOS=... \
 STRANDS_TEST_INFRA_BUCKET_NAMES=... \
@@ -175,7 +137,7 @@ STRANDS_TEST_INFRA_RUNNER_ROLES=... \
   npx cdk deploy    # with account credentials
 ```
 
-Then set `STRANDS_TEST_INFRA_DEPLOY_ROLE` to the ARN of the created deploy role and create the environments above. The same manual path is the repair route if a change ever breaks a trust policy.
+Then set `STRANDS_TEST_INFRA_DEPLOY_ROLE` to the created ARN.
 
 ## Configuration reference
 

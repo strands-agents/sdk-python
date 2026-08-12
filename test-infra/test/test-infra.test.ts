@@ -1,6 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
-import { StrandsTestInfraStack } from '../lib/stacks/test-infra-stack';
+import { StrandsTestInfraStack, StrandsTestInfraStackProps } from '../lib/stacks/test-infra-stack';
+import { DEPLOY_ENVIRONMENTS, DIFF_ENVIRONMENTS } from '../lib/constructs/github-ci-roles';
 
 let originalEnv: NodeJS.ProcessEnv;
 
@@ -300,111 +301,89 @@ test('persistent bucket policy grants access without DeleteBucket', () => {
 
 // --- CI Roles ---
 
-const OIDC_SUBJECT = 'token.actions.githubusercontent.com:sub';
-const OIDC_WORKFLOW_REF = 'token.actions.githubusercontent.com:job_workflow_ref';
+const SUB = 'token.actions.githubusercontent.com:sub';
+const WORKFLOW_REF = 'token.actions.githubusercontent.com:job_workflow_ref';
+const CI: Partial<StrandsTestInfraStackProps> = {
+  internal: true,
+  testFeatures: ['bedrock-knowledge-base'],
+};
 
-/** The trust-policy condition block of the named fixed-name role. */
-function trustConditions(template: Template, roleName: string): any {
+/** The StringEquals trust conditions of the named fixed-name role. */
+function trust(template: Template, roleName: string): any {
   const role = Object.values(template.findResources('AWS::IAM::Role')).find(
-    (candidate: any) => candidate.Properties?.RoleName === roleName,
+    (r: any) => r.Properties?.RoleName === roleName,
   ) as any;
   expect(role).toBeDefined();
-
   const statements = role.Properties.AssumeRolePolicyDocument.Statement;
   expect(statements).toHaveLength(1);
   expect(statements[0].Action).toBe('sts:AssumeRoleWithWebIdentity');
-  expect(statements[0].Principal.Federated).toMatch(
-    /oidc-provider\/token\.actions\.githubusercontent\.com$/,
-  );
   return statements[0].Condition.StringEquals;
 }
 
-/** The single inline policy of the named fixed-name role. */
-function inlinePolicyStatements(template: Template, logicalIdPrefix: string): any[] {
+/** What the named role may assume, by bootstrap role name. */
+function mayAssume(template: Template, logicalIdPrefix: string): string[] {
   const policies = Object.entries(template.findResources('AWS::IAM::Policy'))
-    .filter(([logicalId]) => logicalId.startsWith(logicalIdPrefix))
-    .map(([, policy]) => policy as any);
+    .filter(([id]) => id.startsWith(logicalIdPrefix))
+    .map(([, p]) => p as any);
   expect(policies).toHaveLength(1);
-  return policies[0].Properties.PolicyDocument.Statement;
+  const statements = policies[0].Properties.PolicyDocument.Statement;
+  expect(statements).toHaveLength(1);
+  expect(statements[0].Action).toBe('sts:AssumeRole');
+  return [statements[0].Resource].flat();
 }
 
-// The subject is the environment, not the ref: `pull_request_target` reports the
+const WORKFLOW_REF_VALUE =
+  'strands-agents/harness-sdk/.github/workflows/test-infra-deploy.yml@refs/heads/main';
+
+// The subject is the environment, not the ref: pull_request_target reports the
 // default branch in GITHUB_REF, so a ref subject cannot tell a reviewed push from
-// a pull request. `job_workflow_ref` is what pins branch and workflow file.
-test('internal mode creates a deploy role trusted only by the two deploy environments', () => {
-  const conditions = trustConditions(
-    synth({ internal: true, testFeatures: ['bedrock-knowledge-base'] }),
-    'StrandsTestInfraDeployRole',
-  );
+// a pull request. job_workflow_ref is what pins branch and file.
+test('the deploy role trusts only the two deploy environments', () => {
+  const conditions = trust(synth(CI), 'StrandsTestInfraDeployRole');
 
-  expect(conditions).toEqual({
-    'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
-    [OIDC_SUBJECT]: [
-      'repo:strands-agents/harness-sdk:environment:test-infra-deploy',
-      'repo:strands-agents/harness-sdk:environment:test-infra-deploy-approval',
-    ],
-    [OIDC_WORKFLOW_REF]:
-      'strands-agents/harness-sdk/.github/workflows/test-infra-deploy.yml@refs/heads/main',
-  });
-  // A bare ref subject would be minted by a pull-request run of this workflow
-  // too, so it must not be trusted.
-  expect(JSON.stringify(conditions[OIDC_SUBJECT])).not.toContain('ref:refs/heads');
+  expect(conditions[SUB]).toEqual([
+    'repo:strands-agents/harness-sdk:environment:test-infra-deploy',
+    'repo:strands-agents/harness-sdk:environment:test-infra-deploy-approval',
+  ]);
+  expect(conditions[WORKFLOW_REF]).toBe(WORKFLOW_REF_VALUE);
+  expect(JSON.stringify(conditions[SUB])).not.toContain('ref:refs/heads');
 });
 
-test('the deploy role can only assume the CDK bootstrap roles', () => {
-  const template = synth({ internal: true, testFeatures: ['bedrock-knowledge-base'] });
+// The diff job runs a pull request's own CDK code before anyone approves it, so
+// its role is trusted for different environments — that disjointness is the only
+// thing stopping a diff-job token from satisfying the deploy role's trust.
+test('the diff role trusts only the authorization-check environments', () => {
+  const conditions = trust(synth(CI), 'StrandsTestInfraDiffRole');
 
-  const statements = inlinePolicyStatements(template, 'StrandsTestInfraDeployRole');
-  expect(statements).toHaveLength(1);
-  expect(statements[0].Action).toBe('sts:AssumeRole');
-  expect(statements[0].Resource).toEqual(
-    ['deploy', 'file-publishing', 'image-publishing', 'lookup'].map(
-      (name) =>
-        `arn:aws:iam::123456789012:role/cdk-hnb659fds-${name}-role-123456789012-us-east-1`,
-    ),
-  );
+  expect(conditions[SUB]).toEqual([
+    'repo:strands-agents/harness-sdk:environment:auto-approve',
+    'repo:strands-agents/harness-sdk:environment:manual-approval',
+  ]);
+  expect(conditions[WORKFLOW_REF]).toBe(WORKFLOW_REF_VALUE);
 });
 
-// The diff job runs a pull request's own CDK code before anyone has approved it,
-// so its role is trusted for different environments than the deploy role — that
-// disjointness is what stops a diff-job token from assuming the deploy role.
-test('internal mode creates a diff role trusted only by the approval-check environments', () => {
-  const conditions = trustConditions(
-    synth({ internal: true, testFeatures: ['bedrock-knowledge-base'] }),
-    'StrandsTestInfraDiffRole',
-  );
-
-  expect(conditions).toEqual({
-    'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
-    [OIDC_SUBJECT]: [
-      'repo:strands-agents/harness-sdk:environment:auto-approve',
-      'repo:strands-agents/harness-sdk:environment:manual-approval',
-    ],
-    [OIDC_WORKFLOW_REF]:
-      'strands-agents/harness-sdk/.github/workflows/test-infra-deploy.yml@refs/heads/main',
-  });
+test('the diff and deploy environments are disjoint', () => {
+  expect(DIFF_ENVIRONMENTS.filter((e) => DEPLOY_ENVIRONMENTS.includes(e))).toEqual([]);
 });
 
-// `lookup` is ReadOnlyAccess. `deploy` is the one that can pass the
-// CloudFormation execution role, so it stays out of reach of pull-request code.
-test('the diff role can only assume the CDK bootstrap lookup role', () => {
-  const template = synth({ internal: true, testFeatures: ['bedrock-knowledge-base'] });
+test('the deploy role may assume the bootstrap roles, the diff role only lookup', () => {
+  const template = synth(CI);
+  const arn = (name: string) =>
+    `arn:aws:iam::123456789012:role/cdk-hnb659fds-${name}-role-123456789012-us-east-1`;
 
-  const statements = inlinePolicyStatements(template, 'StrandsTestInfraDiffRole');
-  expect(statements).toHaveLength(1);
-  expect(statements[0].Action).toBe('sts:AssumeRole');
-  // A single resource renders as a string, not a one-element list.
-  expect(statements[0].Resource).toBe(
-    'arn:aws:iam::123456789012:role/cdk-hnb659fds-lookup-role-123456789012-us-east-1',
+  expect(mayAssume(template, 'StrandsTestInfraCiDeployRole')).toEqual(
+    ['deploy', 'file-publishing', 'image-publishing', 'lookup'].map(arn),
   );
+  // `deploy` can pass the CloudFormation execution role, so it stays out of reach
+  // of pull-request code.
+  expect(mayAssume(template, 'StrandsTestInfraCiDiffRole')).toEqual([arn('lookup')]);
 });
 
 test('community mode creates neither CI role', () => {
-  const template = synth({ internal: false });
-
-  const roleNames = Object.values(template.findResources('AWS::IAM::Role')).map(
+  const roleNames = Object.values(synth({ internal: false }).findResources('AWS::IAM::Role')).map(
     (role: any) => role.Properties?.RoleName,
   );
+
   expect(roleNames).not.toContain('StrandsTestInfraDeployRole');
   expect(roleNames).not.toContain('StrandsTestInfraDiffRole');
 });
