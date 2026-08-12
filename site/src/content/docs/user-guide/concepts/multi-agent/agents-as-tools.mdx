@@ -154,7 +154,9 @@ orchestrator = Agent(
 </Tab>
 </Tabs>
 
-Interrupts raised inside a sub-agent resume automatically, but where the interrupted turn is kept depends on this setting. With the default <Syntax py="preserve_context=False" ts="preserveContext: false" />, the orchestrator carries the sub-agent's interrupted turn, so a resume works even when every agent is rebuilt from storage on the next request. With <Syntax py="preserve_context=True" ts="preserveContext: true" /> the sub-agent owns its own state: give it its own session manager if the resume has to survive a restart, otherwise the interrupt can only be resumed by the same process that raised it.
+#### Advanced: Interrupts and Session State
+
+[Interrupts](../interrupts.md) raised inside a sub-agent resume automatically, and this setting decides who keeps the interrupted turn while it waits. With the default <Syntax py="preserve_context=False" ts="preserveContext: false" /> the orchestrator keeps it, so a resume works even when every agent is rebuilt from storage on the next request. With <Syntax py="preserve_context=True" ts="preserveContext: true" /> the sub-agent owns its own state: give it its own session manager if the resume has to survive a restart, otherwise the interrupt can only be resumed by the process that raised it.
 
 ### Creating Custom Agent Tools
 

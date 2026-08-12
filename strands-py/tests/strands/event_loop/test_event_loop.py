@@ -1319,7 +1319,7 @@ async def test_event_loop_cycle_interrupts_preserved_when_after_tools_hook_raise
     model.stream.side_effect = [agenerator(tool_stream)]
 
     # A key the loop does not own, e.g. an agent-as-tool's parked sub-agent turn.
-    agent._interrupt_state.context["sub_agent_continuations"] = {"tool-1": {"scope": "agent"}}
+    agent._interrupt_state.context["sub_agent_interrupted_turns"] = {"tool-1": {"scope": "agent"}}
 
     with pytest.raises(EventLoopException, match="after tools hook failed"):
         await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
@@ -1328,7 +1328,7 @@ async def test_event_loop_cycle_interrupts_preserved_when_after_tools_hook_raise
     assert agent._interrupt_state.activated
     assert agent._interrupt_state.context["tool_use_message"] == agent.messages[-1]
     assert agent._interrupt_state.context["tool_results"] == []
-    assert agent._interrupt_state.context["sub_agent_continuations"] == {"tool-1": {"scope": "agent"}}
+    assert agent._interrupt_state.context["sub_agent_interrupted_turns"] == {"tool-1": {"scope": "agent"}}
 
 
 @pytest.mark.asyncio
@@ -2385,7 +2385,7 @@ def test_park_interrupt_context_keeps_keys_the_event_loop_does_not_own():
             "tool_use_message": {"role": "assistant", "content": [{"text": "an earlier park"}]},
             "tool_results": [{"toolUseId": "tool-0", "status": "success", "content": []}],
             "responses": [{"interruptResponse": {"interruptId": "answered", "response": "APPROVE"}}],
-            "sub_agent_continuations": {"tool-1": {"scope": "agent"}},
+            "sub_agent_interrupted_turns": {"tool-1": {"scope": "agent"}},
         }
     )
     message = {"role": "assistant", "content": [{"toolUse": {"toolUseId": "tool-1", "name": "t", "input": {}}}]}
@@ -2397,6 +2397,6 @@ def test_park_interrupt_context_keeps_keys_the_event_loop_does_not_own():
     exp_context = {
         "tool_use_message": message,
         "tool_results": tool_results,
-        "sub_agent_continuations": {"tool-1": {"scope": "agent"}},
+        "sub_agent_interrupted_turns": {"tool-1": {"scope": "agent"}},
     }
     assert tru_context == exp_context

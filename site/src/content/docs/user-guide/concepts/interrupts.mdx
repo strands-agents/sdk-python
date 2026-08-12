@@ -481,10 +481,7 @@ Interrupts are supported in multi-agent patterns, enabling human-in-the-loop wor
 
 ### Agents as Tools
 
-An agent exposed as a tool with [Agents as Tools](./multi-agent/agents-as-tools.md) propagates its interrupts up to the orchestrator, so the orchestrator's caller sees them and answers them like any other interrupt. Two things are worth knowing:
-
-- **Interrupt ids are namespaced by the tool call.** A sub-agent's interrupt arrives with an id derived from the orchestrator's tool call, so two sub-agents interrupting in the same turn stay distinct. Treat the id as opaque: pass it back unchanged to resume, and use `name` and `reason` for anything you show a human.
-- **Where the interrupted turn is kept depends on `preserve_context`.** With the default `preserve_context=False` the orchestrator carries the sub-agent's interrupted turn, so the resume survives the orchestrator and sub-agent being rebuilt from storage. With `preserve_context=True` the sub-agent owns its own state and needs its own session manager for the resume to survive a restart.
+An agent exposed as a tool with [Agents as Tools](./multi-agent/agents-as-tools.md) propagates its interrupts up to the orchestrator, so the orchestrator's caller sees them and answers them like any other interrupt. A sub-agent's interrupt arrives with an id scoped to the orchestrator's tool call, which keeps two sub-agents interrupting in the same turn distinct. Treat the id as opaque: pass it back unchanged to resume, and use `name` and `reason` for anything you show a human.
 
 ### Swarm
 

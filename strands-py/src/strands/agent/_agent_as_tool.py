@@ -9,17 +9,17 @@ from __future__ import annotations
 import copy
 import logging
 import threading
-from collections.abc import Collection
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 from typing_extensions import override
 
 from ..agent.state import AgentState
-from ..interrupt import Interrupt
+from ..interrupt import Interrupt, _InterruptState
 from ..types._events import AgentAsToolStreamEvent, ToolInterruptEvent, ToolResultEvent
 from ..types._snapshot import Snapshot
 from ..types.content import Messages
+from ..types.exceptions import SnapshotException
 from ..types.interrupt import InterruptResponseContent
 from ..types.tools import AgentTool, ToolGenerator, ToolSpec, ToolUse
 
@@ -28,94 +28,40 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_PARKED_TURNS_KEY = "sub_agent_continuations"
-"""Key under which an orchestrator's interrupt context holds interrupted sub-agent turns, keyed by tool use id."""
+_INTERRUPTED_TURNS_KEY = "sub_agent_interrupted_turns"
+"""Key under which an orchestrator's interrupt context holds interrupted sub-agent turns, keyed by tool use ID."""
 
 _NAMESPACE_TAG = "v1:agent_as_tool:"
-"""Reserved marker opening every namespaced sub-agent interrupt id.
+"""Reserved marker opening every namespaced sub-agent interrupt ID.
 
 Written by the SDK and never derived from model output, so a namespace prefix cannot collide with an
-interrupt id the SDK generates itself - all of which open with the ``v1:`` scheme marker.
+interrupt ID the SDK generates itself - all of which open with the ``v1:`` scheme marker.
 """
-
-
-def _namespace_prefix(tool_use_id: str) -> str:
-    """Build the prefix that namespaces a sub-agent interrupt id to one agent-as-tool call.
-
-    Two sub-agents invoked in the same turn can raise the same interrupt id, because each derives it
-    from its own tool use id. The prefix keeps them distinct in the orchestrator's interrupt record and
-    keeps the sub-agent-local id recoverable by stripping it back off.
-
-    Tool use ids and interrupt ids are both model-derived, so the prefix defends against both ways one
-    call's prefix can match another id: the tool use id is percent-encoded, because otherwise one
-    containing the separator matches another call's ids, and the prefix opens with a reserved marker,
-    because otherwise a tool use id of ``v1`` matches every interrupt the orchestrator raised itself.
-
-    Args:
-        tool_use_id: Tool use ID of the agent-as-tool call.
-
-    Returns:
-        Prefix, separator included, for interrupt IDs belonging to that call.
-    """
-    return f"{_NAMESPACE_TAG}{quote(tool_use_id, safe='')}:"
-
-
-def _namespace_interrupts(tool_use_id: str, interrupts: list[Interrupt]) -> list[Interrupt]:
-    """Copy sub-agent interrupts with their ids namespaced to one agent-as-tool call.
-
-    Only the id changes: ``name`` and ``reason`` are what a human or an approval UI reads, so they are
-    passed through untouched.
-
-    Args:
-        tool_use_id: Tool use ID of the agent-as-tool call.
-        interrupts: Interrupts raised inside the sub-agent.
-
-    Returns:
-        Orchestrator-visible copies carrying namespaced ids.
-    """
-    prefix = _namespace_prefix(tool_use_id)
-    return [
-        Interrupt(id=f"{prefix}{interrupt.id}", name=interrupt.name, reason=interrupt.reason)
-        for interrupt in interrupts
-    ]
-
-
-def _parked_turn_interrupt_ids(turn: dict[str, Any]) -> set[str]:
-    """Get the sub-agent-local ids of the interrupts a parked turn is still waiting on.
-
-    Args:
-        turn: Serialized snapshot of an interrupted sub-agent turn.
-
-    Returns:
-        Interrupt IDs the sub-agent will raise again when the turn is reinstated.
-    """
-    interrupt_state: dict[str, Any] = (turn.get("data") or {}).get("interrupt_state") or {}
-    interrupts: dict[str, Any] = interrupt_state.get("interrupts") or {}
-    return set(interrupts)
 
 
 class _ParentCall:
     """The orchestrator's record of one agent-as-tool call.
 
-    Binds the orchestrator running a call to that call's interrupt id namespace, so propagation and
-    resume both read and write the orchestrator's persisted interrupt state in terms of *this* call:
-    the interrupts it has pending, the answers addressed to it, and the sub-agent turn it parked.
+    An interrupt raised inside a sub-agent has to reach the orchestrator's caller, and the human's
+    response has to travel back down - across a boundary where either agent may have been rebuilt from
+    storage, so the two no longer share an in-memory ``Interrupt``. Both directions therefore go through
+    the orchestrator's own persisted interrupt state, and everything here is scoped to one tool call
+    within it: the interrupts that call has pending, the responses addressed to it, and the interrupted
+    sub-agent turn stored for it.
+
+    Interrupt IDs are namespaced with a prefix derived from the tool use ID, because two sub-agents
+    invoked in the same turn can raise the same ID - each derives it from its own tool use ID. Both are
+    model-derived, so the prefix guards against either one matching another call's IDs: the tool use ID
+    is percent-encoded, or one containing the separator would match, and the prefix opens with a
+    reserved marker, or a tool use ID of ``v1`` would match every interrupt the orchestrator itself
+    raised.
     """
 
     def __init__(self, parent: Agent, tool_use_id: str) -> None:
         """Bind to an orchestrator and one of its tool calls."""
         self._parent = parent
         self._tool_use_id = tool_use_id
-        self._prefix = _namespace_prefix(tool_use_id)
-
-    @classmethod
-    def resolve(cls, invocation_state: dict[str, Any], tool_use_id: str) -> _ParentCall | None:
-        """Bind to the orchestrator running this tool call, if the invocation state carries one.
-
-        A tool invoked directly rather than by an agent has no orchestrator, and cannot interrupt.
-        """
-        parent: Agent | None = invocation_state.get("agent")
-        return cls(parent, tool_use_id) if parent is not None else None
+        self._prefix = f"{_NAMESPACE_TAG}{quote(tool_use_id, safe='')}:"
 
     @property
     def tool_use_id(self) -> str:
@@ -123,42 +69,58 @@ class _ParentCall:
         return self._tool_use_id
 
     @property
-    def awaiting_resume(self) -> bool:
-        """Whether the orchestrator is parked on an interrupt raised by this call.
+    def is_resuming(self) -> bool:
+        """Whether the orchestrator is holding an interrupt raised by this call.
 
         Keyed on the orchestrator rather than on the sub-agent, so a sub-agent shared with another
-        caller cannot adopt a pending turn belonging to someone else.
+        caller cannot adopt an interrupted turn belonging to someone else.
         """
         if not self._parent._interrupt_state.activated:
             return False
 
         return any(interrupt_id.startswith(self._prefix) for interrupt_id in self._parent._interrupt_state.interrupts)
 
-    def pending_interrupts(self, local_ids: Collection[str] | None = None) -> list[Interrupt]:
-        """Get the namespaced interrupts the orchestrator holds for this call.
+    def namespace(self, interrupts: list[Interrupt]) -> list[Interrupt]:
+        """Copy sub-agent interrupts with their IDs namespaced to this call.
+
+        Only the ID changes: ``name`` and ``reason`` are what a human or an approval UI reads.
 
         Args:
-            local_ids: Restrict the result to interrupts whose sub-agent-local id is in this
-                collection. The orchestrator keeps every id it has been handed until its own turn
-                ends, including ones the sub-agent has since finished with, so a caller that wants
-                the interrupts the sub-agent is actually still waiting on has to say which those are.
+            interrupts: Interrupts raised inside the sub-agent.
 
         Returns:
-            Interrupts the orchestrator holds for this call, in the order it recorded them.
+            Orchestrator-visible copies carrying namespaced IDs.
         """
+        return [
+            Interrupt(id=f"{self._prefix}{interrupt.id}", name=interrupt.name, reason=interrupt.reason)
+            for interrupt in interrupts
+        ]
+
+    def pending_interrupts(self) -> list[Interrupt]:
+        """Get the interrupts this call's stored turn is still waiting on.
+
+        The orchestrator keeps every ID it has been handed until its own turn ends, including ones the
+        sub-agent has since finished with, so the stored turn decides which are still live. Empty when
+        no turn is stored, because then there is nothing to raise again.
+
+        Returns:
+            Interrupts that have to outlive a failed restore.
+        """
+        turn = self.interrupted_turn() or {}
+        interrupt_state: dict[str, Any] = (turn.get("data") or {}).get("interrupt_state") or {}
+        awaited_ids = set(interrupt_state.get("interrupts") or {})
         return [
             interrupt
             for interrupt_id, interrupt in self._parent._interrupt_state.interrupts.items()
-            if interrupt_id.startswith(self._prefix)
-            and (local_ids is None or interrupt_id[len(self._prefix) :] in local_ids)
+            if interrupt_id.startswith(self._prefix) and interrupt_id[len(self._prefix) :] in awaited_ids
         ]
 
     def responses(self) -> list[InterruptResponseContent]:
-        """Map the answers addressed to this call back to sub-agent-local interrupt ids.
+        """Map the responses addressed to this call back to sub-agent-local interrupt IDs.
 
-        The orchestrator persists the human's answers as data, so this survives a rehydration boundary
+        The orchestrator persists the human's responses as data, so this survives a rehydration boundary
         where orchestrator and sub-agent no longer share an in-memory ``Interrupt``. An empty list means
-        no answer belongs to this call, and the sub-agent re-raises its interrupt and stays pending.
+        no response belongs to this call, and the sub-agent re-raises its interrupt and stays pending.
 
         Returns:
             Interrupt response content blocks addressed to the sub-agent.
@@ -178,21 +140,21 @@ class _ParentCall:
 
         return responses
 
-    def parked_turn(self) -> dict[str, Any] | None:
-        """Get the interrupted sub-agent turn parked for this call, if there is one."""
-        parked: dict[str, Any] = self._parent._interrupt_state.context.get(_PARKED_TURNS_KEY) or {}
-        turn: dict[str, Any] | None = parked.get(self._tool_use_id)
+    def interrupted_turn(self) -> dict[str, Any] | None:
+        """Get the interrupted sub-agent turn stored for this call, if there is one."""
+        stored: dict[str, Any] = self._parent._interrupt_state.context.get(_INTERRUPTED_TURNS_KEY) or {}
+        turn: dict[str, Any] | None = stored.get(self._tool_use_id)
         return turn
 
-    def park_turn(self, turn: dict[str, Any]) -> None:
-        """Park an interrupted sub-agent turn on the orchestrator's own interrupt record."""
-        parked: dict[str, Any] = self._parent._interrupt_state.context.setdefault(_PARKED_TURNS_KEY, {})
-        parked[self._tool_use_id] = turn
+    def store_interrupted_turn(self, turn: dict[str, Any]) -> None:
+        """Store an interrupted sub-agent turn on the orchestrator's own interrupt record."""
+        stored: dict[str, Any] = self._parent._interrupt_state.context.setdefault(_INTERRUPTED_TURNS_KEY, {})
+        stored[self._tool_use_id] = turn
 
-    def drop_parked_turn(self) -> None:
-        """Free the parked turn once it has been reinstated."""
-        parked: dict[str, Any] = self._parent._interrupt_state.context.get(_PARKED_TURNS_KEY) or {}
-        parked.pop(self._tool_use_id, None)
+    def clear_interrupted_turn(self) -> None:
+        """Free the stored turn once it has been restored."""
+        stored: dict[str, Any] = self._parent._interrupt_state.context.get(_INTERRUPTED_TURNS_KEY) or {}
+        stored.pop(self._tool_use_id, None)
 
 
 class _AgentAsTool(AgentTool):
@@ -338,7 +300,9 @@ class _AgentAsTool(AgentTool):
             prompt = str(tool_input)
 
         tool_use_id = tool_use["toolUseId"]
-        parent_call = _ParentCall.resolve(invocation_state, tool_use_id)
+        # A tool invoked directly rather than by an agent has no orchestrator, and cannot interrupt.
+        parent = invocation_state.get("agent")
+        parent_call = _ParentCall(parent, tool_use_id) if parent is not None else None
 
         # Serialize access to the underlying agent. _reset_agent_state() mutates
         # the agent before stream_async acquires its own lock, so a concurrent
@@ -360,30 +324,29 @@ class _AgentAsTool(AgentTool):
 
         try:
             # Determine if we are resuming the sub-agent from an interrupt.
-            if parent_call is not None and parent_call.awaiting_resume:
-                if not self._reinstate_turn(parent_call) and not self._agent._interrupt_state.activated:
-                    # Only the interrupts the parked turn is still waiting on: the orchestrator also
-                    # holds ids the sub-agent has already finished with, and handing one of those back
-                    # would send the caller to an interrupt that no longer exists on the sub-agent.
-                    parked_turn = parent_call.parked_turn()
-                    pending = (
-                        parent_call.pending_interrupts(local_ids=_parked_turn_interrupt_ids(parked_turn))
-                        if parked_turn is not None
-                        else []
-                    )
+            if parent_call is not None and parent_call.is_resuming:
+                # The interrupted turn comes from one of two places: an ephemeral sub-agent's turn is
+                # stored on the orchestrator, so restoring it reads the orchestrator's interrupt record,
+                # while a preserve_context=True sub-agent restores its own from its session manager and
+                # so arrives already activated.
+                restored = self._restore_interrupted_turn(parent_call) or self._agent._interrupt_state.activated
+
+                if not restored:
+                    pending = parent_call.pending_interrupts()
                     if pending:
-                        # The answer cannot be applied yet, but the turn is still parked, so raise the
-                        # interrupt again instead of failing the call: the orchestrator parks it once more,
+                        # The response cannot be applied yet, but the turn is still stored, so raise the
+                        # interrupt again instead of failing the call: the orchestrator holds it once more,
                         # keeping both the turn and the pending interrupt for another attempt. Failing here
                         # would end the orchestrator's turn, and the event loop clears the whole interrupt
-                        # record when a turn ends - taking the parked turn and the human's answer with it.
+                        # record when a turn ends - taking the stored turn and the response with it.
                         logger.error(
-                            "tool_name=<%s>, agent_name=<%s>, tool_use_id=<%s> | cannot apply the interrupt "
-                            "response yet, raising the interrupt again so it survives to be answered once "
-                            "more",
+                            "tool_name=<%s>, agent_name=<%s>, tool_use_id=<%s>, interrupt_ids=<%s> | the "
+                            "interrupted turn could not be restored, so the response cannot be applied yet: "
+                            "raising the interrupt again so it survives to be answered once more",
                             self._tool_name,
                             self._agent_name,
                             tool_use_id,
+                            [interrupt.id for interrupt in pending],
                         )
                         yield ToolInterruptEvent(tool_use, pending)
                         return
@@ -434,9 +397,13 @@ class _AgentAsTool(AgentTool):
 
             # Propagate sub-agent interrupts to the parent agent.
             if result.stop_reason == "interrupt" and result.interrupts:
+                # Namespacing and storing both need the orchestrator the response will come back
+                # through. A tool invoked directly has none, and cannot interrupt in the first place.
+                interrupts = list(result.interrupts)
                 if parent_call is not None:
-                    self._park_turn(parent_call)
-                yield ToolInterruptEvent(tool_use, _namespace_interrupts(tool_use_id, list(result.interrupts)))
+                    self._store_interrupted_turn(parent_call)
+                    interrupts = parent_call.namespace(interrupts)
+                yield ToolInterruptEvent(tool_use, interrupts)
                 return
 
             if result.structured_output:
@@ -476,14 +443,15 @@ class _AgentAsTool(AgentTool):
     def _reset_agent_state(self, tool_use_id: str) -> None:
         """Reset the wrapped agent to its initial state.
 
-        Restores messages and state to the values captured at construction time.
-        This mirrors the pattern used by ``GraphNode.reset_executor_state()``.
+        Restores messages, state and interrupt state to the values captured at construction time. This
+        mirrors the pattern used by ``GraphNode.reset_executor_state()``. Only reached on a fresh call,
+        so any interrupt state the agent is still carrying belongs to a turn nobody is resuming.
 
         The reset is unconditional, so exposing one ``Agent`` instance as a tool to several
-        orchestrators at once lets one orchestrator's call clear a turn another one has parked on an
-        interrupt. The parked orchestrator still resumes correctly, because it reinstates the turn
-        from its own interrupt record, but the other call fails; give each orchestrator its own
-        sub-agent instance instead of sharing one.
+        orchestrators at once lets one orchestrator's call clear a turn another one is holding an
+        interrupt for. That orchestrator still resumes correctly, because it restores the turn from its
+        own interrupt record, but give each orchestrator its own sub-agent instance rather than sharing
+        one.
 
         Args:
             tool_use_id: Tool use ID for logging context.
@@ -495,6 +463,7 @@ class _AgentAsTool(AgentTool):
         )
         self._agent.messages = copy.deepcopy(self._initial_messages)
         self._agent.state = AgentState(self._initial_state.get())
+        self._agent._interrupt_state = _InterruptState()
 
     @property
     def _agent_name(self) -> str:
@@ -513,23 +482,25 @@ class _AgentAsTool(AgentTool):
         Returns:
             Text for the failed tool result.
         """
-        if parent_call.parked_turn() is not None:
-            return (
-                f"Agent '{self._tool_name}' did NOT run and the human's response was NOT applied: its "
-                "interrupted turn failed to load. Do not report the requested action as completed or "
-                "successful. Tell the user it failed and ask them to respond again. See the logged error "
-                "for the cause."
+        if parent_call.interrupted_turn() is not None:
+            cause = "its interrupted turn failed to load. See the logged error for the cause"
+        elif self._preserve_context:
+            cause = (
+                "its interrupted turn did not survive the restart. A sub-agent used with "
+                "preserve_context=True keeps its own state, so it needs its own session manager for that "
+                "state to survive"
             )
+        else:
+            cause = "its interrupted turn is no longer available"
 
         return (
-            f"Agent '{self._tool_name}' did NOT run and the human's response was NOT applied: its "
-            "interrupted turn did not survive the restart. A sub-agent used with preserve_context=True "
-            "keeps its own state, so it needs its own session manager for that state to survive. Do not "
-            "report the requested action as completed or successful; tell the user it failed."
+            f"Agent '{self._tool_name}' did NOT run and the human's response was NOT applied: {cause}. "
+            "Do not report the requested action as completed or successful. Tell the user it failed and "
+            "ask them to respond again."
         )
 
-    def _park_turn(self, parent_call: _ParentCall) -> None:
-        """Park the sub-agent's interrupted turn on the orchestrator so a later request can reinstate it.
+    def _store_interrupted_turn(self, parent_call: _ParentCall) -> None:
+        """Store the sub-agent's interrupted turn on the orchestrator so a later request can restore it.
 
         Only for ``preserve_context=False`` sub-agents: they are ephemeral by contract and are rejected at
         construction if they have a session manager, so the orchestrator carries the turn for them and
@@ -555,40 +526,42 @@ class _AgentAsTool(AgentTool):
 
         # Copied because the snapshot carries the sub-agent's live interrupt context by reference, and the
         # sub-agent keeps being used after this.
-        parent_call.park_turn(copy.deepcopy(self._agent.take_snapshot(preset="session").to_dict()))
+        parent_call.store_interrupted_turn(copy.deepcopy(self._agent.take_snapshot(preset="session").to_dict()))
         logger.debug(
-            "tool_name=<%s>, tool_use_id=<%s> | parked interrupted sub-agent turn for resume",
+            "tool_name=<%s>, tool_use_id=<%s> | stored interrupted sub-agent turn for resume",
             self._tool_name,
             parent_call.tool_use_id,
         )
 
-    def _reinstate_turn(self, parent_call: _ParentCall) -> bool:
-        """Rebuild the sub-agent's interrupted turn from the turn the orchestrator parked.
+    def _restore_interrupted_turn(self, parent_call: _ParentCall) -> bool:
+        """Rebuild the sub-agent's interrupted turn from the turn the orchestrator stored.
 
-        The turn is freed once it loads: a sub-agent that interrupts again parks a fresh one.
+        The turn is freed once it loads: a sub-agent that interrupts again stores a fresh one.
 
         Args:
             parent_call: The orchestrator's record of this call.
 
         Returns:
-            True if the interrupted turn was reinstated onto the sub-agent.
+            True if the interrupted turn was restored onto the sub-agent.
         """
-        turn = parent_call.parked_turn()
+        turn = parent_call.interrupted_turn()
         if turn is None:
             return False
 
         try:
             self._agent.load_snapshot(Snapshot.from_dict(turn))
-        except Exception as error:
-            # Keep the parked turn: a load can fail for a reason a later attempt survives, such as a schema
-            # version the running SDK does not accept yet, and this is the only copy of the turn the human
-            # already answered. The caller re-raises the interrupt so the turn stays parked with it. A
-            # failure after the first field was applied leaves the sub-agent mismatched. It is not
-            # invoked unless it is itself still activated from an earlier turn in this process, and an
-            # ephemeral sub-agent is reset on its next fresh call.
+        except (SnapshotException, ValueError, KeyError, TypeError) as error:
+            # The ways a turn written by another build of the SDK fails to load: an unsupported schema
+            # version or scope, a state a component rejects, or a field that has since been renamed or
+            # retyped. Anything else is a bug rather than stale data, and is left to propagate.
+            #
+            # Keep the stored turn: a load can fail for a reason a later attempt survives, and this is
+            # the only copy of the turn the human already answered. The caller raises the interrupt again
+            # so the turn stays stored with it. A failure after the first field was applied leaves the
+            # sub-agent mismatched. It is not invoked unless it is itself still activated from an earlier
+            # turn in this process, and an ephemeral sub-agent is reset on its next fresh call.
             logger.error(
-                "tool_name=<%s>, agent_name=<%s>, tool_use_id=<%s> | failed to reinstate interrupted "
-                "sub-agent turn: %s",
+                "tool_name=<%s>, agent_name=<%s>, tool_use_id=<%s> | failed to restore interrupted sub-agent turn: %s",
                 self._tool_name,
                 self._agent_name,
                 parent_call.tool_use_id,
@@ -596,7 +569,7 @@ class _AgentAsTool(AgentTool):
             )
             return False
 
-        parent_call.drop_parked_turn()
+        parent_call.clear_interrupted_turn()
         return True
 
     @override

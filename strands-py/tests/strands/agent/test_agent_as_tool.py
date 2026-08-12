@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import strands
-from strands.agent._agent_as_tool import _AgentAsTool, _namespace_interrupts, _namespace_prefix, _ParentCall
+from strands.agent._agent_as_tool import _INTERRUPTED_TURNS_KEY, _AgentAsTool, _ParentCall
 from strands.agent.agent import Agent
 from strands.agent.agent_result import AgentResult
 from strands.hooks import BeforeToolCallEvent, HookProvider, HookRegistry
@@ -43,9 +43,10 @@ def fake_agent():
 def namespaced_id(tool_use_id, local_id):
     """The orchestrator-visible id for a sub-agent-local interrupt id.
 
-    Built from the adapter's own helper so these tests pin behaviour rather than the id format.
+    Built through the adapter's own namespacing so these tests pin behaviour, not the id format.
     """
-    return f"{_namespace_prefix(tool_use_id)}{local_id}"
+    interrupt = Interrupt(id=local_id, name="approval", reason="r")
+    return _ParentCall(MagicMock(), tool_use_id).namespace([interrupt])[0].id
 
 
 def interrupt_result_for(interrupt_id):
@@ -519,11 +520,11 @@ def interrupt_result():
 
 
 @pytest.mark.asyncio
-async def test_stream_interrupt_yields_tool_interrupt_event(tool, mock_agent, tool_use, interrupt_result):
+async def test_stream_interrupt_yields_tool_interrupt_event(tool, mock_agent, tool_use, interrupt_result, orchestrator):
     """A sub-agent interrupt propagates upward with its id namespaced by this tool call."""
     mock_agent.stream_async.return_value = _mock_stream_async(interrupt_result)
 
-    events = [event async for event in tool.stream(tool_use, {})]
+    events = [event async for event in tool.stream(tool_use, {"agent": orchestrator})]
 
     assert len(events) == 1
     assert isinstance(events[0], ToolInterruptEvent)
@@ -535,23 +536,25 @@ async def test_stream_interrupt_yields_tool_interrupt_event(tool, mock_agent, to
 
 
 @pytest.mark.asyncio
-async def test_stream_interrupt_no_tool_result_appended(tool, mock_agent, tool_use, interrupt_result):
+async def test_stream_interrupt_no_tool_result_appended(tool, mock_agent, tool_use, interrupt_result, orchestrator):
     """ToolInterruptEvent should not produce a ToolResultEvent."""
     mock_agent.stream_async.return_value = _mock_stream_async(interrupt_result)
 
-    events = [event async for event in tool.stream(tool_use, {})]
+    events = [event async for event in tool.stream(tool_use, {"agent": orchestrator})]
 
     result_events = [e for e in events if isinstance(e, ToolResultEvent)]
     assert result_events == []
 
 
 @pytest.mark.asyncio
-async def test_stream_interrupt_forwards_intermediate_events(tool, mock_agent, tool_use, interrupt_result):
+async def test_stream_interrupt_forwards_intermediate_events(
+    tool, mock_agent, tool_use, interrupt_result, orchestrator
+):
     """Intermediate events should still be yielded before the interrupt."""
     intermediate = [{"data": "partial"}]
     mock_agent.stream_async.return_value = _mock_stream_async(interrupt_result, intermediate)
 
-    events = [event async for event in tool.stream(tool_use, {})]
+    events = [event async for event in tool.stream(tool_use, {"agent": orchestrator})]
 
     stream_events = [e for e in events if isinstance(e, AgentAsToolStreamEvent)]
     interrupt_events = [e for e in events if isinstance(e, ToolInterruptEvent)]
@@ -759,7 +762,9 @@ def test_agent_mixed_with_regular_tools_in_tools_list():
 
 
 @pytest.mark.asyncio
-async def test_stream_interrupt_stores_continuation_for_ephemeral_sub_agent(fake_agent, orchestrator, interrupt_result):
+async def test_stream_interrupt_stores_interrupted_turn_for_ephemeral_sub_agent(
+    fake_agent, orchestrator, interrupt_result
+):
     """An ephemeral sub-agent's interrupted turn is stored in the orchestrator's interrupt context."""
     fake_agent.messages = [{"role": "user", "content": [{"text": "go"}]}]
     fake_agent.stream_async = MagicMock(return_value=_mock_stream_async(interrupt_result))
@@ -769,18 +774,16 @@ async def test_stream_interrupt_stores_continuation_for_ephemeral_sub_agent(fake
     async for _ in tool.stream(tool_use, {"agent": orchestrator}):
         pass
 
-    continuations = orchestrator._interrupt_state.context["sub_agent_continuations"]
-    assert list(continuations) == ["tool-123"]
+    stored_turns = orchestrator._interrupt_state.context[_INTERRUPTED_TURNS_KEY]
+    assert list(stored_turns) == ["tool-123"]
 
-    tru_messages = continuations["tool-123"]["data"]["messages"]
+    tru_messages = stored_turns["tool-123"]["data"]["messages"]
     exp_messages = [{"role": "user", "content": [{"text": "go"}]}]
     assert tru_messages == exp_messages
 
 
 @pytest.mark.asyncio
-async def test_stream_interrupt_stores_no_continuation_when_context_is_preserved(
-    fake_agent, orchestrator, interrupt_result
-):
+async def test_stream_interrupt_stores_no_turn_when_context_is_preserved(fake_agent, orchestrator, interrupt_result):
     """A context-preserving sub-agent owns its state, so the orchestrator stores nothing for it."""
     fake_agent.stream_async = MagicMock(return_value=_mock_stream_async(interrupt_result))
     tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=True)
@@ -795,8 +798,8 @@ async def test_stream_interrupt_stores_no_continuation_when_context_is_preserved
 
 
 @pytest.mark.asyncio
-async def test_stream_resume_restores_ephemeral_sub_agent_from_continuation(orchestrator):
-    """An ephemeral sub-agent rebuilt from scratch resumes from the stored continuation."""
+async def test_stream_resume_restores_ephemeral_sub_agent_from_a_stored_turn(orchestrator):
+    """An ephemeral sub-agent rebuilt from scratch resumes from the stored turn."""
     interrupted = Agent(name="fake_agent", callback_handler=None)
     interrupted.messages = [{"role": "user", "content": [{"text": "go"}]}]
     interrupted._interrupt_state.interrupts["interrupt-1"] = Interrupt(id="interrupt-1", name="approval", reason="r")
@@ -807,7 +810,7 @@ async def test_stream_resume_restores_ephemeral_sub_agent_from_continuation(orch
     orchestrator._interrupt_state.context.update(
         {
             "responses": [{"interruptResponse": {"interruptId": parent_id, "response": "APPROVE"}}],
-            "sub_agent_continuations": {"tool-123": interrupted.take_snapshot(preset="session").to_dict()},
+            _INTERRUPTED_TURNS_KEY: {"tool-123": interrupted.take_snapshot(preset="session").to_dict()},
         }
     )
     orchestrator._interrupt_state.activate()
@@ -836,10 +839,10 @@ async def test_stream_resume_restores_ephemeral_sub_agent_from_continuation(orch
     exp_prompt = [{"interruptResponse": {"interruptId": "interrupt-1", "response": "APPROVE"}}]
     assert tru_prompt == exp_prompt
 
-    # The continuation is consumed; a sub-agent that interrupts again stores a fresh one.
-    tru_continuations = orchestrator._interrupt_state.context["sub_agent_continuations"]
-    exp_continuations = {}
-    assert tru_continuations == exp_continuations
+    # The stored turn is consumed; a sub-agent that interrupts again stores a fresh one.
+    tru_stored_turns = orchestrator._interrupt_state.context[_INTERRUPTED_TURNS_KEY]
+    exp_stored_turns = {}
+    assert tru_stored_turns == exp_stored_turns
 
 
 @pytest.mark.asyncio
@@ -872,7 +875,7 @@ async def test_stream_ignores_interrupt_belonging_to_another_call(fake_agent, or
     """An interrupt the orchestrator holds for a different tool call is not adopted by this one."""
     tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=False)
 
-    # The sub-agent still carries another caller's parked turn, e.g. after restoring a shared session.
+    # The sub-agent still carries another caller's stored turn, e.g. after restoring a shared session.
     fake_agent.messages = [{"role": "user", "content": [{"text": "another caller's turn"}]}]
     fake_agent._interrupt_state.interrupts["interrupt-1"] = Interrupt(id="interrupt-1", name="approval", reason="r")
     fake_agent._interrupt_state.activate()
@@ -962,28 +965,25 @@ def confirmable_action():
     return dangerous_action, ConfirmHook(), executions
 
 
-def set_parked_turn_schema_version(storage_dir, schema_version):
-    """Rewrite the schema version of every parked sub-agent turn in a persisted session.
+def set_stored_turn_schema_version(storage_dir, schema_version):
+    """Rewrite the schema version of every stored sub-agent turn in a persisted session.
 
     Reproduces the version skew the reinstate path guards against: a turn written by one build of the
     SDK that the build now running will not load.
 
     Returns:
-        Number of parked turns rewritten.
+        Number of stored turns rewritten.
     """
     rewritten = 0
     for path in pathlib.Path(storage_dir).rglob("agent.json"):
         record = json.loads(path.read_text())
-        parked = (
-            record.get("_internal_state", {})
-            .get("interrupt_state", {})
-            .get("context", {})
-            .get("sub_agent_continuations")
+        stored = (
+            record.get("_internal_state", {}).get("interrupt_state", {}).get("context", {}).get(_INTERRUPTED_TURNS_KEY)
         )
-        if not parked:
+        if not stored:
             continue
 
-        for turn in parked.values():
+        for turn in stored.values():
             turn["schema_version"] = schema_version
             rewritten += 1
         path.write_text(json.dumps(record))
@@ -1088,12 +1088,12 @@ def test_nested_interrupt_resumes_after_rehydration_with_a_sub_agent_session_man
     assert tru_executions == exp_executions
 
 
-def test_nested_interrupt_survives_a_parked_turn_that_fails_to_load(tmp_path, confirmable_action):
-    """A parked turn that fails to load once is not lost: answering again still runs the confirmed tool.
+def test_nested_interrupt_survives_a_stored_turn_that_fails_to_load(tmp_path, confirmable_action):
+    """A stored turn that fails to load once is not lost: answering again still runs the confirmed tool.
 
-    Keeping the parked turn only helps if the interrupt stays pending with it, because the event loop
+    Keeping the stored turn only helps if the interrupt stays pending with it, because the event loop
     clears an agent's whole interrupt record as soon as a turn ends. So the failed reinstate has to
-    leave the orchestrator parked rather than report a failed tool call.
+    leave the orchestrator holding the interrupt rather than report a failed tool call.
     """
     dangerous_action, confirm_hook, executions = confirmable_action
 
@@ -1124,8 +1124,8 @@ def test_nested_interrupt_survives_a_parked_turn_that_fails_to_load(tmp_path, co
     assert interrupted_result.stop_reason == "interrupt"
     interrupt_id = interrupted_result.interrupts[0].id
 
-    # The running build cannot read the parked turn, e.g. mid-rollout across two SDK versions.
-    assert set_parked_turn_schema_version(tmp_path, "0.0") == 1
+    # The running build cannot read the stored turn, e.g. mid-rollout across two SDK versions.
+    assert set_stored_turn_schema_version(tmp_path, "0.0") == 1
 
     unloadable_result = build_orchestrator([text_message("done")], [text_message("all done")])(
         [{"interruptResponse": {"interruptId": interrupt_id, "response": "APPROVE"}}]
@@ -1136,7 +1136,7 @@ def test_nested_interrupt_survives_a_parked_turn_that_fails_to_load(tmp_path, co
     assert executions == []
 
     # The turn is readable again, and the same answer now applies.
-    assert set_parked_turn_schema_version(tmp_path, "1.0") == 1
+    assert set_stored_turn_schema_version(tmp_path, "1.0") == 1
 
     tru_result = build_orchestrator([text_message("done")], [text_message("all done")])(
         [{"interruptResponse": {"interruptId": interrupt_id, "response": "APPROVE"}}]
@@ -1150,13 +1150,13 @@ def test_nested_interrupt_survives_a_parked_turn_that_fails_to_load(tmp_path, co
 
 
 @pytest.mark.asyncio
-async def test_stream_resume_reraises_the_interrupt_when_the_parked_turn_cannot_be_loaded(
+async def test_stream_resume_reraises_the_interrupt_when_the_stored_turn_cannot_be_loaded(
     fake_agent, orchestrator, caplog
 ):
-    """A parked turn that fails to load raises the interrupt again rather than failing the call.
+    """A stored turn that fails to load raises the interrupt again rather than failing the call.
 
     Yielding a result here would end the orchestrator's turn, and the event loop clears the whole
-    interrupt record when a turn ends - so the parked turn and the human's answer have to be carried by
+    interrupt record when a turn ends - so the stored turn and the human's answer have to be carried by
     a still-pending interrupt to survive for another attempt.
     """
     interrupted = Agent(name="fake_agent", callback_handler=None)
@@ -1170,7 +1170,7 @@ async def test_stream_resume_reraises_the_interrupt_when_the_parked_turn_cannot_
     orchestrator._interrupt_state.context.update(
         {
             "responses": [{"interruptResponse": {"interruptId": parent_id, "response": "APPROVE"}}],
-            "sub_agent_continuations": {"tool-123": unloadable},
+            _INTERRUPTED_TURNS_KEY: {"tool-123": unloadable},
         }
     )
     orchestrator._interrupt_state.activate()
@@ -1188,11 +1188,11 @@ async def test_stream_resume_reraises_the_interrupt_when_the_parked_turn_cannot_
     tru_interrupt_ids = [interrupt.id for interrupt in events[0]["tool_interrupt_event"]["interrupts"]]
     exp_interrupt_ids = [parent_id]
     assert tru_interrupt_ids == exp_interrupt_ids
-    assert "failed to reinstate interrupted sub-agent turn" in caplog.text
+    assert "failed to restore interrupted sub-agent turn" in caplog.text
 
-    tru_continuations = orchestrator._interrupt_state.context["sub_agent_continuations"]
-    exp_continuations = {"tool-123": unloadable}
-    assert tru_continuations == exp_continuations
+    tru_stored_turns = orchestrator._interrupt_state.context[_INTERRUPTED_TURNS_KEY]
+    exp_stored_turns = {"tool-123": unloadable}
+    assert tru_stored_turns == exp_stored_turns
 
 
 def test_namespaced_interrupt_ids_are_not_captured_by_another_call(orchestrator):
@@ -1203,7 +1203,7 @@ def test_namespaced_interrupt_ids_are_not_captured_by_another_call(orchestrator)
     """
     local_id = "v1:before_tool_call:sub-1:abc"
 
-    answered = _namespace_interrupts("ob", [Interrupt(id=local_id, name="approval", reason="r")])[0]
+    answered = _ParentCall(orchestrator, "ob").namespace([Interrupt(id=local_id, name="approval", reason="r")])[0]
     orchestrator._interrupt_state.interrupts[answered.id] = answered
     orchestrator._interrupt_state.context["responses"] = [
         {"interruptResponse": {"interruptId": answered.id, "response": "APPROVE"}}
@@ -1218,15 +1218,15 @@ def test_namespaced_interrupt_ids_are_not_captured_by_another_call(orchestrator)
     exp_other = []
     assert tru_other == exp_other
 
-    assert _ParentCall(orchestrator, "ob").awaiting_resume is True
-    assert _ParentCall(orchestrator, "ob:v1").awaiting_resume is False
+    assert _ParentCall(orchestrator, "ob").is_resuming is True
+    assert _ParentCall(orchestrator, "ob:v1").is_resuming is False
 
 
 def test_namespaced_interrupt_ids_round_trip_a_separator_bearing_tool_use_id(orchestrator):
     """A tool use ID containing the separator is encoded in the prefix and still round-trips."""
     local_id = "v1:before_tool_call:sub-2:def"
 
-    namespaced = _namespace_interrupts("ob:v1", [Interrupt(id=local_id, name="approval", reason="r")])[0]
+    namespaced = _ParentCall(orchestrator, "ob:v1").namespace([Interrupt(id=local_id, name="approval", reason="r")])[0]
 
     tru_namespaced_id = namespaced.id
     exp_namespaced_id = f"v1:agent_as_tool:ob%3Av1:{local_id}"
@@ -1259,7 +1259,7 @@ def test_namespaced_interrupt_ids_are_not_captured_by_a_tool_use_id_of_the_schem
 
     parent_call = _ParentCall(orchestrator, "v1")
 
-    assert parent_call.awaiting_resume is False
+    assert parent_call.is_resuming is False
     assert parent_call.responses() == []
     assert parent_call.pending_interrupts() == []
 
@@ -1285,15 +1285,15 @@ async def test_stream_interrupt_warns_when_a_context_preserving_sub_agent_has_no
 
 
 @pytest.mark.asyncio
-async def test_stream_resume_reraises_only_the_interrupts_the_parked_turn_still_awaits(
+async def test_stream_resume_reraises_only_the_interrupts_the_stored_turn_still_awaits(
     fake_agent, orchestrator, caplog
 ):
     """Re-raising skips an interrupt the sub-agent has already finished with.
 
     The orchestrator keeps every interrupt id it was handed until its own turn ends, so after a
-    sub-agent interrupts twice its first id is still recorded there while the parked turn has moved on.
+    sub-agent interrupts twice its first id is still recorded there while the stored turn has moved on.
     Handing that id back would point the caller at an interrupt the reinstated sub-agent does not hold,
-    and answering it fails the call - taking the parked turn and the pending answer with it.
+    and answering it fails the call - taking the stored turn and the pending answer with it.
     """
     interrupted = Agent(name="fake_agent", callback_handler=None)
     interrupted._interrupt_state.interrupts["interrupt-2"] = Interrupt(id="interrupt-2", name="approval", reason="r")
@@ -1310,7 +1310,7 @@ async def test_stream_resume_reraises_only_the_interrupts_the_parked_turn_still_
     orchestrator._interrupt_state.context.update(
         {
             "responses": [{"interruptResponse": {"interruptId": awaited_id, "response": "APPROVE"}}],
-            "sub_agent_continuations": {"tool-123": unloadable},
+            _INTERRUPTED_TURNS_KEY: {"tool-123": unloadable},
         }
     )
     orchestrator._interrupt_state.activate()
@@ -1333,10 +1333,10 @@ async def test_stream_resume_reraises_only_the_interrupts_the_parked_turn_still_
 async def test_stream_interrupt_parks_a_turn_that_is_isolated_from_the_sub_agent(
     fake_agent, orchestrator, interrupt_result
 ):
-    """A parked turn is a copy: later work on the same sub-agent instance cannot alter it.
+    """A stored turn is a copy: later work on the same sub-agent instance cannot alter it.
 
     A snapshot carries the sub-agent's interrupt context by reference, so an orchestrator reusing one
-    sub-agent instance would otherwise see its parked turn rewritten under it.
+    sub-agent instance would otherwise see its stored turn rewritten under it.
     """
     fake_agent.stream_async = MagicMock(return_value=_mock_stream_async(interrupt_result))
     tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=False)
@@ -1349,20 +1349,20 @@ async def test_stream_interrupt_parks_a_turn_that_is_isolated_from_the_sub_agent
         {"interruptResponse": {"interruptId": "later", "response": "DENY"}}
     ]
 
-    tru_parked_context = orchestrator._interrupt_state.context["sub_agent_continuations"]["tool-123"]["data"][
+    tru_stored_context = orchestrator._interrupt_state.context[_INTERRUPTED_TURNS_KEY]["tool-123"]["data"][
         "interrupt_state"
     ]["context"]
-    exp_parked_context = {}
-    assert tru_parked_context == exp_parked_context
+    exp_stored_context = {}
+    assert tru_stored_context == exp_stored_context
 
 
 def test_nested_interrupt_that_reraises_twice_runs_each_confirmed_action_once(tmp_path, confirmable_action):
     """A sub-agent that interrupts twice keeps both confirmations distinct across a failed reinstate.
 
     The orchestrator holds every interrupt id it was handed until its own turn ends, so by the second
-    interrupt the first id is still recorded while the parked turn has moved past it. Re-raising has to
-    offer only what the parked turn still awaits, otherwise the caller answers a dead id and the call
-    fails - losing the parked turn and the answer with it.
+    interrupt the first id is still recorded while the stored turn has moved past it. Re-raising has to
+    offer only what the stored turn still awaits, otherwise the caller answers a dead id and the call
+    fails - losing the stored turn and the answer with it.
     """
     dangerous_action, confirm_hook, executions = confirmable_action
 
@@ -1407,8 +1407,8 @@ def test_nested_interrupt_that_reraises_twice_runs_each_confirmed_action_once(tm
     assert executions == ["first"]
     second_id = second_interrupt.interrupts[0].id
 
-    # The parked turn cannot be read, so the second confirmation has to survive to be answered again.
-    assert set_parked_turn_schema_version(tmp_path, "0.0") == 1
+    # The stored turn cannot be read, so the second confirmation has to survive to be answered again.
+    assert set_stored_turn_schema_version(tmp_path, "0.0") == 1
 
     reraised = approve(build_orchestrator([text_message("sub done")], [text_message("all done")]), second_id)
 
@@ -1417,7 +1417,7 @@ def test_nested_interrupt_that_reraises_twice_runs_each_confirmed_action_once(tm
     assert tru_reraised_ids == exp_reraised_ids
     assert executions == ["first"]
 
-    assert set_parked_turn_schema_version(tmp_path, "1.0") == 1
+    assert set_stored_turn_schema_version(tmp_path, "1.0") == 1
 
     tru_result = approve(build_orchestrator([text_message("sub done")], [text_message("all done")]), second_id)
 
@@ -1426,3 +1426,25 @@ def test_nested_interrupt_that_reraises_twice_runs_each_confirmed_action_once(tm
     tru_executions = executions
     exp_executions = ["first", "second"]
     assert tru_executions == exp_executions
+
+
+@pytest.mark.asyncio
+async def test_stream_resets_stale_interrupt_state_on_a_fresh_call(fake_agent, orchestrator, agent_result):
+    """A fresh call clears interrupt state the sub-agent is still carrying from an abandoned turn.
+
+    An ephemeral sub-agent is reset to its construction baseline before each call, and interrupt state
+    nobody is resuming belongs to that baseline as much as its messages do: left in place, the sub-agent
+    would refuse the fresh prompt because it believes it is mid-interrupt.
+    """
+    tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=False)
+
+    fake_agent._interrupt_state.interrupts["stale-1"] = Interrupt(id="stale-1", name="approval", reason="r")
+    fake_agent._interrupt_state.activate()
+    fake_agent.stream_async = MagicMock(return_value=_mock_stream_async(agent_result))
+
+    tool_use = {"toolUseId": "tool-123", "name": "fake_agent", "input": {"input": "go"}}
+    async for _ in tool.stream(tool_use, {"agent": orchestrator}):
+        pass
+
+    assert fake_agent._interrupt_state.activated is False
+    assert fake_agent._interrupt_state.interrupts == {}
