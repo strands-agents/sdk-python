@@ -259,6 +259,10 @@ class AgentDelegation(Plugin):
 
         # Stateful model: skip delegation, execute as a normal tool.
         if context.agent.model.stateful:
+            logger.debug(
+                "tool_use_id=<%s> | stateful model, skipping delegation and running as a normal tool",
+                context.tool_use["toolUseId"],
+            )
             async for event in next_fn(context):
                 yield event
             return

@@ -924,7 +924,7 @@ async def test_delegation_preserves_content_verbatim_across_hops():
 
 @pytest.mark.asyncio
 async def test_delegation_preserves_json_block_verbatim():
-    """A child returning a json content block in the tool result is serialized to text by _to_content_blocks."""
+    """A child returning a json content block has it copied verbatim into the tool result."""
 
     json_payload = {"status": "ok", "count": 3}
 
@@ -935,10 +935,6 @@ async def test_delegation_preserves_json_block_verbatim():
         callback_handler=None,
     )
     tool = sub.as_tool(delegate=True)
-
-    # Patch the agent's invoke to return a result with a json content block.
-    from strands.agent.agent_result import AgentResult
-    from strands.telemetry.metrics import EventLoopMetrics
 
     fake_result = AgentResult(
         stop_reason="end_turn",
@@ -963,11 +959,9 @@ async def test_delegation_preserves_json_block_verbatim():
 
 
 @pytest.mark.asyncio
-async def test_delegation_citations_only_no_trailing_newline():
-    """A child returning only citationsContent must not inject a trailing newline."""
-    from strands.agent.agent_result import AgentResult
-    from strands.telemetry.metrics import EventLoopMetrics
-
+async def test_delegation_preserves_citations_alongside_text():
+    """Mixed text + citationsContent: both must appear in the tool result without trailing newlines."""
+    plain_text = "Here is the answer."
     cited_text = "cited fact"
 
     sub = Agent(
@@ -979,7 +973,13 @@ async def test_delegation_citations_only_no_trailing_newline():
 
     fake_result = AgentResult(
         stop_reason="end_turn",
-        message={"role": "assistant", "content": [{"citationsContent": {"content": [{"text": cited_text}]}}]},
+        message={
+            "role": "assistant",
+            "content": [
+                {"text": plain_text},
+                {"citationsContent": {"content": [{"text": cited_text}]}},
+            ],
+        },
         metrics=EventLoopMetrics(),
         state={},
     )
@@ -995,5 +995,6 @@ async def test_delegation_citations_only_no_trailing_newline():
 
     assert len(result_events) == 1
     content = result_events[0]["tool_result"]["content"]
-    assert len(content) == 1
-    assert content[0]["text"] == cited_text
+    assert len(content) == 2
+    assert content[0]["text"] == plain_text
+    assert content[1]["text"] == cited_text
