@@ -502,13 +502,13 @@ A session manager assumes it is the only writer for its key: the session ID plus
 
 Give each conversation its own session ID. Several agents can share one session ID as long as their agent IDs differ, since each agent keeps its own messages and state inside the session. What corrupts data is two live agents addressing the same session ID *and* agent ID, which the default IDs (<Syntax py='agent_id="default"' ts="id: 'agent'" />) make easy to do by accident.
 
-Only Python catches part of this: handing one session manager to two agents with the same agent ID raises `SessionException`. Nothing catches two agents that each hold their own session manager, whether that is a second Lambda execution or a server that builds a manager per request, and neither call errors. Their invocations either overlap, and one agent's turn is overwritten, or they do not, and the second agent restores the first one's messages and appends to them, leaving one history that holds two conversations.
+Only Python catches part of this: handing one session manager to two agents with the same agent ID raises `SessionException`. Nothing catches two agents that each hold their own session manager, whether that is a second AWS Lambda execution or a server that builds a manager per request, and neither call errors. Their invocations either overlap, and one agent's turn is overwritten, or they do not, and the second agent restores the first one's messages and appends to them, leaving one history that holds two conversations.
 
 A single agent instance rejects overlapping invocations by default, described in [Concurrent Invocations](./agent-loop.md#concurrent-invocations), but that guard is in-process: it sees nothing running anywhere else.
 
 ### Create an Agent per Conversation
 
-Constructing an agent is cheap, since it wires up tools, hooks, and plugins and makes no model call. Build one per request, invoke it, and let it go out of scope. An agent binds to its session once, at construction in Python (which restores the stored history there) and on first invocation in TypeScript, so a long-lived agent shared across conversations cannot switch between them. The model provider is the part worth reusing: providers such as `BedrockModel` build their client in the constructor, so create the provider once per process and pass the same instance to every agent.
+Constructing an agent is cheap, since it wires up tools, hooks, and plugins, and makes no model call. Build one per request, invoke it, and let it go out of scope. An agent binds to its session once, at construction in Python (which restores the stored history there) and on first invocation in TypeScript, so a long-lived agent shared across conversations cannot switch between them. The model provider is the part worth reusing: providers such as `BedrockModel` build their client in the constructor, so create the provider once per process and pass the same instance to every agent.
 
 ### Serializing Access to a Shared Session
 
