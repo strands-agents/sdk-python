@@ -56,6 +56,9 @@ BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES = [
     "prompt is too long",
 ]
 
+# Bedrock reports this exact substring for the Converse incompatibility tracked in #1223.
+_TOOL_RESULT_TURN_VALIDATION_MESSAGE = "Conversation blocks and tool result blocks cannot be provided in the same turn."
+
 # Models that should include tool result status (include_tool_result_status = True)
 _MODELS_INCLUDE_STATUS = [
     "anthropic.claude",
@@ -194,6 +197,7 @@ class BedrockModel(Model):
             model_id=BedrockModel._get_default_model_with_warning(resolved_region, model_config),
             include_tool_result_status="auto",
         )
+        self._tool_result_turn_separation_model_id: str | None = None
         self.update_config(**model_config)
 
         logger.debug("config=<%s> | initializing", self.config)
@@ -288,9 +292,13 @@ class BedrockModel(Model):
             )
             system_blocks.append({"cachePoint": {"type": cache_prompt}})
 
+        formatted_messages = self._format_bedrock_messages(messages)
+        if self._tool_result_turn_separation_model_id == self.config["model_id"]:
+            formatted_messages = self._separate_tool_result_turns(formatted_messages)
+
         return {
             "modelId": self.config["model_id"],
-            "messages": self._format_bedrock_messages(messages),
+            "messages": formatted_messages,
             "system": system_blocks,
             **({"serviceTier": {"type": self.config["service_tier"]}} if self.config.get("service_tier") else {}),
             **(
@@ -686,6 +694,33 @@ class BedrockModel(Model):
                 self._inject_cache_point(cleaned_messages)
 
         return cleaned_messages
+
+    @staticmethod
+    def _separate_tool_result_turns(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Separate adjacent user turns rejected by some Bedrock models.
+
+        A neutral assistant turn separates a tool-result-only user turn from the
+        next conversation turn described in #1223. The transformation is
+        request-local and idempotent, so persisted conversation history is not
+        mutated and repeated application does not add more separators.
+        """
+        separated_messages: list[dict[str, Any]] = []
+
+        for message in messages:
+            if separated_messages and separated_messages[-1].get("role") == "user" and message.get("role") == "user":
+                previous_content = separated_messages[-1].get("content", [])
+                current_content = message.get("content", [])
+                if (
+                    previous_content
+                    and all("toolResult" in block for block in previous_content)
+                    and current_content
+                    and all("toolResult" not in block for block in current_content)
+                ):
+                    separated_messages.append({"role": "assistant", "content": [{"text": "Tool result received."}]})
+
+            separated_messages.append(message)
+
+        return separated_messages
 
     def _should_include_tool_result_status(self) -> bool:
         """Determine whether to include tool result status based on current config."""
@@ -1127,14 +1162,35 @@ class BedrockModel(Model):
         try:
             logger.debug("formatting request")
             request = self.format_request(messages, tool_specs, system_prompt_content, tool_choice)
+            model_id = request["modelId"]
             logger.debug("request=<%s>", request)
 
             logger.debug("invoking model")
             streaming = self.config.get("streaming", True)
+            converse_method = self.client.converse_stream if streaming else self.client.converse
+
+            try:
+                response = converse_method(**request)
+            except ClientError as error:
+                error_details = error.response.get("Error", {})
+                if error_details.get(
+                    "Code"
+                ) != "ValidationException" or _TOOL_RESULT_TURN_VALIDATION_MESSAGE not in error_details.get(
+                    "Message", ""
+                ):
+                    raise
+
+                separated_messages = self._separate_tool_result_turns(request["messages"])
+                if separated_messages == request["messages"]:
+                    raise
+
+                logger.debug("model_id=<%s> | separating tool result and conversation turns", model_id)
+                request = {**request, "messages": separated_messages}
+                response = converse_method(**request)
+                self._tool_result_turn_separation_model_id = model_id
 
             logger.debug("got response from model")
             if streaming:
-                response = self.client.converse_stream(**request)
                 for chunk in response["stream"]:
                     if (
                         "metadata" in chunk
@@ -1149,7 +1205,6 @@ class BedrockModel(Model):
                     callback(chunk)
 
             else:
-                response = self.client.converse(**request)
                 for event in self.convert_non_streaming_to_streaming(response):
                     callback(event)
 

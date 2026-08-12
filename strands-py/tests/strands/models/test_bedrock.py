@@ -72,6 +72,31 @@ def messages():
 
 
 @pytest.fixture
+def tool_result_turn_messages():
+    return [
+        {"role": "user", "content": [{"text": "Create structured output"}]},
+        {
+            "role": "assistant",
+            "content": [{"toolUse": {"toolUseId": "tool-1", "name": "Result", "input": {"value": 1}}}],
+        },
+        {
+            "role": "user",
+            "content": [{"toolResult": {"toolUseId": "tool-1", "content": [{"text": "Validated"}]}}],
+        },
+        {"role": "user", "content": [{"text": "Create another result"}]},
+    ]
+
+
+@pytest.fixture
+def separated_tool_result_turn_messages(tool_result_turn_messages):
+    return [
+        *tool_result_turn_messages[:3],
+        {"role": "assistant", "content": [{"text": "Tool result received."}]},
+        tool_result_turn_messages[3],
+    ]
+
+
+@pytest.fixture
 def system_prompt():
     return "s1"
 
@@ -892,6 +917,212 @@ async def test_stream_throttling_exception_lowercase_non_streaming(bedrock_clien
     assert error_message in str(excinfo.value)
     bedrock_client.converse.assert_called_once()
     bedrock_client.converse_stream.assert_not_called()
+
+
+@pytest.mark.parametrize("streaming", [True, False])
+@pytest.mark.asyncio
+async def test_stream_retries_with_separated_tool_result_turns(
+    bedrock_client,
+    alist,
+    streaming,
+    tool_result_turn_messages,
+    separated_tool_result_turn_messages,
+):
+    """Tool-result turns are separated when Bedrock reports the incompatibility from issue #1223."""
+    validation_error = ClientError(
+        {
+            "Error": {
+                "Code": "ValidationException",
+                "Message": (
+                    "messages.3.content: "
+                    "Conversation blocks and tool result blocks cannot be provided in the same turn."
+                ),
+            }
+        },
+        "ConverseStream" if streaming else "Converse",
+    )
+    response = (
+        {"stream": []}
+        if streaming
+        else {
+            "output": {"message": {"role": "assistant", "content": [{"text": "Done"}]}},
+            "stopReason": "end_turn",
+        }
+    )
+    converse_method = bedrock_client.converse_stream if streaming else bedrock_client.converse
+    converse_method.side_effect = [validation_error, response]
+    model = BedrockModel(
+        model_id="us.meta.llama4-maverick-17b-instruct-v1:0",
+        streaming=streaming,
+        use_native_token_count=True,
+    )
+
+    await alist(model.stream(tool_result_turn_messages))
+
+    tru_first_messages = converse_method.call_args_list[0].kwargs["messages"]
+    assert tru_first_messages == tool_result_turn_messages
+
+    tru_retry_messages = converse_method.call_args_list[1].kwargs["messages"]
+    assert tru_retry_messages == separated_tool_result_turn_messages
+    assert model._tool_result_turn_separation_model_id == "us.meta.llama4-maverick-17b-instruct-v1:0"
+
+
+def test_format_request_separates_tool_result_turns_for_remembered_model(
+    bedrock_client,
+    tool_result_turn_messages,
+    separated_tool_result_turn_messages,
+):
+    """Remembered model formatting separates incompatible user turns."""
+    _ = bedrock_client
+    model = BedrockModel(model_id="us.meta.llama4-maverick-17b-instruct-v1:0")
+    model._tool_result_turn_separation_model_id = "us.meta.llama4-maverick-17b-instruct-v1:0"
+
+    tru_messages = model.format_request(tool_result_turn_messages)["messages"]
+
+    assert tru_messages == separated_tool_result_turn_messages
+
+
+@pytest.mark.asyncio
+async def test_count_tokens_separates_tool_result_turns_for_remembered_model(
+    bedrock_client,
+    tool_result_turn_messages,
+    separated_tool_result_turn_messages,
+):
+    """Native token counting uses the same separated request as invocation."""
+    bedrock_client.count_tokens.return_value = {"inputTokens": 42}
+    model = BedrockModel(
+        model_id="us.meta.llama4-maverick-17b-instruct-v1:0",
+        use_native_token_count=True,
+    )
+    model._tool_result_turn_separation_model_id = "us.meta.llama4-maverick-17b-instruct-v1:0"
+
+    await model.count_tokens(tool_result_turn_messages)
+
+    tru_messages = bedrock_client.count_tokens.call_args.kwargs["input"]["converse"]["messages"]
+    assert tru_messages == separated_tool_result_turn_messages
+
+
+@pytest.mark.parametrize("streaming", [True, False])
+@pytest.mark.asyncio
+async def test_stream_uses_separated_tool_result_turns_for_remembered_model(
+    bedrock_client,
+    alist,
+    streaming,
+    tool_result_turn_messages,
+    separated_tool_result_turn_messages,
+):
+    """Remembered models skip the failing canonical request."""
+    response = (
+        {"stream": []}
+        if streaming
+        else {
+            "output": {"message": {"role": "assistant", "content": [{"text": "Done"}]}},
+            "stopReason": "end_turn",
+        }
+    )
+    converse_method = bedrock_client.converse_stream if streaming else bedrock_client.converse
+    converse_method.return_value = response
+    model = BedrockModel(
+        model_id="us.meta.llama4-maverick-17b-instruct-v1:0",
+        streaming=streaming,
+    )
+    model._tool_result_turn_separation_model_id = "us.meta.llama4-maverick-17b-instruct-v1:0"
+
+    await alist(model.stream(tool_result_turn_messages))
+
+    converse_method.assert_called_once()
+    tru_messages = converse_method.call_args.kwargs["messages"]
+    assert tru_messages == separated_tool_result_turn_messages
+
+
+@pytest.mark.parametrize("streaming", [True, False])
+@pytest.mark.asyncio
+async def test_stream_does_not_retry_when_tool_result_turns_cannot_be_separated(
+    bedrock_client,
+    alist,
+    streaming,
+    messages,
+):
+    """The targeted validation error is re-raised when no transform applies."""
+    validation_error = ClientError(
+        {
+            "Error": {
+                "Code": "ValidationException",
+                "Message": (
+                    "messages.3.content: "
+                    "Conversation blocks and tool result blocks cannot be provided in the same turn."
+                ),
+            }
+        },
+        "ConverseStream" if streaming else "Converse",
+    )
+    converse_method = bedrock_client.converse_stream if streaming else bedrock_client.converse
+    converse_method.side_effect = validation_error
+    model = BedrockModel(model_id="us.meta.llama4-maverick-17b-instruct-v1:0", streaming=streaming)
+
+    with pytest.raises(ClientError):
+        await alist(model.stream(messages))
+
+    converse_method.assert_called_once()
+
+
+@pytest.mark.parametrize("streaming", [True, False])
+@pytest.mark.asyncio
+async def test_stream_does_not_remember_separation_when_retry_fails(
+    bedrock_client,
+    alist,
+    streaming,
+    tool_result_turn_messages,
+):
+    """Tool-result separation is remembered only after Bedrock accepts the retry."""
+    validation_error = ClientError(
+        {
+            "Error": {
+                "Code": "ValidationException",
+                "Message": (
+                    "messages.3.content: "
+                    "Conversation blocks and tool result blocks cannot be provided in the same turn."
+                ),
+            }
+        },
+        "ConverseStream" if streaming else "Converse",
+    )
+    converse_method = bedrock_client.converse_stream if streaming else bedrock_client.converse
+    converse_method.side_effect = [validation_error, validation_error]
+    model = BedrockModel(
+        model_id="us.meta.llama4-maverick-17b-instruct-v1:0",
+        streaming=streaming,
+    )
+
+    with pytest.raises(ClientError):
+        await alist(model.stream(tool_result_turn_messages))
+
+    assert model._tool_result_turn_separation_model_id is None
+
+    converse_method.reset_mock(side_effect=True)
+    converse_method.return_value = (
+        {"stream": []}
+        if streaming
+        else {
+            "output": {"message": {"role": "assistant", "content": [{"text": "Done"}]}},
+            "stopReason": "end_turn",
+        }
+    )
+
+    await alist(model.stream(tool_result_turn_messages))
+
+    converse_method.assert_called_once()
+    assert converse_method.call_args.kwargs["messages"] == tool_result_turn_messages
+
+
+def test_separate_tool_result_turns_ignores_conversation_only_user_turns():
+    """Adjacent conversation-only user turns do not gain a separator."""
+    messages = [
+        {"role": "user", "content": [{"text": "First"}]},
+        {"role": "user", "content": [{"text": "Second"}]},
+    ]
+
+    assert BedrockModel._separate_tool_result_turns(messages) == messages
 
 
 @pytest.mark.asyncio
