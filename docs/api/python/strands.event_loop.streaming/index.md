@@ -105,7 +105,7 @@ def handle_message_stop(event: MessageStopEvent,
                         content: list[dict[str, Any]]) -> StopReason
 ```
 
-Defined in: [src/strands/event\_loop/streaming.py:354](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L354)
+Defined in: [src/strands/event\_loop/streaming.py:359](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L359)
 
 Handles the end of a message by returning the stop reason.
 
@@ -127,7 +127,7 @@ def handle_redact_content(event: RedactContentEvent, state: dict[str,
                                                                  Any]) -> None
 ```
 
-Defined in: [src/strands/event\_loop/streaming.py:381](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L381)
+Defined in: [src/strands/event\_loop/streaming.py:386](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L386)
 
 Handles redacting content from the input or output.
 
@@ -144,7 +144,7 @@ def extract_usage_metrics(
         time_to_first_byte_ms: int | None = None) -> tuple[Usage, Metrics]
 ```
 
-Defined in: [src/strands/event\_loop/streaming.py:392](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L392)
+Defined in: [src/strands/event\_loop/streaming.py:397](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L397)
 
 Extracts usage metrics from the metadata chunk.
 
@@ -167,7 +167,7 @@ async def process_stream(
 ) -> AsyncGenerator[TypedEvent, None]
 ```
 
-Defined in: [src/strands/event\_loop/streaming.py:413](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L413)
+Defined in: [src/strands/event\_loop/streaming.py:418](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L418)
 
 Processes the response stream from the API, constructing the final message and extracting usage metrics.
 
@@ -198,7 +198,7 @@ async def stream_messages(model: Model,
                           **kwargs: Any) -> AsyncGenerator[TypedEvent, None]
 ```
 
-Defined in: [src/strands/event\_loop/streaming.py:484](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L484)
+Defined in: [src/strands/event\_loop/streaming.py:489](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L489)
 
 Streams messages to the model and processes the response.
 

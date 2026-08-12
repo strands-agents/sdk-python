@@ -6262,6 +6262,85 @@ Source: https://strandsagents.com/docs/integrations/session-managers/strands-val
 
 ---
 
+## GitHub Storage
+
+[strands-github-storage](https://github.com/maisieyanz/strands-github-storage) is a `Storage` backend that persists each entry as a file in a GitHub repository, at the entry’s key path on a branch. Because the store *is* a git repository, its contents are browsable in the GitHub UI, diffable per change, and versioned in history.
+
+It implements the SDK’s four-method `Storage` interface (`write`, `read`, `delete`, `list`), so it plugs in anywhere a `Storage` is accepted — session snapshots, context offloading, and file-backed memory stores such as `FileMemoryStore`.
+
+## Installation
+
+```bash
+npm install strands-github-storage
+```
+
+`@strands-agents/sdk` is a peer dependency; `@octokit/rest` is bundled.
+
+## Usage
+
+### Basic setup
+
+```typescript
+import { GithubStorage } from 'strands-github-storage'
+
+const storage = new GithubStorage({
+  owner: 'myorg',
+  repo: 'agent-memory',
+  branch: 'main', // optional, defaults to 'main'
+  token: process.env.GITHUB_TOKEN, // required for writes and private repos
+})
+
+await storage.write('facts/note.md', new TextEncoder().encode('remember this'))
+const bytes = await storage.read('facts/note.md') // Uint8Array | null
+const keys = await storage.list('facts/') // ['facts/note.md']
+await storage.delete('facts/note.md')
+```
+
+### Backing a memory store
+
+Pass it as the `storage` for a `FileMemoryStore` so an agent’s knowledge lives in a browsable, versioned repo:
+
+```typescript
+import { Agent, MemoryManager } from '@strands-agents/sdk'
+import { FileMemoryStore } from '@strands-agents/sdk/vended-memory-stores/file-memory-store'
+import { GithubStorage } from 'strands-github-storage'
+
+const memoryStore = new FileMemoryStore({
+  name: 'agent-memory',
+  storage: new GithubStorage({ owner: 'myorg', repo: 'agent-memory', token }),
+})
+
+const agent = new Agent({ model, memoryManager: new MemoryManager({ stores: [memoryStore] }) })
+```
+
+## Configuration
+
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `owner` | Yes | Repository owner (user or organization login). |
+| `repo` | Yes | Repository name. |
+| `branch` | No | Branch to read from and commit to. Defaults to `main`. |
+| `token` | For writes | GitHub token. Needed for any write and for reading private repos. |
+| `octokit` | No | A pre-configured `Octokit` client, as an alternative to `token` (e.g. to add retry/throttling plugins). |
+
+## Behavior and limits
+
+-   **One commit per operation.** Each `write` and `delete` is its own commit (`update <key>` / `delete <key>`). A burst of writes produces a burst of commits.
+-   **Single writer per branch.** Commits advance the branch ref without a compare-and-swap retry, so a concurrent writer that moves the branch head surfaces GitHub’s non-fast-forward rejection as a `StorageError` rather than being retried.
+-   **`read` is limited to files under 1 MB** — the ceiling of the GitHub contents API’s inline response. Markdown memory is far below this.
+-   **`list` fails loud on truncation.** GitHub’s git-tree API caps very large trees and does not paginate; rather than return a silent partial listing, `list` throws a `StorageError`.
+-   **No built-in rate-limit handling.** To add exponential backoff on `429`/`5xx`, pass an `octokit` client configured with `@octokit/plugin-throttling` / `@octokit/plugin-retry`.
+
+## References
+
+-   [GitHub](https://github.com/maisieyanz/strands-github-storage)
+-   [npm](https://www.npmjs.com/package/strands-github-storage)
+-   [Strands Storage docs](/docs/user-guide/concepts/storage/index.md)
+
+Source: https://strandsagents.com/docs/integrations/storage/github/index.md
+
+---
+
 ## Community Storage Backends
 
 A **storage backend** persists raw bytes under `/`\-separated string keys. The SDK uses the `Storage` interface internally for session snapshots, context offloading, and any construct that needs durable key-value persistence. Any class that implements the four-method `Storage` protocol (`write`, `read`, `delete`, `list`) can plug in.
@@ -21762,7 +21841,7 @@ Common configuration parameters include:
 -   `temperature` - Controls randomness (higher = more random)
 -   `maxTokens` - Maximum number of tokens to generate
 -   `stream` - Enable/disable streaming mode
--   `cacheConfig` - Enable prompt caching with `{ strategy: 'auto' }` or `{ strategy: 'anthropic' }`
+-   `cacheConfig` - Enable prompt caching with `{ strategy: 'auto' }`, or `{ messagesTTL: false }` to cache tool definitions only
 -   `region` - AWS region to use
 -   `apiKey` - Bedrock API key for bearer token authentication (alternative to SigV4 signing)
 -   `clientConfig` - AWS SDK client configuration
@@ -22085,7 +22164,7 @@ When `guardLatestUserMessage: true`, only the most recent user message is sent t
 
 Strands supports caching system prompts, tools, and messages to improve performance and reduce costs. Caching allows you to reuse parts of previous requests, which can significantly reduce token usage and latency.
 
-When you enable prompt caching, Amazon Bedrock creates a cache composed of **cache checkpoints**. These are markers that define the contiguous subsection of your prompt that you wish to cache. Cached content must remain unchanged between requests - any alteration invalidates the cache.
+When you enable prompt caching, Amazon Bedrock creates a cache composed of **cache points**. These are markers that define the contiguous subsection of your prompt that you wish to cache. Cached content must remain unchanged between requests - any alteration invalidates the cache.
 
 Prompt caching is supported for Anthropic Claude and Amazon Nova models on Bedrock. Each model has a minimum token requirement (e.g., 1,024 tokens for Claude Sonnet, 4,096 tokens for Claude Haiku), and cached content expires after 5 minutes of inactivity. Cache writes cost more than regular input tokens, but cache reads cost significantly less - see [Amazon Bedrock pricing](https://aws.amazon.com/bedrock/pricing/) for model-specific rates.
 
@@ -22094,6 +22173,8 @@ For complete details on supported models, token requirements, and cache field su
 #### System Prompt Caching
 
 Cache system prompts that remain static across multiple requests. This is useful when your system prompt contains no variables, timestamps, or dynamic content, exceeds the minimum cacheable token threshold for your model, and you make multiple requests with the same system prompt.
+
+A system prompt cache point you place by hand inherits the TTL you configured, so setting one `ttl` gives every cache point in the request the same duration. Bedrock requires TTLs to be non-increasing across the tool definitions, the system prompt, and the messages, and rejects a request where a longer TTL follows a shorter one.
 
 (( tab "Python" ))
 ```python
@@ -22194,7 +22275,17 @@ print(f"Cache read tokens: {response2.metrics.accumulated_usage.get('cacheReadIn
 (( /tab "Python" ))
 
 (( tab "TypeScript" ))
-In TypeScript, tool caching is enabled through `cacheConfig`. When `cacheConfig` is set, the SDK automatically appends a cache point after the tool definitions in each request. There is no separate `cacheTools` option — `cacheConfig` handles both tool and message caching together.
+Setting `cacheConfig` appends a cache point after the tool definitions in each request. The same `cacheConfig` also caches the conversation, and `toolsTTL` and `messagesTTL` control the two independently:
+
+| Configuration | Caches |
+| --- | --- |
+| `{}` | tool definitions and conversation |
+| `{ messagesTTL: false }` | tool definitions only |
+| `{ toolsTTL: false }` | conversation only |
+| `{ ttl: '1h' }` | both, with a one-hour TTL |
+| `{ ttl: '1h', messagesTTL: '5m' }` | tool definitions at one hour, conversation at five minutes |
+
+Pass a TTL to set that duration, or `false` to turn that part off. A `ttl` on `cacheConfig` applies to both, and either field overrides it for its own part.
 
 ```typescript
 const bedrockModel = new BedrockModel({
@@ -22235,6 +22326,10 @@ console.log(`Cache read tokens: ${cacheReadTokens}`)
 #### Messages Caching
 
 Messages caching allows you to reuse cached conversation context across multiple requests. By default, message caching is not enabled. To enable it, choose Option A for automatic cache management in agent workflows, or Option B for manual control over cache placement.
+
+The two compose. With automatic placement enabled, a cache point you place yourself in the last user message is kept where you put it, and automatic placement is suspended for that message. Cache points in earlier messages are removed, so they never accumulate one per turn.
+
+Place your cache point *ahead* of content that changes on every call, such as retrieved context or a timestamp. A cache point after that content puts it inside the cached prefix, so every request writes a new entry and none ever reads one. Bedrock also needs something ahead of the point to cache: a point in the first block of a message is dropped.
 
 **Option A: Automatic Cache Strategy (Claude models only)**
 
@@ -23015,6 +23110,8 @@ The `model_config` configures the underlying model selected for inference. The s
 | `max_tokens` | Maximum number of tokens to generate before stopping | `1028` | [reference](https://platform.claude.com/docs/en/api/messages/create#create.max_tokens) |
 | `model_id` | ID of a model to use | `claude-sonnet-4-6` | [reference](https://platform.claude.com/docs/en/api/messages/create#create.model) |
 | `params` | Additional pass-through parameters | `{"metadata": {"user_id": "u1"}}` | [reference](https://platform.claude.com/docs/en/api/messages/create) |
+| `cache_config` | Enables [prompt caching](#prompt-caching) on the conversation | `CacheConfig(ttl="1h")` | [reference](https://docs.claude.com/en/docs/build-with-claude/prompt-caching) |
+| `cache_tools` | Caches the tool definitions | `"default"` or `CacheToolsConfig(ttl="1h")` | [reference](https://docs.claude.com/en/docs/build-with-claude/prompt-caching) |
 (( /tab "Python" ))
 
 (( tab "TypeScript" ))
@@ -23024,6 +23121,7 @@ The `model_config` configures the underlying model selected for inference. The s
 | `maxTokens` | Maximum tokens to generate | `1028` | [reference](https://platform.claude.com/docs/en/api/messages/create#create.max_tokens) |
 | `stopSequences` | Sequences that stop generation | `['END']` | [reference](https://platform.claude.com/docs/en/api/messages/create#create.stop_sequences) |
 | `params` | Additional pass-through parameters | `{ metadata: { user_id: 'u1' } }` | [reference](https://platform.claude.com/docs/en/api/messages/create) |
+| `cacheConfig` | Enables [prompt caching](#prompt-caching) on the tool definitions and the conversation | `{ ttl: '1h' }` | [reference](https://docs.claude.com/en/docs/build-with-claude/prompt-caching) |
 (( /tab "TypeScript" ))
 
 ## Troubleshooting
@@ -23153,6 +23251,81 @@ console.log(`Sentiment: ${review.sentiment}`)
 (( /tab "TypeScript" ))
 
 For schema patterns, error handling, and per-invocation overrides, see [Structured Output](/docs/user-guide/concepts/agents/structured-output/index.md).
+
+### Prompt Caching
+
+[Prompt caching](https://docs.claude.com/en/docs/build-with-claude/prompt-caching) lets Claude reuse an already-processed prefix of your prompt instead of reprocessing it on every call. The mechanism, the cost model, and the cache metrics match [Amazon Bedrock](/docs/user-guide/concepts/model-providers/amazon-bedrock/index.md#caching); this section covers what differs here.
+
+Caching is off by default. Set `cache_config``cacheConfig` to add a cache point to the last user message, which caches everything before it:
+
+(( tab "Python" ))
+```python
+from strands import Agent
+from strands.models.anthropic import AnthropicModel
+from strands.models import CacheConfig, CacheToolsConfig
+
+model = AnthropicModel(
+    model_id="claude-sonnet-4-6",
+    max_tokens=1028,
+    cache_config=CacheConfig(ttl="1h"),
+    cache_tools=CacheToolsConfig(ttl="1h"),
+)
+
+agent = Agent(model=model)
+result = agent("Summarize the attached report.")
+print(result.metrics.accumulated_usage)
+
+# Typical output:
+# {'inputTokens': 12, ..., 'cacheReadInputTokens': 2505}
+```
+(( /tab "Python" ))
+
+(( tab "TypeScript" ))
+```typescript
+import { Agent } from '@strands-agents/sdk'
+import { AnthropicModel } from '@strands-agents/sdk/models/anthropic'
+
+const model = new AnthropicModel({
+  modelId: 'claude-sonnet-4-6',
+  maxTokens: 1028,
+  cacheConfig: { ttl: '1h' },
+})
+
+const agent = new Agent({ model })
+const result = await agent.invoke('Summarize the attached report.')
+console.log(result.metrics?.accumulatedUsage)
+
+// Typical output:
+// { inputTokens: 12, ..., cacheReadInputTokens: 2505 }
+```
+(( /tab "TypeScript" ))
+
+Cache activity is reported in the usage metrics, in the same fields Bedrock uses: see [cache metrics](/docs/user-guide/concepts/model-providers/amazon-bedrock/index.md#cache-metrics).
+
+#### Choosing what to cache
+
+(( tab "Python" ))
+`cache_config` caches the conversation. `cache_tools` caches the tool definitions and works on its own, so tool definitions can be cached without caching the conversation. Passing a plain string (`"default"`) only switches it on: the value is not a TTL. Use `CacheToolsConfig(ttl=...)` to set one.
+
+`strategy` is ignored by this provider.
+(( /tab "Python" ))
+
+(( tab "TypeScript" ))
+One `cacheConfig` covers both the tool definitions and the conversation, with `toolsTTL` and `messagesTTL` controlling them independently. The shape and the per-field behavior are the same as on [Amazon Bedrock](/docs/user-guide/concepts/model-providers/amazon-bedrock/index.md#tool-caching), so a configuration survives a provider switch unchanged.
+
+`strategy` is ignored by this provider.
+(( /tab "TypeScript" ))
+
+#### Placing cache points by hand
+
+Placement works as it does on [Amazon Bedrock](/docs/user-guide/concepts/model-providers/amazon-bedrock/index.md#messages-caching): a cache point you put in the last user message is kept where you put it, automatic placement is suspended for that message, and points in earlier messages are removed. Place your point *ahead* of content that is rebuilt on every call, otherwise it lands inside the cached prefix and every request writes an entry that none ever reads.
+
+Two constraints are specific to this API:
+
+-   **Only some block types accept a cache point.** Text, image, tool use, tool result, and document blocks do; a reasoning block does not. A point with only a reasoning block, or a media block sourced by location, ahead of it cannot be honored, so automatic placement applies instead.
+-   **Maximum of four cache points per request**, shared across the tool definitions, the system prompt, and the messages. Automatic placement uses one per part it caches, so hand-placing several of your own alongside it can exceed the limit, and the API rejects the request.
+
+A prompt below the model’s minimum cacheable length is not cached: if both cache metrics stay at zero, that is the likely cause. See [cache limitations](https://docs.claude.com/en/docs/build-with-claude/prompt-caching#cache-limitations) for per-model thresholds.
 
 ### Token Counting
 
@@ -32699,7 +32872,7 @@ If a tool with the same name is already registered on the agent, the sandbox-ven
 ```typescript
 import { Agent } from '@strands-agents/sdk'
 import { DockerSandbox } from '@strands-agents/sdk/sandbox/docker'
-import { makeShell } from '@strands-agents/sdk/vended-tools/bash'
+import { makeShell } from '@strands-agents/sdk/vended-tools/shell'
 
 const sandbox = new DockerSandbox({ container: 'agent-workspace' })
 
@@ -33136,7 +33309,7 @@ To give your sandbox the same `sandbox_shell` and `sandbox_file_editor` tools th
 (( tab "TypeScript" ))
 ```typescript
 import type { Tool } from '@strands-agents/sdk'
-import { makeShell } from '@strands-agents/sdk/vended-tools/bash'
+import { makeShell } from '@strands-agents/sdk/vended-tools/shell'
 import { makeFileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
 
 override getTools(): Tool[] {
@@ -37340,7 +37513,7 @@ await agent.invoke('Restart the bash session')
 await agent.invoke('Run: echo $MY_VAR') // Variable will be empty
 ```
 
-📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/bash/README.md)
+📖 Full API Reference: [shell](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/shell/README.md) · [bash (TypeScript only)](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/bash/README.md)
 
 ---
 
@@ -56672,7 +56845,9 @@ Traces are separate from `AgentMetrics` and are accessed via `result.traces`. No
     
 4.  **Benchmark Latency Metrics**: Monitor latency values to establish performance baselines. Compare these metrics across different agent configurations to identify optimal setups.
     
-5.  **Regular Metrics Reviews**: Schedule periodic reviews of agent metrics to identify trends and opportunities for optimization. Look for gradual changes in performance that might indicate drift in tool behavior or model responses.
+5.  **Combine Technical Metrics with Business KPIs**: In addition to technical metrics, collect and analyze KPIs that measure business outcomes, such as resolution rate, escalation rate, customer satisfaction, and task completion. Track both types of metrics with equal weight to gain a more complete view of overall agent performance. For more information, see the [AWS Well-Architected Framework Agentic AI Lens Design Principles for Operational Excellence](https://docs.aws.amazon.com/wellarchitected/latest/agentic-ai-lens/operational-excellence-design-principles.html).
+    
+6.  **Regular Metrics Reviews**: Schedule periodic reviews of agent metrics to identify trends and opportunities for optimization. Look for gradual changes in performance that might indicate drift in tool behavior or model responses.
 
 ## Related pages
 

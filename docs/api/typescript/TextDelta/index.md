@@ -1,4 +1,4 @@
-Defined in: [src/models/streaming.ts:414](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/models/streaming.ts#L414)
+Defined in: [src/models/streaming.ts:414](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/models/streaming.ts#L414)
 
 Text delta within a content block. Represents incremental text content from the model.
 
@@ -10,7 +10,7 @@ Text delta within a content block. Represents incremental text content from the 
 type: "textDelta";
 ```
 
-Defined in: [src/models/streaming.ts:418](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/models/streaming.ts#L418)
+Defined in: [src/models/streaming.ts:418](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/models/streaming.ts#L418)
 
 Discriminator for text delta.
 
@@ -22,6 +22,6 @@ Discriminator for text delta.
 text: string;
 ```
 
-Defined in: [src/models/streaming.ts:423](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/models/streaming.ts#L423)
+Defined in: [src/models/streaming.ts:423](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/models/streaming.ts#L423)
 
 Incremental text content.

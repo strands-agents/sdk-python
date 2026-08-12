@@ -131,7 +131,7 @@ agent = Agent(plugins=[
 #### \_\_init\_\_
 
 ```python
-def __init__(storage: Storage | _LegacyStorage,
+def __init__(storage: Storage | _LegacyStorage | None = None,
              max_result_tokens: int = _DEFAULT_MAX_RESULT_TOKENS,
              preview_tokens: int = _DEFAULT_PREVIEW_TOKENS,
              *,
@@ -146,7 +146,7 @@ Initialize the ContextOffloader plugin.
 
 **Arguments**:
 
--   `storage` - Backend for storing offloaded content. Accepts either a unified `Storage` (from `strands.storage`) or a legacy offloader `Storage` (from this module).
+-   `storage` - Backend for storing offloaded content. Accepts either a unified `Storage` (from `strands.storage`), a legacy offloader `Storage` (from this module), or None. When None, resolves from the agent-level storage during initialization; if no agent-level storage is available, falls back to in-memory storage.
 -   `max_result_tokens` - Offload results whose estimated token count exceeds this threshold. Defaults to `_DEFAULT_MAX_RESULT_TOKENS` (2,500).
 -   `preview_tokens` - Number of tokens to keep as a text preview in context. Uses tiktoken for exact slicing when available, falls back to chars/4 heuristic. Defaults to `_DEFAULT_PREVIEW_TOKENS` (1,000).
 -   `include_retrieval_tool` - Whether to register the `retrieve_offloaded_content` tool so the agent can fetch offloaded content. Defaults to True.
@@ -163,9 +163,11 @@ Initialize the ContextOffloader plugin.
 def init_agent(agent: Agent) -> None
 ```
 
-Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:308](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L308)
+Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:315](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L315)
 
 Conditionally register the retrieval tool and bind storage.
+
+Storage is resolved on the first call and cached for the instance lifetime; a single ContextOffloader should not be shared across agents with differing storage backends.
 
 #### retrieve\_offloaded\_content
 
@@ -179,7 +181,7 @@ async def retrieve_offloaded_content(
         context_lines: int | None = None) -> dict | str
 ```
 
-Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:350](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L350)
+Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:368](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L368)
 
 Retrieve offloaded content by reference.
 
@@ -211,3 +213,7 @@ Constraints:
 -   `line_range` - Return only this span of lines. A dict with ‘start’ and ‘end’ keys (1-indexed). Combine with pattern to search within the range.
 -   `context_lines` - Lines before AND after each match (like grep -C). Default: 5. Without pattern/line\_range, returns first N lines.
 -   `tool_context` - Injected by the framework. Not user-facing.
+
+**Raises**:
+
+-   `ValueError` - If the reference is unknown, the content is binary and pattern/line\_range/context\_lines were supplied, or line\_range falls outside the content.

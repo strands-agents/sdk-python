@@ -18,7 +18,7 @@ Recall is lexical: results are ranked by how many query tokens overlap an entry�
 
 Each :meth:`add` rewrites the whole file, so this fits modest volumes (hundreds to low thousands of entries), not production workloads — use a managed store like `BedrockKnowledgeBaseStore` for that. Writes within one event loop are serialized; concurrent writers across processes are not.
 
-Persistence is backed by the unified :class:`~strands.storage.Storage` interface: `persist=True` (the default) uses a :class:`~strands.storage.LocalFileStorage`, `persist=False` an ephemeral :class:`~strands.storage.InMemoryStorage`.
+Persistence is backed by the unified :class:`~strands.storage.Storage` interface internally: `persist=True` (the default) uses a :class:`~strands.storage.LocalFileStorage`, `persist=False` an ephemeral :class:`~strands.storage.InMemoryStorage`. Unlike other subsystems (SnapshotSessionManager, ContextOffloader), this store does not accept an external `Storage` or resolve from the agent-level `storage` — it manages its own backend via `persist` and `path`.
 
 The on-disk format is shared with the TypeScript SDK’s `TestMemoryStore`: records use the same camelCase keys (`id`, `content`, `metadata`, `createdAt`) and the same timestamp shape, so a backing file written by either SDK can be read by the other.
 
@@ -40,7 +40,7 @@ results = await store.search("what theme does the user like?")
 def __init__(**store_config: Unpack[TestMemoryStoreConfig]) -> None
 ```
 
-Defined in: [src/strands/vended\_memory\_stores/test\_memory\_store/store.py:110](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/test_memory_store/store.py#L110)
+Defined in: [src/strands/vended\_memory\_stores/test\_memory\_store/store.py:113](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/test_memory_store/store.py#L113)
 
 Initialize the store.
 
@@ -59,7 +59,7 @@ async def search(query: str,
                  options: SearchOptions | None = None) -> list[MemoryEntry]
 ```
 
-Defined in: [src/strands/vended\_memory\_stores/test\_memory\_store/store.py:163](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/test_memory_store/store.py#L163)
+Defined in: [src/strands/vended\_memory\_stores/test\_memory\_store/store.py:166](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/test_memory_store/store.py#L166)
 
 Search stored entries for those whose content overlaps the query.
 
@@ -86,7 +86,7 @@ async def add(content: str,
               metadata: Metadata | None = None) -> TestMemoryAddResult
 ```
 
-Defined in: [src/strands/vended\_memory\_stores/test\_memory\_store/store.py:207](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/test_memory_store/store.py#L207)
+Defined in: [src/strands/vended\_memory\_stores/test\_memory\_store/store.py:210](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/test_memory_store/store.py#L210)
 
 Add `content` (with optional `metadata`) to the store.
 

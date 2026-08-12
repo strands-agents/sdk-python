@@ -47,6 +47,10 @@
     -   [Ollama](/docs/api/python/strands.models.ollama)
     -   [Openai](/docs/api/python/strands.models.openai)
     -   [Openai Responses](/docs/api/python/strands.models.openai_responses)
+    -   **Routing**
+        -   [Fallback Strategy](/docs/api/python/strands.models.routing.fallback_strategy)
+        -   [Router](/docs/api/python/strands.models.routing.router)
+        -   [Strategy](/docs/api/python/strands.models.routing.strategy)
     -   [Sagemaker](/docs/api/python/strands.models.sagemaker)
     -   [Writer](/docs/api/python/strands.models.writer)
 -   **Multiagent**
@@ -159,7 +163,6 @@
                 -   [Llm Handler](/docs/api/python/strands.vended_plugins.steering.handlers.llm.llm_handler)
                 -   [Mappers](/docs/api/python/strands.vended_plugins.steering.handlers.llm.mappers)
 -   **Vended Tools**
-    -   [Overview](/docs/api/python/strands.vended_tools)
     -   **File Editor**
         -   [File Editor](/docs/api/python/strands.vended_tools.file_editor.file_editor)
     -   **Http Request**

@@ -76,7 +76,7 @@ async def recurse_event_loop(
         limits: Limits | None = None) -> AsyncGenerator[TypedEvent, None]
 ```
 
-Defined in: [src/strands/event\_loop/event\_loop.py:403](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/event_loop.py#L403)
+Defined in: [src/strands/event\_loop/event\_loop.py:407](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/event_loop.py#L407)
 
 Make a recursive call to event\_loop\_cycle with the current state.
 

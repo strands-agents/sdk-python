@@ -1,4 +1,4 @@
-Defined in: [src/tools/types.ts:41](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/tools/types.ts#L41)
+Defined in: [src/tools/types.ts:50](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/tools/types.ts#L50)
 
 Represents a tool usage request from the model. The model generates this when it wants to use a tool.
 
@@ -10,7 +10,7 @@ Represents a tool usage request from the model. The model generates this when it
 name: string;
 ```
 
-Defined in: [src/tools/types.ts:45](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/tools/types.ts#L45)
+Defined in: [src/tools/types.ts:54](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/tools/types.ts#L54)
 
 The name of the tool to execute.
 
@@ -22,7 +22,7 @@ The name of the tool to execute.
 toolUseId: string;
 ```
 
-Defined in: [src/tools/types.ts:51](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/tools/types.ts#L51)
+Defined in: [src/tools/types.ts:60](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/tools/types.ts#L60)
 
 Unique identifier for this tool use instance. Used to match tool results back to their requests.
 
@@ -34,6 +34,6 @@ Unique identifier for this tool use instance. Used to match tool results back to
 input: JSONValue;
 ```
 
-Defined in: [src/tools/types.ts:57](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/tools/types.ts#L57)
+Defined in: [src/tools/types.ts:66](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/tools/types.ts#L66)
 
 The input parameters for the tool. Must be JSON-serializable.

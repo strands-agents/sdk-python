@@ -92,7 +92,7 @@ Initialize the snapshot session manager.
 **Arguments**:
 
 -   `session_id` - Unique session identifier. Must not contain path separators.
--   `storage` - Unified storage backend that persists snapshot blobs. Defaults to :class:`~strands.storage.local_file_storage.LocalFileStorage`, which writes under the local filesystem.
+-   `storage` - Unified storage backend that persists snapshot blobs. When None, resolves from the agent-level `storage` during initialization; if no agent-level storage is available, falls back to :class:`~strands.storage.local_file_storage.LocalFileStorage`.
 -   `save_latest_on` - When to overwrite `snapshot_latest`. See :data:`SaveLatestStrategy`.
 -   `snapshot_trigger` - Optional callback invoked after each invocation; when it returns True an immutable snapshot is appended for checkpointing. An immutable snapshot can also be forced at any point via :meth:`save_snapshot`.
 -   `**kwargs` - Additional keyword arguments for future extensibility.
@@ -107,7 +107,7 @@ Initialize the snapshot session manager.
 def register_hooks(registry: HookRegistry, **kwargs: Any) -> None
 ```
 
-Defined in: [src/strands/session/snapshot\_session\_manager.py:246](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/snapshot_session_manager.py#L246)
+Defined in: [src/strands/session/snapshot\_session\_manager.py:257](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/snapshot_session_manager.py#L257)
 
 Register lifecycle callbacks for snapshot persistence.
 
@@ -119,9 +119,11 @@ Overrides the base wiring: the message-log callbacks are replaced with snapshot 
 def initialize(agent: "Agent", **kwargs: Any) -> None
 ```
 
-Defined in: [src/strands/session/snapshot\_session\_manager.py:285](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/snapshot_session_manager.py#L285)
+Defined in: [src/strands/session/snapshot\_session\_manager.py:296](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/snapshot_session_manager.py#L296)
 
 Restore the agent from its latest snapshot, if one exists.
+
+Storage is resolved on the first call and cached; a single manager instance should not be shared across agents with differing storage backends.
 
 **Arguments**:
 
@@ -134,7 +136,7 @@ Restore the agent from its latest snapshot, if one exists.
 def sync_agent(agent: "Agent", **kwargs: Any) -> None
 ```
 
-Defined in: [src/strands/session/snapshot\_session\_manager.py:294](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/snapshot_session_manager.py#L294)
+Defined in: [src/strands/session/snapshot\_session\_manager.py:310](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/snapshot_session_manager.py#L310)
 
 Capture the agent and overwrite `snapshot_latest`.
 
@@ -150,7 +152,7 @@ def redact_latest_message(redact_message: Message, agent: "Agent",
                           **kwargs: Any) -> None
 ```
 
-Defined in: [src/strands/session/snapshot\_session\_manager.py:303](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/snapshot_session_manager.py#L303)
+Defined in: [src/strands/session/snapshot\_session\_manager.py:319](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/snapshot_session_manager.py#L319)
 
 Persist immediately after a guardrail redaction, under every strategy.
 
@@ -168,7 +170,7 @@ The Agent has already applied the redaction to `agent.messages[-1]` before calli
 def append_message(message: Message, agent: "Agent", **kwargs: Any) -> None
 ```
 
-Defined in: [src/strands/session/snapshot\_session\_manager.py:321](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/snapshot_session_manager.py#L321)
+Defined in: [src/strands/session/snapshot\_session\_manager.py:337](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/snapshot_session_manager.py#L337)
 
 No-op — snapshots capture the whole agent.
 
@@ -189,7 +191,7 @@ async def list_snapshot_ids(agent: "Agent",
                             start_after: str | None = None) -> list[str]
 ```
 
-Defined in: [src/strands/session/snapshot\_session\_manager.py:335](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/snapshot_session_manager.py#L335)
+Defined in: [src/strands/session/snapshot\_session\_manager.py:351](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/snapshot_session_manager.py#L351)
 
 List immutable snapshot ids for an agent, oldest first.
 
@@ -215,7 +217,7 @@ async def restore_snapshot(agent: "Agent",
                            snapshot_id: str | None = None) -> bool
 ```
 
-Defined in: [src/strands/session/snapshot\_session\_manager.py:365](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/snapshot_session_manager.py#L365)
+Defined in: [src/strands/session/snapshot\_session\_manager.py:381](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/snapshot_session_manager.py#L381)
 
 Restore an agent from a stored snapshot.
 
@@ -238,7 +240,7 @@ True if the snapshot existed and was restored, False otherwise.
 async def save_snapshot(agent: "Agent", *, is_latest: bool) -> str | None
 ```
 
-Defined in: [src/strands/session/snapshot\_session\_manager.py:381](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/snapshot_session_manager.py#L381)
+Defined in: [src/strands/session/snapshot\_session\_manager.py:397](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/snapshot_session_manager.py#L397)
 
 Save a snapshot of the agent’s current state on demand.
 
@@ -259,6 +261,6 @@ The new immutable snapshot id, ready to pass to :meth:`restore_snapshot`, or `No
 async def delete_session() -> None
 ```
 
-Defined in: [src/strands/session/snapshot\_session\_manager.py:402](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/snapshot_session_manager.py#L402)
+Defined in: [src/strands/session/snapshot\_session\_manager.py:419](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/snapshot_session_manager.py#L419)
 
 Delete all snapshots for this session.

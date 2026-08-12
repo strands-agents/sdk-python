@@ -1,4 +1,4 @@
-Defined in: [src/mcp/client.ts:47](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/mcp/client.ts#L47)
+Defined in: [src/mcp/client.ts:47](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/mcp/client.ts#L47)
 
 Configuration for MCP task-augmented tool execution.
 
@@ -14,7 +14,7 @@ When provided to McpClient, enables task-based tool invocation which supports lo
 optional ttl?: number;
 ```
 
-Defined in: [src/mcp/client.ts:52](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/mcp/client.ts#L52)
+Defined in: [src/mcp/client.ts:52](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/mcp/client.ts#L52)
 
 Time-to-live in milliseconds for task polling. Defaults to 60000 (60 seconds).
 
@@ -26,6 +26,6 @@ Time-to-live in milliseconds for task polling. Defaults to 60000 (60 seconds).
 optional pollTimeout?: number;
 ```
 
-Defined in: [src/mcp/client.ts:58](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/mcp/client.ts#L58)
+Defined in: [src/mcp/client.ts:58](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/mcp/client.ts#L58)
 
 Maximum time in milliseconds to wait for task completion during polling. Defaults to 300000 (5 minutes).

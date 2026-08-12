@@ -407,7 +407,9 @@ Traces are separate from `AgentMetrics` and are accessed via `result.traces`. No
     
 4.  **Benchmark Latency Metrics**: Monitor latency values to establish performance baselines. Compare these metrics across different agent configurations to identify optimal setups.
     
-5.  **Regular Metrics Reviews**: Schedule periodic reviews of agent metrics to identify trends and opportunities for optimization. Look for gradual changes in performance that might indicate drift in tool behavior or model responses.
+5.  **Combine Technical Metrics with Business KPIs**: In addition to technical metrics, collect and analyze KPIs that measure business outcomes, such as resolution rate, escalation rate, customer satisfaction, and task completion. Track both types of metrics with equal weight to gain a more complete view of overall agent performance. For more information, see the [AWS Well-Architected Framework Agentic AI Lens Design Principles for Operational Excellence](https://docs.aws.amazon.com/wellarchitected/latest/agentic-ai-lens/operational-excellence-design-principles.html).
+    
+6.  **Regular Metrics Reviews**: Schedule periodic reviews of agent metrics to identify trends and opportunities for optimization. Look for gradual changes in performance that might indicate drift in tool behavior or model responses.
 
 ## Related pages
 

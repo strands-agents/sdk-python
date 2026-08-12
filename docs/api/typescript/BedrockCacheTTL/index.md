@@ -1,16 +1,12 @@
 ```ts
-type BedrockCacheTTL =
-  | "5m"
-  | "1h"
-  | string & {
-};
+type BedrockCacheTTL = CacheTTL;
 ```
 
-Defined in: [src/models/bedrock.ts:144](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/models/bedrock.ts#L144)
+Defined in: [src/models/bedrock.ts:145](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/models/bedrock.ts#L145)
 
 TTL durations accepted by Bedrock for prompt-cache checkpoints.
 
-Bedrock currently accepts `'5m'` (default) and `'1h'`. The `(string & {})` branch keeps autocomplete on the known values while letting callers pass any string forward — Bedrock validates the value server-side and rejects unsupported values with `ValidationException`, so this stays correct as AWS adds new TTL values without an SDK update.
+Bedrock accepts `'5m'` (default) and `'1h'`, and validates the value server-side, rejecting unsupported values with `ValidationException`.
 
 Bedrock also requires checkpoint TTLs to be **non-increasing** across `toolConfig` → system → messages — setting a longer TTL on a later checkpoint than an earlier one will be rejected by the service.
 

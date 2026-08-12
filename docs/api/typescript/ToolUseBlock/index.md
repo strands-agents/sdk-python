@@ -1,4 +1,4 @@
-Defined in: [src/types/messages.ts:279](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/messages.ts#L279)
+Defined in: [src/types/messages.ts:279](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/types/messages.ts#L279)
 
 Tool use content block.
 
@@ -15,7 +15,7 @@ Tool use content block.
 new ToolUseBlock(data): ToolUseBlock;
 ```
 
-Defined in: [src/types/messages.ts:307](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/messages.ts#L307)
+Defined in: [src/types/messages.ts:307](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/types/messages.ts#L307)
 
 #### Parameters
 
@@ -35,7 +35,7 @@ Defined in: [src/types/messages.ts:307](https://github.com/strands-agents/harnes
 readonly type: "toolUseBlock";
 ```
 
-Defined in: [src/types/messages.ts:283](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/messages.ts#L283)
+Defined in: [src/types/messages.ts:283](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/types/messages.ts#L283)
 
 Discriminator for tool use content.
 
@@ -47,7 +47,7 @@ Discriminator for tool use content.
 readonly name: string;
 ```
 
-Defined in: [src/types/messages.ts:288](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/messages.ts#L288)
+Defined in: [src/types/messages.ts:288](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/types/messages.ts#L288)
 
 The name of the tool to execute.
 
@@ -63,7 +63,7 @@ The name of the tool to execute.
 readonly toolUseId: string;
 ```
 
-Defined in: [src/types/messages.ts:293](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/messages.ts#L293)
+Defined in: [src/types/messages.ts:293](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/types/messages.ts#L293)
 
 Unique identifier for this tool use instance.
 
@@ -79,7 +79,7 @@ Unique identifier for this tool use instance.
 readonly input: JSONValue;
 ```
 
-Defined in: [src/types/messages.ts:299](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/messages.ts#L299)
+Defined in: [src/types/messages.ts:299](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/types/messages.ts#L299)
 
 The input parameters for the tool. This can be any JSON-serializable value.
 
@@ -95,7 +95,7 @@ The input parameters for the tool. This can be any JSON-serializable value.
 readonly optional reasoningSignature?: string;
 ```
 
-Defined in: [src/types/messages.ts:305](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/messages.ts#L305)
+Defined in: [src/types/messages.ts:305](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/types/messages.ts#L305)
 
 Reasoning signature from thinking models (e.g., Gemini). Must be preserved and sent back to the model for multi-turn tool use.
 
@@ -113,7 +113,7 @@ toJSON(): {
 };
 ```
 
-Defined in: [src/types/messages.ts:320](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/messages.ts#L320)
+Defined in: [src/types/messages.ts:320](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/types/messages.ts#L320)
 
 Serializes the ToolUseBlock to a JSON-compatible ContentBlockData object. Called automatically by JSON.stringify().
 
@@ -127,7 +127,7 @@ Serializes the ToolUseBlock to a JSON-compatible ContentBlockData object. Called
 
 | Name | Type | Defined in |
 | --- | --- | --- |
-| `toolUse` | [`ToolUseBlockData`](/docs/api/typescript/ToolUseBlockData/index.md) | [src/types/messages.ts:320](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/messages.ts#L320) |
+| `toolUse` | [`ToolUseBlockData`](/docs/api/typescript/ToolUseBlockData/index.md) | [src/types/messages.ts:320](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/types/messages.ts#L320) |
 
 #### Implementation of
 
@@ -143,7 +143,7 @@ JSONSerializable.toJSON
 static fromJSON(data): ToolUseBlock;
 ```
 
-Defined in: [src/types/messages.ts:337](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/messages.ts#L337)
+Defined in: [src/types/messages.ts:337](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/types/messages.ts#L337)
 
 Creates a ToolUseBlock instance from its wrapped data format.
 

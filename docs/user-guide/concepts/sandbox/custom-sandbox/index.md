@@ -97,7 +97,7 @@ To give your sandbox the same `sandbox_shell` and `sandbox_file_editor` tools th
 (( tab "TypeScript" ))
 ```typescript
 import type { Tool } from '@strands-agents/sdk'
-import { makeShell } from '@strands-agents/sdk/vended-tools/bash'
+import { makeShell } from '@strands-agents/sdk/vended-tools/shell'
 import { makeFileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
 
 override getTools(): Tool[] {

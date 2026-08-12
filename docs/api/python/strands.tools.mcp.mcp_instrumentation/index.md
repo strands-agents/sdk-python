@@ -1,8 +1,32 @@
 OpenTelemetry instrumentation for Model Context Protocol (MCP) tracing.
 
-Enables distributed tracing across MCP client-server boundaries by injecting OpenTelemetry context into MCP request metadata (\_meta field) and extracting it on the server side, creating unified traces that span from agent calls through MCP tool executions.
+Enables distributed tracing across MCP client-server boundaries. The client side is handled with `inject_trace_context`, which `MCPClient` uses to merge the current OpenTelemetry context into the `_meta` field of outgoing tool calls through the public `meta` parameter of the official `mcp` package.
+
+The server side covers MCP servers hosted in the same process. It extracts client-injected context from incoming messages so server-side spans join the client’s trace. This requires patching private internals of the `mcp` package and those internals are only stable within the 1.x line, so the patches are gated to `mcp` 1.x. The `mcp` 2.x line propagates trace context natively.
 
 Based on: [https://github.com/traceloop/openllmetry/tree/main/packages/opentelemetry-instrumentation-mcp](https://github.com/traceloop/openllmetry/tree/main/packages/opentelemetry-instrumentation-mcp) Related issue: [https://github.com/modelcontextprotocol/modelcontextprotocol/issues/246](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/246)
+
+#### inject\_trace\_context
+
+```python
+def inject_trace_context(meta: dict[str, Any] | None) -> dict[str, Any] | None
+```
+
+Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:41](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L41)
+
+Merge the current OpenTelemetry context into MCP request metadata.
+
+Injects the active trace context (for example `traceparent` and `tracestate`) into a copy of `meta` so it can be sent as the `_meta` field of an MCP request. This enables server-side context extraction and trace continuation across the client-server boundary.
+
+Telemetry must never fail the tool call itself, so propagator errors are logged and swallowed; the caller’s metadata is still returned.
+
+**Arguments**:
+
+-   `meta` - Existing request metadata, or None. The input is not mutated.
+
+**Returns**:
+
+A new dict containing the caller’s entries plus the injected trace context, or None when there is no metadata to send.
 
 ## ItemWithContext
 
@@ -11,7 +35,7 @@ Based on: [https://github.com/traceloop/openllmetry/tree/main/packages/opentelem
 class ItemWithContext()
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:27](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L27)
+Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:82](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L82)
 
 Wrapper for items that need to carry OpenTelemetry context.
 
@@ -28,21 +52,18 @@ Used to preserve tracing context across async boundaries in MCP sessions, ensuri
 def mcp_instrumentation() -> None
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:43](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L43)
+Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:98](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L98)
 
-Apply OpenTelemetry instrumentation patches to MCP components.
+Apply OpenTelemetry instrumentation patches for in-process MCP servers.
 
-This function instruments three key areas of MCP communication:
+Instruments two areas of server-side MCP communication:
 
-1.  Client-side: Injects tracing context into tool call requests
-2.  Transport-level: Extracts context from incoming messages
-3.  Session-level: Manages bidirectional context flow
+1.  Transport-level: Extracts context from incoming messages
+2.  Session-level: Preserves context across async message processing boundaries
 
-The patches enable distributed tracing by:
+Together the patches let an MCP server hosted in the same process join the trace of the client that injected context into the request’s `_meta` field. Client-side injection does not require patching; `MCPClient` injects context via `inject_trace_context`.
 
--   Adding OpenTelemetry context to the \_meta field of MCP requests
--   Extracting and activating context on the server side
--   Preserving context across async message processing boundaries
+The patches wrap private internals of the `mcp` package that are only stable within the 1.x line, so they are applied only when `mcp` 1.x is installed. The `mcp` 2.x line propagates trace context natively.
 
 This function is idempotent - multiple calls will not accumulate wrappers.
 
@@ -52,7 +73,7 @@ This function is idempotent - multiple calls will not accumulate wrappers.
 class TransportContextExtractingReader(ObjectProxy)
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:186](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L186)
+Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:196](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L196)
 
 A proxy reader that extracts OpenTelemetry context from MCP messages.
 
@@ -66,7 +87,7 @@ The reader handles both SessionMessage and JSONRPCMessage formats, and supports 
 def __init__(wrapped: Any) -> None
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:197](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L197)
+Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:207](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L207)
 
 Initialize the context-extracting reader.
 
@@ -80,7 +101,7 @@ Initialize the context-extracting reader.
 async def __aenter__() -> Any
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:205](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L205)
+Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:215](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L215)
 
 Enter the async context manager by delegating to the wrapped object.
 
@@ -90,7 +111,7 @@ Enter the async context manager by delegating to the wrapped object.
 async def __aexit__(exc_type: Any, exc_value: Any, traceback: Any) -> Any
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:209](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L209)
+Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:219](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L219)
 
 Exit the async context manager by delegating to the wrapped object.
 
@@ -100,7 +121,7 @@ Exit the async context manager by delegating to the wrapped object.
 async def __aiter__() -> AsyncGenerator[Any, None]
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:213](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L213)
+Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:223](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L223)
 
 Iterate over messages, extracting and activating context as needed.
 
@@ -116,7 +137,7 @@ Messages from the wrapped stream, processed under the appropriate OpenTelemetry 
 class SessionContextSavingWriter(ObjectProxy)
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:255](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L255)
+Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:265](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L265)
 
 A proxy writer that preserves OpenTelemetry context with outgoing items.
 
@@ -128,7 +149,7 @@ Wraps an async message stream writer to capture the current OpenTelemetry contex
 def __init__(wrapped: Any) -> None
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:263](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L263)
+Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:273](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L273)
 
 Initialize the context-saving writer.
 
@@ -142,7 +163,7 @@ Initialize the context-saving writer.
 async def __aenter__() -> Any
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:271](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L271)
+Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:281](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L281)
 
 Enter the async context manager by delegating to the wrapped object.
 
@@ -152,7 +173,7 @@ Enter the async context manager by delegating to the wrapped object.
 async def __aexit__(exc_type: Any, exc_value: Any, traceback: Any) -> Any
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:275](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L275)
+Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:285](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L285)
 
 Exit the async context manager by delegating to the wrapped object.
 
@@ -162,7 +183,7 @@ Exit the async context manager by delegating to the wrapped object.
 async def send(item: Any) -> Any
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:279](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L279)
+Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:289](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L289)
 
 Send an item while preserving the current OpenTelemetry context.
 
@@ -182,7 +203,7 @@ Result of sending the wrapped item
 class SessionContextAttachingReader(ObjectProxy)
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:295](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L295)
+Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:305](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L305)
 
 A proxy reader that restores OpenTelemetry context from wrapped items.
 
@@ -194,7 +215,7 @@ Wraps an async message stream reader to detect ItemWithContext instances and res
 def __init__(wrapped: Any) -> None
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:303](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L303)
+Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:313](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L313)
 
 Initialize the context-attaching reader.
 
@@ -208,7 +229,7 @@ Initialize the context-attaching reader.
 async def __aenter__() -> Any
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:311](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L311)
+Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:321](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L321)
 
 Enter the async context manager by delegating to the wrapped object.
 
@@ -218,7 +239,7 @@ Enter the async context manager by delegating to the wrapped object.
 async def __aexit__(exc_type: Any, exc_value: Any, traceback: Any) -> Any
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:315](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L315)
+Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:325](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L325)
 
 Exit the async context manager by delegating to the wrapped object.
 
@@ -228,7 +249,7 @@ Exit the async context manager by delegating to the wrapped object.
 async def __aiter__() -> AsyncGenerator[Any, None]
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:319](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L319)
+Defined in: [src/strands/tools/mcp/mcp\_instrumentation.py:329](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_instrumentation.py#L329)
 
 Iterate over items, restoring context for ItemWithContext instances.
 

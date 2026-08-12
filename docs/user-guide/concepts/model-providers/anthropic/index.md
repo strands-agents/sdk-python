@@ -86,6 +86,8 @@ The `model_config` configures the underlying model selected for inference. The s
 | `max_tokens` | Maximum number of tokens to generate before stopping | `1028` | [reference](https://platform.claude.com/docs/en/api/messages/create#create.max_tokens) |
 | `model_id` | ID of a model to use | `claude-sonnet-4-6` | [reference](https://platform.claude.com/docs/en/api/messages/create#create.model) |
 | `params` | Additional pass-through parameters | `{"metadata": {"user_id": "u1"}}` | [reference](https://platform.claude.com/docs/en/api/messages/create) |
+| `cache_config` | Enables [prompt caching](#prompt-caching) on the conversation | `CacheConfig(ttl="1h")` | [reference](https://docs.claude.com/en/docs/build-with-claude/prompt-caching) |
+| `cache_tools` | Caches the tool definitions | `"default"` or `CacheToolsConfig(ttl="1h")` | [reference](https://docs.claude.com/en/docs/build-with-claude/prompt-caching) |
 (( /tab "Python" ))
 
 (( tab "TypeScript" ))
@@ -95,6 +97,7 @@ The `model_config` configures the underlying model selected for inference. The s
 | `maxTokens` | Maximum tokens to generate | `1028` | [reference](https://platform.claude.com/docs/en/api/messages/create#create.max_tokens) |
 | `stopSequences` | Sequences that stop generation | `['END']` | [reference](https://platform.claude.com/docs/en/api/messages/create#create.stop_sequences) |
 | `params` | Additional pass-through parameters | `{ metadata: { user_id: 'u1' } }` | [reference](https://platform.claude.com/docs/en/api/messages/create) |
+| `cacheConfig` | Enables [prompt caching](#prompt-caching) on the tool definitions and the conversation | `{ ttl: '1h' }` | [reference](https://docs.claude.com/en/docs/build-with-claude/prompt-caching) |
 (( /tab "TypeScript" ))
 
 ## Troubleshooting
@@ -224,6 +227,81 @@ console.log(`Sentiment: ${review.sentiment}`)
 (( /tab "TypeScript" ))
 
 For schema patterns, error handling, and per-invocation overrides, see [Structured Output](/docs/user-guide/concepts/agents/structured-output/index.md).
+
+### Prompt Caching
+
+[Prompt caching](https://docs.claude.com/en/docs/build-with-claude/prompt-caching) lets Claude reuse an already-processed prefix of your prompt instead of reprocessing it on every call. The mechanism, the cost model, and the cache metrics match [Amazon Bedrock](/docs/user-guide/concepts/model-providers/amazon-bedrock/index.md#caching); this section covers what differs here.
+
+Caching is off by default. Set `cache_config``cacheConfig` to add a cache point to the last user message, which caches everything before it:
+
+(( tab "Python" ))
+```python
+from strands import Agent
+from strands.models.anthropic import AnthropicModel
+from strands.models import CacheConfig, CacheToolsConfig
+
+model = AnthropicModel(
+    model_id="claude-sonnet-4-6",
+    max_tokens=1028,
+    cache_config=CacheConfig(ttl="1h"),
+    cache_tools=CacheToolsConfig(ttl="1h"),
+)
+
+agent = Agent(model=model)
+result = agent("Summarize the attached report.")
+print(result.metrics.accumulated_usage)
+
+# Typical output:
+# {'inputTokens': 12, ..., 'cacheReadInputTokens': 2505}
+```
+(( /tab "Python" ))
+
+(( tab "TypeScript" ))
+```typescript
+import { Agent } from '@strands-agents/sdk'
+import { AnthropicModel } from '@strands-agents/sdk/models/anthropic'
+
+const model = new AnthropicModel({
+  modelId: 'claude-sonnet-4-6',
+  maxTokens: 1028,
+  cacheConfig: { ttl: '1h' },
+})
+
+const agent = new Agent({ model })
+const result = await agent.invoke('Summarize the attached report.')
+console.log(result.metrics?.accumulatedUsage)
+
+// Typical output:
+// { inputTokens: 12, ..., cacheReadInputTokens: 2505 }
+```
+(( /tab "TypeScript" ))
+
+Cache activity is reported in the usage metrics, in the same fields Bedrock uses: see [cache metrics](/docs/user-guide/concepts/model-providers/amazon-bedrock/index.md#cache-metrics).
+
+#### Choosing what to cache
+
+(( tab "Python" ))
+`cache_config` caches the conversation. `cache_tools` caches the tool definitions and works on its own, so tool definitions can be cached without caching the conversation. Passing a plain string (`"default"`) only switches it on: the value is not a TTL. Use `CacheToolsConfig(ttl=...)` to set one.
+
+`strategy` is ignored by this provider.
+(( /tab "Python" ))
+
+(( tab "TypeScript" ))
+One `cacheConfig` covers both the tool definitions and the conversation, with `toolsTTL` and `messagesTTL` controlling them independently. The shape and the per-field behavior are the same as on [Amazon Bedrock](/docs/user-guide/concepts/model-providers/amazon-bedrock/index.md#tool-caching), so a configuration survives a provider switch unchanged.
+
+`strategy` is ignored by this provider.
+(( /tab "TypeScript" ))
+
+#### Placing cache points by hand
+
+Placement works as it does on [Amazon Bedrock](/docs/user-guide/concepts/model-providers/amazon-bedrock/index.md#messages-caching): a cache point you put in the last user message is kept where you put it, automatic placement is suspended for that message, and points in earlier messages are removed. Place your point *ahead* of content that is rebuilt on every call, otherwise it lands inside the cached prefix and every request writes an entry that none ever reads.
+
+Two constraints are specific to this API:
+
+-   **Only some block types accept a cache point.** Text, image, tool use, tool result, and document blocks do; a reasoning block does not. A point with only a reasoning block, or a media block sourced by location, ahead of it cannot be honored, so automatic placement applies instead.
+-   **Maximum of four cache points per request**, shared across the tool definitions, the system prompt, and the messages. Automatic placement uses one per part it caches, so hand-placing several of your own alongside it can exceed the limit, and the API rejects the request.
+
+A prompt below the model’s minimum cacheable length is not cached: if both cache metrics stay at zero, that is the likely cause. See [cache limitations](https://docs.claude.com/en/docs/build-with-claude/prompt-caching#cache-limitations) for per-model thresholds.
 
 ### Token Counting
 

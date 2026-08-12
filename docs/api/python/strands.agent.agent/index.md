@@ -20,7 +20,7 @@ Supported values for the `context_manager` parameter.
 class Agent(AgentBase)
 ```
 
-Defined in: [src/strands/agent/agent.py:150](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L150)
+Defined in: [src/strands/agent/agent.py:166](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L166)
 
 Core Agent implementation.
 
@@ -36,7 +36,7 @@ An agent orchestrates the following workflow:
 #### \_\_init\_\_
 
 ```python
-def __init__(model: Model | str | None = None,
+def __init__(model: Model | str | ModelRouter | None = None,
              messages: Messages | None = None,
              tools: list[Union[str, dict[str, str], "ToolProvider", Any]]
              | None = None,
@@ -67,16 +67,17 @@ def __init__(model: Model | str | None = None,
              concurrent_invocation_mode:
              ConcurrentInvocationMode = ConcurrentInvocationMode.THROW,
              checkpointing: bool = False,
-             sandbox: Sandbox | None = None)
+             sandbox: Sandbox | None = None,
+             storage: Storage | None = None)
 ```
 
-Defined in: [src/strands/agent/agent.py:166](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L166)
+Defined in: [src/strands/agent/agent.py:182](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L182)
 
 Initialize the Agent with the specified configuration.
 
 **Arguments**:
 
--   `model` - Provider for running inference or a string representing the model-id for Bedrock to use. Defaults to strands.models.BedrockModel if None.
+-   `model` - Provider for running inference or a string representing the model-id for Bedrock to use. May also be a `ModelRouter`, whose first candidate is resolved to a concrete model and exposed as `agent.model`. Defaults to strands.models.BedrockModel if None.
     
 -   `messages` - List of initial messages to pre-load into the conversation. Defaults to an empty list if None.
     
@@ -116,7 +117,7 @@ Initialize the Agent with the specified configuration.
     
 -   `context_manager` - Context management strategy. When set to `"auto"`, composes a ContextOffloader plugin (max\_result\_tokens=1500, preview\_tokens=750) with a SummarizingConversationManager (summary\_ratio=0.3, compression\_threshold=0.85) using benchmark-validated defaults. If `conversation_manager` is also provided, the user’s conversation manager is used instead. Defaults to None (no context management).
     
--   `Note` - The offloader uses in-memory storage that does not persist across process restarts. For agents using `session_manager`, provide an explicit `ContextOffloader` with durable storage via the `plugins` parameter.
+-   `Note` - The offloader uses in-memory storage by default. When an agent-level `storage` is provided, the offloader uses that instead. Alternatively, provide an explicit `ContextOffloader` with its own storage via the `plugins` parameter.
     
 -   `plugins` - List of Plugin instances to extend agent functionality. Plugins are initialized with the agent instance after construction and can register hooks, modify agent attributes, or perform other setup tasks. Defaults to None.
     
@@ -142,6 +143,8 @@ Initialize the Agent with the specified configuration.
     
 -   `sandbox` - Execution environment for running commands, code, and file operations. When provided, sandbox-aware tools route operations through it via `context.agent.sandbox`. Defaults to `None`, which falls back to a :class:`~strands.sandbox.NotASandboxLocalEnvironment` that runs on the host with no isolation.
     
+-   `storage` - Default storage backend for agent subsystems. When provided, subsystems that do not have their own explicit storage (e.g., ContextOffloader) resolve from this value. Each subsystem auto-namespaces under its own prefix (e.g., `offloader/`) to avoid key collisions. Storage specified directly on a subsystem always takes precedence over this agent-level default. Defaults to None.
+    
 
 **Raises**:
 
@@ -153,7 +156,7 @@ Initialize the Agent with the specified configuration.
 def cancel() -> None
 ```
 
-Defined in: [src/strands/agent/agent.py:592](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L592)
+Defined in: [src/strands/agent/agent.py:629](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L629)
 
 Cancel the currently running agent invocation.
 
@@ -194,11 +197,22 @@ Multiple calls to cancel() are safe and idempotent.
 def sandbox() -> Sandbox
 ```
 
-Defined in: [src/strands/agent/agent.py:626](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L626)
+Defined in: [src/strands/agent/agent.py:663](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L663)
 
 Execution environment for running commands, code, and file operations.
 
 Returns the configured sandbox, or a per-agent host default (:class:`~strands.sandbox.NotASandboxLocalEnvironment`, no isolation) when none was configured.
+
+#### storage
+
+```python
+@property
+def storage() -> Storage | None
+```
+
+Defined in: [src/strands/agent/agent.py:673](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L673)
+
+Default storage backend for agent subsystems.
 
 #### system\_prompt
 
@@ -207,7 +221,7 @@ Returns the configured sandbox, or a per-agent host default (:class:`~strands.sa
 def system_prompt() -> str | None
 ```
 
-Defined in: [src/strands/agent/agent.py:636](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L636)
+Defined in: [src/strands/agent/agent.py:678](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L678)
 
 Get the system prompt as a string for backwards compatibility.
 
@@ -224,7 +238,7 @@ The system prompt as a string, or None if no text content exists.
 def system_prompt(value: str | list[SystemContentBlock] | None) -> None
 ```
 
-Defined in: [src/strands/agent/agent.py:649](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L649)
+Defined in: [src/strands/agent/agent.py:691](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L691)
 
 Set the system prompt and update internal content representation.
 
@@ -244,7 +258,7 @@ Accepts either a string or list of SystemContentBlock objects. When set, both th
 def system_prompt_content() -> list[SystemContentBlock] | None
 ```
 
-Defined in: [src/strands/agent/agent.py:665](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L665)
+Defined in: [src/strands/agent/agent.py:707](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L707)
 
 Get the system prompt as a list of content blocks.
 
@@ -261,7 +275,7 @@ The system prompt as a list of content blocks, or None if no system prompt is se
 def tool() -> _ToolCaller
 ```
 
-Defined in: [src/strands/agent/agent.py:677](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L677)
+Defined in: [src/strands/agent/agent.py:719](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L719)
 
 Call tool as a function.
 
@@ -283,7 +297,7 @@ agent.tool.calculator(...)
 def tool_names() -> list[str]
 ```
 
-Defined in: [src/strands/agent/agent.py:692](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L692)
+Defined in: [src/strands/agent/agent.py:734](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L734)
 
 Get a list of all registered tool names.
 
@@ -298,7 +312,7 @@ Names of all tools available to this agent.
 def concurrent_invocation_mode() -> ConcurrentInvocationMode
 ```
 
-Defined in: [src/strands/agent/agent.py:702](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L702)
+Defined in: [src/strands/agent/agent.py:744](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L744)
 
 The concurrency posture this agent was configured with.
 
@@ -317,7 +331,7 @@ def __call__(prompt: AgentInput = None,
              **kwargs: Any) -> AgentResult
 ```
 
-Defined in: [src/strands/agent/agent.py:709](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L709)
+Defined in: [src/strands/agent/agent.py:751](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L751)
 
 Process a natural language prompt through the agent’s event loop.
 
@@ -372,7 +386,7 @@ async def invoke_async(prompt: AgentInput = None,
                        **kwargs: Any) -> AgentResult
 ```
 
-Defined in: [src/strands/agent/agent.py:791](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L791)
+Defined in: [src/strands/agent/agent.py:833](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L833)
 
 Process a natural language prompt through the agent’s event loop.
 
@@ -419,7 +433,7 @@ This method implements the conversational interface with multiple input patterns
 def structured_output(output_model: type[T], prompt: AgentInput = None) -> T
 ```
 
-Defined in: [src/strands/agent/agent.py:861](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L861)
+Defined in: [src/strands/agent/agent.py:903](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L903)
 
 This method allows you to get structured output from the agent.
 
@@ -447,7 +461,7 @@ async def structured_output_async(output_model: type[T],
                                   prompt: AgentInput = None) -> T
 ```
 
-Defined in: [src/strands/agent/agent.py:892](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L892)
+Defined in: [src/strands/agent/agent.py:934](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L934)
 
 This method allows you to get structured output from the agent.
 
@@ -474,7 +488,7 @@ def as_tool(*,
             preserve_context: bool = False) -> AgentTool
 ```
 
-Defined in: [src/strands/agent/agent.py:963](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L963)
+Defined in: [src/strands/agent/agent.py:1005](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L1005)
 
 Convert this agent into a tool for use by another agent.
 
@@ -502,7 +516,7 @@ writer("Write about AI agents")
 def cleanup() -> None
 ```
 
-Defined in: [src/strands/agent/agent.py:997](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L997)
+Defined in: [src/strands/agent/agent.py:1039](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L1039)
 
 Clean up resources used by the agent.
 
@@ -519,7 +533,7 @@ def add_hook(callback: HookCallback[TEvent],
              order: float = HookOrder.DEFAULT) -> None
 ```
 
-Defined in: [src/strands/agent/agent.py:1009](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L1009)
+Defined in: [src/strands/agent/agent.py:1051](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L1051)
 
 Register a callback function for a specific event type.
 
@@ -537,7 +551,7 @@ Callbacks can be either synchronous or asynchronous functions.
 
 -   `callback` - The callback function to invoke when events of this type occur.
 -   `event_type` - The class type(s) of events this callback should handle. Can be a single type, a list of types, or None to infer from the callback’s first parameter type hint. If a list is provided, the callback is registered for each type in the list.
--   `order` - Execution priority. Lower values execute first. Use HookOrder.SDK\_FIRST (-100), HookOrder.DEFAULT (0), or HookOrder.SDK\_LAST (100).
+-   `order` - Execution priority. Lower values execute first. Use a HookOrder constant such as SDK\_FIRST (-100), DEFAULT (0), MODEL\_ROUTING (50), or SDK\_LAST (100).
 
 **Raises**:
 
@@ -576,7 +590,7 @@ Docs: [https://strandsagents.com/docs/user-guide/concepts/agents/hooks/](https:/
 def __del__() -> None
 ```
 
-Defined in: [src/strands/agent/agent.py:1069](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L1069)
+Defined in: [src/strands/agent/agent.py:1112](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L1112)
 
 Clean up resources when agent is garbage collected.
 
@@ -593,7 +607,7 @@ async def stream_async(prompt: AgentInput = None,
                        **kwargs: Any) -> AsyncIterator[Any]
 ```
 
-Defined in: [src/strands/agent/agent.py:1076](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L1076)
+Defined in: [src/strands/agent/agent.py:1119](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L1119)
 
 Process a natural language prompt and yield events as an async iterator.
 
@@ -652,7 +666,7 @@ def take_snapshot(*,
                   app_data: dict[str, Any] | None = None) -> Snapshot
 ```
 
-Defined in: [src/strands/agent/agent.py:1543](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L1543)
+Defined in: [src/strands/agent/agent.py:1698](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L1698)
 
 Capture current agent state as an in-memory snapshot.
 
@@ -677,7 +691,7 @@ A Snapshot containing the captured agent state.
 def load_snapshot(snapshot: Snapshot) -> None
 ```
 
-Defined in: [src/strands/agent/agent.py:1591](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L1591)
+Defined in: [src/strands/agent/agent.py:1746](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L1746)
 
 Restore agent state from a previously captured snapshot.
 

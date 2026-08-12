@@ -60,7 +60,7 @@ Defined in: [src/strands/tools/mcp/mcp\_agent\_tool.py:65](https://github.com/st
 
 Get the specification of the tool.
 
-This method converts the MCP tool specification to the agent framework’s ToolSpec format, including the input schema, description, and optional output schema.
+This method converts the MCP tool specification to the agent framework’s ToolSpec format, including the input schema, description, optional output schema, and optional tool annotations.
 
 **Returns**:
 
@@ -73,7 +73,7 @@ This method converts the MCP tool specification to the agent framework’s ToolS
 def tool_type() -> str
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_agent\_tool.py:88](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_agent_tool.py#L88)
+Defined in: [src/strands/tools/mcp/mcp\_agent\_tool.py:97](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_agent_tool.py#L97)
 
 Get the type of the tool.
 
@@ -89,7 +89,7 @@ async def stream(tool_use: ToolUse, invocation_state: dict[str, Any],
                  **kwargs: Any) -> ToolGenerator
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_agent\_tool.py:97](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_agent_tool.py#L97)
+Defined in: [src/strands/tools/mcp/mcp\_agent\_tool.py:106](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_agent_tool.py#L106)
 
 Stream the MCP tool.
 

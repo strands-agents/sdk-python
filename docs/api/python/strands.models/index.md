@@ -8,7 +8,7 @@ This package includes an abstract base Model class along with concrete implement
 def __getattr__(name: str) -> Any
 ```
 
-Defined in: [src/strands/models/**init**.py:23](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/__init__.py#L23)
+Defined in: [src/strands/models/**init**.py:40](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/__init__.py#L40)
 
 Lazy load model implementations only when accessed.
 

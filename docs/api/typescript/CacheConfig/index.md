@@ -1,22 +1,74 @@
-Defined in: [src/models/model.ts:70](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/models/model.ts#L70)
+Defined in: [src/models/model.ts:70](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/models/model.ts#L70)
 
 Configuration for prompt caching.
 
-## Extended by
-
--   [`BedrockCacheConfig`](/docs/api/typescript/BedrockCacheConfig/index.md)
-
 ## Properties
 
-### strategy
+### strategy?
 
 ```ts
-strategy: "auto" | "anthropic";
+optional strategy?: "auto" | "anthropic";
 ```
 
-Defined in: [src/models/model.ts:77](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/models/model.ts#L77)
+Defined in: [src/models/model.ts:79](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/models/model.ts#L79)
 
-Caching strategy to use.
+Whether to skip caching for models that do not support it.
 
--   “auto”: Automatically inject cache points at optimal positions based on model ID detection (after tools, after last user message)
--   “anthropic”: Force enable Anthropic-style caching (useful for application inference profiles)
+-   “auto”: cache only when the model is known to support it
+-   “anthropic”: cache without that check, for model identifiers it cannot inspect (an application inference profile, for example)
+
+#### Default Value
+
+```ts
+'auto'
+```
+
+---
+
+### ttl?
+
+```ts
+optional ttl?: CacheTTL;
+```
+
+Defined in: [src/models/model.ts:91](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/models/model.ts#L91)
+
+TTL for every cache point, overridden by a per-section TTL. Provider default when omitted.
+
+Bedrock requires checkpoint TTLs to be non-increasing across `toolConfig`, system and messages, and rejects a longer TTL that follows a shorter one. This TTL therefore also fills in for a cache point placed by hand in the system prompt that carries none of its own, so one value keeps every checkpoint in step. A TTL written on such a point is left as written, and a `toolsTTL` that differs from this one leaves the point at the provider default rather than landing a longer TTL behind a shorter checkpoint - either way, two TTLs in tension are yours to reconcile.
+
+---
+
+### toolsTTL?
+
+```ts
+optional toolsTTL?: boolean | CacheTTL;
+```
+
+Defined in: [src/models/model.ts:98](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/models/model.ts#L98)
+
+Cache the tool definitions. A TTL sets this section’s duration; `false` disables it.
+
+#### Default Value
+
+```ts
+true
+```
+
+---
+
+### messagesTTL?
+
+```ts
+optional messagesTTL?: boolean | CacheTTL;
+```
+
+Defined in: [src/models/model.ts:106](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/models/model.ts#L106)
+
+Cache the conversation prefix, on the last user message. A TTL sets this section’s duration; `false` disables it.
+
+#### Default Value
+
+```ts
+true
+```

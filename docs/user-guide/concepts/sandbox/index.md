@@ -91,7 +91,7 @@ If a tool with the same name is already registered on the agent, the sandbox-ven
 ```typescript
 import { Agent } from '@strands-agents/sdk'
 import { DockerSandbox } from '@strands-agents/sdk/sandbox/docker'
-import { makeShell } from '@strands-agents/sdk/vended-tools/bash'
+import { makeShell } from '@strands-agents/sdk/vended-tools/shell'
 
 const sandbox = new DockerSandbox({ container: 'agent-workspace' })
 

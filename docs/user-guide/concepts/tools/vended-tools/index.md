@@ -234,7 +234,7 @@ await agent.invoke('Restart the bash session')
 await agent.invoke('Run: echo $MY_VAR') // Variable will be empty
 ```
 
-📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/bash/README.md)
+📖 Full API Reference: [shell](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/shell/README.md) · [bash (TypeScript only)](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/bash/README.md)
 
 ---
 

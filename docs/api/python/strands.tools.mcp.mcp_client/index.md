@@ -395,7 +395,7 @@ def call_tool_sync(
         cancel_signal: threading.Event | None = None) -> MCPToolResult
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_client.py:818](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_client.py#L818)
+Defined in: [src/strands/tools/mcp/mcp\_client.py:831](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_client.py#L831)
 
 Synchronously calls a tool on the MCP server.
 
@@ -429,7 +429,7 @@ async def call_tool_async(
         cancel_signal: threading.Event | None = None) -> MCPToolResult
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_client.py:875](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_client.py#L875)
+Defined in: [src/strands/tools/mcp/mcp\_client.py:888](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_client.py#L888)
 
 Asynchronously calls a tool on the MCP server.
 
@@ -457,7 +457,7 @@ def map_mcp_content_to_tool_result_content(
 ) -> ToolResultContent | None
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_client.py:1117](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_client.py#L1117)
+Defined in: [src/strands/tools/mcp/mcp\_client.py:1130](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_client.py#L1130)
 
 Maps MCP content types to tool result content types.
 

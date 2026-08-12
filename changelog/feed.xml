@@ -1,4 +1,15 @@
-<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Strands Agents Changelog</title><description>Releases across the Strands Agents Harness and Evals SDKs.</description><link>https://strandsagents.com/</link><language>en-us</language><item><title>Harness Python v1.51.0</title><link>https://strandsagents.com/changelog/harness/python-v1.51.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.51.0/</guid><description>• hydrate search snippets concurrently
+<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Strands Agents Changelog</title><description>Releases across the Strands Agents Harness and Evals SDKs.</description><link>https://strandsagents.com/</link><language>en-us</language><item><title>Harness Python v1.52.0</title><link>https://strandsagents.com/changelog/harness/python-v1.52.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.52.0/</guid><description>• bump actions/upload-artifact from 6.0.0 to 7.0.1
+• bump actions/setup-python from 6.3.0 to 7.0.0
+• bump actions/download-artifact from 6.0.0 to 8.0.1
+• bump dorny/paths-filter from 4.0.2 to 4.0.3
+• skipped mcp otel instrumentation for mcp v2</description><pubDate>Wed, 12 Aug 2026 00:00:00 GMT</pubDate><category>mcp</category><category>otel</category><category>model</category><category>hooks</category><category>hil</category><category>bidirectional-streaming</category><category>persistence</category><category>agent</category><category>devx</category><category>tool</category></item><item><title>Harness TypeScript v1.13.0</title><link>https://strandsagents.com/changelog/harness/typescript-v1.13.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v1.13.0/</guid><description>• support appending to notebooks
+• bump dorny/paths-filter from 4.0.2 to 4.0.3
+• honor a cache point placed in the last user message
+• retry inconclusive Mantle routing probes
+• keep the pre-rename name on the deprecated bash aliases</description><pubDate>Wed, 12 Aug 2026 00:00:00 GMT</pubDate><category>tool</category><category>model</category><category>devx</category><category>context</category><category>agent</category></item><item><title>Evals v1.1.1</title><link>https://strandsagents.com/changelog/evals/v1.1.1/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v1.1.1/</guid><description>• add GenericGenAISessionMapper for dict spans with unrecognized scope
+• add support for Claude agents to OpenInference mapper
+• update pre-commit requirement from &lt;4.6.0,&gt;=3.2.0 to &gt;=3.2.0,&lt;4.7.0
+• bump pypa/gh-action-pypi-publish from 1.14.0 to 1.14.2</description><pubDate>Wed, 12 Aug 2026 00:00:00 GMT</pubDate><category>tracing</category></item><item><title>Harness Python v1.51.0</title><link>https://strandsagents.com/changelog/harness/python-v1.51.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.51.0/</guid><description>• hydrate search snippets concurrently
 • refresh eviction cycle on retrieve for unified Storage backends
 • pin mcp dependency below v2.0.0
 • update design doc template to uncover key information early

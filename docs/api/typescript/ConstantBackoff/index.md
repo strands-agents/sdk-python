@@ -1,4 +1,4 @@
-Defined in: [src/retry/backoff-strategy.ts:68](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/retry/backoff-strategy.ts#L68)
+Defined in: [src/retry/backoff-strategy.ts:68](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/retry/backoff-strategy.ts#L68)
 
 Constant backoff: returns the same delay for every retry.
 
@@ -14,7 +14,7 @@ Constant backoff: returns the same delay for every retry.
 new ConstantBackoff(opts?): ConstantBackoff;
 ```
 
-Defined in: [src/retry/backoff-strategy.ts:71](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/retry/backoff-strategy.ts#L71)
+Defined in: [src/retry/backoff-strategy.ts:71](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/retry/backoff-strategy.ts#L71)
 
 #### Parameters
 
@@ -34,7 +34,7 @@ Defined in: [src/retry/backoff-strategy.ts:71](https://github.com/strands-agents
 nextDelay(ctx): number;
 ```
 
-Defined in: [src/retry/backoff-strategy.ts:75](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/retry/backoff-strategy.ts#L75)
+Defined in: [src/retry/backoff-strategy.ts:75](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/retry/backoff-strategy.ts#L75)
 
 Returns the delay in milliseconds before the next attempt.
 

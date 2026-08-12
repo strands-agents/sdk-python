@@ -25,7 +25,7 @@ Defined in: [src/strands/vended\_tools/shell/types.py:18](https://github.com/str
 
 Raised when a sandbox-routed shell command fails.
 
-Subclasses :class:`RuntimeError` so existing `except RuntimeError` handlers keep working, while giving callers a shell-specific type to branch on. Mirrors `ShellExecutionError` in `strands-ts/src/vended-tools/bash/types.ts`.
+Subclasses :class:`RuntimeError` so existing `except RuntimeError` handlers keep working, while giving callers a shell-specific type to branch on. Mirrors `ShellExecutionError` in `strands-ts/src/vended-tools/shell/types.ts`.
 
 #### SANDBOX\_SHELL\_DESCRIPTION
 

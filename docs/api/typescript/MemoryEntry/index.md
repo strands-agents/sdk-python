@@ -1,4 +1,4 @@
-Defined in: [src/memory/types.ts:10](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/memory/types.ts#L10)
+Defined in: [src/memory/types.ts:10](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/memory/types.ts#L10)
 
 A single memory entry retrieved from or stored to a memory store.
 
@@ -10,7 +10,7 @@ A single memory entry retrieved from or stored to a memory store.
 content: string;
 ```
 
-Defined in: [src/memory/types.ts:12](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/memory/types.ts#L12)
+Defined in: [src/memory/types.ts:12](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/memory/types.ts#L12)
 
 The textual content of this memory entry.
 
@@ -22,7 +22,7 @@ The textual content of this memory entry.
 optional storeName?: string;
 ```
 
-Defined in: [src/memory/types.ts:18](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/memory/types.ts#L18)
+Defined in: [src/memory/types.ts:18](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/memory/types.ts#L18)
 
 Name of the store this entry came from. Populated by [MemoryManager.search](/docs/api/typescript/MemoryManager/index.md#search) so callers (and the model, via `search_memory`) can tell which store produced each result and refine targeting. Stores need not set this themselves.
 
@@ -34,6 +34,6 @@ Name of the store this entry came from. Populated by [MemoryManager.search](/doc
 optional metadata?: Record<string, JSONValue>;
 ```
 
-Defined in: [src/memory/types.ts:20](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/memory/types.ts#L20)
+Defined in: [src/memory/types.ts:20](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/memory/types.ts#L20)
 
 Optional metadata (e.g., score, source, id, timestamp).

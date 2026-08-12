@@ -95,7 +95,6 @@
     -   [BackoffContext](/docs/api/typescript/BackoffContext/index.md)
     -   [BackoffStrategy](/docs/api/typescript/BackoffStrategy/index.md)
     -   [BaseModelConfig](/docs/api/typescript/BaseModelConfig/index.md)
-    -   [BedrockCacheConfig](/docs/api/typescript/BedrockCacheConfig/index.md)
     -   [BedrockGuardrailConfig](/docs/api/typescript/BedrockGuardrailConfig/index.md)
     -   [BedrockGuardrailRedactionConfig](/docs/api/typescript/BedrockGuardrailRedactionConfig/index.md)
     -   [BedrockModelConfig](/docs/api/typescript/BedrockModelConfig/index.md)
@@ -208,6 +207,7 @@
 -   **Type Aliases**
     -   [AgentConfig](/docs/api/typescript/AgentConfig/index.md)
     -   [AgentStreamEvent](/docs/api/typescript/AgentStreamEvent/index.md)
+    -   [BedrockCacheConfig](/docs/api/typescript/BedrockCacheConfig/index.md)
     -   [BedrockCacheTTL](/docs/api/typescript/BedrockCacheTTL/index.md)
     -   [CitationGeneratedContent](/docs/api/typescript/CitationGeneratedContent/index.md)
     -   [CitationLocation](/docs/api/typescript/CitationLocation/index.md)

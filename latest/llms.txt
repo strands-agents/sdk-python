@@ -253,6 +253,7 @@
   - [strands-dakera](https://strandsagents.com/docs/integrations/memory-stores/strands-dakera/index.md): Persistent, decay-weighted MemoryStore for agents — self-hosted, with a full-CRUD tool
 - Storage
   - [overview](https://strandsagents.com/docs/integrations/storage/overview/index.md): Community-built storage backends for persisting raw bytes under string keys.
+  - [github](https://strandsagents.com/docs/integrations/storage/github/index.md): GitHub-repository Storage backend for Strands — persists each entry as a versioned, diffable file in a repo you can browse on GitHub.
 - Session Managers
   - [agentcore-memory](https://strandsagents.com/docs/integrations/session-managers/agentcore-memory/index.md): Persist Strands agent conversations with Amazon Bedrock AgentCore Memory, including short-term and long-term memory strategies.
   - [strands-valkey-session-manager](https://strandsagents.com/docs/integrations/session-managers/strands-valkey-session-manager/index.md): Store Strands agent sessions in Valkey or Redis for low-latency, distributed conversation persistence across interactions.
@@ -326,6 +327,9 @@
 - [strands.models.ollama](https://strandsagents.com/docs/api/python/strands.models.ollama/index.md)
 - [strands.models.openai](https://strandsagents.com/docs/api/python/strands.models.openai/index.md)
 - [strands.models.openai_responses](https://strandsagents.com/docs/api/python/strands.models.openai_responses/index.md)
+- [strands.models.routing.fallback_strategy](https://strandsagents.com/docs/api/python/strands.models.routing.fallback_strategy/index.md)
+- [strands.models.routing.router](https://strandsagents.com/docs/api/python/strands.models.routing.router/index.md)
+- [strands.models.routing.strategy](https://strandsagents.com/docs/api/python/strands.models.routing.strategy/index.md)
 - [strands.models.sagemaker](https://strandsagents.com/docs/api/python/strands.models.sagemaker/index.md)
 - [strands.models.writer](https://strandsagents.com/docs/api/python/strands.models.writer/index.md)
 - [strands.multiagent.a2a.executor](https://strandsagents.com/docs/api/python/strands.multiagent.a2a.executor/index.md)
@@ -409,7 +413,6 @@
 - [strands.vended_plugins.steering.core.handler](https://strandsagents.com/docs/api/python/strands.vended_plugins.steering.core.handler/index.md)
 - [strands.vended_plugins.steering.handlers.llm.llm_handler](https://strandsagents.com/docs/api/python/strands.vended_plugins.steering.handlers.llm.llm_handler/index.md)
 - [strands.vended_plugins.steering.handlers.llm.mappers](https://strandsagents.com/docs/api/python/strands.vended_plugins.steering.handlers.llm.mappers/index.md)
-- [strands.vended_tools](https://strandsagents.com/docs/api/python/strands.vended_tools/index.md)
 - [strands.vended_tools.file_editor.file_editor](https://strandsagents.com/docs/api/python/strands.vended_tools.file_editor.file_editor/index.md)
 - [strands.vended_tools.http_request.http_request](https://strandsagents.com/docs/api/python/strands.vended_tools.http_request.http_request/index.md)
 - [strands.vended_tools.http_request.types](https://strandsagents.com/docs/api/python/strands.vended_tools.http_request.types/index.md)
@@ -742,6 +745,7 @@
 
 - [Changelog](https://strandsagents.com/changelog/index.md): All releases across the Harness and Evals SDKs
 - Harness Python
+  - [v1.52.0](https://strandsagents.com/changelog/harness/python-v1.52.0/index.md): Harness Python v1.52.0 (2026-08-12)
   - [v1.51.0](https://strandsagents.com/changelog/harness/python-v1.51.0/index.md): Harness Python v1.51.0 (2026-08-07)
   - [v1.50.2](https://strandsagents.com/changelog/harness/python-v1.50.2/index.md): Harness Python v1.50.2 (2026-07-27)
   - [v1.50.1](https://strandsagents.com/changelog/harness/python-v1.50.1/index.md): Harness Python v1.50.1 (2026-07-24)
@@ -813,6 +817,7 @@
   - [v0.1.1](https://strandsagents.com/changelog/harness/python-v0.1.1/index.md): Harness Python v0.1.1 (2025-05-17)
   - [v0.1.0](https://strandsagents.com/changelog/harness/python-v0.1.0/index.md): Harness Python v0.1.0 (2025-05-16)
 - Harness TypeScript
+  - [v1.13.0](https://strandsagents.com/changelog/harness/typescript-v1.13.0/index.md): Harness TypeScript v1.13.0 (2026-08-12)
   - [v1.12.0](https://strandsagents.com/changelog/harness/typescript-v1.12.0/index.md): Harness TypeScript v1.12.0 (2026-08-07)
   - [v1.11.2](https://strandsagents.com/changelog/harness/typescript-v1.11.2/index.md): Harness TypeScript v1.11.2 (2026-07-27)
   - [v1.11.1](https://strandsagents.com/changelog/harness/typescript-v1.11.1/index.md): Harness TypeScript v1.11.1 (2026-07-24)
@@ -850,6 +855,7 @@
   - [v0.1.1](https://strandsagents.com/changelog/harness/typescript-v0.1.1/index.md): Harness TypeScript v0.1.1 (2025-12-03)
   - [v0.1.0](https://strandsagents.com/changelog/harness/typescript-v0.1.0/index.md): Harness TypeScript v0.1.0 (2025-12-03)
 - Evals
+  - [v1.1.1](https://strandsagents.com/changelog/evals/v1.1.1/index.md): Evals v1.1.1 (2026-08-12)
   - [v1.1.0](https://strandsagents.com/changelog/evals/v1.1.0/index.md): Evals v1.1.0 (2026-08-07)
   - [v1.0.3](https://strandsagents.com/changelog/evals/v1.0.3/index.md): Evals v1.0.3 (2026-07-23)
   - [v1.0.2](https://strandsagents.com/changelog/evals/v1.0.2/index.md): Evals v1.0.2 (2026-07-09)
