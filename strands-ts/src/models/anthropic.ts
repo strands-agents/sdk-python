@@ -560,29 +560,32 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
             throw new Error(`Unsupported image format for Anthropic: ${imgBlock.format}`)
         }
 
-        if (imgBlock.source.type === 'imageSourceBytes') {
-          return {
-            type: 'image',
-            source: {
-              type: 'base64',
-              media_type: mediaType,
-              data: encodeBase64(imgBlock.source.bytes),
-            },
-          }
+        switch (imgBlock.source.type) {
+          case 'imageSourceBytes':
+            return {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: mediaType,
+                data: encodeBase64(imgBlock.source.bytes),
+              },
+            }
+          case 'imageSourceUrl':
+            return {
+              type: 'image',
+              source: {
+                type: 'url',
+                url: imgBlock.source.url,
+              },
+            }
+          case 'imageSourceS3Location':
+            logger.warn(
+              'source_type=<imageSourceS3Location> | s3 location sources are not supported by anthropic | skipping'
+            )
+            return undefined
+          default:
+            throw new Error(`Unsupported image source for Anthropic: ${(imgBlock.source as { type: string }).type}`)
         }
-        if (imgBlock.source.type === 'imageSourceUrl') {
-          return {
-            type: 'image',
-            source: {
-              type: 'url',
-              url: imgBlock.source.url,
-            },
-          }
-        }
-        logger.warn(
-          'source_type=<imageSourceS3Location> | s3 location sources are not supported by anthropic, skipping'
-        )
-        return undefined
       }
 
       case 'documentBlock': {
