@@ -204,7 +204,7 @@ oauth_mcp_client = MCPClient(
 )
 ```
 
-Scopes are joined with spaces before being sent to the token endpoint. Token acquisition and refresh happen automatically. The `headers` parameter can be combined with `auth` when the server also expects custom headers.
+`scopes` is joined with spaces and is advisory only: if the server advertises its own scopes (via the `WWW-Authenticate` header or its protected-resource / authorization-server metadata), the server's scopes are used instead and this value is ignored. Token acquisition and refresh happen automatically. The `headers` parameter can be combined with `auth` when the server also expects custom headers.
 
 For advanced flows such as the interactive authorization_code grant, pass any `httpx.Auth` implementation as `auth_provider` instead. The `mcp` package's `OAuthClientProvider` is one such implementation:
 

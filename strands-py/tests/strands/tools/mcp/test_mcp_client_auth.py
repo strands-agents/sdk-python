@@ -1,6 +1,6 @@
 """Unit tests for MCPClient OAuth authentication (url/auth/auth_provider constructor path)."""
 
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import httpx
 import pytest
@@ -52,31 +52,33 @@ def test_headers_passed_to_transport(streamablehttp_transport):
 
 
 def test_auth_builds_client_credentials_provider(streamablehttp_transport):
-    client = MCPClient(
-        url="https://mcp.example.com",
-        auth=MCPClientCredentials(client_id="id", client_secret="secret"),
-    )
+    with patch("strands.tools.mcp.mcp_client.ClientCredentialsOAuthProvider") as provider_cls:
+        client = MCPClient(
+            url="https://mcp.example.com",
+            auth=MCPClientCredentials(client_id="id", client_secret="secret"),
+        )
 
     client._transport_callable()
 
-    provider = streamablehttp_transport.call_args.kwargs["auth"]
-    assert isinstance(provider, ClientCredentialsOAuthProvider)
-    assert provider.context.server_url == "https://mcp.example.com"
-    assert provider._fixed_client_info.client_id == "id"
-    assert provider._fixed_client_info.client_secret == "secret"
-    assert provider._fixed_client_info.scope is None
-
-
-def test_auth_scopes_joined_with_spaces(streamablehttp_transport):
-    client = MCPClient(
-        url="https://mcp.example.com",
-        auth=MCPClientCredentials(client_id="id", client_secret="secret", scopes=["read", "write"]),
+    provider_cls.assert_called_once_with(
+        server_url="https://mcp.example.com",
+        storage=ANY,
+        client_id="id",
+        client_secret="secret",
+        scopes=None,
     )
+    assert isinstance(provider_cls.call_args.kwargs["storage"], _InMemoryTokenStorage)
+    assert streamablehttp_transport.call_args.kwargs["auth"] is provider_cls.return_value
 
-    client._transport_callable()
 
-    provider = streamablehttp_transport.call_args.kwargs["auth"]
-    assert provider._fixed_client_info.scope == "read write"
+def test_auth_scopes_joined_with_spaces():
+    with patch("strands.tools.mcp.mcp_client.ClientCredentialsOAuthProvider") as provider_cls:
+        MCPClient(
+            url="https://mcp.example.com",
+            auth=MCPClientCredentials(client_id="id", client_secret="secret", scopes=["read", "write"]),
+        )
+
+    assert provider_cls.call_args.kwargs["scopes"] == "read write"
 
 
 def test_auth_provider_passed_through(streamablehttp_transport):
@@ -106,13 +108,24 @@ def test_auth_and_headers_passed_together(streamablehttp_transport):
 
 
 def test_both_transport_callable_and_url_raises():
-    with pytest.raises(ValueError, match="not both"):
+    with pytest.raises(ValueError, match="either 'transport_callable' or 'url', not both"):
         MCPClient(lambda: None, url="https://mcp.example.com")
 
 
 def test_neither_transport_callable_nor_url_raises():
     with pytest.raises(ValueError, match="must be provided"):
         MCPClient()
+
+
+def test_empty_url_raises():
+    with pytest.raises(ValueError, match="must be provided"):
+        MCPClient(url="")
+
+
+@pytest.mark.parametrize("url", ["not-a-url", "ftp://mcp.example.com", "mcp.example.com/mcp"])
+def test_non_http_url_raises(url):
+    with pytest.raises(ValueError, match="must be an http:// or https:// URL"):
+        MCPClient(url=url)
 
 
 @pytest.mark.parametrize(
@@ -134,6 +147,25 @@ def test_both_auth_and_auth_provider_raises():
             url="https://mcp.example.com",
             auth=MCPClientCredentials(client_id="x", client_secret="y"),
             auth_provider=httpx.BasicAuth("user", "pass"),
+        )
+
+
+def test_auth_missing_required_keys_raises():
+    with pytest.raises(ValueError, match="missing required keys"):
+        MCPClient(url="https://mcp.example.com", auth={"client_id": "id"})
+
+
+def test_auth_non_string_credentials_raise():
+    with pytest.raises(ValueError, match="'client_id' and 'client_secret' to be strings"):
+        MCPClient(url="https://mcp.example.com", auth={"client_id": "id", "client_secret": 123})
+
+
+@pytest.mark.parametrize("scopes", ["read write", [1, 2], {"read": 1}])
+def test_auth_scopes_not_a_list_of_strings_raises(scopes):
+    with pytest.raises(ValueError, match="'scopes' to be a list of strings"):
+        MCPClient(
+            url="https://mcp.example.com",
+            auth={"client_id": "id", "client_secret": "secret", "scopes": scopes},
         )
 
 

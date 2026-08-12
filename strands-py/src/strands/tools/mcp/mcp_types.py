@@ -22,7 +22,10 @@ class MCPClientCredentials(TypedDict):
     Attributes:
         client_id: The OAuth client ID.
         client_secret: The OAuth client secret.
-        scopes: OAuth scopes to request. Joined with spaces before sending to the token endpoint.
+        scopes: OAuth scopes to request, joined with spaces. Advisory only: if the server
+            advertises its own scopes (via the `WWW-Authenticate` header or its
+            protected-resource / authorization-server metadata), the server's list is used
+            instead and this value is ignored.
     """
 
     client_id: str

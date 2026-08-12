@@ -26,6 +26,7 @@ from pathlib import Path
 from re import Pattern
 from types import TracebackType
 from typing import Any, TypeVar, cast
+from urllib.parse import urlparse
 
 import anyio
 import httpx
@@ -280,8 +281,9 @@ class MCPClient(ToolProvider):
 
         Raises:
             ValueError: If neither or both of `transport_callable` and `url` are provided, if
-                `headers`, `auth`, or `auth_provider` is provided without `url`, or if both `auth`
-                and `auth_provider` are provided.
+                `headers`, `auth`, or `auth_provider` is provided without `url`, if both `auth`
+                and `auth_provider` are provided, if `url` is not an http:// or https:// URL, or
+                if `auth` is missing required keys or a value has the wrong type.
         """
         self._startup_timeout = startup_timeout
         self._tool_filters = tool_filters
@@ -1696,13 +1698,28 @@ class _InMemoryTokenStorage:
 
 
 def _build_client_credentials_auth(url: str, auth: MCPClientCredentials) -> httpx.Auth:
-    """Build an httpx.Auth performing the OAuth client_credentials grant against the server."""
-    scopes = auth.get("scopes")
+    """Build an httpx.Auth performing the OAuth client_credentials grant against the server.
+
+    Error messages name only the offending keys, never their values, so credentials cannot
+    leak into logs.
+
+    Raises:
+        ValueError: If `auth` is missing required keys or a value has the wrong type.
+    """
+    values = cast(dict[str, Any], auth)
+    missing_keys = sorted({"client_id", "client_secret"} - values.keys())
+    if missing_keys:
+        raise ValueError(f"MCPClient: 'auth' is missing required keys: {missing_keys}")
+    if not isinstance(values["client_id"], str) or not isinstance(values["client_secret"], str):
+        raise ValueError("MCPClient: 'auth' requires 'client_id' and 'client_secret' to be strings")
+    scopes = values.get("scopes")
+    if scopes is not None and not (isinstance(scopes, list) and all(isinstance(scope, str) for scope in scopes)):
+        raise ValueError("MCPClient: 'auth' requires 'scopes' to be a list of strings")
     return ClientCredentialsOAuthProvider(
         server_url=url,
         storage=_InMemoryTokenStorage(),
-        client_id=auth["client_id"],
-        client_secret=auth["client_secret"],
+        client_id=values["client_id"],
+        client_secret=values["client_secret"],
         scopes=" ".join(scopes) if scopes else None,
     )
 
@@ -1719,11 +1736,11 @@ def _resolve_transport_callable(
 
     Enforces the constructor invariants: exactly one of `transport_callable` and `url`;
     `headers`, `auth`, and `auth_provider` require `url`; `auth` and `auth_provider` are
-    mutually exclusive.
+    mutually exclusive; `url` must be an http:// or https:// URL.
     """
-    if transport_callable is not None and url is not None:
+    if transport_callable is not None and url:
         raise ValueError("MCPClient: provide either 'transport_callable' or 'url', not both")
-    if transport_callable is None and url is None:
+    if transport_callable is None and not url:
         raise ValueError("MCPClient: either 'transport_callable' or 'url' must be provided")
     if transport_callable is not None:
         if auth is not None or auth_provider is not None or headers is not None:
@@ -1736,6 +1753,11 @@ def _resolve_transport_callable(
         raise ValueError("MCPClient: provide either 'auth' or 'auth_provider', not both")
 
     server_url = cast(str, url)
+    scheme = urlparse(server_url).scheme
+    if scheme not in ("http", "https"):
+        raise ValueError(f"MCPClient: 'url' must be an http:// or https:// URL, got '{server_url}'")
+    if scheme == "http" and (auth is not None or auth_provider is not None):
+        logger.warning("url=<%s> | sending oauth credentials over plaintext http", server_url)
     resolved_auth = _build_client_credentials_auth(server_url, auth) if auth is not None else auth_provider
     return lambda: streamablehttp_client(url=server_url, headers=headers, auth=resolved_auth)
 
@@ -1804,7 +1826,7 @@ def _config_transport_callable(name: str, transport: str, server: dict[str, Any]
     """Return a zero-arg callable that opens the transport for the given server entry."""
     if transport != "streamable-http" and server.get("auth"):
         raise ValueError(
-            f"server '{name}': 'auth' is only supported for streamable-http transport — "
+            f"server '{name}': Strands supports 'auth' for streamable-http transport only — "
             "use streamable-http or provide a pre-configured transport"
         )
 
@@ -1842,7 +1864,7 @@ def _config_transport_callable(name: str, transport: str, server: dict[str, Any]
 
 def _parse_config_auth(name: str, url: str, auth: dict[str, Any] | None) -> httpx.Auth | None:
     """Validate a config 'auth' entry and build the client_credentials httpx.Auth from it."""
-    if not auth:
+    if auth is None:
         return None
     if not isinstance(auth, dict):
         raise ValueError(f"server '{name}': 'auth' must be an object with 'client_id' and 'client_secret'")
