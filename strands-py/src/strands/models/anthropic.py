@@ -272,7 +272,7 @@ class AnthropicModel(Model):
             ttl: Optional TTL duration carried by the cache point.
 
         Returns:
-            True when a block was marked, False when none of the blocks can carry a breakpoint. 
+            True when a block was marked, False when none of the blocks can carry a breakpoint.
         """
         for block in reversed(formatted_contents):
             if block.get("type") in _CACHEABLE_BLOCK_TYPES:
@@ -280,26 +280,6 @@ class AnthropicModel(Model):
                 return True
 
         return False
-
-    def _caching_enabled(self) -> bool:
-        """Whether ``cache_config`` asks for a cache breakpoint on the last user message.
-
-        Both documented strategies enable caching on this provider. ``"auto"`` carries a model-support
-        check on Bedrock, but the Anthropic API supports prompt caching on every active Claude model, so
-        there is nothing for that check to decide here and the two strategies coincide.
-
-        Returns:
-            True if a cache point should be injected into the messages.
-        """
-        cache_config = self.config.get("cache_config")
-        if not cache_config:
-            return False
-
-        if cache_config.strategy not in ("auto", "anthropic"):
-            logger.warning("strategy=<%s> | unknown cache strategy, prompt caching disabled", cache_config.strategy)
-            return False
-
-        return True
 
     @staticmethod
     def _format_cache_control(ttl: str | None) -> dict[str, Any]:
@@ -317,23 +297,26 @@ class AnthropicModel(Model):
         return cache_control
 
     def _manage_cache_points(self, messages: Messages) -> tuple[Messages, int | None]:
-        """Return a copy of messages carrying at most one message cache point, and the message that owns it.
+        """Return a copy of messages carrying at most one cache point, and the message that owns it.
 
-        A cache point the caller placed in the last user message is honored where it sits. Callers place one
-        to mark where their reusable prefix ends, ahead of content rebuilt on every call (retrieved context,
-        a timestamp); moving that boundary would put the per-call content inside the cached prefix, so every
-        request would write a new cache entry and none would ever read one.
-
-        Extra points in that message, and points in earlier messages, are stripped so they cannot accumulate
-        one per turn against the API's shared breakpoint budget.
+        A cache point in the last user message is kept where it sits; extras there, and points in earlier
+        messages, are stripped so they cannot accumulate one per turn against the API's shared budget.
 
         Args:
             messages: List of message objects to manage cache points for.
 
         Returns:
-            A new list of messages and the index of the message that owns the managed breakpoint, or None
-            when no user message can carry one. The input is never modified.
+            A new list of messages and the index of the message that owns the cache point, or None when no
+            user message can carry one. The input is never modified.
         """
+        cache_config = self.config.get("cache_config")
+        if not cache_config:
+            return messages, None
+
+        if cache_config.strategy not in ("auto", "anthropic"):
+            logger.warning("strategy=<%s> | unknown cache strategy, prompt caching disabled", cache_config.strategy)
+            return messages, None
+
         target_idx = next(
             (
                 idx
@@ -362,9 +345,6 @@ class AnthropicModel(Model):
             copied.append({"role": message["role"], "content": content})
 
         if stripped:
-            # Warn rather than debug: discarding a cache point the caller placed can silently *cost* them
-            # caching, and a request carries one message breakpoint either way. BedrockModel warns on the
-            # same strip, so this keeps the two providers equally loud about it.
             logger.warning(
                 "count=<%d> | stripped extra cache points, cache_config keeps the first cache point in the "
                 "last user message; unset cache_config to keep every cache point",
@@ -374,9 +354,10 @@ class AnthropicModel(Model):
         return copied, target_idx
 
     def _format_request_tools(self, tool_specs: list[ToolSpec] | None) -> list[dict[str, Any]]:
-        """Format tool definitions, caching them when ``cache_tools`` is configured.
+        """Format tool definitions.
 
-        A ``cache_control`` on the final tool caches the whole tool block, so one breakpoint is enough.
+        A ``cache_control`` on the final tool caches all of them, so the tools section needs only one
+        cache point.
 
         Args:
             tool_specs: List of tool specifications to make available to the model.
@@ -422,9 +403,7 @@ class AnthropicModel(Model):
             TypeError: If a message contains a content block type that cannot be converted to an Anthropic-compatible
                 format.
         """
-        cache_target_idx: int | None = None
-        if self._caching_enabled():
-            messages, cache_target_idx = self._manage_cache_points(messages)
+        messages, cache_target_idx = self._manage_cache_points(messages)
 
         request = {
             "max_tokens": self.config["max_tokens"],

@@ -320,38 +320,24 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
   }
 
   /**
-   * Whether prompt caching is configured.
-   *
-   * @returns True when `cacheConfig` is set and carries a recognized strategy.
-   */
-  private _cachingEnabled(): boolean {
-    const cacheConfig = this._config.cacheConfig
-    if (!cacheConfig) {
-      return false
-    }
-
-    const strategy = cacheConfig.strategy ?? 'auto'
-    if (strategy !== 'auto' && strategy !== 'anthropic') {
-      logger.warn(`strategy=<${strategy}> | unknown cache strategy, prompt caching disabled`)
-      return false
-    }
-
-    return true
-  }
-
-  /**
    * Resolves a section of `cacheConfig` to whether it is enabled and which TTL it carries.
    *
    * @param section - The section to resolve.
    * @returns The section's enabled state and TTL, disabled when caching is off.
    */
   private _cacheSection(section: 'toolsTTL' | 'messagesTTL'): ResolvedCacheSection {
-    if (!this._cachingEnabled()) {
+    const cacheConfig = this._config.cacheConfig
+    if (!cacheConfig) {
       return { enabled: false }
     }
 
-    const cacheConfig = this._config.cacheConfig
-    return resolveCacheSection(cacheConfig?.[section], cacheConfig?.ttl)
+    const strategy = cacheConfig.strategy ?? 'auto'
+    if (strategy !== 'auto' && strategy !== 'anthropic') {
+      logger.warn(`strategy=<${strategy}> | unknown cache strategy, prompt caching disabled`)
+      return { enabled: false }
+    }
+
+    return resolveCacheSection(cacheConfig[section], cacheConfig.ttl)
   }
 
   /**
@@ -370,12 +356,8 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
   }
 
   /**
-   * Locates the message that should carry the auto-injected cache breakpoint.
-   *
-   * Returns the last user message with content, ignoring cache point blocks so the breakpoint count
-   * stays constant as the conversation grows. The block within it is chosen after formatting, by
-   * {@link _attachCacheControl}, since a block the API accepts a breakpoint on can still be dropped
-   * in translation.
+   * Locates the message that should carry the auto-injected cache point: the last user message with
+   * content. Existing cache point blocks do not count as content.
    *
    * @param messages - Conversation messages to search.
    * @returns The target message index, or undefined when no user message has content.
@@ -392,16 +374,12 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
   }
 
   /**
-   * Marks the most recent already-formatted block that the API accepts `cache_control` on.
-   *
-   * The block immediately preceding a cache point is not always a valid carrier: it may have been
-   * dropped in translation, or be a type the API rejects a breakpoint on (a `thinking` block, for
-   * example). Scanning backwards keeps the breakpoint on the nearest valid block instead of emitting
-   * a request the API refuses.
+   * Marks the last already-formatted block the API accepts `cache_control` on. Scans backwards
+   * because the nearest block may be a type the API rejects, or may have been dropped in translation.
    *
    * @param content - Blocks formatted so far for the current message. Mutated in place.
    * @param ttl - TTL duration carried by the cache point.
-   * @returns True when a block was marked, false when none can carry a breakpoint.
+   * @returns True when a block was marked, false when none can carry one.
    */
   private _attachCacheControl(content: Anthropic.ContentBlockParam[], ttl?: string): boolean {
     for (let i = content.length - 1; i >= 0; i--) {
@@ -416,9 +394,8 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
   }
 
   /**
-   * Formats tool definitions, caching them when `cacheConfig` enables the tools section.
-   *
-   * A `cache_control` on the final tool caches the whole tool block, so one breakpoint is enough.
+   * Formats tool definitions. A `cache_control` on the final tool caches all of them, so the tools
+   * section needs only one cache point.
    *
    * @param toolSpecs - Tool specifications to make available to the model.
    * @returns An Anthropic tools array.
@@ -442,8 +419,6 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
   private _formatRequest(messages: Message[], options?: StreamOptions): Anthropic.MessageStreamParams {
     if (!this._config.modelId) throw new Error('Model ID is required')
 
-    // The messages section owns every message breakpoint while enabled, even when this conversation
-    // has no block to put one on, so placement does not depend on the shape of a given request.
     const messagesCache = this._cacheSection('messagesTTL')
     const cacheTargetMessage = messagesCache.enabled ? this._findCacheTargetMessage(messages) : undefined
 
@@ -532,9 +507,7 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
               logger.warn('no preceding block accepts a cache breakpoint | skipped cache point')
             }
           } else if (isCacheTarget && !honored) {
-            // The first point in the newest turn stays where it was placed, marking where the reusable
-            // prefix ends. Its own TTL is the more specific instruction, so the configured TTL only
-            // fills in for a point that carries none.
+            // A TTL written on the point is more specific than the configured one.
             honored = true
             marked = this._attachCacheControl(content, block.ttl || messagesCache.ttl)
             if (!marked) {
@@ -553,8 +526,7 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
         if (formattedBlock) content.push(formattedBlock)
       }
 
-      // Placed after the whole message is formatted so the breakpoint lands on a block that survived
-      // translation.
+      // Placed after formatting so the cache point lands on a block that survived translation.
       if (isCacheTarget && !marked) {
         if (this._attachCacheControl(content, messagesCache.ttl)) {
           logger.debug(`msg_idx=<${messageIndex}> | added cache point to last user message`)
@@ -570,7 +542,6 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
     })
 
     if (strippedCachePoints > 0) {
-      // Discarding a placed cache point can cost caching, so it is never silent.
       logger.warn(
         `count=<${strippedCachePoints}> | stripped extra cache points, cacheConfig keeps the first cache ` +
           `point in the last user message; unset cacheConfig to keep every cache point`
