@@ -1042,3 +1042,186 @@ async def test_stream_generates_tool_call_id_when_null(litellm_acompletion, mode
     start = next(e for e in events if "contentBlockStart" in e and "toolUse" in e["contentBlockStart"]["start"])
     tool_id = start["contentBlockStart"]["start"]["toolUse"]["toolUseId"]
     assert tool_id and tool_id.startswith("call_")
+
+
+def test_cache_strategy_anthropic_for_anthropic_prefixes(litellm_acompletion):
+    """Underlying providers that accept cache_control markers resolve to "anthropic"."""
+    _ = litellm_acompletion
+    for model_id in [
+        "anthropic/claude-sonnet-4-6",
+        "bedrock/anthropic.claude-sonnet-4-6",
+        "vertex_ai/claude-3-5-sonnet",
+        "vertex_ai_beta/claude-3-5-sonnet",
+    ]:
+        m = LiteLLMModel(model_id=model_id)
+        assert m._cache_strategy == "anthropic", model_id
+
+
+def test_cache_strategy_server_auto_for_openai_prefixes(litellm_acompletion):
+    """Underlying providers that cache automatically server-side resolve to "server-auto"."""
+    _ = litellm_acompletion
+    for model_id in ["openai/gpt-4o", "deepseek/deepseek-chat", "xai/grok-2", "azure/gpt-4o"]:
+        m = LiteLLMModel(model_id=model_id)
+        assert m._cache_strategy == "server-auto", model_id
+
+
+def test_cache_strategy_none_for_unknown_prefix(litellm_acompletion):
+    """Underlying providers we don't recognize resolve to None."""
+    _ = litellm_acompletion
+    m = LiteLLMModel(model_id="gemini/gemini-2.5-flash")
+    assert m._cache_strategy is None
+
+
+def test_format_request_auto_injects_system_and_user_cache_points(litellm_acompletion):
+    """Auto mode injects cache_control on the trailing system block and last user text block."""
+    _ = litellm_acompletion
+    from strands.models import CacheConfig
+
+    model = LiteLLMModel(
+        model_id="anthropic/claude-sonnet-4-6",
+        cache_config=CacheConfig(strategy="auto"),
+    )
+
+    request = model.format_request(
+        [{"role": "user", "content": [{"text": "hi"}]}],
+        system_prompt="you are helpful",
+    )
+
+    system_msg = request["messages"][0]
+    assert system_msg["role"] == "system"
+    assert system_msg["content"][-1] == {
+        "type": "text",
+        "text": "you are helpful",
+        "cache_control": {"type": "ephemeral"},
+    }
+    user_msg = request["messages"][1]
+    assert user_msg["role"] == "user"
+    assert user_msg["content"][-1] == {"type": "text", "text": "hi", "cache_control": {"type": "ephemeral"}}
+
+
+def test_format_request_auto_honors_cache_config_ttl(litellm_acompletion):
+    """cache_config.ttl propagates into the injected cache_control markers."""
+    _ = litellm_acompletion
+    from strands.models import CacheConfig
+
+    model = LiteLLMModel(
+        model_id="anthropic/claude-sonnet-4-6",
+        cache_config=CacheConfig(strategy="auto", ttl="1h"),
+    )
+
+    request = model.format_request(
+        [{"role": "user", "content": [{"text": "hi"}]}],
+        system_prompt="static",
+    )
+
+    assert request["messages"][0]["content"][-1]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+    assert request["messages"][1]["content"][-1]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+
+
+def test_format_request_auto_noop_for_openai_underlying(litellm_acompletion, captured_warnings):
+    """OpenAI-compatible underlying providers cache server-side; no markers are injected."""
+    _ = litellm_acompletion
+    _ = captured_warnings
+    from strands.models import CacheConfig
+
+    model = LiteLLMModel(
+        model_id="openai/gpt-4o",
+        cache_config=CacheConfig(strategy="auto"),
+    )
+
+    request = model.format_request(
+        [{"role": "user", "content": [{"text": "hi"}]}],
+        system_prompt="static",
+    )
+
+    for msg in request["messages"]:
+        for block in msg.get("content", []) or []:
+            assert "cache_control" not in block
+
+
+def test_format_request_auto_warns_on_unsupported_underlying(litellm_acompletion, caplog):
+    """Unrecognized underlying providers log a warning and inject nothing."""
+    _ = litellm_acompletion
+    from strands.models import CacheConfig
+
+    model = LiteLLMModel(
+        model_id="unknown-provider/model-1",
+        cache_config=CacheConfig(strategy="auto"),
+    )
+
+    with caplog.at_level("WARNING"):
+        request = model.format_request(
+            [{"role": "user", "content": [{"text": "hi"}]}],
+            system_prompt="static",
+        )
+    assert any("unknown-provider" in record.message for record in caplog.records)
+    for msg in request["messages"]:
+        for block in msg.get("content", []) or []:
+            assert "cache_control" not in block
+
+
+def test_format_request_auto_preserves_caller_cache_point_on_system(litellm_acompletion):
+    """A caller-placed trailing cachePoint on the system prompt is not duplicated."""
+    _ = litellm_acompletion
+    from strands.models import CacheConfig
+
+    model = LiteLLMModel(
+        model_id="anthropic/claude-sonnet-4-6",
+        cache_config=CacheConfig(strategy="auto"),
+    )
+
+    request = model.format_request(
+        [{"role": "user", "content": [{"text": "hi"}]}],
+        system_prompt_content=[
+            {"text": "static"},
+            {"cachePoint": {"type": "default", "ttl": "1h"}},
+        ],
+    )
+
+    system_content = request["messages"][0]["content"]
+    assert [block.get("cache_control") for block in system_content if "cache_control" in block] == [
+        {"type": "ephemeral", "ttl": "1h"}
+    ]
+
+
+def test_format_request_auto_strips_stale_cache_points_across_turns(litellm_acompletion):
+    """Existing cachePoint blocks on earlier turns are stripped so the breakpoint budget is stable."""
+    _ = litellm_acompletion
+    from strands.models import CacheConfig
+
+    model = LiteLLMModel(
+        model_id="anthropic/claude-sonnet-4-6",
+        cache_config=CacheConfig(strategy="auto"),
+    )
+
+    turns = [
+        {"role": "user", "content": [{"text": "turn 1"}, {"cachePoint": {"type": "default"}}]},
+        {"role": "assistant", "content": [{"text": "response 1"}]},
+        {"role": "user", "content": [{"text": "turn 2"}]},
+    ]
+
+    request = model.format_request(turns)
+
+    cache_marks = [
+        (i, block.get("cache_control"))
+        for i, msg in enumerate(request["messages"])
+        for block in (msg.get("content") or [])
+        if isinstance(block, dict) and "cache_control" in block
+    ]
+    assert cache_marks == [(2, {"type": "ephemeral"})]
+
+
+def test_format_request_no_cache_config_leaves_messages_untouched(litellm_acompletion):
+    """Without cache_config, no cache_control markers are added."""
+    _ = litellm_acompletion
+
+    model = LiteLLMModel(model_id="anthropic/claude-sonnet-4-6")
+
+    request = model.format_request(
+        [{"role": "user", "content": [{"text": "hi"}]}],
+        system_prompt="static",
+    )
+
+    for msg in request["messages"]:
+        for block in msg.get("content", []) or []:
+            assert "cache_control" not in block

@@ -153,6 +153,9 @@ export interface BedrockCacheConfig extends CacheConfig {
 
   /** TTL applied to the auto-injected cache point appended to the last user message. */
   messagesTTL?: BedrockCacheTTL
+
+  /** TTL applied to the auto-injected cache point appended to the system prompt. */
+  systemTTL?: BedrockCacheTTL
 }
 
 /**
@@ -679,6 +682,22 @@ export class BedrockModel extends Model<BedrockModelConfig> {
         request.system = [{ text: options.systemPrompt }]
       } else if (options.systemPrompt.length > 0) {
         request.system = options.systemPrompt.map((block) => this._formatContentBlock(block) as SystemContentBlock)
+      }
+    }
+
+    // Auto-inject a cachePoint at the end of the system prompt so repeated calls with the
+    // same static system prefix hit the cache. Bedrock (Anthropic) documents the prefix
+    // chain as tools → system → messages; caching only messages leaves the (usually largest
+    // and most static) system prefix uncached.
+    if (request.system && request.system.length > 0 && this._shouldEnableCaching()) {
+      const lastBlock = request.system[request.system.length - 1]
+      if (!lastBlock || !('cachePoint' in lastBlock)) {
+        const cachePoint: BedrockCachePointBlock = { type: 'default' }
+        const ttl = this._config.cacheConfig?.systemTTL
+        if (ttl !== undefined) {
+          cachePoint.ttl = ttl as BedrockSdkCacheTTL
+        }
+        request.system.push({ cachePoint })
       }
     }
 

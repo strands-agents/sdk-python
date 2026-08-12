@@ -22,10 +22,19 @@ from ..types.exceptions import ContextWindowOverflowException
 from ..types.streaming import MetadataEvent, StreamEvent
 from ..types.tools import ToolChoice, ToolSpec, ToolUse
 from ._validation import validate_config_keys
-from .model import BaseModelConfig
+from .model import BaseModelConfig, CacheConfig
 from .openai import OpenAIModel
 
 logger = logging.getLogger(__name__)
+
+# Underlying providers whose native APIs support Anthropic-style cache_control markers.
+# LiteLLM already translates cachePoint → cache_control for these on the system prompt;
+# when cache_config resolves to "anthropic" we also mark the last user message.
+_ANTHROPIC_CACHE_LITELLM_PREFIXES = ("anthropic/", "bedrock/anthropic.", "vertex_ai/claude", "vertex_ai_beta/claude")
+
+# Underlying providers that cache automatically on the server side. cache_config is
+# accepted for portability but the SDK doesn't need to inject markers.
+_SERVER_AUTO_CACHE_LITELLM_PREFIXES = ("openai/", "deepseek/", "xai/", "azure/")
 
 # Separator used by LiteLLM to embed thought signatures inside tool call IDs.
 # See: https://ai.google.dev/gemini-api/docs/thought-signatures
@@ -47,11 +56,17 @@ class LiteLLMModel(OpenAIModel):
                 For a complete list of supported parameters, see
                 https://docs.litellm.ai/docs/completion/input#input-params-1.
             stream: Whether to use streaming. Defaults to True.
+            cache_config: Configuration for prompt caching. Use CacheConfig(strategy="auto") to
+                let LiteLLM route caching to the underlying provider. Behaviour depends on the
+                model_id prefix: Anthropic/Bedrock-Anthropic/Vertex-Claude get cache markers on
+                the system prompt and last user message; OpenAI-compatible providers cache
+                automatically server-side and this config is a no-op; other providers warn.
         """
 
         model_id: str
         params: dict[str, Any] | None
         stream: bool
+        cache_config: CacheConfig | None
 
     def __init__(self, client_args: dict[str, Any] | None = None, **model_config: Unpack[LiteLLMConfig]) -> None:
         """Initialize provider instance.
@@ -88,6 +103,44 @@ class LiteLLMModel(OpenAIModel):
             The LiteLLM model configuration.
         """
         return cast(LiteLLMModel.LiteLLMConfig, self.config)
+
+    @property
+    def _cache_strategy(self) -> str | None:
+        """Resolve the caching strategy for this model's underlying provider.
+
+        Returns:
+            "anthropic" when the underlying provider accepts cache_control markers,
+            "server-auto" when the underlying provider caches automatically without
+            client-side markers, or None when neither applies.
+        """
+        model_id = cast(str, self.config.get("model_id") or "").lower()
+        if any(model_id.startswith(prefix) for prefix in _ANTHROPIC_CACHE_LITELLM_PREFIXES):
+            return "anthropic"
+        if any(model_id.startswith(prefix) for prefix in _SERVER_AUTO_CACHE_LITELLM_PREFIXES):
+            return "server-auto"
+        return None
+
+    def _resolve_cache_strategy(self) -> str | None:
+        """Resolve cache_config into a concrete strategy, warning on unsupported underlying providers.
+
+        Returns:
+            "anthropic" when we should inject markers, "server-auto" when the underlying provider
+            caches automatically (no injection needed), or None when caching is off or unsupported.
+        """
+        cache_config = cast(CacheConfig | None, self.config.get("cache_config"))
+        if not cache_config:
+            return None
+
+        resolved: str | None = cache_config.strategy
+        if resolved == "auto":
+            resolved = self._cache_strategy
+            if resolved is None:
+                logger.warning(
+                    "model_id=<%s> | cache_config is enabled but the underlying provider is not "
+                    "recognized for caching, ignoring",
+                    self.config.get("model_id"),
+                )
+        return resolved
 
     @override
     @classmethod
@@ -238,6 +291,53 @@ class LiteLLMModel(OpenAIModel):
 
     @override
     @classmethod
+    def _format_regular_messages(cls, messages: Messages, **kwargs: Any) -> list[dict[str, Any]]:
+        """Format messages for LiteLLM, translating message-level cachePoint blocks.
+
+        Delegates to the OpenAI parent after stripping cachePoint blocks from the input and
+        re-attaching them as cache_control markers on the immediately preceding content
+        block, mirroring the system-prompt translator.
+
+        Args:
+            messages: List of message objects to be processed by the model.
+            **kwargs: Additional keyword arguments for future extensibility.
+
+        Returns:
+            List of formatted messages.
+        """
+        stripped_messages: list[dict[str, Any]] = []
+        cache_markers: list[tuple[int, int, dict[str, Any]]] = []
+        for msg_idx, message in enumerate(messages):
+            new_content: list[dict[str, Any]] = []
+            for block in message["content"]:
+                if "cachePoint" in block and block["cachePoint"].get("type") == "default":
+                    if new_content:
+                        cache_control: dict[str, Any] = {"type": "ephemeral"}
+                        if ttl := block["cachePoint"].get("ttl"):
+                            cache_control["ttl"] = ttl
+                        cache_markers.append((msg_idx, len(new_content) - 1, cache_control))
+                    continue
+                new_content.append(cast(dict[str, Any], block))
+            stripped_messages.append({"role": message["role"], "content": new_content})
+
+        formatted = super()._format_regular_messages(cast(Messages, stripped_messages), **kwargs)
+
+        # Reattach cache_control to each marked (message, block) position. This works because
+        # _format_regular_messages preserves 1-to-1 mapping between input messages and the
+        # primary formatted message; tool-message splits append AFTER, so indices stay stable
+        # for the user/assistant messages we mark.
+        for msg_idx, block_idx, cache_control in cache_markers:
+            if msg_idx >= len(formatted):
+                continue
+            formatted_content = formatted[msg_idx].get("content")
+            if not isinstance(formatted_content, list) or block_idx >= len(formatted_content):
+                continue
+            formatted_content[block_idx]["cache_control"] = cache_control
+
+        return formatted
+
+    @override
+    @classmethod
     def format_request_messages(
         cls,
         messages: Messages,
@@ -317,6 +417,117 @@ class LiteLLMModel(OpenAIModel):
 
         # For all other cases, use the parent implementation
         return super().format_chunk(event)
+
+    @override
+    def format_request(
+        self,
+        messages: Messages,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
+        tool_choice: ToolChoice | None = None,
+        *,
+        system_prompt_content: list[SystemContentBlock] | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Format a LiteLLM request, injecting cache markers when cache_config is set.
+
+        Args:
+            messages: List of message objects to be processed by the model.
+            tool_specs: List of tool specifications to make available to the model.
+            system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation.
+            system_prompt_content: System prompt content blocks to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
+
+        Returns:
+            A LiteLLM compatible chat streaming request.
+        """
+        strategy = self._resolve_cache_strategy()
+        if strategy == "anthropic":
+            system_prompt_content = self._inject_system_cache_point(system_prompt, system_prompt_content)
+            system_prompt = None if system_prompt_content else system_prompt
+            messages = self._inject_messages_cache_point(messages)
+
+        return super().format_request(
+            messages,
+            tool_specs,
+            system_prompt,
+            tool_choice,
+            system_prompt_content=system_prompt_content,
+            **kwargs,
+        )
+
+    def _inject_system_cache_point(
+        self,
+        system_prompt: str | None,
+        system_prompt_content: list[SystemContentBlock] | None,
+    ) -> list[SystemContentBlock] | None:
+        """Ensure the system prompt ends with a cachePoint so the static prefix is cached.
+
+        Promotes a plain-string system_prompt into content-block form so we can attach the
+        cachePoint. Preserves any caller-placed trailing cachePoint (including its ttl).
+
+        Args:
+            system_prompt: The plain-string system prompt, if any.
+            system_prompt_content: Structured system content blocks, if any.
+
+        Returns:
+            A structured system-prompt list ending in a cachePoint, or None when there is no
+            system prompt to cache.
+        """
+        content: list[SystemContentBlock] = list(system_prompt_content) if system_prompt_content else []
+        if not content and system_prompt:
+            content = [cast(SystemContentBlock, {"text": system_prompt})]
+        if not content:
+            return None
+
+        if "cachePoint" in content[-1]:
+            return content
+
+        cache_point: dict[str, Any] = {"type": "default"}
+        cache_config = cast(CacheConfig | None, self.config.get("cache_config"))
+        if cache_config and cache_config.ttl:
+            cache_point["ttl"] = cache_config.ttl
+        content.append(cast(SystemContentBlock, {"cachePoint": cache_point}))
+        return content
+
+    def _inject_messages_cache_point(self, messages: Messages) -> Messages:
+        """Append a cachePoint to the last user message so the conversation prefix is cached.
+
+        Strips any pre-existing cachePoint blocks from earlier messages so the breakpoint budget
+        stays constant across a long conversation. Anthropic accepts at most 4 cache breakpoints
+        per request; auto-injecting per turn without cleanup would break a conversation on turn 5.
+
+        Args:
+            messages: The conversation messages.
+
+        Returns:
+            A new messages list with the cachePoint appended to the last user message.
+        """
+        if not messages:
+            return messages
+
+        cache_point: dict[str, Any] = {"type": "default"}
+        cache_config = cast(CacheConfig | None, self.config.get("cache_config"))
+        if cache_config and cache_config.ttl:
+            cache_point["ttl"] = cache_config.ttl
+
+        cleaned: list[dict[str, Any]] = []
+        last_user_idx: int | None = None
+        for idx, message in enumerate(messages):
+            new_content = [block for block in message["content"] if "cachePoint" not in block]
+            cleaned.append({"role": message["role"], "content": new_content})
+            if message["role"] == "user" and new_content:
+                last_user_idx = idx
+
+        if last_user_idx is None:
+            return cast(Messages, cleaned)
+
+        last_content = cleaned[last_user_idx]["content"]
+        if not last_content or "cachePoint" in last_content[-1]:
+            return cast(Messages, cleaned)
+        last_content.append({"cachePoint": cache_point})
+        return cast(Messages, cleaned)
 
     @override
     async def stream(

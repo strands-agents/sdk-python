@@ -4272,3 +4272,94 @@ def test_format_request_cache_tools_string_backward_compat(model, messages, mode
 
     exp_cache_point = {"cachePoint": {"type": cache_type}}
     assert tru_request["toolConfig"]["tools"][-1] == exp_cache_point
+
+
+def test_format_request_auto_appends_system_cache_point(bedrock_client, messages):
+    """Auto mode appends a cachePoint after the system prompt for a Claude model.
+
+    Regression guard for https://github.com/strands-agents/harness-sdk/issues/3144.
+    """
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto"),
+    )
+
+    tru_request = model.format_request(messages, system_prompt_content=[{"text": "you are helpful"}])
+
+    assert tru_request["system"] == [
+        {"text": "you are helpful"},
+        {"cachePoint": {"type": "default"}},
+    ]
+
+
+def test_format_request_auto_system_cache_point_honors_ttl(bedrock_client, messages):
+    """Auto mode carries cache_config.ttl into the appended system cache point."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto", ttl="1h"),
+    )
+
+    tru_request = model.format_request(messages, system_prompt_content=[{"text": "static"}])
+
+    assert tru_request["system"][-1] == {"cachePoint": {"type": "default", "ttl": "1h"}}
+
+
+def test_format_request_auto_skips_system_cache_point_when_empty(bedrock_client, messages):
+    """Auto mode does not inject a system cache point when the system prompt is empty."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto"),
+    )
+
+    tru_request = model.format_request(messages)
+
+    assert tru_request["system"] == []
+
+
+def test_format_request_auto_skips_system_cache_point_for_non_claude(bedrock_client, messages):
+    """Auto mode does not inject a system cache point when the model has no auto strategy."""
+    model = BedrockModel(
+        model_id="amazon.nova-pro-v1:0",
+        cache_config=CacheConfig(strategy="auto"),
+    )
+
+    tru_request = model.format_request(messages, system_prompt_content=[{"text": "static"}])
+
+    assert tru_request["system"] == [{"text": "static"}]
+
+
+def test_format_request_auto_preserves_caller_placed_system_cache_point(bedrock_client, messages):
+    """Auto mode does not double-append when the caller already placed a trailing cachePoint."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto"),
+    )
+
+    system_blocks = [{"text": "static"}, {"cachePoint": {"type": "default", "ttl": "1h"}}]
+    tru_request = model.format_request(messages, system_prompt_content=system_blocks)
+
+    assert tru_request["system"] == [
+        {"text": "static"},
+        {"cachePoint": {"type": "default", "ttl": "1h"}},
+    ]
+
+
+def test_format_request_no_cache_config_leaves_system_untouched(bedrock_client, messages):
+    """With no cache_config, the system prompt is passed through unchanged."""
+    model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
+
+    tru_request = model.format_request(messages, system_prompt_content=[{"text": "static"}])
+
+    assert tru_request["system"] == [{"text": "static"}]
+
+
+def test_format_request_anthropic_strategy_appends_system_cache_point(bedrock_client, messages):
+    """Explicit anthropic strategy also appends a system cache point, mirroring auto."""
+    model = BedrockModel(
+        model_id="arn:aws:bedrock:us-east-1:123:application-inference-profile/abc",
+        cache_config=CacheConfig(strategy="anthropic"),
+    )
+
+    tru_request = model.format_request(messages, system_prompt_content=[{"text": "static"}])
+
+    assert tru_request["system"][-1] == {"cachePoint": {"type": "default"}}
