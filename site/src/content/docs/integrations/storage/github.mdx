@@ -93,11 +93,11 @@ Pass it wherever a `Storage` is accepted so the agent's persisted data lives in 
 
     ```python
     from strands import Agent
-    from strands.session import SessionManager
+    from strands.session import SnapshotSessionManager
     from strands_github_storage import GithubStorage
 
-    storage = GithubStorage(owner="myorg", repo="agent-sessions", token=token)
-    agent = Agent(session_manager=SessionManager(storage=storage))
+    storage = GithubStorage(owner="myorg", repo="agent-sessions", token="ghp_...")
+    agent = Agent(session_manager=SnapshotSessionManager("agent-sessions", storage=storage))
     ```
   </Tab>
   <Tab label="TypeScript">
