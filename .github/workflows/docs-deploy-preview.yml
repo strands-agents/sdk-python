@@ -126,7 +126,8 @@ jobs:
             const toUrlPath = (filename) => {
               const docsMatch = filename.match(/^site\/src\/content\/docs\/(.+)\.mdx$/);
               if (docsMatch) {
-                return `/docs/${docsMatch[1].replace(/\/index$/, '')}/`;
+                const route = docsMatch[1].replace(/(^|\/)index$/, '');
+                return route ? `/docs/${route}/` : '/docs/';
               }
               // Catalog entries all render on the /integrations/ page
               if (/^site\/src\/content\/catalog\/.+\.ya?ml$/.test(filename)) {
@@ -135,7 +136,7 @@ jobs:
               // Static Astro pages; dynamic [param] routes have no single URL
               const pageMatch = filename.match(/^site\/src\/pages\/(.+)\.astro$/);
               if (pageMatch && !pageMatch[1].includes('[')) {
-                const route = pageMatch[1].replace(/\/?index$/, '');
+                const route = pageMatch[1].replace(/(^|\/)index$/, '');
                 return route ? `/${route}/` : '/';
               }
               return null;
