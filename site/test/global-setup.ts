@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { copyFileSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 const DATA_STORE_PATH = '.astro/data-store.json'
@@ -18,19 +18,24 @@ const CONTENT_SOURCES = ['src/content', 'src/content.config.ts']
  * into .build/api-docs). Directory mtimes are included so a deleted file,
  * which bumps only its parent directory, still counts as a change. Broken
  * symlinks and unreadable paths report 0: nothing there to be newer than the
- * snapshot.
+ * snapshot. `visited` holds resolved directory paths so a symlink cycle
+ * terminates instead of overflowing the stack.
  */
-function newestMtime(path: string): number {
+function newestMtime(path: string, visited: Set<string>): number {
   let stat
+  let resolved
   try {
     stat = statSync(path)
+    resolved = realpathSync(path)
   } catch {
     return 0
   }
   if (!stat.isDirectory()) return stat.mtimeMs
+  if (visited.has(resolved)) return 0
+  visited.add(resolved)
   let newest = stat.mtimeMs
   for (const entry of readdirSync(path)) {
-    newest = Math.max(newest, newestMtime(join(path, entry)))
+    newest = Math.max(newest, newestMtime(join(path, entry), visited))
   }
   return newest
 }
@@ -41,14 +46,15 @@ function newestMtime(path: string): number {
  * make every collection test silently assert against outdated entries.
  */
 function isDataStoreFresh(): boolean {
-  if (!existsSync(DATA_STORE_PATH)) return false
+  let storeStat
   try {
-    if (readFileSync(DATA_STORE_PATH, 'utf-8').trim().length <= 100) return false
-    const storeMtime = statSync(DATA_STORE_PATH).mtimeMs
-    return CONTENT_SOURCES.every((source) => newestMtime(source) <= storeMtime)
+    storeStat = statSync(DATA_STORE_PATH)
   } catch {
     return false
   }
+  // A store this small cannot hold real collections; treat it as absent.
+  if (storeStat.size <= 100) return false
+  return CONTENT_SOURCES.every((source) => newestMtime(source, new Set()) <= storeStat.mtimeMs)
 }
 
 export async function setup() {
