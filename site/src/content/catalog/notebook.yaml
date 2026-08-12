@@ -3,7 +3,7 @@ description: Manage persistent text notebooks that carry plans, notes, and scrat
 integrationType: tool
 languages:
   typescript: {}
-github: https://github.com/strands-agents/harness-sdk
+github: https://github.com/strands-agents/harness-sdk/tree/main/strands-ts/src/vended-tools/notebook
 docsPage: docs/user-guide/concepts/tools/vended-tools
 badges: [native]
 addedDate: 2025-12-01

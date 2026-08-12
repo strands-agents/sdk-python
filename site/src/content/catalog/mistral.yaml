@@ -3,7 +3,7 @@ description: Run Strands agents on Mistral AI models, with tool calling and stre
 integrationType: model-provider
 languages:
   python: {}
-github: https://github.com/strands-agents/harness-sdk
+github: https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/mistral.py
 docsPage: docs/user-guide/concepts/model-providers/mistral
 badges: [native]
 addedDate: 2025-12-01

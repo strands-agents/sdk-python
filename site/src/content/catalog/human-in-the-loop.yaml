@@ -4,7 +4,7 @@ integrationType: intervention
 languages:
   python: {}
   typescript: {}
-github: https://github.com/strands-agents/harness-sdk
+github: https://github.com/strands-agents/harness-sdk/tree/main/strands-py/src/strands/vended_interventions/hitl
 docsPage: docs/user-guide/concepts/agents/interventions/human-in-the-loop
 badges: [native]
 addedDate: 2025-12-01

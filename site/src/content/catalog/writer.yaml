@@ -3,7 +3,7 @@ description: Run Strands agents on Writer Palmyra models, with tool calling, str
 integrationType: model-provider
 languages:
   python: {}
-github: https://github.com/strands-agents/harness-sdk
+github: https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/writer.py
 docsPage: docs/user-guide/concepts/model-providers/writer
 badges: [native]
 addedDate: 2025-12-01

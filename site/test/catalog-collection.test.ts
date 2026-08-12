@@ -83,6 +83,19 @@ describe('catalog content collection', () => {
     expect(result.success).toBe(true)
   })
 
+  it('rejects stacked verified and native badges', () => {
+    const result = catalogEntrySchema.safeParse({
+      name: 'stacked-badges',
+      description: 'verified and native do not stack',
+      integrationType: 'model-provider',
+      languages: { python: {} },
+      github: 'https://github.com/strands-agents/harness-sdk',
+      badges: ['verified', 'native'],
+      addedDate: '2025-12-01',
+    })
+    expect(result.success).toBe(false)
+  })
+
   it('rejects an unknown language key', () => {
     // The languages container is .strict() so a misspelled key
     // (`typeScript:`) fails the build instead of silently dropping the
@@ -166,10 +179,11 @@ describe('catalog content collection', () => {
     expect(anthropic!.data.docsPage).toBe('docs/user-guide/concepts/model-providers/anthropic')
     const native = entries.filter((e) => e.data.badges.includes('native'))
     expect(native.length).toBe(28)
-    // Native entries point at the SDK monorepo and always have on-site docs;
-    // verified is a community-vetting signal, so the two never stack.
+    // Native entries point at their source path in the SDK monorepo and
+    // always have on-site docs; verified is a community-vetting signal, so
+    // the two never stack.
     for (const e of native) {
-      expect(e.data.github, e.id).toBe('https://github.com/strands-agents/harness-sdk')
+      expect(e.data.github, e.id).toMatch(/^https:\/\/github\.com\/strands-agents\/harness-sdk\//)
       expect(e.data.docsPage, e.id).toBeDefined()
       expect(e.data.badges, e.id).toEqual(['native'])
     }

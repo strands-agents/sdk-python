@@ -3,7 +3,7 @@ description: Run Strands agents on models from OpenAI, Anthropic, Amazon, and mo
 integrationType: model-provider
 languages:
   python: {}
-github: https://github.com/strands-agents/harness-sdk
+github: https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/litellm.py
 docsPage: docs/user-guide/concepts/model-providers/litellm
 badges: [native]
 addedDate: 2025-12-01

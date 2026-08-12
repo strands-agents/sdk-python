@@ -4,7 +4,7 @@ integrationType: session-manager
 languages:
   python: {}
   typescript: {}
-github: https://github.com/strands-agents/harness-sdk
+github: https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/s3_session_manager.py
 docsPage: docs/user-guide/concepts/agents/session-management
 badges: [native]
 addedDate: 2025-12-01

@@ -3,7 +3,7 @@ description: Run Strands agents on any Vercel AI SDK provider through the Vercel
 integrationType: model-provider
 languages:
   typescript: {}
-github: https://github.com/strands-agents/harness-sdk
+github: https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/models/vercel.ts
 docsPage: docs/user-guide/concepts/model-providers/vercel
 badges: [native]
 addedDate: 2025-12-01
