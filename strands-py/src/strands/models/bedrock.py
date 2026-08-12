@@ -23,7 +23,7 @@ from .._exception_notes import add_exception_note
 from ..event_loop import streaming
 from ..tools import convert_pydantic_to_tool_spec
 from ..tools._tool_helpers import noop_tool
-from ..types.content import ContentBlock, Messages, SystemContentBlock
+from ..types.content import CachePoint, ContentBlock, Messages, SystemContentBlock
 from ..types.exceptions import (
     ContextWindowOverflowException,
     ModelThrottledException,
@@ -292,6 +292,9 @@ class BedrockModel(Model):
             )
             system_blocks.append({"cachePoint": {"type": cache_prompt}})
 
+        # Built ahead of the request so the tools cache point is known to the system cache point behind it.
+        tools_cache_point = self._build_tools_cache_point() if tool_specs else []
+
         formatted_messages = self._format_bedrock_messages(messages)
         if self._tool_result_turn_separation_model_id == self.config["model_id"]:
             formatted_messages = self._separate_tool_result_turns(formatted_messages)
@@ -299,7 +302,7 @@ class BedrockModel(Model):
         return {
             "modelId": self.config["model_id"],
             "messages": formatted_messages,
-            "system": system_blocks,
+            "system": self._apply_system_cache_ttl(system_blocks, tools_cache_point),
             **({"serviceTier": {"type": self.config["service_tier"]}} if self.config.get("service_tier") else {}),
             **(
                 {
@@ -320,7 +323,7 @@ class BedrockModel(Model):
                                 }
                                 for tool_spec in tool_specs
                             ],
-                            *self._build_tools_cache_point(),
+                            *tools_cache_point,
                         ],
                         **({"toolChoice": tool_choice if tool_choice else {"auto": {}}}),
                     }
@@ -394,6 +397,53 @@ class BedrockModel(Model):
             return {}
 
         return {"additionalModelRequestFields": additional_fields}
+
+    def _apply_system_cache_ttl(
+        self, system_blocks: list[SystemContentBlock], tools_cache_point: list[dict[str, Any]]
+    ) -> list[SystemContentBlock]:
+        """Apply ``cache_config.ttl`` to a caller-placed system cache point that carries no TTL of its own.
+
+        Bedrock rejects a TTL that exceeds an earlier cache point's, in the order toolConfig, system,
+        messages. Filling the system point in keeps it from sitting at the default between two configured
+        points. A TTL the caller wrote is left as written, and the fill-in stands down when the tools point
+        carries a different TTL, leaving the caller to reconcile the two.
+
+        Args:
+            system_blocks: System content blocks for the request.
+            tools_cache_point: The toolConfig cache point emitted for this request, if any.
+
+        Returns:
+            The blocks, with a cache point replaced rather than mutated since the caller owns the block.
+        """
+        ttl: str | None = None
+        cache_config = self.config.get("cache_config")
+        if cache_config and cache_config.ttl:
+            strategy: str | None = cache_config.strategy
+            if strategy == "auto":
+                strategy = self._cache_strategy
+            tools_ttl_differs = bool(tools_cache_point) and (
+                tools_cache_point[0]["cachePoint"].get("ttl") != cache_config.ttl
+            )
+            if strategy == "anthropic" and not tools_ttl_differs:
+                ttl = cache_config.ttl
+
+        normalized: list[SystemContentBlock] = []
+        for block in system_blocks:
+            cache_point = block.get("cachePoint")
+            # A TTL the caller wrote is theirs, so only a falsy one is rewritten.
+            if cache_point is None or cache_point.get("ttl"):
+                normalized.append(block)
+                continue
+
+            point: CachePoint = {**cache_point}
+            # pop() rather than a conditional write, exactly as the message path does, so both paths drop
+            # a falsy TTL by the same rule.
+            point.pop("ttl", None)
+            if ttl:
+                point["ttl"] = ttl
+            normalized.append(SystemContentBlock(**{**block, "cachePoint": point}))
+
+        return normalized
 
     def _build_tools_cache_point(self) -> list[dict[str, Any]]:
         """Build the cache point block appended to ``toolConfig.tools`` if ``cache_tools`` is configured.
