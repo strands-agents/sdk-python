@@ -71,7 +71,7 @@ export interface AnthropicModelConfig extends BaseModelConfig {
   useNativeTokenCount?: boolean
 
   /**
-   * Prompt caching configuration. Setting it caches the tool definitions and adds a cache breakpoint
+   * Prompt caching configuration. Setting it caches the tool definitions and adds a cache point
    * to the last user message; caching is off when unset.
    *
    * `strategy` has no effect here, since prompt caching is supported on every active Claude model.
@@ -319,12 +319,7 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
     return { headers: { 'anthropic-beta': betas.join(',') } }
   }
 
-  /**
-   * Resolves a section of `cacheConfig` to whether it is enabled and which TTL it carries.
-   *
-   * @param section - The section to resolve.
-   * @returns The section's enabled state and TTL, disabled when caching is off.
-   */
+  /** Resolves a cache section, disabled when `cacheConfig` is unset or its strategy is unknown. */
   private _cacheSection(section: 'toolsTTL' | 'messagesTTL'): ResolvedCacheSection {
     const cacheConfig = this._config.cacheConfig
     if (!cacheConfig) {
@@ -340,12 +335,7 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
     return resolveCacheSection(cacheConfig[section], cacheConfig.ttl)
   }
 
-  /**
-   * Builds an Anthropic `cache_control` value.
-   *
-   * @param ttl - TTL duration (e.g. `'5m'`, `'1h'`). Falsy leaves the API default.
-   * @returns An Anthropic cache_control value.
-   */
+  /** Builds an Anthropic `cache_control` value. A falsy `ttl` leaves the API default. */
   private _formatCacheControl(ttl?: string): Anthropic.CacheControlEphemeral {
     const cacheControl: Anthropic.CacheControlEphemeral = { type: ANTHROPIC_CACHE_TYPE }
     if (ttl) {
@@ -356,11 +346,8 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
   }
 
   /**
-   * Locates the message that should carry the auto-injected cache point: the last user message with
-   * content. Existing cache point blocks do not count as content.
-   *
-   * @param messages - Conversation messages to search.
-   * @returns The target message index, or undefined when no user message has content.
+   * Locates the message that carries the auto-injected cache point: the last user message with content,
+   * not counting cache point blocks. Undefined when no user message qualifies.
    */
   private _findCacheTargetMessage(messages: Message[]): number | undefined {
     for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
@@ -374,12 +361,10 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
   }
 
   /**
-   * Marks the last already-formatted block the API accepts `cache_control` on. Scans backwards
-   * because the nearest block may be a type the API rejects, or may have been dropped in translation.
+   * Marks the last formatted block the API accepts `cache_control` on, mutating `content` in place.
+   * Scans backwards because the nearest block may be a rejected type or dropped in translation.
    *
-   * @param content - Blocks formatted so far for the current message. Mutated in place.
-   * @param ttl - TTL duration carried by the cache point.
-   * @returns True when a block was marked, false when none can carry one.
+   * @returns True when a block was marked.
    */
   private _attachCacheControl(content: Anthropic.ContentBlockParam[], ttl?: string): boolean {
     for (let i = content.length - 1; i >= 0; i--) {
@@ -393,13 +378,7 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
     return false
   }
 
-  /**
-   * Formats tool definitions. A `cache_control` on the final tool caches all of them, so the tools
-   * section needs only one cache point.
-   *
-   * @param toolSpecs - Tool specifications to make available to the model.
-   * @returns An Anthropic tools array.
-   */
+  /** Formats tool definitions. A `cache_control` on the last tool caches all of them, so one suffices. */
   private _formatTools(toolSpecs: ToolSpec[]): Anthropic.ToolUnion[] {
     const tools = toolSpecs.map((tool) => ({
       name: tool.name,
@@ -504,7 +483,7 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
         if (block.type === 'cachePointBlock') {
           if (!cacheManaged) {
             if (!this._attachCacheControl(content, block.ttl)) {
-              logger.warn('no preceding block accepts a cache breakpoint | skipped cache point')
+              logger.warn('no preceding block accepts a cache point | skipped cache point')
             }
           } else if (isCacheTarget && !honored) {
             // A TTL written on the point is more specific than the configured one.
@@ -512,7 +491,7 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
             marked = this._attachCacheControl(content, block.ttl || messagesCache.ttl)
             if (!marked) {
               logger.warn(
-                `msg_idx=<${messageIndex}> | nothing ahead of the placed cache point accepts a breakpoint, ` +
+                `msg_idx=<${messageIndex}> | nothing ahead of the placed cache point can carry one, ` +
                   `falling back to automatic placement`
               )
             }

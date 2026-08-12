@@ -1837,7 +1837,7 @@ class TestPromptCaching:
         request = model.format_request(messages)
 
         assert self._breakpoints(request) == []
-        assert "no preceding block accepts a cache breakpoint" in caplog.text
+        assert "no preceding block accepts a cache point" in caplog.text
 
     def test_breakpoint_survives_a_block_dropped_in_translation(self, model):
         """An image with a location source is an accepted cache carrier by block type but is dropped when

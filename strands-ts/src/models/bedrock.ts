@@ -491,23 +491,10 @@ export class BedrockModel extends Model<BedrockModelConfig> {
   /**
    * Applies `cacheConfig.ttl` to a caller-placed system cache point that carries no TTL of its own.
    *
-   * Bedrock processes cache points in the order toolConfig, system, messages and rejects a TTL that
-   * exceeds an earlier checkpoint's. A shared `ttl` reaches tools and messages, so a system point left
-   * at the Bedrock default in between makes the whole request invalid. A TTL the caller wrote is left
-   * as written - two conflicting TTLs are theirs to reconcile.
-   *
-   * The tools checkpoint runs ahead of the system one, so the fill-in only happens when it cannot land
-   * a longer TTL behind a shorter one: it stands down whenever the tools checkpoint carries a TTL that
-   * differs from this one at all. Comparing two durations means parsing them, and `CacheTTL` accepts
-   * arbitrary strings for forward compatibility, so any difference is treated the same rather than only a
-   * shorter one. The system point is then left at the provider default of 5 minutes, exactly where it sat
-   * before a `ttl` was configured, rather than trading one rejected request for another. A differing
-   * `toolsTTL` is the caller's to reconcile, the same as a TTL they wrote by hand.
-   *
-   * A falsy TTL the caller wrote is dropped either way, because Bedrock validates `ttl` against an enum
-   * and rejects `''`, so it cannot reach the wire on its own merits. That is what the message path already
-   * does in {@link _honorPlacedCachePoint}; normalizing before the fill-in is decided keeps the guard
-   * above from handing a rejected request back to the caller.
+   * Bedrock rejects a TTL that exceeds an earlier cache point's, in the order toolConfig, system,
+   * messages. Filling the system point in keeps it from sitting at the default between two configured
+   * points. A TTL the caller wrote is left as written, and the fill-in stands down when the tools point
+   * carries a different TTL, leaving the caller to reconcile the two.
    *
    * @param request - The formatted request, with `system` and `toolConfig` already populated.
    */

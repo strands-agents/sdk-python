@@ -399,32 +399,17 @@ class BedrockModel(Model):
     ) -> list[SystemContentBlock]:
         """Apply ``cache_config.ttl`` to a caller-placed system cache point that carries no TTL of its own.
 
-        Bedrock processes cache points in the order toolConfig, system, messages and rejects a TTL that
-        exceeds an earlier checkpoint's. A configured ``ttl`` reaches the message cache point, so a system
-        point left at the Bedrock default in between makes the whole request invalid. A TTL the caller
-        wrote is left as written - two conflicting TTLs are theirs to reconcile.
-
-        The tools checkpoint runs ahead of the system one, so the fill-in only happens when it cannot land
-        a longer TTL behind a shorter one: it stands down whenever the tools checkpoint carries a TTL that
-        differs from this one at all. Comparing two durations means parsing them, and ``CacheTTL`` accepts
-        arbitrary strings for forward compatibility, so any difference is treated the same rather than only
-        a shorter one. The system point is then left at the Bedrock default of 5 minutes, exactly where it
-        sat before a ``ttl`` was configured, rather than trading one rejected request for another. That
-        mismatch is the caller's to reconcile, the same as a TTL they wrote.
-
-        A falsy TTL the caller wrote is dropped either way. botocore rejects ``None`` and Bedrock rejects
-        ``""`` against its enum, so neither can reach the wire on its own merits, and dropping is what the
-        message path already does in :meth:`_honor_placed_cache_point`. Normalizing before the fill-in is
-        decided keeps the guard above from handing a rejected request back to the caller.
+        Bedrock rejects a TTL that exceeds an earlier cache point's, in the order toolConfig, system,
+        messages. Filling the system point in keeps it from sitting at the default between two configured
+        points. A TTL the caller wrote is left as written, and the fill-in stands down when the tools point
+        carries a different TTL, leaving the caller to reconcile the two.
 
         Args:
             system_blocks: System content blocks for the request.
             tools_cache_point: The toolConfig cache point emitted for this request, if any.
 
         Returns:
-            The blocks, carrying the configured TTL where a cache point had none and no TTL at all where
-            the caller wrote a falsy one. A cache point is replaced rather than mutated, since the caller
-            owns the block.
+            The blocks, with a cache point replaced rather than mutated since the caller owns the block.
         """
         ttl: str | None = None
         cache_config = self.config.get("cache_config")
@@ -441,7 +426,6 @@ class BedrockModel(Model):
         normalized: list[SystemContentBlock] = []
         for block in system_blocks:
             cache_point = block.get("cachePoint")
-            # An off-type cache point is Bedrock's to reject, not something to raise on while formatting.
             # A TTL the caller wrote is theirs, so only a falsy one is rewritten.
             if cache_point is None or cache_point.get("ttl"):
                 normalized.append(block)

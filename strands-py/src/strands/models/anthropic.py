@@ -37,7 +37,7 @@ _IMAGE_MEDIA_TYPES = {
     "webp": "image/webp",
 }
 
-# Anthropic accepts ``cache_control`` on these block types only. A breakpoint on any other block  is rejected.
+# Anthropic accepts ``cache_control`` on these block types only; any other block is rejected.
 # https://docs.claude.com/en/docs/build-with-claude/prompt-caching
 _CACHEABLE_BLOCK_TYPES = frozenset({"document", "image", "text", "tool_result", "tool_use"})
 
@@ -67,8 +67,8 @@ class AnthropicModel(Model):
         """Configuration options for Anthropic models.
 
         Attributes:
-            cache_config: Configuration for prompt caching. Use ``CacheConfig(strategy="auto")`` to add a
-                cache breakpoint to the last user message. Caching is off when unset.
+            cache_config: Configuration for prompt caching. Adds a cache point to the last user message,
+                caching everything before it. Caching is off when unset.
             cache_tools: Caches the tool definitions.
             max_tokens: Maximum number of tokens to generate.
             model_id: Calude model ID (e.g., "claude-3-7-sonnet-latest").
@@ -205,9 +205,9 @@ class AnthropicModel(Model):
 
         Args:
             messages: List of message objects to be processed by the model.
-            cache_target_idx: Index of the message that owns the managed cache breakpoint while
+            cache_target_idx: Index of the message that owns the managed cache point while
                 ``cache_config`` is set. Automatic placement applies to that message only when nothing in
-                it already carries the breakpoint.
+                it already carries the cache point.
 
         Returns:
             An Anthropic messages array.
@@ -230,12 +230,12 @@ class AnthropicModel(Model):
                         marked = True
                     elif message_idx == cache_target_idx:
                         logger.warning(
-                            "msg_idx=<%d> | nothing ahead of the placed cache point accepts a breakpoint, "
+                            "msg_idx=<%d> | nothing ahead of the placed cache point can carry one, "
                             "falling back to automatic placement",
                             message_idx,
                         )
                     else:
-                        logger.warning("no preceding block accepts a cache breakpoint | skipped cache point")
+                        logger.warning("no preceding block accepts a cache point | skipped cache point")
                     continue
 
                 # Check for location sources in image, document, or video content
@@ -245,7 +245,7 @@ class AnthropicModel(Model):
 
                 formatted_contents.append(self._format_request_message_content(content))
 
-            # Automatic placement runs once the whole message is formatted, so the breakpoint lands on a
+            # Automatic placement runs once the whole message is formatted, so the cache point lands on a
             # block that survived translation. It is skipped when a caller-placed point already marked one.
             if message_idx == cache_target_idx and not marked:
                 if self._attach_cache_control(formatted_contents, configured_ttl):
@@ -260,19 +260,17 @@ class AnthropicModel(Model):
 
     @classmethod
     def _attach_cache_control(cls, formatted_contents: list[dict[str, Any]], ttl: str | None) -> bool:
-        """Mark the most recent already-formatted block that the API accepts ``cache_control`` on.
+        """Mark the last already-formatted block that the API accepts ``cache_control`` on.
 
-        A cache point marks the preceding content as a cache breakpoint. The block immediately before it
-        is not always a valid carrier: it may have been dropped in translation, or be a type the API
-        rejects a breakpoint on (a ``thinking`` block, for example). Scanning backwards keeps the
-        breakpoint on the nearest valid block instead of emitting a request the API refuses.
+        Scans backwards because the nearest block may be a type the API rejects (a ``thinking`` block,
+        for example) or may have been dropped in translation.
 
         Args:
             formatted_contents: Blocks formatted so far for the current message. Mutated in place.
             ttl: Optional TTL duration carried by the cache point.
 
         Returns:
-            True when a block was marked, False when none of the blocks can carry a breakpoint.
+            True when a block was marked, False when none of the blocks can carry a cache point.
         """
         for block in reversed(formatted_contents):
             if block.get("type") in _CACHEABLE_BLOCK_TYPES:
