@@ -41,6 +41,24 @@ const SECRET_LISTS = [
   'STRANDS_TEST_INFRA_DEPLOYMENT_ACCOUNT',
 ];
 
+/** The words of the workflow-level `REDACT` folded scalar. */
+function redactList(): string[] {
+  const start = workflow.indexOf('REDACT: >-');
+  expect(start).toBeGreaterThan(-1);
+  const body = workflow.slice(workflow.indexOf('\n', start) + 1);
+  // The folded scalar runs until a line indented less than its content.
+  const end = body.search(/\n(?! {4}\S)/);
+  return body.slice(0, end).trim().split(/\s+/);
+}
+
+// One list drives both the preflight and the redactor, which is the point — but it
+// also means dropping a name here silently stops masking and redacting that
+// secret's values on a public repo, with nothing else failing. A reviewer deleted
+// one and all 41 tests still passed; this closes that hole.
+test('REDACT names every secret-derived value, and nothing else', () => {
+  expect(redactList()).toEqual(SECRET_LISTS);
+});
+
 test('the workflow the roles trust exists, and deploys internal mode from main', () => {
   expect(workflow).toContain("STRANDS_TEST_INFRA_INTERNAL: 'true'");
   expect(workflow).toContain('branches: [main]');
@@ -65,6 +83,14 @@ test.each(['diff', 'deploy'])('the %s job supplies and preflights every value', 
   }
   expect(block).toContain('REQUIRED: ${{ env.REDACT }}');
   expect(block).toMatch(/for name in \$REQUIRED; do \[ -n "\$\{!name:-\}" \] \|\| missing\+=/);
+});
+
+// The deploy job's fail-closed guard: a workflow_dispatch from another branch is
+// refused loudly here rather than dying on an opaque STS error.
+test('the deploy job refuses to run off main unless it is a pull request', () => {
+  expect(job('deploy')).toContain(
+    '[ "$GITHUB_EVENT_NAME" != \'pull_request_target\' ] && [ "$GITHUB_REF" != \'refs/heads/main\' ]',
+  );
 });
 
 test('only the deploy job requires the deploy-role secret', () => {

@@ -317,6 +317,12 @@ function trust(template: Template, roleName: string): any {
   const statements = role.Properties.AssumeRolePolicyDocument.Statement;
   expect(statements).toHaveLength(1);
   expect(statements[0].Action).toBe('sts:AssumeRoleWithWebIdentity');
+  expect(statements[0].Principal.Federated).toMatch(
+    /oidc-provider\/token\.actions\.githubusercontent\.com$/,
+  );
+  // StringEquals and nothing else: a stray StringLike is how an exact pin turns
+  // into a wildcard escape hatch.
+  expect(Object.keys(statements[0].Condition)).toEqual(['StringEquals']);
   return statements[0].Condition.StringEquals;
 }
 
@@ -339,27 +345,40 @@ const WORKFLOW_REF_VALUE =
 // default branch in GITHUB_REF, so a ref subject cannot tell a reviewed push from
 // a pull request. job_workflow_ref is what pins branch and file.
 test('the deploy role trusts only the two deploy environments', () => {
-  const conditions = trust(synth(CI), 'StrandsTestInfraDeployRole');
-
-  expect(conditions[SUB]).toEqual([
-    'repo:strands-agents/harness-sdk:environment:test-infra-deploy',
-    'repo:strands-agents/harness-sdk:environment:test-infra-deploy-approval',
-  ]);
-  expect(conditions[WORKFLOW_REF]).toBe(WORKFLOW_REF_VALUE);
-  expect(JSON.stringify(conditions[SUB])).not.toContain('ref:refs/heads');
+  // Exhaustive: an unasserted extra condition key, or a missing `aud`, is how
+  // this stops being an exact pin.
+  expect(trust(synth(CI), 'StrandsTestInfraDeployRole')).toEqual({
+    'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+    [SUB]: [
+      'repo:strands-agents/harness-sdk:environment:test-infra-deploy',
+      'repo:strands-agents/harness-sdk:environment:test-infra-deploy-approval',
+    ],
+    [WORKFLOW_REF]: WORKFLOW_REF_VALUE,
+  });
 });
 
 // The diff job runs a pull request's own CDK code before anyone approves it, so
 // its role is trusted for different environments — that disjointness is the only
 // thing stopping a diff-job token from satisfying the deploy role's trust.
 test('the diff role trusts only the authorization-check environments', () => {
-  const conditions = trust(synth(CI), 'StrandsTestInfraDiffRole');
+  expect(trust(synth(CI), 'StrandsTestInfraDiffRole')).toEqual({
+    'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+    [SUB]: [
+      'repo:strands-agents/harness-sdk:environment:auto-approve',
+      'repo:strands-agents/harness-sdk:environment:manual-approval',
+    ],
+    [WORKFLOW_REF]: WORKFLOW_REF_VALUE,
+  });
+});
 
-  expect(conditions[SUB]).toEqual([
-    'repo:strands-agents/harness-sdk:environment:auto-approve',
-    'repo:strands-agents/harness-sdk:environment:manual-approval',
-  ]);
-  expect(conditions[WORKFLOW_REF]).toBe(WORKFLOW_REF_VALUE);
+// The subject must never pin the ref: pull_request_target reports the default
+// branch in GITHUB_REF, so a ref subject cannot tell a reviewed push from a PR.
+test('neither role trusts a bare ref subject', () => {
+  const template = synth(CI);
+
+  for (const roleName of ['StrandsTestInfraDeployRole', 'StrandsTestInfraDiffRole']) {
+    expect(JSON.stringify(trust(template, roleName)[SUB])).not.toContain('ref:refs/heads');
+  }
 });
 
 test('the diff and deploy environments are disjoint', () => {
