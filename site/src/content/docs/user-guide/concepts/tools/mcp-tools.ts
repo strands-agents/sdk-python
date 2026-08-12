@@ -260,6 +260,8 @@ if (longRunningTool !== undefined) {
     longRunningTool,
     { input: 'data' },
     {
+      timeout: 30_000,
+      maxTotalTimeout: 5 * 60_000,
       onProgress: ({ progress, total }) => {
         console.log(`This call: ${progress}/${total ?? '?'}`)
       },

@@ -69,6 +69,12 @@ export interface McpCallToolOptions {
 
   /** Called when the server reports progress for this tool invocation. */
   onProgress?: (progress: Progress) => void
+
+  /** Request timeout in milliseconds. Progress notifications reset this timeout when a callback is configured. */
+  timeout?: number
+
+  /** Maximum total request duration in milliseconds, regardless of progress notifications. */
+  maxTotalTimeout?: number
 }
 
 /** OAuth client credentials for machine-to-machine authentication. */
@@ -469,18 +475,33 @@ export class McpClient {
     // Inject OpenTelemetry trace context into tool arguments for distributed tracing
     const enhancedArgs = this._disableMcpInstrumentation ? args : injectTraceContext(args)
     const toolArgs = enhancedArgs as Record<string, unknown>
-    const onProgress = options?.onProgress ?? this._onProgress
+    const rawOnProgress = options?.onProgress ?? this._onProgress
 
     // When tasksConfig is undefined, call tools directly without task management
     // Use the server-side name for server communication; tool.name may carry a prefix.
     const toolName = this._serverToolNames.get(tool) ?? tool.name
 
     if (this._tasksConfig === undefined) {
+      const onProgress =
+        rawOnProgress === undefined
+          ? undefined
+          : (progress: Progress): void => {
+              void Promise.resolve()
+                .then(() => rawOnProgress(progress))
+                .catch((error: unknown) => {
+                  logger.warn(`tool=<${tool.name}>, error=<${error}> | progress callback failed`)
+                })
+            }
       const requestOptions =
-        options?.signal !== undefined || onProgress !== undefined
+        options?.signal !== undefined ||
+        onProgress !== undefined ||
+        options?.timeout !== undefined ||
+        options?.maxTotalTimeout !== undefined
           ? {
               ...(options?.signal !== undefined && { signal: options.signal }),
-              ...(onProgress !== undefined && { onprogress: onProgress }),
+              ...(options?.timeout !== undefined && { timeout: options.timeout }),
+              ...(onProgress !== undefined && { onprogress: onProgress, resetTimeoutOnProgress: true }),
+              ...(options?.maxTotalTimeout !== undefined && { maxTotalTimeout: options.maxTotalTimeout }),
             }
           : undefined
       return (await this._client.callTool(
@@ -492,7 +513,7 @@ export class McpClient {
 
     // When tasksConfig is defined (even as empty object), use task-based invocation
     // which supports long-running tools with progress tracking
-    if (onProgress !== undefined) {
+    if (rawOnProgress !== undefined) {
       logger.warn(`tool=<${tool.name}> | progress callbacks are ignored when task-augmented execution is enabled`)
     }
     const stream = this._client.experimental.tasks.callToolStream({ name: toolName, arguments: toolArgs }, undefined, {

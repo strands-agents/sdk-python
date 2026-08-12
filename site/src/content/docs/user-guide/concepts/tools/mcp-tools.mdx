@@ -579,10 +579,15 @@ result = client.call_tool_sync(
 Pass `onProgress` when constructing `McpClient` to receive updates from every direct tool call. A callback passed to `callTool` overrides the client callback for that call:
 
 ```typescript
+--8<-- "user-guide/concepts/tools/mcp-tools_imports.ts:progress_notifications_imports"
+
 --8<-- "user-guide/concepts/tools/mcp-tools.ts:progress_notifications"
 ```
 
-The callback receives the MCP progress object, including `progress`, and optional `total` and `message` values. Progress callbacks are currently ignored when experimental task-augmented execution is enabled.
+The callback receives the MCP progress object, including `progress`, and optional `total`
+and `message` values. Each progress update resets `timeout`; use `maxTotalTimeout` to
+bound the complete request. Progress callbacks are currently ignored when experimental
+task-augmented execution is enabled.
 
 </Tab>
 </Tabs>
