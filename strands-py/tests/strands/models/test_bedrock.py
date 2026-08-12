@@ -1526,6 +1526,60 @@ async def test_stream_output_no_blocked_guardrails_doesnt_redact(
 
 
 @pytest.mark.asyncio
+async def test_stream_stream_guardrails_redacts_without_trace(
+    bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist
+):
+    """Redaction still occurs when guardrail_trace="disabled" returns no assessment.
+
+    Bedrock reports a guardrail_intervened stop reason without a trace, so redaction keys off the
+    stop reason. Guards against https://github.com/strands-agents/harness-sdk/issues/3612.
+    """
+    message_stop_event = {"messageStop": {"stopReason": "guardrail_intervened"}}
+    metadata_event = {"metadata": {"usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}}}
+    bedrock_client.converse_stream.return_value = {"stream": [message_stop_event, metadata_event]}
+
+    model.update_config(additional_request_fields=additional_request_fields)
+    response = model.stream(messages, [tool_spec])
+
+    tru_chunks = await alist(response)
+    exp_chunks = [
+        {"redactContent": {"redactUserContentMessage": "[User input redacted.]"}},
+        message_stop_event,
+        metadata_event,
+    ]
+
+    assert tru_chunks == exp_chunks
+
+
+@pytest.mark.asyncio
+async def test_stream_guardrails_redacts_without_trace_non_streaming(bedrock_client, alist, messages):
+    """Non-streaming redaction keys off the guardrail_intervened stop reason when no trace is returned.
+
+    Guards against https://github.com/strands-agents/harness-sdk/issues/3612.
+    """
+    bedrock_client.converse.return_value = {
+        "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
+        "stopReason": "guardrail_intervened",
+    }
+
+    model = BedrockModel(model_id="test-model", streaming=False)
+    response = model.stream(messages)
+
+    tru_events = await alist(response)
+    exp_events = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockDelta": {"delta": {"text": "test"}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "guardrail_intervened", "additionalModelResponseFields": None}},
+        {"redactContent": {"redactUserContentMessage": "[User input redacted.]"}},
+    ]
+
+    assert tru_events == exp_events
+    bedrock_client.converse.assert_called_once()
+    bedrock_client.converse_stream.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_stream_output_no_guardrail_redact(
     bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist
 ):

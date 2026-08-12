@@ -1590,12 +1590,13 @@ export class BedrockModel extends Model<BedrockModelConfig> {
     // Handle trace and guardrail check for non-streaming responses
     if (event.trace) {
       metadataEvent.trace = event.trace
+    }
 
-      // Check for blocked guardrails and emit redaction events
-      if (this._config.guardrailConfig && event.trace.guardrail && stopReasonRaw === 'guardrail_intervened') {
-        for (const redactionEvent of this._generateRedactionEvents(event.trace.guardrail)) {
-          events.push(redactionEvent)
-        }
+    // Redaction keys off the stop reason, not the trace: `trace: 'disabled'` still reports
+    // `guardrail_intervened` but carries no assessment, and blocked content must still be redacted.
+    if (this._config.guardrailConfig && stopReasonRaw === 'guardrail_intervened') {
+      for (const redactionEvent of this._generateRedactionEvents(event.trace?.guardrail ?? {})) {
+        events.push(redactionEvent)
       }
     }
 
@@ -1777,12 +1778,13 @@ export class BedrockModel extends Model<BedrockModelConfig> {
 
         if (data.trace) {
           event.trace = data.trace
+        }
 
-          // Check for blocked guardrails in trace and emit redaction events
-          if (this._config.guardrailConfig && data.trace.guardrail && lastStopReason === 'guardrail_intervened') {
-            for (const redactionEvent of this._generateRedactionEvents(data.trace.guardrail)) {
-              events.push(redactionEvent)
-            }
+        // Redaction keys off the stop reason, not the trace: `trace: 'disabled'` still reports
+        // `guardrail_intervened` but carries no assessment, and blocked content must still be redacted.
+        if (this._config.guardrailConfig && lastStopReason === 'guardrail_intervened') {
+          for (const redactionEvent of this._generateRedactionEvents(data.trace?.guardrail ?? {})) {
+            events.push(redactionEvent)
           }
         }
 

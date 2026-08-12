@@ -4443,6 +4443,34 @@ describe('BedrockModel', () => {
         const redactEvent = events.find((e) => e.type === 'modelRedactionEvent')
         expect(redactEvent).toBeUndefined()
       })
+
+      it('emits redaction events when guardrail_intervened is reported without a trace', async () => {
+        // Guards against https://github.com/strands-agents/harness-sdk/issues/3612: with
+        // guardrailConfig.trace='disabled' Bedrock still reports guardrail_intervened but carries no
+        // assessment, and blocked content must still be redacted.
+        setupMockSend(async function* () {
+          yield { messageStart: { role: 'assistant' } }
+          yield { contentBlockStart: {} }
+          yield { contentBlockDelta: { delta: { text: 'Hello' } } }
+          yield { contentBlockStop: {} }
+          yield { messageStop: { stopReason: 'guardrail_intervened' } }
+          yield { metadata: { usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 } } }
+        })
+
+        const provider = new BedrockModel({
+          guardrailConfig: {
+            guardrailIdentifier: 'my-guardrail-id',
+            guardrailVersion: '1',
+          },
+        })
+        const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+        const events = await collectIterator(provider.stream(messages))
+
+        expect(events).toContainEqual({
+          type: 'modelRedactionEvent',
+          inputRedaction: { replaceContent: '[User input redacted.]' },
+        })
+      })
     })
 
     describe('redaction event generation', () => {
@@ -4719,6 +4747,39 @@ describe('BedrockModel', () => {
               inputAssessment: { '1': { topicPolicy: { topics: [{ action: 'BLOCKED', detected: true }] } } },
             },
           },
+        }))
+        mockBedrockClientImplementation({ send: mockSend })
+
+        const provider = new BedrockModel({
+          stream: false,
+          guardrailConfig: {
+            guardrailIdentifier: 'id',
+            guardrailVersion: '1',
+          },
+        })
+        const events = await collectIterator(
+          provider.stream([new Message({ role: 'user', content: [new TextBlock('Hello')] })])
+        )
+
+        expect(events).toContainEqual({
+          type: 'modelRedactionEvent',
+          inputRedaction: { replaceContent: '[User input redacted.]' },
+        })
+      })
+
+      it('emits redaction events when guardrail_intervened is reported without a trace', async () => {
+        // Guards against https://github.com/strands-agents/harness-sdk/issues/3612: with
+        // guardrailConfig.trace='disabled' Bedrock still reports guardrail_intervened but carries no
+        // assessment, and blocked content must still be redacted.
+        const mockSend = vi.fn(async () => ({
+          output: {
+            message: {
+              role: 'assistant',
+              content: [{ text: 'Hello' }],
+            },
+          },
+          stopReason: 'guardrail_intervened',
+          usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
         }))
         mockBedrockClientImplementation({ send: mockSend })
 

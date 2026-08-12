@@ -1060,15 +1060,22 @@ class BedrockModel(Model):
         content_type = next(iter(content), None)
         raise TypeError(f"content_type=<{content_type}> | unsupported type")
 
-    def _has_blocked_guardrail(self, guardrail_data: dict[str, Any]) -> bool:
-        """Check if guardrail data contains any blocked policies.
+    def _has_blocked_guardrail(self, guardrail_data: dict[str, Any] | None, stop_reason: str | None) -> bool:
+        """Check whether a guardrail blocked content and redaction should occur.
 
         Args:
-            guardrail_data: Guardrail data from trace information.
+            guardrail_data: Guardrail assessment from trace information, if any.
+            stop_reason: The stop reason reported by Bedrock, if any.
 
         Returns:
-            True if any blocked guardrail is detected, False otherwise.
+            True if blocked content should be redacted, False otherwise.
         """
+        if stop_reason == "guardrail_intervened":
+            return True
+
+        if guardrail_data is None:
+            return False
+
         input_assessment = guardrail_data.get("inputAssessment", {})
         output_assessments = guardrail_data.get("outputAssessments", {})
 
@@ -1327,16 +1334,23 @@ class BedrockModel(Model):
 
             logger.debug("got response from model")
             if streaming:
+                redaction_emitted = False
                 for chunk in response["stream"]:
+                    guardrail_data = None
+                    stop_reason = None
                     if (
                         "metadata" in chunk
                         and "trace" in chunk["metadata"]
                         and "guardrail" in chunk["metadata"]["trace"]
                     ):
                         guardrail_data = chunk["metadata"]["trace"]["guardrail"]
-                        if self._has_blocked_guardrail(guardrail_data):
-                            for event in self._generate_redaction_events():
-                                callback(event)
+                    if "messageStop" in chunk:
+                        stop_reason = chunk["messageStop"].get("stopReason")
+
+                    if not redaction_emitted and self._has_blocked_guardrail(guardrail_data, stop_reason):
+                        for event in self._generate_redaction_events():
+                            callback(event)
+                        redaction_emitted = True
 
                     callback(chunk)
 
@@ -1344,11 +1358,8 @@ class BedrockModel(Model):
                 for event in self.convert_non_streaming_to_streaming(response):
                     callback(event)
 
-                if (
-                    "trace" in response
-                    and "guardrail" in response["trace"]
-                    and self._has_blocked_guardrail(response["trace"]["guardrail"])
-                ):
+                guardrail_data = response.get("trace", {}).get("guardrail")
+                if self._has_blocked_guardrail(guardrail_data, response.get("stopReason")):
                     for event in self._generate_redaction_events():
                         callback(event)
 
