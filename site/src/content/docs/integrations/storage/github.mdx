@@ -126,7 +126,7 @@ Pass it wherever a `Storage` is accepted so the agent's persisted data lives in 
 | `repo` | Yes | Repository name. |
 | `branch` | No | Branch to read from and commit to. Defaults to `main`. |
 | `token` | For writes | GitHub token. Needed for any write and for reading private repos. |
-| `github` (Python) / `octokit` (TS) | No | A pre-configured GitHub client, as an alternative to `token` (e.g. to add retry/throttling behavior). |
+| <Syntax py="github" ts="octokit" /> | No | A pre-configured GitHub client, as an alternative to `token` (e.g. to add retry/throttling behavior). |
 
 ## Behavior and limits
 
@@ -134,7 +134,7 @@ Pass it wherever a `Storage` is accepted so the agent's persisted data lives in 
 - **Single writer per branch.** Commits advance the branch ref without a compare-and-swap retry, so a concurrent writer that moves the branch head surfaces GitHub's non-fast-forward rejection as a `StorageError` rather than being retried.
 - **`read` is limited to files under 1 MB** — the ceiling of the GitHub contents API's inline response. Markdown memory is far below this.
 - **`list` fails loud on truncation.** GitHub's git-tree API caps very large trees and does not paginate; rather than return a silent partial listing, `list` throws a `StorageError`.
-- **No built-in rate-limit handling.** To add exponential backoff on `429`/`5xx`, pass a pre-configured client via `github` (Python) / `octokit` (TypeScript).
+- **No built-in rate-limit handling.** To add exponential backoff on `429`/`5xx`, pass a pre-configured client via <Syntax py="github" ts="octokit" />.
 
 ## References
 
