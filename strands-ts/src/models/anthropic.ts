@@ -610,8 +610,9 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
           }
         }
 
-        logger.warn(`format=<${docBlock.format}> | unsupported document format or source for anthropic`)
-        return undefined
+        throw new Error(
+          `Unsupported document format or source for Anthropic: format=${docBlock.format}, source=${docBlock.source.type}`
+        )
       }
 
       case 'toolUseBlock':
