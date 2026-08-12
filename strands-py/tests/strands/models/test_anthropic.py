@@ -1,6 +1,7 @@
 import copy
 import logging
 import mimetypes
+import re
 import unittest.mock
 import warnings
 
@@ -191,6 +192,21 @@ def test_format_request_with_system_prompt(model, messages, model_id, max_tokens
                 "type": "document",
             },
         ),
+        # Text-file format delivered as plain text
+        (
+            {
+                "document": {"format": "csv", "name": "test doc", "source": {"bytes": b"a,b\n1,2"}},
+            },
+            {
+                "source": {
+                    "data": "a,b\n1,2",
+                    "media_type": "text/plain",
+                    "type": "text",
+                },
+                "title": "test doc",
+                "type": "document",
+            },
+        ),
     ],
 )
 def test_format_request_with_document(content, formatted_content, model, model_id, max_tokens):
@@ -215,6 +231,24 @@ def test_format_request_with_document(content, formatted_content, model, model_i
     }
 
     assert tru_request == exp_request
+
+
+# Guards against https://github.com/strands-agents/harness-sdk/issues/3789: formats Anthropic cannot
+# accept must raise client-side instead of being sent in a request shape the API rejects.
+@pytest.mark.parametrize("document_format", ["doc", "docx", "xls", "xlsx"])
+def test_format_request_with_unsupported_document_format(document_format, model):
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"document": {"format": document_format, "name": "test doc", "source": {"bytes": b"content"}}},
+            ],
+        },
+    ]
+
+    expected_message = f"content_type=<document>, format=<{document_format}> | unsupported format"
+    with pytest.raises(TypeError, match=re.escape(expected_message)):
+        model.format_request(messages)
 
 
 def test_format_request_with_image(model, model_id, max_tokens):

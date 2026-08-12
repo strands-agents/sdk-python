@@ -37,6 +37,9 @@ _IMAGE_MEDIA_TYPES = {
     "webp": "image/webp",
 }
 
+# Anthropic document sources accept only pdf (base64) and plain text; these formats are delivered as text.
+_TEXT_FILE_FORMATS = frozenset({"csv", "html", "md", "txt"})
+
 # Anthropic accepts ``cache_control`` on these block types only; any other block is rejected.
 # https://docs.claude.com/en/docs/build-with-claude/prompt-caching
 _CACHEABLE_BLOCK_TYPES = frozenset({"document", "image", "text", "tool_result", "tool_use"})
@@ -133,20 +136,28 @@ class AnthropicModel(Model):
             Anthropic formatted content block.
 
         Raises:
-            TypeError: If the content block type cannot be converted to an Anthropic-compatible format.
+            TypeError: If the content block type or document format cannot be converted to an
+                Anthropic-compatible format.
         """
         if "document" in content:
-            mime_type = mimetypes.types_map.get(f".{content['document']['format']}", "application/octet-stream")
+            document_format = content["document"]["format"]
+            if document_format != "pdf" and document_format not in _TEXT_FILE_FORMATS:
+                raise TypeError(f"content_type=<document>, format=<{document_format}> | unsupported format")
+
             return {
-                "source": {
-                    "data": (
-                        content["document"]["source"]["bytes"].decode("utf-8")
-                        if mime_type == "text/plain"
-                        else base64.b64encode(content["document"]["source"]["bytes"]).decode("utf-8")
-                    ),
-                    "media_type": mime_type,
-                    "type": "text" if mime_type == "text/plain" else "base64",
-                },
+                "source": (
+                    {
+                        "data": base64.b64encode(content["document"]["source"]["bytes"]).decode("utf-8"),
+                        "media_type": "application/pdf",
+                        "type": "base64",
+                    }
+                    if document_format == "pdf"
+                    else {
+                        "data": content["document"]["source"]["bytes"].decode("utf-8"),
+                        "media_type": "text/plain",
+                        "type": "text",
+                    }
+                ),
                 "title": content["document"]["name"],
                 "type": "document",
             }
