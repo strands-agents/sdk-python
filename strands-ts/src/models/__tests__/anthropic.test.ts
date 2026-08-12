@@ -619,6 +619,31 @@ describe('AnthropicModel', () => {
         expect(content.source.data).toBe('SGVsbG8=')
       })
 
+      // Guards against https://github.com/strands-agents/harness-sdk/issues/3791: anthropic accepts
+      // url image sources natively, so url-source images must be delivered rather than dropped.
+      it('formats url-source images as anthropic url sources', async () => {
+        const { captured, mockClient } = setupCapture()
+        const provider = new AnthropicModel({ client: mockClient })
+        const messages = [
+          new Message({
+            role: 'user',
+            content: [
+              new ImageBlock({
+                format: 'png',
+                source: { url: 'https://example.com/image.png' },
+              }),
+            ],
+          }),
+        ]
+
+        await collectIterator(provider.stream(messages))
+
+        expect(captured.request.messages[0].content[0]).toEqual({
+          type: 'image',
+          source: { type: 'url', url: 'https://example.com/image.png' },
+        })
+      })
+
       it('formats PDFs correctly', async () => {
         const { captured, mockClient } = setupCapture()
         const provider = new AnthropicModel({ client: mockClient })
@@ -1322,7 +1347,7 @@ describe('AnthropicModel', () => {
           role: 'user',
           content: [
             new TextBlock('long prefix'),
-            new ImageBlock({ format: 'png', source: { url: 'https://example.com/a.png' } as never }),
+            new ImageBlock({ format: 'png', source: { location: { type: 's3', uri: 's3://bucket/a.png' } } }),
           ],
         }),
       ]
@@ -1346,7 +1371,7 @@ describe('AnthropicModel', () => {
           role: 'user',
           content: [
             new ReasoningBlock({ text: 'thinking', signature: 'sig' }),
-            new ImageBlock({ format: 'png', source: { url: 'https://example.com/a.png' } as never }),
+            new ImageBlock({ format: 'png', source: { location: { type: 's3', uri: 's3://bucket/a.png' } } }),
           ],
         }),
       ]
@@ -1627,7 +1652,7 @@ describe('AnthropicModel', () => {
         new Message({
           role: 'user',
           content: [
-            new ImageBlock({ format: 'png', source: { url: 'https://example.com/a.png' } as never }),
+            new ImageBlock({ format: 'png', source: { location: { type: 's3', uri: 's3://bucket/a.png' } } }),
             new CachePointBlock({ cacheType: 'default' }),
             new TextBlock('volatile'),
           ],
@@ -1779,7 +1804,7 @@ describe('AnthropicModel', () => {
             new TextBlock('prefix'),
             new ImageBlock({ format: 'png', source: { bytes: new Uint8Array([1, 2, 3]) } }),
             // Dropped in translation: the breakpoint must fall back to the image above, not vanish.
-            new ImageBlock({ format: 'png', source: { url: 'https://example.com/a.png' } as never }),
+            new ImageBlock({ format: 'png', source: { location: { type: 's3', uri: 's3://bucket/a.png' } } }),
           ],
         }),
       ]

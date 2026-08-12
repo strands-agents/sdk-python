@@ -570,7 +570,18 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
             },
           }
         }
-        logger.warn('source_type=<imageSourceUrl> | anthropic requires image bytes | url sources not fully supported')
+        if (imgBlock.source.type === 'imageSourceUrl') {
+          return {
+            type: 'image',
+            source: {
+              type: 'url',
+              url: imgBlock.source.url,
+            },
+          }
+        }
+        logger.warn(
+          'source_type=<imageSourceS3Location> | s3 location sources are not supported by anthropic, skipping'
+        )
         return undefined
       }
 
