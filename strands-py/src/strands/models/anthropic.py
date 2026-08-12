@@ -351,34 +351,6 @@ class AnthropicModel(Model):
 
         return copied, target_idx
 
-    def _format_request_tools(self, tool_specs: list[ToolSpec] | None) -> list[dict[str, Any]]:
-        """Format tool definitions.
-
-        A ``cache_control`` on the final tool caches all of them, so the tools section needs only one
-        cache point.
-
-        Args:
-            tool_specs: List of tool specifications to make available to the model.
-
-        Returns:
-            An Anthropic tools array.
-        """
-        tools: list[dict[str, Any]] = [
-            {
-                "name": tool_spec["name"],
-                "description": tool_spec["description"],
-                "input_schema": tool_spec["inputSchema"]["json"],
-            }
-            for tool_spec in tool_specs or []
-        ]
-
-        cache_tools = self.config.get("cache_tools")
-        if cache_tools and tools:
-            ttl = cache_tools.ttl if isinstance(cache_tools, CacheToolsConfig) else None
-            tools[-1]["cache_control"] = self._format_cache_control(ttl)
-
-        return tools
-
     def format_request(
         self,
         messages: Messages,
@@ -403,11 +375,26 @@ class AnthropicModel(Model):
         """
         messages, cache_target_idx = self._manage_cache_points(messages)
 
+        tools: list[dict[str, Any]] = [
+            {
+                "name": tool_spec["name"],
+                "description": tool_spec["description"],
+                "input_schema": tool_spec["inputSchema"]["json"],
+            }
+            for tool_spec in tool_specs or []
+        ]
+
+        # A cache_control on the final tool caches all of them, so one cache point suffices.
+        cache_tools = self.config.get("cache_tools")
+        if cache_tools and tools:
+            ttl = cache_tools.ttl if isinstance(cache_tools, CacheToolsConfig) else None
+            tools[-1]["cache_control"] = self._format_cache_control(ttl)
+
         request = {
             "max_tokens": self.config["max_tokens"],
             "messages": self._format_request_messages(messages, cache_target_idx),
             "model": self.config["model_id"],
-            "tools": self._format_request_tools(tool_specs),
+            "tools": tools,
             **(self._format_tool_choice(tool_choice)),
             **({"system": system_prompt} if system_prompt else {}),
             **(self.config.get("params") or {}),

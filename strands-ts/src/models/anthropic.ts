@@ -10,7 +10,6 @@ import {
   type ResolvedCacheSection,
 } from '../models/model.js'
 import type { Message, ContentBlock } from '../types/messages.js'
-import type { ToolSpec } from '../tools/types.js'
 import type { ModelStreamEvent } from '../models/streaming.js'
 import { createEmptyUsage } from '../models/streaming.js'
 import { ContextWindowOverflowError, ModelThrottledError, normalizeError } from '../errors.js'
@@ -346,21 +345,6 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
   }
 
   /**
-   * Locates the message that carries the auto-injected cache point: the last user message with content,
-   * not counting cache point blocks. Undefined when no user message qualifies.
-   */
-  private _findCacheTargetMessage(messages: Message[]): number | undefined {
-    for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
-      const message = messages[messageIndex]
-      if (!message || message.role !== 'user') continue
-      if (message.content.some((block) => block.type !== 'cachePointBlock')) return messageIndex
-    }
-
-    logger.debug('no user message with content | skipped cache point')
-    return undefined
-  }
-
-  /**
    * Marks the last formatted block the API accepts `cache_control` on, mutating `content` in place.
    * Scans backwards because the nearest block may be a rejected type or dropped in translation.
    *
@@ -378,28 +362,20 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
     return false
   }
 
-  /** Formats tool definitions. A `cache_control` on the last tool caches all of them, so one suffices. */
-  private _formatTools(toolSpecs: ToolSpec[]): Anthropic.ToolUnion[] {
-    const tools = toolSpecs.map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      input_schema: tool.inputSchema as Anthropic.Tool.InputSchema,
-    })) as Anthropic.Tool[]
-
-    const { enabled, ttl } = this._cacheSection('toolsTTL')
-    const lastTool = tools[tools.length - 1]
-    if (enabled && lastTool) {
-      lastTool.cache_control = this._formatCacheControl(ttl)
-    }
-
-    return tools
-  }
-
   private _formatRequest(messages: Message[], options?: StreamOptions): Anthropic.MessageStreamParams {
     if (!this._config.modelId) throw new Error('Model ID is required')
 
     const messagesCache = this._cacheSection('messagesTTL')
-    const cacheTargetMessage = messagesCache.enabled ? this._findCacheTargetMessage(messages) : undefined
+    // The cache point goes on the last user message with content, not counting cache point blocks.
+    let cacheTargetMessage = -1
+    if (messagesCache.enabled) {
+      for (let messageIndex = messages.length - 1; messageIndex >= 0 && cacheTargetMessage < 0; messageIndex--) {
+        const message = messages[messageIndex]
+        if (message?.role === 'user' && message.content.some((block) => block.type !== 'cachePointBlock')) {
+          cacheTargetMessage = messageIndex
+        }
+      }
+    }
 
     const request: Anthropic.MessageStreamParams = {
       model: this._config.modelId,
@@ -440,7 +416,20 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
     }
 
     if (options?.toolSpecs?.length) {
-      request.tools = this._formatTools(options.toolSpecs)
+      const tools = options.toolSpecs.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        input_schema: tool.inputSchema as Anthropic.Tool.InputSchema,
+      })) as Anthropic.Tool[]
+
+      // A cache_control on the last tool caches all of them, so one cache point suffices.
+      const toolsCache = this._cacheSection('toolsTTL')
+      const lastTool = tools[tools.length - 1]
+      if (toolsCache.enabled && lastTool) {
+        lastTool.cache_control = this._formatCacheControl(toolsCache.ttl)
+      }
+
+      request.tools = tools
 
       if (options.toolChoice) {
         if ('auto' in options.toolChoice) {
@@ -464,7 +453,7 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
   private _formatMessages(
     messages: Message[],
     messagesCache: ResolvedCacheSection = { enabled: false },
-    cacheTargetMessage?: number
+    cacheTargetMessage = -1
   ): Anthropic.MessageParam[] {
     let strippedCachePoints = 0
     const cacheManaged = messagesCache.enabled
