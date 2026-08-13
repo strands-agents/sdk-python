@@ -341,7 +341,7 @@ response directly to the caller, skipping the extra orchestrator model round-tri
 Use delegation when the sub-agent's response is already complete and the
 orchestrator adds no value by processing it further:
 
-- A coding agent returning generated source that shouldn't be rephrased
+- A coding agent returning generated source code that shouldn't be rephrased
 - A customer service agent whose compliance-reviewed language must reach
   the user unchanged
 - A retrieval agent returning structured data the caller consumes directly
@@ -380,39 +380,21 @@ result = orchestrator("Why was I charged twice?")
 </Tabs>
 
 On success, the agent loop stops with
-<Syntax py="stop_reason == 'end_turn'" ts="stopReason === 'endTurn'" />
-and the `AgentResult` contains the delegate's content without additional
-model processing. Structured JSON output is serialized to text.
-Streaming events from the delegate surface natively in the parent's
-stream, so callers see the specialist's tokens as they arrive.
+<Syntax py="stop_reason == 'end_turn'" ts="stopReason === 'endTurn'" /> and
+the `AgentResult` contains the delegate's content without additional
+model processing. Streaming events from the delegate surface natively in
+the parent's stream, so callers see the specialist's tokens as they arrive.
 
-If the delegate throws, the error surfaces as a failed tool result and
-the orchestrator can attempt recovery on the next turn.
-
-Delegated and non-delegated tools can coexist on the same
-orchestrator. But when the model calls a delegated tool agent, it must
-be the only tool call in that turn. The SDK communicates this to
-the model by appending an instruction to the tool agent's
-description and enforces it at runtime by cancelling every tool in
-the batch if other tools are requested alongside it.
-
-Additional limitations to be aware of:
-
-- **Incompatible with stateful models**: Delegation exits the loop early,
-  which would leave an unclosed function call on the server for models that
-  manage conversation state server-side. The SDK throws at agent
-  initialization if you register a delegation tool on a stateful model.
-  Delegation tools added later silently behave as ordinary tools (in TypeScript)
-  or fail with an error tool result (in Python).
-- **Delegation does not bubble up**: If a delegate is itself an orchestrator
-  that delegates, that only ends its own loop. The agent one level up
-  that invoked it as a non-delegated tool still receives a tool
-  result and continues its loop normally.
-- **Session persistence timing** *(TypeScript)*: The delegation content message
-  is written to `agent.messages` after the loop exits. Session managers
-  configured with `saveLatestOn: 'message'` may persist the `endTurn`
-  placeholder rather than the final delegation content. The default
-  `saveLatestOn: 'invocation'` is unaffected.
+Limitations to be aware of:
+- **Single delegated tool per turn**: Delegated and non-delegated tools
+  can exist on the same agent. However, a delegated tool must be
+  the only tool call in its turn. The SDK cancels the batch if
+  other tools are requested alongside it.
+- **Incompatible with stateful models**: Delegation exits the
+  loop early, which would leave an unclosed function call on
+  the server for models that manage conversation state
+  server-side. Combining delegated tools with stateful models
+  is not supported.
 
 ## Remote Agents with A2A
 
