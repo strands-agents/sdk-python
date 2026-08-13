@@ -78,7 +78,7 @@ describe('catalog content collection', () => {
       github: 'https://github.com/strands-agents/harness-sdk',
       addedDate: '2025-12-01',
     }
-    for (const maintainedBy of ['strands', 'aws', 'vendor', 'community']) {
+    for (const maintainedBy of ['strands', 'aws', 'partner', 'community']) {
       expect(catalogEntrySchema.safeParse({ ...base, maintainedBy }).success, maintainedBy).toBe(true)
     }
     const parsed = catalogEntrySchema.safeParse(base)
@@ -173,7 +173,7 @@ describe('catalog content collection', () => {
     const byTier = Map.groupBy(entries, (e) => e.data.maintainedBy)
     expect(byTier.get('strands')?.length).toBe(28)
     expect(byTier.get('aws')?.length).toBe(7)
-    expect(byTier.get('vendor')?.length).toBe(21)
+    expect(byTier.get('partner')?.length).toBe(21)
     // Built-ins point at their source path in the SDK monorepo and always
     // have on-site docs.
     for (const e of byTier.get('strands') ?? []) {

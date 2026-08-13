@@ -1,7 +1,7 @@
 name: datadog-ai-guard
 description: Datadog AI Guard plugin that inspects and blocks prompt injection, jailbreaking, data exfiltration, and destructive tool calls in real time.
 integrationType: plugin
-maintainedBy: vendor
+maintainedBy: partner
 languages:
   python:
     package: ddtrace

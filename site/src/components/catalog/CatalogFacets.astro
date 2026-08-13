@@ -6,7 +6,7 @@
  * segments and the left rail's type/badge chips.
  */
 import CatalogSegments from './CatalogSegments.astro'
-import { TYPE_ICONS, VERIFIED_ICON, type FacetOption } from './types'
+import { AWS_MARK_VIEWBOX, MAINTAINED_BY_ICONS, TYPE_ICONS, VERIFIED_ICON, type FacetOption } from './types'
 
 interface Props {
   types: FacetOption[]
@@ -50,8 +50,14 @@ const { types, maintainedBy, showSdkFacet, hasVerified, hasFeatured, hasNew } = 
 <div class="cat-type-rail" role="group" aria-label="Maintained by">
   {
     maintainedBy.map((t) => (
-      <button class="cat-chip" type="button" data-cat-maintained={t.value} aria-pressed="false">
-        {t.label}
+      <button class="cat-chip" type="button" data-cat-maintained={t.value} aria-label={t.label} aria-pressed="false">
+        {MAINTAINED_BY_ICONS[t.value] ? (
+          <svg width="29" height="18" viewBox={AWS_MARK_VIEWBOX} aria-hidden="true">
+            <path fill="currentColor" d={MAINTAINED_BY_ICONS[t.value]} />
+          </svg>
+        ) : (
+          t.label
+        )}
         <span class="cat-count">{t.count}</span>
       </button>
     ))

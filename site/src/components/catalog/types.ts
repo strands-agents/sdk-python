@@ -1,3 +1,5 @@
+import { AWS_ICON } from './icons'
+
 // Canonical registry of catalog integration types: filter value, display
 // labels, and a 24x24 single-path glyph (fill=currentColor) rendered in cards
 // and facet chips. The zod enum in src/content.config.ts lists the same
@@ -80,7 +82,7 @@ export const TYPE_ICONS: Record<string, string> = Object.fromEntries(CATALOG_TYP
 export const MAINTAINED_BY_TIERS = [
   { value: 'strands', label: 'Strands', flag: 'Built-in', title: 'Built into the Strands SDK' },
   { value: 'aws', label: 'AWS', flag: 'AWS', title: 'Maintained by AWS' },
-  { value: 'vendor', label: 'Vendor', flag: 'Vendor', title: 'Maintained by the integration vendor' },
+  { value: 'partner', label: 'Partner', flag: 'Partner', title: 'Maintained by the partner behind the integration' },
   { value: 'community', label: 'Community', flag: 'Community', title: 'Maintained by a community developer' },
 ] as const
 
@@ -90,6 +92,10 @@ export const MAINTAINED_BY_FLAGS: Record<string, string> = Object.fromEntries(
 export const MAINTAINED_BY_TITLES: Record<string, string> = Object.fromEntries(
   MAINTAINED_BY_TIERS.map((t) => [t.value, t.title])
 )
+/** Tier glyphs for facet chips; only AWS carries a brand mark. */
+export const MAINTAINED_BY_ICONS: Record<string, string> = { aws: AWS_ICON }
+/** Crops AWS_ICON's square canvas to the mark's measured bounds (y 4.8-19.2). */
+export const AWS_MARK_VIEWBOX = '0 4.6 24 14.8'
 
 /** Shield-check glyph for the verified badge (cards and the verified facet). */
 export const VERIFIED_ICON =

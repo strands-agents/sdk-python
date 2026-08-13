@@ -188,15 +188,15 @@ jobs:
             // parses yes/on as strings, which the schema's z.boolean()
             // rejects at the build gate — only true booleans can reach main.
             function editorialState(data) {
-              if (data === null) return { featured: true, badges: true, teamTier: true, vendorTier: true };
+              if (data === null) return { featured: true, badges: true, teamTier: true, partnerTier: true };
               const tier = typeof data.maintainedBy === 'string' ? data.maintainedBy : 'community';
               return {
                 featured: data.featured === true,
                 badges: Array.isArray(data.badges) && data.badges.length > 0,
-                // `strands` and `aws` are team-granted; `vendor` needs a
+                // `strands` and `aws` are team-granted; `partner` needs a
                 // maintainer to verify the vendor relationship.
                 teamTier: tier === 'strands' || tier === 'aws',
-                vendorTier: tier === 'vendor',
+                partnerTier: tier === 'partner',
               };
             }
 
@@ -220,7 +220,7 @@ jobs:
             // entry is flagged whenever its head state differs from its
             // base state (a brand-new file compares against empty).
             const flagged = [];
-            const vendorFlagged = [];
+            const partnerFlagged = [];
             const changedPackages = [];
             for (const file of catalogFiles) {
               // A renamed file lives at previous_filename on the base ref;
@@ -241,8 +241,8 @@ jobs:
               ) {
                 flagged.push(file.filename);
               }
-              if (head.vendorTier !== base.vendorTier) {
-                vendorFlagged.push(file.filename);
+              if (head.partnerTier !== base.partnerTier) {
+                partnerFlagged.push(file.filename);
               }
               if (headText) {
                 const { github: entryGithub, pkgs } = extractEntryData(headData);
@@ -252,7 +252,7 @@ jobs:
               }
             }
 
-            if (flagged.length === 0 && vendorFlagged.length === 0 && changedPackages.length === 0) {
+            if (flagged.length === 0 && partnerFlagged.length === 0 && changedPackages.length === 0) {
               console.log('No editorial changes or packages in touched entries — nothing to flag.');
               await clearStaleFlag();
               return;
@@ -338,7 +338,7 @@ jobs:
               if (status !== 'MATCH') provenance.push({ ...p, status, detail });
             }
 
-            if (flagged.length === 0 && vendorFlagged.length === 0 && provenance.length === 0) {
+            if (flagged.length === 0 && partnerFlagged.length === 0 && provenance.length === 0) {
               console.log('Provenance verified and no editorial changes — nothing to flag.');
               await clearStaleFlag();
               return;
@@ -347,8 +347,8 @@ jobs:
             if (flagged.length > 0) {
               console.log(`Editorial fields changed by non-maintainer "${author}" in: ${flagged.join(', ')}`);
             }
-            if (vendorFlagged.length > 0) {
-              console.log(`Vendor tier changed by non-maintainer "${author}" in: ${vendorFlagged.join(', ')}`);
+            if (partnerFlagged.length > 0) {
+              console.log(`Partner tier changed by non-maintainer "${author}" in: ${partnerFlagged.join(', ')}`);
             }
 
             if (!(await headStillCurrent())) return;
@@ -359,7 +359,7 @@ jobs:
             // exist in the repo, so create it on first use. A label failure
             // must not prevent the sticky comment below — the comment is the
             // primary signal.
-            if (flagged.length > 0 || vendorFlagged.length > 0) {
+            if (flagged.length > 0 || partnerFlagged.length > 0) {
               try {
                 try {
                   await github.rest.issues.getLabel({
@@ -408,12 +408,12 @@ jobs:
                 'submitter to revert it** before merging.'
               );
             }
-            if (vendorFlagged.length > 0) {
+            if (partnerFlagged.length > 0) {
               sections.push(
                 '',
-                '#### Vendor maintainer tier claimed',
+                '#### Partner maintainer tier claimed',
                 '',
-                `This PR adds or removes \`maintainedBy: vendor\` on: ${vendorFlagged.map(f => `\`${f}\``).join(', ')}.`,
+                `This PR adds or removes \`maintainedBy: partner\` on: ${partnerFlagged.map(f => `\`${f}\``).join(', ')}.`,
                 '',
                 'That tier means the integration is vended and supported by the company',
                 "behind it. Before merging, a maintainer must verify the entry's `github`",

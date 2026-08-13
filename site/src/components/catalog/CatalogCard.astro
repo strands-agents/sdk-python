@@ -12,8 +12,8 @@
  */
 import type { CatalogCardModel } from '../../util/catalog'
 import { pathWithBase } from '../../util/links'
-import { DOWNLOAD_ICON, GITHUB_ICON, NPM_ICON, PYPI_ICON, STAR_ICON } from './icons'
-import { MAINTAINED_BY_FLAGS, MAINTAINED_BY_TITLES, TYPE_ICONS, TYPE_LABELS, VERIFIED_ICON } from './types'
+import { AWS_ICON, DOWNLOAD_ICON, GITHUB_ICON, NPM_ICON, PYPI_ICON, STAR_ICON } from './icons'
+import { AWS_MARK_VIEWBOX, MAINTAINED_BY_FLAGS, MAINTAINED_BY_TITLES, TYPE_ICONS, TYPE_LABELS, VERIFIED_ICON } from './types'
 
 interface Props {
   card: CatalogCardModel
@@ -40,6 +40,18 @@ const href = card.external ? card.href : pathWithBase(card.href)
   data-sdk={card.sdk}
   data-search={`${card.name} ${card.description} by ${card.maintainer}`.toLowerCase()}
 >
+  {
+    (card.featured || card.badges.includes('new')) && (
+      <span class="cat-corner">
+        {card.featured && (
+          <span class="cat-tab cat-tab--featured" title="Featured by the Strands team">
+            Featured
+          </span>
+        )}
+        {card.badges.includes('new') && <span class="cat-tab cat-tab--new">New</span>}
+      </span>
+    )
+  }
   <span class="cat-tile" aria-hidden="true">
     <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
       <path fill="currentColor" d={TYPE_ICONS[card.integrationType]} />
@@ -59,9 +71,8 @@ const href = card.external ? card.href : pathWithBase(card.href)
         title={card.name}
       >
         {card.name}
+        {card.external && <span class="cat-external" aria-hidden="true">↗</span>}
       </a>
-      {card.external && <span class="cat-external" aria-hidden="true">↗</span>}
-      {card.featured && <span class="cat-flag cat-flag--featured" title="Featured by the Strands team">Featured</span>}
       {
         card.badges.includes('verified') && (
           <span class="cat-flag cat-flag--verified" title="Verified by the Strands team">
@@ -74,12 +85,21 @@ const href = card.external ? card.href : pathWithBase(card.href)
       }
       {
         card.maintainedBy !== 'community' && (
-          <span class:list={['cat-flag', `cat-flag--${card.maintainedBy}`]} title={MAINTAINED_BY_TITLES[card.maintainedBy]}>
-            {MAINTAINED_BY_FLAGS[card.maintainedBy]}
+          <span
+            class:list={['cat-flag', `cat-flag--${card.maintainedBy}`]}
+            title={MAINTAINED_BY_TITLES[card.maintainedBy]}
+            aria-label={MAINTAINED_BY_FLAGS[card.maintainedBy]}
+          >
+            {card.maintainedBy === 'aws' ? (
+              <svg width="24" height="15" viewBox={AWS_MARK_VIEWBOX} aria-hidden="true">
+                <path fill="currentColor" d={AWS_ICON} />
+              </svg>
+            ) : (
+              MAINTAINED_BY_FLAGS[card.maintainedBy]
+            )}
           </span>
         )
       }
-      {card.badges.includes('new') && <span class="cat-flag cat-flag--new">New</span>}
       <span class="cat-card-stats">
         {
           card.stars !== undefined && (

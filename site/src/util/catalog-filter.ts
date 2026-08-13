@@ -26,7 +26,7 @@ export interface CardFilterData {
 const KNOWN_TYPES = new Set<string>(CATALOG_TYPES.map((t) => t.value))
 const KNOWN_LANGUAGES = new Set(['python', 'typescript'])
 const KNOWN_BADGES = new Set(['verified', 'featured', 'new'])
-export const KNOWN_MAINTAINED_BY = new Set(['strands', 'aws', 'vendor', 'community'])
+export const KNOWN_MAINTAINED_BY = new Set(['strands', 'aws', 'partner', 'community'])
 const KNOWN_SDKS = new Set(['agents', 'evals'])
 const DEFAULT_SDK = 'agents'
 
@@ -40,6 +40,35 @@ export function matchesFilters(card: CardFilterData, state: CatalogFilterState):
   if (state.badges.size > 0 && !card.badges.some((b) => state.badges.has(b))) return false
   if (state.maintainedBy.size > 0 && !state.maintainedBy.has(card.maintainedBy)) return false
   return true
+}
+
+/**
+ * Cards a facet value would match if it were the sole selection in its facet,
+ * holding every other facet at the current state. Drives the live chip counts
+ * so no chip invites a zero-result click.
+ */
+export function countIfSelected(
+  cards: CardFilterData[],
+  state: CatalogFilterState,
+  facet: 'types' | 'languages' | 'badges' | 'maintainedBy',
+  value: string
+): number {
+  const probe: CatalogFilterState = {
+    ...state,
+    types: new Set(state.types),
+    languages: new Set(state.languages),
+    badges: new Set(state.badges),
+    maintainedBy: new Set(state.maintainedBy),
+  }
+  probe[facet] = new Set([value])
+  return cards.filter((card) => matchesFilters(card, probe)).length
+}
+
+/** Exclusive facet selection: picking a value replaces the set; re-picking clears it. */
+export function selectOnly(set: Set<string>, value: string): void {
+  const had = set.has(value)
+  set.clear()
+  if (!had) set.add(value)
 }
 
 /** Serialize non-default state to a query string ('' when everything is default). */
