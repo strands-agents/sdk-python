@@ -479,6 +479,10 @@ To collect additional information from a user during an MCP tool call, use elici
 
 Interrupts are supported in multi-agent patterns, enabling human-in-the-loop workflows across agent orchestration systems. The interfaces mirror those used for single-agent interrupts. You can raise interrupts from `BeforeNodeCallEvent` hooks executed before each node or from within the nodes themselves. Session management is also supported, allowing you to persist and resume your interrupted multi-agents.
 
+### Agents as Tools
+
+An agent exposed as a tool with [Agents as Tools](./multi-agent/agents-as-tools.md) propagates its interrupts up to the orchestrator, so the orchestrator's caller sees them and answers them like any other interrupt. A sub-agent's interrupt arrives with an id scoped to the orchestrator's tool call, which keeps two sub-agents interrupting in the same turn distinct. Treat the id as opaque: pass it back unchanged to resume, and use `name` and `reason` for anything you show a human.
+
 ### Swarm
 
 A [Swarm](./multi-agent/swarm.md) is a collaborative agent orchestration system where multiple agents work together as a team to solve complex tasks. The following example demonstrates interrupting your swarm invocation through a `BeforeNodeCallEvent` hook.

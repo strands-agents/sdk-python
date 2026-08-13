@@ -1318,6 +1318,9 @@ async def test_event_loop_cycle_interrupts_preserved_when_after_tools_hook_raise
     agent.hooks.add_callback(AfterToolsEvent, raise_in_after_tools)
     model.stream.side_effect = [agenerator(tool_stream)]
 
+    # A key the loop does not own, e.g. an agent-as-tool's parked sub-agent turn.
+    agent._interrupt_state.context["sub_agent_interrupted_turns"] = {"tool-1": {"scope": "agent"}}
+
     with pytest.raises(EventLoopException, match="after tools hook failed"):
         await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
 
@@ -1325,6 +1328,7 @@ async def test_event_loop_cycle_interrupts_preserved_when_after_tools_hook_raise
     assert agent._interrupt_state.activated
     assert agent._interrupt_state.context["tool_use_message"] == agent.messages[-1]
     assert agent._interrupt_state.context["tool_results"] == []
+    assert agent._interrupt_state.context["sub_agent_interrupted_turns"] == {"tool-1": {"scope": "agent"}}
 
 
 @pytest.mark.asyncio
@@ -2371,3 +2375,28 @@ async def test_event_loop_cycle_cancel_after_tools_stops_without_checkpointing(
 
     assert events[-1]["stop"][0] == "cancelled"
     assert model.stream.call_count == 1
+
+
+def test_park_interrupt_context_keeps_keys_the_event_loop_does_not_own():
+    """Parking a turn refreshes the loop's own interrupt-context keys and preserves everyone else's."""
+    agent = MagicMock()
+    agent._interrupt_state = _InterruptState(
+        context={
+            "tool_use_message": {"role": "assistant", "content": [{"text": "an earlier park"}]},
+            "tool_results": [{"toolUseId": "tool-0", "status": "success", "content": []}],
+            "responses": [{"interruptResponse": {"interruptId": "answered", "response": "APPROVE"}}],
+            "sub_agent_interrupted_turns": {"tool-1": {"scope": "agent"}},
+        }
+    )
+    message = {"role": "assistant", "content": [{"toolUse": {"toolUseId": "tool-1", "name": "t", "input": {}}}]}
+    tool_results = [{"toolUseId": "tool-2", "status": "success", "content": [{"text": "ok"}]}]
+
+    strands.event_loop.event_loop._park_interrupt_context(agent, message, tool_results)
+
+    tru_context = agent._interrupt_state.context
+    exp_context = {
+        "tool_use_message": message,
+        "tool_results": tool_results,
+        "sub_agent_interrupted_turns": {"tool-1": {"scope": "agent"}},
+    }
+    assert tru_context == exp_context

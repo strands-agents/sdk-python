@@ -12,7 +12,7 @@ import copy
 import logging
 import uuid
 from collections.abc import AsyncGenerator, Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from opentelemetry import trace as trace_api
 
@@ -705,6 +705,33 @@ def _make_invoke_model_terminal(
     return terminal
 
 
+_LOOP_OWNED_CONTEXT_KEYS: Final = ("tool_use_message", "tool_results", "responses")
+"""Interrupt-context keys the event loop owns and refreshes on every park.
+
+Every other key in an agent's interrupt context belongs to whoever put it there - an agent-as-tool
+parks an ephemeral sub-agent's interrupted turn that way - and has to survive parking.
+"""
+
+
+def _park_interrupt_context(agent: "Agent", message: Message, tool_results: list[ToolResult]) -> None:
+    """Rebuild an agent's interrupt context for a parked turn, keeping keys the event loop does not own.
+
+    ``tool_use_message`` and ``tool_results`` describe this park, and ``responses`` belongs to the
+    resume that has just been consumed, so all three are refreshed here. Any other key belongs to
+    whoever put it there — an agent-as-tool parks the interrupted turn of an ephemeral sub-agent this
+    way — and has to survive so it is still there on the next resume.
+
+    Args:
+        agent: Agent whose turn is being parked.
+        message: Tool use message that triggered the interrupt.
+        tool_results: Results of the tools that did complete.
+    """
+    carried = {
+        key: value for key, value in agent._interrupt_state.context.items() if key not in _LOOP_OWNED_CONTEXT_KEYS
+    }
+    agent._interrupt_state.context = {**carried, "tool_use_message": message, "tool_results": tool_results}
+
+
 async def _stop_for_interrupts(
     agent: "Agent",
     message: Message,
@@ -723,7 +750,7 @@ async def _stop_for_interrupts(
     so interrupt persistence logic lives in one place.
     """
     # Session state stored on AfterInvocationEvent.
-    agent._interrupt_state.context = {"tool_use_message": message, "tool_results": tool_results}
+    _park_interrupt_context(agent, message, tool_results)
     agent._interrupt_state.activate()
 
     agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
@@ -865,7 +892,7 @@ async def _handle_tool_execution(
         except Exception:
             # Persist pending interrupts before re-raising so they aren't lost.
             if interrupts:
-                agent._interrupt_state.context = {"tool_use_message": message, "tool_results": tool_results}
+                _park_interrupt_context(agent, message, tool_results)
                 agent._interrupt_state.activate()
             raise
 

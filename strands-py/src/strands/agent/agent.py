@@ -1022,6 +1022,12 @@ class Agent(AgentBase):
                 invocation starts from the same baseline regardless of any external
                 interactions with the agent. Defaults to False.
 
+                Interrupts raised inside the sub-agent resume automatically. When False, the
+                orchestrator carries the sub-agent's interrupted turn, so the resume survives a
+                process restart. When True the sub-agent owns its state: give it its own session
+                manager if the resume has to survive a restart, otherwise the interrupt resumes
+                only within the same process.
+
         Returns:
             A tool wrapping this agent.
 
