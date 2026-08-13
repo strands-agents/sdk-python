@@ -15,7 +15,7 @@ The Strands SDK has no local memory store. The existing store implementation, `B
 
 Separately, any long-lived memory system needs a maintenance mechanism. As memory accumulates over extended interactions, quality degrades — redundancy grows, contradictions go unresolved, and retrieval becomes less reliable. Managed stores like `BedrockKnowledgeBaseStore` handle this server-side — deduplication, indexing, and retrieval quality are responsibilities of the backend service. This works because the infrastructure runs outside the agent loop: it can process knowledge asynchronously, build embeddings, and serve semantic search without adding latency to agent sessions. A local store needs an equivalent offline step to prevent quality from degrading over time.
 
-`FileMemoryStore` addresses both needs. It organizes knowledge as a structured file hierarchy that the agent can navigate directly, and exposes consolidation as an offline maintenance step — analogous to how managed backends process knowledge asynchronously. By running offline, this step can also build local indexes, enabling semantic search without a managed vector service. Because it operates through the unified `Storage` interface, the backend can be extended to git-based storage, S3, or any other persistence layer without changing the core memory model.
+`FileMemoryStore` addresses both needs. It organizes knowledge as a structured file hierarchy that the agent can navigate directly, and exposes consolidation as an offline maintenance step, analogous to how managed backends process knowledge asynchronously. Because it operates through the unified `Storage` interface, the backend can be extended to git-based storage, S3, or any other persistence layer without changing the core memory model.
 
 ---
 
@@ -23,33 +23,30 @@ Separately, any long-lived memory system needs a maintenance mechanism. As memor
 
 This proposal introduces **`FileMemoryStore`**, which implements the `MemoryStore` interface (for `MemoryManager` L2, long-term memory). It handles knowledge: extracted facts, progressive disclosure, search, and consolidation.
 
-For L1 (session persistence), the existing `ContextManager` already accepts a `Storage` instance and provides file operations (`put`, `get`, `list`, `delete`). No additional wrapper class is needed.
+For L1 (session history), the existing `ContextManager` already accepts a `Storage` instance and provides file operations (`put`, `get`, `list`, `delete`). No additional wrapper class is needed.
 
 `FileMemoryStore` uses a `Storage` instance for its file operations. When none is provided, it defaults to `LocalFileStorage` at `~/.strands/`.
 
-Both L1 and L2 can share the same `Storage` instance pointed at the same root directory, giving a unified, inspectable filesystem containing everything an agent has learned and experienced — without conflating L1 and L2 into a single construct.
+Both L1 and L2 can share the same `Storage` instance pointed at the same root directory, giving a unified, inspectable filesystem containing everything an agent has learned and experienced, without conflating L1 and L2 into a single construct.
 
-The existing Strands API remains unchanged. `MemoryManager` still owns L1 → L2 extraction. What changes is the physical storage: instead of separate, disconnected backends for each layer, both write to the same file hierarchy — `ContextManager` writes to `context/` for L1 and `FileMemoryStore` writes to `knowledge/` for L2.
+The existing Strands API remains unchanged. `MemoryManager` still owns L1 → L2 extraction. What changes is the physical storage: instead of separate, disconnected backends for each layer, both can write to the same file hierarchy. FileMemoryStore writes to `knowledge/` for L2, and a file-backed L1 could write to `context/` under the same root.
 
 ### File Hierarchy
 
-`ContextManager` and `FileMemoryStore` can share the same `Storage` instance and root directory. They are isolated by path: `ContextManager` writes to `context/`, while `FileMemoryStore` writes to `knowledge/`. Consolidation metadata lives in `consolidation/`.
+`FileMemoryStore` stores memories in `knowledge/` and consolidation metadata to `consolidation/`, all under one root. Because the storage interface is layer-agnostic, the same root could also hold session history (L1) under `context/`— shown below for illustration. L1 file persistence is out of scope for this proposal (it uses a snapshot-based backend today), so nothing currently writes to `context/`.
 
 ```
 ~/.strands/
-├── context/                         # L1 - ContextManager writes here
+├── context/                         # L1 - ContextManager writes here; illustrative only, and requires file-backed L1 (out of scope)
 │   ├── current.md
 │   └── history/
 │       ├── 2026-06-10-session-a.md
 │       └── 2026-06-11-session-b.md
 ├── knowledge/                       # L2 - MemoryStore writes here (called by MemoryManager)
-│   ├── system/                      # always loaded in full every turn
-│   │   └── user-preferences.md
 │   └── facts/                       # visible by name + description; loaded on demand
 │       ├── testing-philosophy.md
 │       └── project-context.md
-└── consolidation/
-    └── changelog.md                 # human-readable log of consolidation
+└── consolidation-changelog.md                 # human-readable log of consolidation
 ```
 
 ---
@@ -60,7 +57,7 @@ Not everything loads into context every turn. The agent retrieves relevant knowl
 
 ### Relationship to MemoryManager Retrieval
 
-`MemoryManager` provides two retrieval mechanisms: automatic injection (searches stores every turn, injects results into model input) and the `search_memory` tool (agent-initiated). Both call `store.search()` on the store. Progressive disclosure is a *third*, independent retrieval path. The agent navigates the file hierarchy using tools (`read_memory_file`, `grep_memory`) registered by `FileMemoryStore` via `getTools()`.
+`MemoryManager` provides two retrieval mechanisms: automatic injection (searches stores every turn, injects results into model input) and the `search_memory` tool (agent-initiated). Both call `store.search()` on the store. Progressive disclosure is a *third*, independent retrieval path. The agent navigates the file hierarchy using the `read_<store_name>_file` tool registered by `FileMemoryStore` via `getTools()`.
 
 These are not mutually exclusive, and the user controls which are active:
 
@@ -68,9 +65,10 @@ These are not mutually exclusive, and the user controls which are active:
 |-----------|---------------|-------------------------------------|
 | Injection | `MemoryManager` config (`injection: true`) | Calls `FileMemoryStore.search()` (keyword matching) → injects results as `<memory>` XML |
 | `search_memory` tool | Agent-initiated | Same — calls `FileMemoryStore.search()` |
-| Progressive disclosure | Agent-initiated | Agent sees file tree in system prompt, navigates with `read_memory_file`/`grep_memory` tools |
+| Progressive disclosure | `progressiveDisclosure: true` on the store (default) | Store returns a ContextInjector plugin (trigger: 'everyTurn') that renders the file listing, and a per-store read tool (`read_<store_name>_file`) via getTools() |
 
-When `FileMemoryStore` is the only store, **progressive disclosure is the recommended primary retrieval path** — the agent's judgment over filenames and descriptions is a better retrieval engine than keyword matching for a filesystem store. `MemoryManager` injection is redundant in this case and can be disabled (`injection: false`). The `search_memory` tool remains available as a fallback — it searches inside file content, so it can surface relevant knowledge when filenames and descriptions alone aren't enough to identify the right file.
+**`injection: false` is recommended** when progressive disclosure is on — the listing already tells the model what exists, so also running keyword search + injection each turn wastes tokens on the same problem. search_memory remains available (controlled independently by searchToolConfig) as ranked full-content retrieval in a single tool call, and is the only path that searches across multiple stores in a multi-backend setup.
+
 
 ### How It Works
 
@@ -89,13 +87,6 @@ knowledge/
     ├── deploy-process.md           — "Team's deployment pipeline and rollback procedures"
     └── project-architecture.md     — "Service boundaries and data flow"
 ```
-
-
-### Context Loading
-
-Files in `knowledge/system/` are always loaded in full into the system prompt. This is where core context lives (persona, key preferences, critical project facts). Everything outside `system/` is visible by filename + description only, loaded when the agent reads it.
-
-**Who manages `system/`:** Developers seed `system/` at repo creation with anything the agent always needs (persona, core preferences). The consolidation agent promotes and demotes files during offline maintenance, analyzing cross-session patterns to move broadly relevant files into `system/` and overly specific ones out. The main agent never writes to `system/` during a session.
 
 ### Retrieval in Practice
 
@@ -131,6 +122,7 @@ interface FileMemoryStoreConfig {
   // Optional
   storage?: Storage;  // default: LocalFileStorage at ~/.strands/
   description?: string;
+  writable?: boolean;  // default: true; set false for a read-only knowledge base
   maxSearchResults?: number;
   extraction?: ExtractionConfig;
   retrieval?: { maxTokens?: number }; // default: 2000
@@ -140,6 +132,8 @@ interface ConsolidateConfig {
   model: Model;
   operations?: ("deduplicate" | "resolveContradictions" | "deriveInsights" | "prune" | "reorganize")[];
   maxDirectories?: number;  // default: 8
+  maxFiles?: number;        // default: 100 — bounds single-call planner input
+  maxInputBytes?: number;   // default: 131072 (128 KiB) — bounds single-call planner input
 }
 
 class FileMemoryStore implements MemoryStore {
@@ -169,9 +163,9 @@ The `metadata` fields come from the `ModelExtractor` when automatic extraction i
 
 **`search(query, options?)`**
 
-Required by the `MemoryStore` interface. The default implementation performs keyword matching against filenames, `description` frontmatter, and file content, excluding `knowledge/system/` (already loaded in full). Returns the top matches as `MemoryEntry[]`, ranked by term frequency. No model call, no embeddings.
+Required by the `MemoryStore` interface. The default implementation performs keyword matching against filenames, `description` frontmatter, and file content. Returns the top matches as `MemoryEntry[]`, ranked by term frequency. No model call, no embeddings.
 
-Progressive disclosure (see [Progressive Disclosure](#progressive-disclosure)) is the primary retrieval mechanism for `FileMemoryStore` — the agent sees the file tree in its system prompt and navigates knowledge directly using filesystem tools. The [`search_memory` tool](https://github.com/strands-agents/docs/blob/main/designs/0011-memory-manager.md) serves as a fallback: it retrieves actual content in a single tool call, preventing hallucination in cases where the agent might respond based on filenames/descriptions alone without reading the underlying files.
+`search_memory` calls this method. It provides ranked full-content retrieval in a single tool call — useful when the agent can't identify the right file from the file tree alone, or when searching across multiple stores in a multi-backend setup. Progressive disclosure tools (`read_memory_file`, `grep_memory`) complement this with direct file access and substring discovery within the file hierarchy.
 
 ---
 ## Alternative to Progressive Disclosure: Semantic Search via Offline Indexing
@@ -196,7 +190,7 @@ const agent = new Agent({
     model,
     memoryManager: new MemoryManager({
         stores: [memoryStore],
-        injection: false, // progressive disclosure is the recommended retrieval path
+        injection: false, // renderContent already injects the file tree; automatic search-injection is redundant
     }),
 });
 ```
@@ -225,77 +219,86 @@ const agent = new Agent({
 
 ## Consolidation
 
-Consolidation improves memory quality after facts accumulate. It is a developer-invoked Strands agent exposed as a method on `FileMemoryStore`. It reads stored knowledge, reasons across files, and writes changes through `Storage`.
+Consolidation improves memory quality after facts accumulate. It is a developer-invoked offline maintenance method on `FileMemoryStore`. It reads stored knowledge, uses an LLM to produce a validated action plan, and writes changes through `Storage`.
 
 All extracted facts land in `knowledge/facts/` by default — `FileMemoryStore.add()` writes there unless an explicit `metadata.path` override is provided. This avoids a classification model call on every extraction while still allowing programmatic writes (setup scripts, external tools) to target a specific directory. Consolidation is responsible for reorganizing files into appropriate subdirectories during offline maintenance — it may create new directories when the content warrants it (subject to programmatic guardrails), since it has full cross-file context to make informed categorization decisions.
 
 ### How It Works
 
+Consolidation uses a **plan-then-execute** strategy: a single structured-output LLM call over all files produces a structured action plan (Zod-validated JSON), programmatic validation ensures the plan obeys structural invariants, and execution applies the validated plan deterministically.
+
 ```
 myStore.consolidate(config)
 │
-├─ 1. SCOPE: process all files under knowledge/
+├─ 1. SCOPE: read all files under knowledge/ into memory as a path → content map
 │
-├─ 2. CLUSTER: group eligible files by subdirectory
-│     Clustering keeps each agent invocation focused on related files — a cluster of
-│     testing facts can be deduplicated, but mixing testing facts with deploy procedures
-│     would force the agent to reason across unrelated topics in a single pass.
+├─ 2. BOUND: enforce the single-call input limits before any model call
+│     - maxFiles (default 100): reject if the store holds more files than one call can plan over
+│     - maxInputBytes (default 128 KiB): reject if total content exceeds the context budget
+│     Both throw immediately — the run fails loudly rather than silently truncating input.
 │
-│     cluster 1 (facts/): [dark-mode.md, editor-preferences.md, deploy-process.md, testing-philosophy.md]
+├─ 3. PLAN: one structured-output LLM call over the whole file set
+│     - model:          the LLM passed in config
+│     - system prompt:  built from config.operations
+│     - output schema:  ConsolidationPlanSchema (discriminated union of actions)
+│     - user message:   all files with full content
 │
-├─ 3. EXECUTE: for each cluster (in parallel), invoke a Strands agent
-│     Clusters operate on disjoint file sets (each file belongs to exactly one cluster),
-│     so parallel agents cannot conflict.
+│     The model returns a JSON plan of actions (merge/update/delete/move) — it does NOT
+│     execute changes itself.
 │
-│     Each agent invocation receives:
-│     - model:         the LLM passed in config (does the reasoning)
-│     - system prompt: built from config.operations (excluding reorganize)
-│     - tools:         read_file, write_file, delete_file (thin wrappers around Storage)
-│     - context:       the files in this cluster
+├─ 4. VALIDATE: programmatically check the plan against guardrails
+│     - All referenced paths exist in the file set
+│     - Paths are sandboxed under knowledge/
+│     - Depth ≤ 1 level, directory caps enforced, naming format validated
+│     - Action types match the requested operations
+│     - No two actions collide on a write target
+│     On failure: one revision retry (model sees the validation error), then hard fail.
 │
-│     The agent reads the cluster's files, applies the requested operations, and writes
-│     changes back through Storage.
+├─ 5. EXECUTE: apply the validated plan deterministically
+│     Write-before-delete ordering: all writes (merge targets, updates, move destinations)
+│     complete before any deletes. A crash between the two passes leaves duplicated content,
+│     never lost content.
 │
-├─ 4. REORGANIZE: a separate final pass (after all clusters complete)
-│     A single agent sees all file paths and descriptions across knowledge/ and moves
-│     them to appropriate subdirectories. This runs after per-cluster operations because
-│     reorganize needs cross-directory visibility that per-cluster agents don't have.
-│
-└─ 5. RECORD: append timestamp + summary to consolidation/changelog.md
-       This serves as both an audit log and the cursor for the next "latest" run.
+└─ 6. RECORD: append timestamp + summary to consolidation/changelog.md
+       Serves as both an audit log and the cursor for future incremental scoping.
 ```
+
+`consolidate()` returns `void`; the applied changes are visible in the file hierarchy and summarized in `consolidation/changelog.md`.
+
+A single whole-store call keeps the initial implementation simple and gives the model full cross-file context (so cross-directory deduplication and reorganization fall out of one plan). Its ceiling is context size — hence the `maxFiles` / `maxInputBytes` guards. Per-directory clustering (which lifts that ceiling and enables parallelism) is deferred to a later phase; see [Phasing](#phasing).
 
 ### Operations
 
-The `operations` config controls which directives go into the agent's system prompt. They are prompt instructions — the LLM decides how to apply them using the file content and change history available in its context.
+The `operations` config controls which directives go into the system prompt. They are prompt instructions — the LLM decides how to apply them using the file content and change history available in its context.
 
-| Operation | Agent behavior | Example |
+| Operation | Model behavior | Example |
 |-----------|---------------|---------|
 | `deduplicate` | Merge files expressing the same fact | "User prefers dark mode" + "Theme preference: dark" → one file |
 | `resolveContradictions` | Keep the more recent fact (per change history), delete the other | "Uses tabs" (April) vs "Uses spaces" (June) → keeps spaces |
 | `deriveInsights` | Combine related facts into a higher-level pattern | 3 testing facts → "Testing philosophy: high-fidelity, boundary-mocked" |
 | `prune` | Delete entries whose content is fully covered by a newer file | `old-deploy-process.md` superseded by `deploy-process.md` → deleted |
-| `reorganize` | Move files to appropriate subdirectories based on content; may create new directories. Runs as a separate final pass with full cross-directory visibility. | Fact about debugging patterns in `facts/` → moved to `operations/debugging.md` |
+| `reorganize` | Move files to appropriate subdirectories based on content; may create new directories. The single whole-store call already has full cross-directory visibility, so moves are planned alongside the other operations rather than in a separate pass. | Fact about debugging patterns in `facts/` → moved to `operations/debugging.md` |
 
 ### Directory Management: Hybrid Guardrails
 
-Consolidation uses a hybrid of agent reasoning and programmatic constraints for directory management. The agent decides *which* directory a file belongs in and *what* new directories should be called — these are judgment-based decisions that benefit from cross-file context. Programmatic validation in the tool callbacks enforces structural invariants the agent cannot violate:
+Consolidation uses a hybrid of model reasoning and programmatic constraints for directory management. The model decides *which* directory a file belongs in and *what* new directories should be called — these are judgment-based decisions that benefit from cross-file context. Programmatic validation of the returned plan enforces structural invariants the model cannot violate:
 
 | Concern | Mechanism |
 |---------|-----------|
-| Which directory a file belongs in | Agent reasoning |
-| What to name a new directory | Agent reasoning |
-| Max number of directories (`maxDirectories`, default 8) | Programmatic — tool rejects write |
-| Max nesting depth (one level under `knowledge/`) | Programmatic — tool rejects write |
-| Directory naming format (lowercase, alphanumeric, hyphens, ≤30 chars) | Programmatic — tool rejects write |
+| Which directory a file belongs in | Model reasoning (in the structured-output plan) |
+| What to name a new directory | Model reasoning (in the structured-output plan) |
+| Max number of directories (`maxDirectories`, default 8) | Programmatic — plan rejected at validation |
+| Max nesting depth (one level under `knowledge/`) | Programmatic — plan rejected at validation |
+| Directory naming format (lowercase, alphanumeric, hyphens, ≤30 chars) | Programmatic — plan rejected at validation |
 
-This avoids relying solely on prompt engineering for structural constraints (which can be ignored or misinterpreted by the model) while preserving agent creativity for the organizational decisions that genuinely require judgment.
+This avoids relying solely on prompt engineering for structural constraints (which can be ignored or misinterpreted by the model) while preserving model creativity for the organizational decisions that genuinely require judgment.
 
 ### Usage
 
 Since Strands is a client-side SDK with no server process, consolidation needs an external trigger:
 
 ```typescript
+// Execute consolidation — changes are applied and recorded in consolidation/changelog.md
 await myStore.consolidate({
   model,
   operations: ["deduplicate", "resolveContradictions"],
@@ -303,6 +306,18 @@ await myStore.consolidate({
 ```
 
 Scheduling frequency is controlled by the developer — e.g., after each session for incremental cleanup, or weekly for a deep clean. See [Appendix D](#appendix-d-consolidation-examples) for the nightly vs. weekly patterns for option 2, and [Appendix E](#appendix-e-github-action-yaml) for an example GitHub Action trigger.
+
+### Phasing
+
+| Phase | Scope | Description |
+|-------|-------|-------------|
+| Phase 1 (current) | Single whole-store structured-output call | Zod-validated plan over all files, `maxFiles` / `maxInputBytes` input guards, write-before-delete execution, one-retry validation |
+| Phase 2 (fast-follow) | Per-directory clustering + parallelism | Cluster files by subdirectory; parallel per-cluster calls via `Promise.all` (safe — disjoint file sets); a cross-directory reorganize pass over paths + descriptions; incremental scope (only directories changed since last changelog entry). Lifts the single-call file/byte ceiling. |
+| Phase 3 (future) | Semantic indexing + progressive disclosure tools | Semantic/embedding index built during consolidation; progressive-disclosure tools (`renderContent`, `read_memory_file`, `grep_memory`); per-operation model selection; retention/temporal decay policies |
+
+### Cross-SDK Naming
+
+Operation names use `camelCase` in TypeScript and `snake_case` in Python per the cross-SDK parity rules in [AGENTS.md](../../AGENTS.md): `resolveContradictions` ↔ `resolve_contradictions`, `deriveInsights` ↔ `derive_insights`. String-literal values (`'deduplicate'`, `'prune'`) that are single words are byte-identical across both SDKs.
 
 ---
 
@@ -330,13 +345,25 @@ Hard-coded deduplication rules (e.g., cosine similarity > 0.95 → merge).
 
 Have `FileMemoryStore.add()` call a model to categorize each fact (e.g., preference, procedure, project fact) and write it directly to the appropriate subdirectory.
 
-**Why rejected:** Adds a classification model call to every extraction, increasing latency and token cost during agent sessions. The classifier also only sees a single fact in isolation, leading to worse categorization than the consolidation agent, which sees all files together and can make informed cross-file decisions. Writing everything to `facts/` by default keeps `add()` fast and simple, and lets consolidation handle reorganization with full context during offline maintenance.
+**Why rejected:** Adds a classification model call to every extraction, increasing latency and token cost during agent sessions. The classifier also only sees a single fact in isolation, leading to worse categorization than consolidation, which sees all files together and can make informed cross-file decisions. Writing everything to `facts/` by default keeps `add()` fast and simple, and lets consolidation handle reorganization with full context during offline maintenance.
 
 ### 5. Retrieval: Heuristic scoring with metadata
 
 Score files using frontmatter metadata (tags, recency, access frequency) and load top-K within a token budget. No agent involvement in retrieval.
 
 **Why rejected:** Requires building metadata infrastructure (tag extraction, scoring weights, access counters). Vector store backends like Bedrock Knowledge Bases have embeddings and similarity scoring server-side, making programmatic scoring natural. For a filesystem store there is no equivalent infrastructure — the agent's own judgment (navigating via filenames and descriptions) is the better retrieval engine.
+
+### 6. Consolidation: Per-directory tool-calling agents
+
+Spawn a Strands agent per file cluster, each equipped with `read_file`, `write_file`, and `delete_file` tools. The agent reads its cluster's files, reasons about what to change, and applies modifications as it goes via tool calls.
+
+**Why rejected:** Non-deterministic execution — the agent applies changes as it goes, making partial failures hard to recover from. No pre-execution validation of a complete plan, so invalid operations (path violations, directory limit breaches) are caught mid-flight. Higher token cost from multi-turn tool-call overhead. Structured output gives an inspectable, validatable plan before any filesystem mutation.
+
+### 7. Consolidation: Per-directory clustered calls (deferred, not rejected)
+
+Instead of one call over the whole store, cluster files by subdirectory and make one structured-output call per cluster, running clusters in parallel over disjoint file sets.
+
+**Why deferred to Phase 2:** Clustering is the answer to the single whole-store call's one real limit — context size (~50–100 files). It also unlocks parallelism. But it adds orchestration (clustering, a join, a cross-directory reorganize pass) whose payoff only materializes once a store spans multiple directories or exceeds the file/byte budget. Phase 1 ships the single whole-store call with `maxFiles` / `maxInputBytes` guards that fail loudly at the ceiling; clustering lifts that ceiling when real corpora demand it. The single call also gives the model full cross-file context in one shot, so cross-directory dedup and reorganization fall out of one plan.
 
 ---
 
@@ -439,7 +466,7 @@ Agent calls: read_memory_file("knowledge/facts/deploy-process.md")
 → full content loaded into context, agent answers from it
 ```
 
-Fallback — when filenames and descriptions aren't enough:
+When filenames and descriptions aren't enough:
 
 ```
 User asks: "what was that thing about retrying failed requests?"
@@ -537,7 +564,7 @@ When consolidation runs, files are read/written through the storage backend:
 ```
 myStore.consolidate({ model, operations: ["deduplicate"] })
   → storage.list("knowledge/")            // all files in scope
-  → consolidation agent reads/writes files via Storage
+  → consolidation plans and executes changes via Storage
 ```
 
 ### Usage
@@ -578,6 +605,8 @@ await myStore.consolidate({
 // Weekly deep clean (all operations by default)
 await myStore.consolidate({ model });
 ```
+
+Applied changes are recorded in `consolidation/changelog.md`.
 
 ### Example Output
 
