@@ -210,8 +210,8 @@ export function createTokenUsageMiddleware(model: Model): MiddlewareInputHandler
       ...(lastMessage.metadata && { metadata: lastMessage.metadata }),
     })
 
-    // The live token count makes this block per-call, so a breakpoint must stay ahead of it. Only
-    // counted for a user message: elsewhere it would move the breakpoint off an unrelated message.
+    // The live token count makes this block per-call, so a cache point must stay ahead of it. Only
+    // counted for a user message: elsewhere it would move the cache point off an unrelated message.
     const appended = lastMessage.role === 'user' ? 1 : 0
     return { ...context, messages, perCallTrailingBlocks: (context.perCallTrailingBlocks ?? 0) + appended }
   }

@@ -1,7 +1,7 @@
 """Prompt caching survives content that is rebuilt on every model call.
 
-A cache read only happens when a previous request wrote an entry ending at a breakpoint. Content
-regenerated every call — injected context, a live token count — has to sit behind that breakpoint, or
+A cache read only happens when a previous request wrote an entry ending at a cache point. Content
+regenerated every call — injected context, a live token count — has to sit behind that cache point, or
 each request writes a fresh entry and reads none.
 
 The failure is invisible in totals: a thrashing request and a reading request report near-identical
@@ -33,7 +33,7 @@ BEDROCK_MODEL_ID = "us.anthropic.claude-opus-4-8"
 ANTHROPIC_MODEL_ID = "claude-opus-4-8"
 MAX_TOKENS = 512
 
-# Enough tokens ahead of the breakpoint to clear every provider's minimum cacheable prefix — 4096 on
+# Enough tokens ahead of the cache point to clear every provider's minimum cacheable prefix — 4096 on
 # Opus 4.8, the highest of any current Claude. Shrinking this multiplier to tune one provider silently
 # stops the other from writing a turn-1 entry; keep it well above 4096 tokens.
 DURABLE_PREFIX = "The subject prefers concise written answers. " * 700
@@ -126,7 +126,7 @@ def test_injected_context_leaves_the_durable_prefix_cacheable(make_model, usage_
 
     first_call, second_call = usage_per_call.captured[0], usage_per_call.captured[1]
     assert first_call["write"] > 0, "turn 1 wrote no cache entry, so turn 2 has nothing to read"
-    assert second_call["read"] > 0, "turn 2 read nothing: the breakpoint is not ahead of the injected text"
+    assert second_call["read"] > 0, "turn 2 read nothing: the cache point is not ahead of the injected text"
     assert second_call["write"] < first_call["write"], "turn 2 rewrote the prefix instead of reusing it"
 
 
@@ -144,5 +144,5 @@ def test_agentic_context_status_leaves_the_durable_prefix_cacheable(make_model, 
 
     first_call, second_call = usage_per_call.captured[0], usage_per_call.captured[1]
     assert first_call["write"] > 0, "turn 1 wrote no cache entry, so turn 2 has nothing to read"
-    assert second_call["read"] > 0, "turn 2 read nothing: the breakpoint is not ahead of the status line"
+    assert second_call["read"] > 0, "turn 2 read nothing: the cache point is not ahead of the status line"
     assert second_call["write"] < first_call["write"], "turn 2 rewrote the prefix instead of reusing it"

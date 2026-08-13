@@ -90,7 +90,7 @@ export interface InvokeModelContext {
   /**
    * How many trailing blocks of the last user message are rebuilt on every call.
    *
-   * Producers add to this; a provider placing prompt-cache breakpoints keeps its own ahead of the
+   * Producers add to this; a provider placing cache points keeps its own ahead of the
    * count, since a prefix that changes every call is never read back. Counted from the end of the
    * message so it survives a provider's content cleaning, which only drops earlier blocks.
    */

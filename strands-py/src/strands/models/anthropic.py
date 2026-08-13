@@ -211,7 +211,7 @@ class AnthropicModel(Model):
                 ``cache_config`` is set. Automatic placement applies to that message only when nothing in
                 it already carries the cache point.
             per_call_trailing_blocks: How many trailing blocks of the cache-target message are rebuilt on
-                every call. The breakpoint stays ahead of them, since a prefix that changes every call is
+                every call. The cache point stays ahead of them, since a prefix that changes every call is
                 written every call and never read.
 
         Returns:
@@ -277,7 +277,7 @@ class AnthropicModel(Model):
         Args:
             formatted_contents: Blocks formatted so far for the current message. Mutated in place.
             ttl: Optional TTL duration carried by the cache point.
-            skip_trailing: Trailing blocks rebuilt every call; the breakpoint stays ahead of them, since a
+            skip_trailing: Trailing blocks rebuilt every call; the cache point stays ahead of them, since a
                 prefix that changes every call is written every call and never read.
 
         Returns:
@@ -379,7 +379,7 @@ class AnthropicModel(Model):
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
             per_call_trailing_blocks: How many trailing blocks of the last user message are rebuilt on
-                every call, so the cache breakpoint stays ahead of them.
+                every call, so the cache point stays ahead of them.
 
         Returns:
             An Anthropic streaming request.

@@ -63,7 +63,7 @@ describe('createTokenUsageMiddleware', () => {
   })
 
   it('reports the status line as one per-call block', async () => {
-    // The live token count makes this per-call, so a breakpoint must stay ahead of it.
+    // The live token count makes this per-call, so a cache point must stay ahead of it.
     const middleware = createTokenUsageMiddleware(createMockModel(200_000))
     const context = createContext({ projectedInputTokens: 50_000 })
 

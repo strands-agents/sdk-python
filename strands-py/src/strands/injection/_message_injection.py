@@ -91,7 +91,7 @@ def _create_injection_middleware(
             return context
 
         folded, appended = _fold_into_last_user_message(context.messages, text)
-        # Accumulate: several producers may append on one call, and the breakpoint precedes all of it.
+
         return replace(context, messages=folded, per_call_trailing_blocks=context.per_call_trailing_blocks + appended)
 
     return handler
@@ -188,5 +188,5 @@ def _fold_into_last_user_message(messages: Messages, text: str) -> tuple[Message
 
     result = list(messages)
     result[target_index] = folded
-    # A provider only places its breakpoint in the last message, so a fold elsewhere reports nothing.
+    # A provider only places its cache point in the last message, so a fold elsewhere reports nothing.
     return result, (1 if target_index == len(messages) - 1 else 0)

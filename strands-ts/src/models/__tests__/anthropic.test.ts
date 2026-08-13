@@ -1836,8 +1836,8 @@ describe('AnthropicModel', () => {
       ])
     })
 
-    it('keeps the breakpoint ahead of per-call trailing content', async () => {
-      // The reusable prefix ends where per-call content begins, so the breakpoint precedes it.
+    it('keeps the cache point ahead of per-call trailing content', async () => {
+      // The reusable prefix ends where per-call content begins, so the cache point precedes it.
       const { captured, mockClient } = setupCapture()
       const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
       const message = new Message({
@@ -1853,7 +1853,7 @@ describe('AnthropicModel', () => {
       ])
     })
 
-    it('keeps the breakpoint ahead of a multi-block per-call tail', async () => {
+    it('keeps the cache point ahead of a multi-block per-call tail', async () => {
       const { captured, mockClient } = setupCapture()
       const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
       const message = new Message({
@@ -1869,7 +1869,7 @@ describe('AnthropicModel', () => {
       expect(captured.request.messages[0].content[2].cache_control).toBeUndefined()
     })
 
-    it('skips the breakpoint when nothing durable precedes the per-call tail', async () => {
+    it('skips the cache point when nothing durable precedes the per-call tail', async () => {
       const { captured, mockClient } = setupCapture()
       const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
 
@@ -1878,7 +1878,7 @@ describe('AnthropicModel', () => {
       expect(breakpoints(captured.request)).toEqual([])
     })
 
-    it('carries the configured ttl onto the per-call-tail breakpoint', async () => {
+    it('carries the configured ttl onto the per-call-tail cache point', async () => {
       const { captured, mockClient } = setupCapture()
       const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto', ttl: '1h' } })
       const message = new Message({
@@ -1891,8 +1891,8 @@ describe('AnthropicModel', () => {
       expect(breakpoints(captured.request)).toEqual([['messages', 0, { type: 'ephemeral', ttl: '1h' }]])
     })
 
-    it('emits no breakpoint for a per-call tail without cacheConfig', async () => {
-      // A per-call tail says where a breakpoint would go, never that one should exist.
+    it('emits no cache point for a per-call tail without cacheConfig', async () => {
+      // A per-call tail says where a cache point would go, never that one should exist.
       const { captured, mockClient } = setupCapture()
       const provider = new AnthropicModel({ client: mockClient })
       const message = new Message({

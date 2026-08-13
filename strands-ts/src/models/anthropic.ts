@@ -351,7 +351,7 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
    * @returns True when a block was marked.
    */
   private _attachCacheControl(content: Anthropic.ContentBlockParam[], ttl?: string, skipTrailing = 0): boolean {
-    // Skip trailing blocks rebuilt every call so the breakpoint stays ahead of them; a prefix that
+    // Skip trailing blocks rebuilt every call so the cache point stays ahead of them; a prefix that
     // changes every call is written every call and never read.
     for (let i = content.length - 1 - skipTrailing; i >= 0; i--) {
       const block = content[i]
