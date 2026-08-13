@@ -53,6 +53,7 @@ export function setup() {
   console.log('[global-setup] Data store missing or stale — running astro sync...')
 
   execFileSync('node', ['--input-type=module', '-e', SYNC_SCRIPT], { stdio: 'inherit', timeout: TIMEOUT_MS })
+  if (!isDataStoreFresh()) throw new Error(`astro sync did not refresh ${DATA_STORE_PATH}`)
 
   console.log('[global-setup] Data store ready.')
 }
