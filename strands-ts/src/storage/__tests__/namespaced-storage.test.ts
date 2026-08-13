@@ -65,6 +65,14 @@ describe('namespace', () => {
     expect(result).toEqual(new Uint8Array([9]))
   })
 
+  it('normalizes trailing slashes without truncating listed keys', async () => {
+    const nested = namespace(namespace(backend, 'prefix/'), 'sub/')
+    await nested.write('key', new Uint8Array([9]))
+
+    expect(await backend.list('')).toEqual(['prefix/sub/key'])
+    expect(await nested.list('')).toEqual(['key'])
+  })
+
   it('handles empty namespace as no-op prefix', async () => {
     const empty = namespace(backend, '')
     await empty.write('key', new Uint8Array([7]))
