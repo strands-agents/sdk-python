@@ -4,7 +4,7 @@ version = "0.0.0"
 description = "Shared Python tooling for the Strands monorepo. Not published."
 requires-python = ">=3.10"
 dependencies = [
-    # Linter/formatter used by ``strandly fmt``.
+    # Linter/formatter.
     "ruff>=0.13.0,<0.15.0",
     # Type checker.
     "pyright>=1.1.400",
