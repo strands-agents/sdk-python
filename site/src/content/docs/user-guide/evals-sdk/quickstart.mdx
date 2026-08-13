@@ -180,8 +180,11 @@ from strands_evals.extractors import tools_use_extractor
 def get_response_with_tools(case: Case) -> dict:
     agent = Agent(
         tools=[http_request],
-        system_prompt="You are a weather assistant. "
-                      "Use the http_request tool to fetch data.",
+        system_prompt=(
+            "You are a weather assistant. You can get live weather from "
+            "https://api.open-meteo.com/v1/forecast"
+            "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+        ),
         callback_handler=None
     )
     response = agent(case.input)
@@ -195,27 +198,19 @@ def get_response_with_tools(case: Case) -> dict:
 test_cases = [
     Case[str, str](
         name="weather-1",
-        input="What is the current temperature in Seattle? Get it from "
-        "https://api.open-meteo.com/v1/forecast?latitude=47.6&longitude=-122.3"
-        "&current=temperature_2m",
+        input="What is the current temperature in Seattle?",
         expected_trajectory=["http_request"],
         metadata={"category": "weather", "expected_tools": ["http_request"]}
     ),
     Case[str, str](
         name="weather-2",
-        input="What is the current temperature in Tokyo? Get it from "
-        "https://api.open-meteo.com/v1/forecast?latitude=35.7&longitude=139.7"
-        "&current=temperature_2m",
+        input="What is the current temperature in Tokyo?",
         expected_trajectory=["http_request"],
         metadata={"category": "weather", "expected_tools": ["http_request"]}
     ),
     Case[str, str](
         name="comparison-1",
-        input="Is it warmer in Seattle or Miami right now? Check "
-        "https://api.open-meteo.com/v1/forecast?latitude=47.6&longitude=-122.3"
-        "&current=temperature_2m and "
-        "https://api.open-meteo.com/v1/forecast?latitude=25.8&longitude=-80.2"
-        "&current=temperature_2m",
+        input="Is it warmer in Seattle or Miami right now?",
         expected_trajectory=["http_request", "http_request"],
         metadata={"category": "multi_tool", "expected_tools": ["http_request"]}
     )
@@ -277,22 +272,26 @@ from strands_evals.evaluators import HelpfulnessEvaluator
 
 @eval_task(TracedHandler())
 def user_task_function():
-    return Agent(tools=[http_request], callback_handler=None)
+    return Agent(
+        tools=[http_request],
+        system_prompt=(
+            "You are a weather assistant. You can get live weather from "
+            "https://api.open-meteo.com/v1/forecast"
+            "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+        ),
+        callback_handler=None
+    )
 
 # Create test cases for helpfulness evaluation
 test_cases = [
     Case[str, str](
         name="helpful-1",
-        input="What is the current temperature in Seattle? Get it from "
-        "https://api.open-meteo.com/v1/forecast?latitude=47.6&longitude=-122.3"
-        "&current=temperature_2m",
+        input="What is the current temperature in Seattle?",
         metadata={"category": "practical_help"}
     ),
     Case[str, str](
         name="helpful-2",
-        input="What is the current temperature in Tokyo? Get it from "
-        "https://api.open-meteo.com/v1/forecast?latitude=35.7&longitude=139.7"
-        "&current=temperature_2m",
+        input="What is the current temperature in Tokyo?",
         metadata={"category": "practical_help"}
     )
 ]
@@ -327,6 +326,11 @@ def user_task_function(case: Case) -> dict:
     telemetry.in_memory_exporter.clear()
     agent = Agent(
         tools=[http_request],
+        system_prompt=(
+            "You are a weather assistant. You can get live weather from "
+            "https://api.open-meteo.com/v1/forecast"
+            "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+        ),
         trace_attributes={
             "gen_ai.conversation.id": case.session_id,
             "session.id": case.session_id

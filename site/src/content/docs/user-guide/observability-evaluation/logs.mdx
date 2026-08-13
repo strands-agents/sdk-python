@@ -101,12 +101,15 @@ from strands import Agent
 from strands.vended_tools import http_request
 
 # Create an agent with the http_request tool
-agent = Agent(tools=[http_request])
-result = agent(
-    "Fetch the current weather from https://api.open-meteo.com/v1/forecast"
-    "?latitude=47.6&longitude=-122.3&current=temperature_2m"
-    " and tell me if I need a jacket in Seattle."
+agent = Agent(
+    tools=[http_request],
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
 )
+result = agent("Do I need a jacket in Seattle today?")
 ```
 
 When running this code with logging enabled, you'll see logs from different components of the SDK as the agent processes the request, calls the http_request tool, and generates a response.

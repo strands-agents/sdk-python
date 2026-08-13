@@ -56,14 +56,18 @@ from strands_sglang import SGLangModel
 async def main():
     tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-4B-Instruct-2507")
     model = SGLangModel(tokenizer=tokenizer, base_url="http://localhost:30000")
-    agent = Agent(model=model, tools=[http_request])
+    agent = Agent(
+        model=model,
+        tools=[http_request],
+        system_prompt=(
+            "You can get live weather from "
+            "https://api.open-meteo.com/v1/forecast"
+            "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+        ),
+    )
 
     model.reset()  # Reset TITO state for new episode
-    result = await agent.invoke_async(
-        "Fetch the current weather from https://api.open-meteo.com/v1/forecast"
-        "?latitude=47.6&longitude=-122.3&current=temperature_2m"
-        " and tell me if I need a jacket in Seattle."
-    )
+    result = await agent.invoke_async("Do I need a jacket in Seattle today?")
     print(result)
 
     # Access TITO data for RL training

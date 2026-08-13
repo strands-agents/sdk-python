@@ -338,7 +338,7 @@ async function fixedToolArgumentsExample() {
   })
 
   const agent = new Agent({ tools: [httpRequest], plugins: [fixParameters] })
-  const result = await agent.invoke('Fetch https://api.github.com/zen')
+  const result = await agent.invoke('Get a piece of wisdom from the GitHub Zen API')
   // --8<-- [end:fixed_tool_arguments_usage]
 }
 
@@ -387,10 +387,17 @@ async function limitToolCountsExample() {
   // --8<-- [start:limit_tool_counts_usage]
   const limitPlugin = new LimitToolCounts({ http_request: 3 })
 
-  const agent = new Agent({ tools: [httpRequest], plugins: [limitPlugin] })
+  const agent = new Agent({
+    tools: [httpRequest],
+    plugins: [limitPlugin],
+    systemPrompt:
+      'You can get live weather from ' +
+      'https://api.open-meteo.com/v1/forecast' +
+      '?latitude=<lat>&longitude=<lon>&current=temperature_2m',
+  })
 
-  // Only the first three requests succeed
-  await agent.invoke('Check the current weather in Seattle, Tokyo, Miami, and London')
+  // The limit blocks any request after the third
+  await agent.invoke('Check the current temperature in Seattle, Tokyo, Miami, and London')
   // The count resets every invocation, so this call can make requests again
   await agent.invoke('Now check Berlin')
   // --8<-- [end:limit_tool_counts_usage]

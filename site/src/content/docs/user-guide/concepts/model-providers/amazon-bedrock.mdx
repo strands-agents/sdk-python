@@ -613,23 +613,20 @@ bedrock_model = BedrockModel(
 # exercises only http_request.
 agent = Agent(
     model=bedrock_model,
-    tools=[file_editor, http_request, shell]
+    tools=[file_editor, http_request, shell],
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    )
 )
 # First request will cache the tools
-response1 = agent(
-    "Fetch the current weather from https://api.open-meteo.com/v1/forecast"
-    "?latitude=47.6&longitude=-122.3&current=temperature_2m"
-    " and tell me if I need a jacket in Seattle."
-)
+response1 = agent("Do I need a jacket in Seattle today?")
 print(f"Cache write tokens: {response1.metrics.accumulated_usage.get('cacheWriteInputTokens')}")
 print(f"Cache read tokens: {response1.metrics.accumulated_usage.get('cacheReadInputTokens')}")
 
 # Second request will reuse the cached tools
-response2 = agent(
-    "Fetch the current weather from https://api.open-meteo.com/v1/forecast"
-    "?latitude=47.6&longitude=-122.3&current=temperature_2m"
-    " and tell me if I need a jacket in Seattle."
-)
+response2 = agent("Do I need a jacket in Seattle today?")
 print(f"Cache write tokens: {response2.metrics.accumulated_usage.get('cacheWriteInputTokens')}")
 print(f"Cache read tokens: {response2.metrics.accumulated_usage.get('cacheReadInputTokens')}")
 ```

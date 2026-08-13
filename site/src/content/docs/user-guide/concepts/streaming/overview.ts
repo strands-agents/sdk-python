@@ -84,7 +84,10 @@ async function subAgentStreamingExample() {
 
   // Create the weather agent
   const weatherAssistant = new Agent({
-    systemPrompt: 'You are a weather assistant. Use http_request for live data.',
+    systemPrompt:
+      'You are a weather assistant. You can get live weather from ' +
+      'https://api.open-meteo.com/v1/forecast' +
+      '?latitude=<lat>&longitude=<lon>&current=temperature_2m',
     tools: [httpRequest],
     printer: false,
   })

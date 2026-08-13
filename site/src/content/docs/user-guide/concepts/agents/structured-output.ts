@@ -96,12 +96,12 @@ async function combiningWithTools() {
   const agent = new Agent({
     tools: [httpRequest],
     structuredOutputSchema: WeatherReportSchema,
-  })
-  const result = await agent.invoke(
-    'What is the current weather in Seattle? Get it from ' +
+    systemPrompt:
+      'You can get live weather from ' +
       'https://api.open-meteo.com/v1/forecast' +
-      '?latitude=47.6&longitude=-122.3&current=temperature_2m'
-  )
+      '?latitude=<lat>&longitude=<lon>&current=temperature_2m',
+  })
+  const result = await agent.invoke('Do I need a jacket in Seattle today?')
   // --8<-- [end:combining_tools]
 }
 

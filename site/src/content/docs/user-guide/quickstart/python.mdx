@@ -140,8 +140,7 @@ agent = Agent(tools=[http_request, letter_counter])
 message = """
 I have 2 requests:
 
-1. How many stars does the strands-agents/harness-sdk repo have? Check
-   https://api.github.com/repos/strands-agents/harness-sdk
+1. How many stars does the strands-agents/harness-sdk repo have?
 2. Tell me how many letter R's are in the word "strawberry"
 """
 agent(message)
@@ -188,10 +187,7 @@ Traces provide detailed insight into the agent's reasoning process. You can acce
 <summary>Click to expand</summary>
 
 ```python
-result = agent(
-    "How many stars does the strands-agents/harness-sdk repo have? Check "
-    "https://api.github.com/repos/strands-agents/harness-sdk"
-)
+result = agent("How many stars does the strands-agents/harness-sdk repo have?")
 print(result.metrics.get_summary())
 ```
 ```json
@@ -262,7 +258,7 @@ print(result.metrics.get_summary())
         {
           "children": [],
           "duration": 0.4123374938964844,
-          "end_time": 1747227039.948415,
+          "end_time": 1747227040.352456,
           "id": "4f64ce3d-a21c-4696-aa71-2dd446f71488",
           "message": {
             "content": [
@@ -270,7 +266,7 @@ print(result.metrics.get_summary())
                 "toolResult": {
                   "content": [
                     {
-                      "text": "{\"status\": 200, \"stargazers_count\": 3247, ...}"
+                      "text": "{\"status\": 200, \"status_text\": \"OK\", \"headers\": {...}, \"body\": \"{\\\"stargazers_count\\\": 3247, ...}\"}"
                     }
                   ],
                   "status": "success",
@@ -292,14 +288,14 @@ print(result.metrics.get_summary())
         {
           "children": [],
           "duration": 1.881267786026001,
-          "end_time": 1747227041.8299048,
+          "end_time": 1747227042.2339463,
           "id": "0261b3a5-89f2-46b2-9b37-13cccb0d7d39",
           "message": null,
           "metadata": {},
           "name": "Recursive call",
           "parent_id": "78595347-43b1-4652-b215-39da3c719ec1",
           "raw_name": null,
-          "start_time": 1747227039.948637
+          "start_time": 1747227040.352678
         }
       ],
       "duration": null,
@@ -317,7 +313,7 @@ print(result.metrics.get_summary())
         {
           "children": [],
           "duration": 1.8811860084533691,
-          "end_time": 1747227041.829879,
+          "end_time": 1747227042.233920,
           "id": "1317cfcb-0e87-432e-8665-da5ddfe099cd",
           "message": {
             "content": [
@@ -331,18 +327,18 @@ print(result.metrics.get_summary())
           "name": "stream_messages",
           "parent_id": "f482cee9-946c-471a-9bd3-fae23650f317",
           "raw_name": null,
-          "start_time": 1747227039.948693
+          "start_time": 1747227040.352734
         }
       ],
       "duration": 1.881234884262085,
-      "end_time": 1747227041.829896,
+      "end_time": 1747227042.233937,
       "id": "f482cee9-946c-471a-9bd3-fae23650f317",
       "message": null,
       "metadata": {},
       "name": "Cycle 2",
       "parent_id": null,
       "raw_name": null,
-      "start_time": 1747227039.948661
+      "start_time": 1747227040.352702
     }
   ]
 }
@@ -484,10 +480,7 @@ agent = Agent(
 
 # Async function that iterates over streamed agent events
 async def process_streaming_response():
-    prompt = (
-        "How many open issues does the strands-agents/harness-sdk repo have? "
-        "Check https://api.github.com/repos/strands-agents/harness-sdk"
-    )
+    prompt = "How many open issues does the strands-agents/harness-sdk repo have?"
 
     # Get an async iterator for the agent's response stream
     agent_stream = agent.stream_async(prompt)

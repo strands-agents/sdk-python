@@ -61,7 +61,7 @@ The simplest way to use an agent as a tool is to pass it directly in the `tools`
 
 ```python
 from strands import Agent
-from strands_tools import http_request
+from strands.vended_tools import http_request
 
 # Create specialized agents
 research_agent = Agent(
@@ -163,7 +163,7 @@ For more control over how the agent is invoked — such as custom pre/post-proce
 
 ```python
 from strands import Agent, tool
-from strands_tools import http_request
+from strands.vended_tools import http_request
 
 RESEARCH_ASSISTANT_PROMPT = """
 You are a specialized research assistant. Focus only on providing

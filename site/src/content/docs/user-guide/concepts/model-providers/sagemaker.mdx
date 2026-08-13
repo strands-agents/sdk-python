@@ -42,12 +42,16 @@ model = SageMakerAIModel(
     }
 )
 
-agent = Agent(model=model, tools=[http_request])
-response = agent(
-    "Fetch the current weather from https://api.open-meteo.com/v1/forecast"
-    "?latitude=47.6&longitude=-122.3&current=temperature_2m"
-    " and tell me if I need a jacket in Seattle."
+agent = Agent(
+    model=model,
+    tools=[http_request],
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
 )
+response = agent("Do I need a jacket in Seattle today?")
 ```
 
 **Note**: Tool calling support varies by model. Models like [Mistral-Small-24B-Instruct-2501](https://aws.amazon.com/blogs/machine-learning/mistral-small-24b-instruct-2501-is-now-available-on-sagemaker-jumpstart-and-amazon-bedrock-marketplace/) have demonstrated reliable tool calling capabilities, but not all models deployed on SageMaker support this feature. Verify your model's capabilities before implementing tool-based workflows.

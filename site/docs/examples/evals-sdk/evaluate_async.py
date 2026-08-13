@@ -32,6 +32,11 @@ async def async_example():
             # to prevent spans from different test cases from being mixed together in the memory exporter
             trace_attributes={"gen_ai.conversation.id": case.session_id, "session.id": case.session_id},
             tools=[http_request],
+            system_prompt=(
+                "You are a weather assistant. You can get live weather from "
+                "https://api.open-meteo.com/v1/forecast"
+                "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+            ),
             callback_handler=None,
         )
         agent_response = agent(case.input)
@@ -44,18 +49,12 @@ async def async_example():
     test_cases = [
         Case[str, str](
             name="weather-1",
-            input="What is the current temperature in Seattle? Get it from "
-            "https://api.open-meteo.com/v1/forecast?latitude=47.6&longitude=-122.3"
-            "&current=temperature_2m",
+            input="What is the current temperature in Seattle?",
             metadata={"category": "weather"},
         ),
         Case[str, str](
             name="weather-2",
-            input="Is it warmer in Seattle or Miami right now? Check "
-            "https://api.open-meteo.com/v1/forecast?latitude=47.6&longitude=-122.3"
-            "&current=temperature_2m and "
-            "https://api.open-meteo.com/v1/forecast?latitude=25.8&longitude=-80.2"
-            "&current=temperature_2m",
+            input="Is it warmer in Seattle or Miami right now?",
             metadata={"category": "weather"},
         )
     ]

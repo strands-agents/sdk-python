@@ -36,7 +36,7 @@ export const STATIC_SLUG_REDIRECTS: Record<string, string> = {
 
   // The docs/examples/ section was retired in favor of the samples repository,
   // which is actively maintained. Every page that existed at retirement gets a
-  // static stub (crawler-followable); the EXAMPLES_PREFIX_RULE below covers any
+  // static stub (crawler-followable); the docs/examples catch-all rule below covers any
   // other docs/examples/ URL via the client-side 404 fallback. The cdk/, eks,
   // and typescript deploy entries further down predate the retirement and keep
   // their GitHub README targets.
@@ -53,6 +53,7 @@ export const STATIC_SLUG_REDIRECTS: Record<string, string> = {
   'docs/examples/python/multi_agent_example': 'https://github.com/strands-agents/samples',
   'docs/examples/python/multi_agent_example/multi_agent_example': 'https://github.com/strands-agents/samples',
   'docs/examples/python/multimodal': 'https://github.com/strands-agents/samples',
+  // structured_output's pre-rename slug, carried as redirectFrom by the deleted page
   'docs/examples/python/structured_output': 'https://github.com/strands-agents/samples',
   'docs/examples/python/weather_forecaster': 'https://github.com/strands-agents/samples',
 
@@ -152,8 +153,8 @@ const SLUG_RULES: SlugRule[] = [
   },
 
   // Catch-all for the retired docs/examples/ section. Exact static entries
-  // above win — including the cdk/ and deploy READMEs that keep GitHub
-  // targets — so this only covers stragglers via the client-side 404 fallback.
+  // above win (including the cdk/ and deploy READMEs that keep GitHub
+  // targets), so this only covers stragglers via the client-side 404 fallback.
   {
     match: startsWith('docs/examples'),
     to: 'https://github.com/strands-agents/samples',

@@ -297,11 +297,17 @@ def process_event(event):
         data_snippet = event["data"][:20] + ("..." if len(event["data"]) > 20 else "")
         print(f"📟 Text: {data_snippet}")
 
-agent = Agent(tools=[http_request], callback_handler=None)
+agent = Agent(
+    tools=[http_request],
+    callback_handler=None,
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
+)
 async for event in agent.stream_async(
-    "What is the capital of France? Then fetch https://api.open-meteo.com/v1/forecast"
-    "?latitude=48.85&longitude=2.35&current=temperature_2m"
-    " and tell me the temperature there."
+    "What is the capital of France, and what is the temperature there right now?"
 ):
     process_event(event)
 
@@ -338,7 +344,11 @@ async def weather_agent(query: str) -> AsyncIterator:
     """Answer weather questions using the http_request tool."""
     agent = Agent(
         name="Weather Assistant",
-        system_prompt="You are a weather assistant. Use http_request for live data.",
+        system_prompt=(
+            "You are a weather assistant. You can get live weather from "
+            "https://api.open-meteo.com/v1/forecast"
+            "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+        ),
         callback_handler=None,
         tools=[http_request]
     )

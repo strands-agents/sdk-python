@@ -39,12 +39,16 @@ model = LiteLLMModel(
     }
 )
 
-agent = Agent(model=model, tools=[http_request])
-response = agent(
-    "Fetch the current weather from https://api.open-meteo.com/v1/forecast"
-    "?latitude=47.6&longitude=-122.3&current=temperature_2m"
-    " and tell me if I need a jacket in Seattle."
+agent = Agent(
+    model=model,
+    tools=[http_request],
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
 )
+response = agent("Do I need a jacket in Seattle today?")
 print(response)
 ```
 

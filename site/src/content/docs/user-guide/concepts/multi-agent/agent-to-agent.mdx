@@ -305,6 +305,11 @@ def create_agent(context_id: str) -> Agent:
     return Agent(
         name="Weather Agent",
         description="An agent that can fetch live weather data.",
+        system_prompt=(
+            "You can get live weather from "
+            "https://api.open-meteo.com/v1/forecast"
+            "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+        ),
         tools=[http_request],
         callback_handler=None
     )

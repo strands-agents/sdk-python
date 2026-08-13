@@ -56,7 +56,15 @@ from strands import Agent
 from strands.vended_tools import http_request
 
 def build_agent():
-    return Agent(tools=[http_request], callback_handler=None)
+    return Agent(
+        tools=[http_request],
+        system_prompt=(
+            "You are a helpful assistant. You can get live weather from "
+            "https://api.open-meteo.com/v1/forecast"
+            "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+        ),
+        callback_handler=None,
+    )
 ```
 
 The CLI synthesizes the standard task wrapper around it: telemetry setup → per-case OTel context (`session.id`, `gen_ai.conversation.id`) → factory call → invoke with `case.input` → map spans to a `Session` → return `{"output", "trajectory"}`. Trace-based evaluators (`HelpfulnessEvaluator`, `FaithfulnessEvaluator`, `GoalSuccessRateEvaluator`, etc.) read the `trajectory` directly.

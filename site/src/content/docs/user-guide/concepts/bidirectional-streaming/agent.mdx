@@ -48,14 +48,17 @@ The standard `Agent` follows a traditional request-response pattern:
 from strands import Agent
 from strands.vended_tools import http_request
 
-agent = Agent(tools=[http_request])
+agent = Agent(
+    tools=[http_request],
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
+)
 
 # Single request-response cycle
-result = agent(
-    "Fetch the current weather from https://api.open-meteo.com/v1/forecast"
-    "?latitude=47.6&longitude=-122.3&current=temperature_2m"
-    " and tell me if I need a jacket in Seattle."
-)
+result = agent("Do I need a jacket in Tokyo today?")
 print(result.message)
 ```
 

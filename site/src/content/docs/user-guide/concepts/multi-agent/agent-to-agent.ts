@@ -68,6 +68,10 @@ async function basicServerExample() {
   const server = new A2AExpressServer({
     agentFactory: (contextId) =>
       new Agent({
+        systemPrompt:
+          'You can get live weather from ' +
+          'https://api.open-meteo.com/v1/forecast' +
+          '?latitude=<lat>&longitude=<lon>&current=temperature_2m',
         tools: [httpRequest],
       }),
     name: 'Weather Agent',

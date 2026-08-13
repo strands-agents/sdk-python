@@ -32,15 +32,18 @@ from strands.vended_tools import http_request
 # Initialize our agent without a callback handler
 agent = Agent(
     tools=[http_request],
-    callback_handler=None
+    callback_handler=None,
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
 )
 
 # Async function that iterators over streamed agent events
 async def process_streaming_response():
     agent_stream = agent.stream_async(
-        "Fetch the current weather from https://api.open-meteo.com/v1/forecast"
-        "?latitude=47.6&longitude=-122.3&current=temperature_2m"
-        " and tell me if I need a jacket in Seattle."
+        "Is it beach weather in Miami right now?"
     )
     async for event in agent_stream:
         print(event)
@@ -129,14 +132,17 @@ from strands.vended_tools import http_request
 # Create agent with event loop tracker
 agent = Agent(
     tools=[http_request],
-    callback_handler=None
+    callback_handler=None,
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
 )
 
 # This will show the full event lifecycle in the console
 async for event in agent.stream_async(
-    "What is the capital of France? Then fetch https://api.open-meteo.com/v1/forecast"
-    "?latitude=48.85&longitude=2.35&current=temperature_2m"
-    " and tell me the temperature there."
+    "What is the capital of France, and what is the temperature there right now?"
 ):
     # Track event loop lifecycle
     if event.get("init_event_loop", False):

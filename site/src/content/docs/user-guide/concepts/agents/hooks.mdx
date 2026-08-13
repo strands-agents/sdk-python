@@ -841,7 +841,7 @@ fix_parameters = ConstantToolArguments({
 })
 
 agent = Agent(tools=[http_request], hooks=[fix_parameters])
-result = agent("Fetch https://api.github.com/zen")
+result = agent("Get a piece of wisdom from the GitHub Zen API")
 ```
 </Tab>
 <Tab label="TypeScript">
@@ -920,10 +920,18 @@ from strands.vended_tools import http_request
 
 limit_hook = LimitToolCounts(max_tool_counts={"http_request": 3})
 
-agent = Agent(tools=[http_request], hooks=[limit_hook])
+agent = Agent(
+    tools=[http_request],
+    hooks=[limit_hook],
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
+)
 
-# Only the first three requests succeed
-agent("Check the current weather in Seattle, Tokyo, Miami, and London")
+# The limit blocks any request after the third
+agent("Check the current temperature in Seattle, Tokyo, Miami, and London")
 # The count resets every invocation, so this call can make requests again
 agent("Now check Berlin")
 ```

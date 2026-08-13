@@ -228,17 +228,18 @@ from strands_evals.evaluators import OutputEvaluator, GoalSuccessRateEvaluator
 def weather_agent():
     return Agent(
         tools=[http_request],
-        system_prompt="You are a weather assistant. "
-                      "Use the http_request tool to fetch data.",
+        system_prompt=(
+            "You are a weather assistant. You can get live weather from "
+            "https://api.open-meteo.com/v1/forecast"
+            "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+        ),
         callback_handler=None,
     )
 
 cases = [
     Case(
         name="seattle-weather",
-        input="What is the current temperature in Seattle? Get it from "
-        "https://api.open-meteo.com/v1/forecast?latitude=47.6&longitude=-122.3"
-        "&current=temperature_2m",
+        input="What is the current temperature in Seattle?",
         metadata={"task_description": "Current temperature reported from the API"},
     ),
 ]

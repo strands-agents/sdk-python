@@ -34,14 +34,15 @@ def custom_callback_handler(**kwargs):
 # Create an agent with custom callback handler
 agent = Agent(
     tools=[http_request],
-    callback_handler=custom_callback_handler
+    callback_handler=custom_callback_handler,
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
 )
 
-agent(
-    "Fetch the current weather from https://api.open-meteo.com/v1/forecast"
-    "?latitude=47.6&longitude=-122.3&current=temperature_2m"
-    " and tell me if I need a jacket in Seattle."
-)
+agent("What's the current temperature in London?")
 ```
 
 ## Default Callback Handler
@@ -111,10 +112,7 @@ agent = Agent(
     callback_handler=message_buffer_handler
 )
 
-agent(
-    "Fetch https://api.github.com/repos/strands-agents/harness-sdk"
-    " and summarize the repository."
-)
+agent("Summarize the strands-agents/harness-sdk repository on GitHub.")
 ```
 
 This handler leverages the `message` event which is triggered when a complete message is created. By using this approach, we can buffer the incrementally streamed text and only display complete, coherent messages rather than partial fragments. This is particularly useful in conversational interfaces or when responses benefit from being processed as complete units.
@@ -154,15 +152,16 @@ def event_loop_tracker(**kwargs):
 # Create agent with event loop tracker
 agent = Agent(
     tools=[http_request],
-    callback_handler=event_loop_tracker
+    callback_handler=event_loop_tracker,
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
 )
 
 # This will show the full event lifecycle in the console
-agent(
-    "What is the capital of France? Then fetch https://api.open-meteo.com/v1/forecast"
-    "?latitude=48.85&longitude=2.35&current=temperature_2m"
-    " and tell me the temperature there."
-)
+agent("What is the capital of France, and what is the temperature there right now?")
 ```
 
 The output will show the sequence of events:

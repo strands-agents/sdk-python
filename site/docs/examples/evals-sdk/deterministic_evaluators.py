@@ -40,7 +40,15 @@ from strands_evals.extractors import tools_use_extractor
 
 
 def get_response_with_tools(case: Case) -> dict:
-    agent = Agent(tools=[http_request], callback_handler=None)
+    agent = Agent(
+        tools=[http_request],
+        system_prompt=(
+            "You are a weather assistant. You can get live weather from "
+            "https://api.open-meteo.com/v1/forecast"
+            "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+        ),
+        callback_handler=None,
+    )
     response = agent(case.input)
     trajectory = tools_use_extractor.extract_agent_tools_used_from_messages(agent.messages)
     return {"output": str(response), "trajectory": trajectory}
@@ -49,9 +57,7 @@ def get_response_with_tools(case: Case) -> dict:
 tool_cases = [
     Case(
         name="weather",
-        input="What is the current temperature in Seattle? Get it from "
-        "https://api.open-meteo.com/v1/forecast?latitude=47.6&longitude=-122.3"
-        "&current=temperature_2m",
+        input="What is the current temperature in Seattle?",
         expected_trajectory=["http_request"],
     ),
 ]
