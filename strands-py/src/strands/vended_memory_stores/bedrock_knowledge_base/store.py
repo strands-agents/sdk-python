@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import boto3
 from botocore.exceptions import ClientError
@@ -66,7 +66,9 @@ def _to_attribute_value(value: Any) -> _AttributeValue | None:
     return None
 
 
-def _passes_score_threshold(score: float | None, threshold: float | None, metric: str) -> bool:
+def _passes_score_threshold(
+    score: float | None, threshold: float | None, metric: Literal["similarity", "distance"]
+) -> bool:
     """Whether a retrieval score clears ``threshold``, reading the score as ``metric`` says to.
 
     An unset threshold keeps everything. A result the knowledge base did not score is also kept:
