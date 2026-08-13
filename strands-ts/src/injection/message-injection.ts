@@ -102,20 +102,20 @@ export function isUserTurn(messages: MessageData[]): boolean {
  * messages are returned as-is.
  *
  * Folding into the existing user message (rather than inserting a standalone message) keeps role
- * alternation valid in both chat and the autonomous tool loop. The block is placed to keep the message
- * valid for the model:
- * - A plain user ask: the text is **prepended**, leaving the user's own ask in the recency slot — the
- *   last thing the model reads.
- * - A tool-result turn (the message carries a `ToolResultBlock`): the text is **appended**,
- *   because providers require the tool result to be the first content block in the turn that answers a
- *   tool use.
+ * alternation valid in both chat and the autonomous tool loop.
+ *
+ * The text is always **appended**. A tool result has to stay the first content block in the turn that
+ * answers a tool use, and a trailing run is the only placement a provider can keep out of its cached
+ * prefix — text ahead of the stable conversation would invalidate the cache from the first block onward.
  *
  * {@link Message} fields are readonly, so the target is rebuilt as a new {@link Message}. When there is
  * no `user` message, the input array is returned unchanged.
  *
  * @param messages - The conversation to fold into
  * @param text - The text to fold into the most recent user message
- * @returns A new array with the folded message, or the input array when there is no user message
+ * @returns The folded conversation and how many trailing blocks of its last message are per-call
+ *   content: 1 when the fold landed on the last message, 0 otherwise (including when there is no user
+ *   message to fold into, in which case the input array is returned unchanged)
  * @internal Delivery primitive. Reach injection through `ContextInjector` or `MemoryManager`.
  */
 export function foldIntoLastUserMessage(messages: Message[], text: string): { messages: Message[]; appended: number } {

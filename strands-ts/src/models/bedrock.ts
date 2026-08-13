@@ -1012,7 +1012,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
         }
 
         if (placedIdxs.length > 0) {
-          // One boundary per message, so this change's budget footprint matches the strip it replaces.
+          // One boundary per message, so this message contributes a single cache point to the budget.
           // Extras are not worthless - a second point ahead of the per-call tail doubles the cached
           // prefix - but Bedrock allows only four cache points per request and the budget is shared
           // across toolConfig, system and messages. The SDK already spends up to two of them via
@@ -1044,8 +1044,8 @@ export class BedrockModel extends Model<BedrockModelConfig> {
         }
 
         if (perCallTrailingBlocks > 0) {
-          // Per-call content sits at the end, so the reusable prefix ends where it begins. Routed
-          // through the honor path so the document rule and configured TTL apply identically.
+          // Per-call content sits at the end, so the reusable prefix ends where that content begins.
+          // Routed through the honor path so the document rule and configured TTL apply identically.
           const boundaryIdx = Math.max(0, content.length - perCallTrailingBlocks)
           if (boundaryIdx === 0) {
             logger.debug(`msg_idx=<${lastUserIdx}> | skipped cache point, no durable prefix`)

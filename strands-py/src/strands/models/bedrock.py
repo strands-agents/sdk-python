@@ -585,7 +585,7 @@ class BedrockModel(Model):
 
             placed_idxs = [idx for idx, block in enumerate(content) if "cachePoint" in block]
             if placed_idxs:
-                # One boundary per message, so this PR's budget footprint matches the strip it replaces.
+                # One boundary per message, so this message contributes a single cache point to the budget.
                 # Extras are not worthless - a second point ahead of the per-call tail doubles the cached
                 # prefix - but Bedrock allows only four cache points per request and the budget is shared
                 # across toolConfig, system and messages. The SDK already spends up to two of them via

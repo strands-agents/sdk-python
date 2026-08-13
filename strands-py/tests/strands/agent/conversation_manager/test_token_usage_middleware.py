@@ -194,7 +194,7 @@ class TestTokenUsageMiddlewareIntegration:
 async def test_status_line_is_reported_as_per_call_content():
     """The status line carries a live token count, so it is rebuilt on every call.
 
-    Reporting it keeps a provider's cache cache point ahead of it; otherwise the cache point lands after
+    Reporting it keeps a provider's cache point ahead of it; otherwise the cache point lands after
     a block that changes every turn and no request ever reads a cache entry.
     """
     middleware = create_token_usage_middleware()

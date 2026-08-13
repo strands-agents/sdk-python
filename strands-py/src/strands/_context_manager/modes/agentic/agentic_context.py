@@ -327,8 +327,8 @@ def create_token_usage_middleware() -> MiddlewareInputHandler:
             new_message["metadata"] = last_message["metadata"]
         messages[-1] = new_message
 
-        # The live token count makes this block per-call, so a cache point must stay ahead of it. 
-        # Only counted for a user message.
+        # The live token count makes this block per-call, so a cache point must stay ahead of it.
+        # Only counted for a user message: elsewhere it would move the cache point off an unrelated message.
         appended = 1 if last_message["role"] == "user" else 0
         return replace(context, messages=messages, per_call_trailing_blocks=context.per_call_trailing_blocks + appended)
 

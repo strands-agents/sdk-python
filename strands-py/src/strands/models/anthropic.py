@@ -211,8 +211,7 @@ class AnthropicModel(Model):
                 ``cache_config`` is set. Automatic placement applies to that message only when nothing in
                 it already carries the cache point.
             per_call_trailing_blocks: How many trailing blocks of the cache-target message are rebuilt on
-                every call. The cache point stays ahead of them, since a prefix that changes every call is
-                written every call and never read.
+                every call, so the cache point stays ahead of them.
 
         Returns:
             An Anthropic messages array.
@@ -283,7 +282,7 @@ class AnthropicModel(Model):
         Returns:
             True when a block was marked, False when none of the blocks can carry a cache point.
         """
-        durable = formatted_contents[: len(formatted_contents) - skip_trailing] if skip_trailing else formatted_contents
+        durable = formatted_contents[: len(formatted_contents) - skip_trailing]
         for block in reversed(durable):
             if block.get("type") in _CACHEABLE_BLOCK_TYPES:
                 block["cache_control"] = cls._format_cache_control(ttl)

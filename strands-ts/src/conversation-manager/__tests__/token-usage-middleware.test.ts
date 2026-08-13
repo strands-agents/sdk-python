@@ -74,7 +74,7 @@ describe('createTokenUsageMiddleware', () => {
 
   it('reports no per-call trailing blocks when the status line lands in an assistant message', async () => {
     // The status text lands in whatever message is last. On an assistant-terminated history it is
-    // already outside the cached prefix, so counting them would evict durable content. Reachable via invoke()
+    // already outside the cached prefix, so reporting it would evict durable content. Reachable via invoke()
     // with no prompt, and restored sessions.
     const middleware = createTokenUsageMiddleware(createMockModel(200_000))
     const context = createContext({
