@@ -2717,6 +2717,30 @@ def test_format_request_preserves_cache_point_ttl(model, model_id):
     assert cache_point_block["ttl"] == "1h"
 
 
+# https://github.com/strands-agents/harness-sdk/issues/3759
+@pytest.mark.parametrize("ttl", [None, ""])
+def test_format_request_omits_falsy_cache_point_ttl(model, ttl):
+    """Falsy caller TTLs are omitted before Bedrock validates the request."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "cachePoint": {
+                        "type": "default",
+                        "ttl": ttl,
+                    }
+                },
+            ],
+        }
+    ]
+
+    tru_cache_point = model.format_request(messages)["messages"][0]["content"][0]["cachePoint"]
+    exp_cache_point = {"type": "default"}
+
+    assert tru_cache_point == exp_cache_point
+
+
 def test_format_request_cache_point_without_ttl(model, model_id):
     """Test that cache points work without ttl field (backward compatibility)."""
     messages = [
