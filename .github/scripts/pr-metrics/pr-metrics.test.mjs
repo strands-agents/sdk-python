@@ -208,7 +208,7 @@ test('complexity counts functions without a baseline in full', () => {
     diff,
     files: [{ path: 'strands-ts/src/agent/n.ts', additions: 1, deletions: 0 }],
     functions: [
-      // TypeScript carries no baseline (analyzer has no support); absolute score applies
+      // No base version (new file), so it counts in full as new code
       { file: 'strands-ts/src/agent/n.ts', name: 'handler', complexity: 14, startLine: 1, endLine: 40 },
     ],
   })

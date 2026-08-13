@@ -28,7 +28,7 @@ export function buildReport({ diff, files, functions }) {
     // A function with a known base score counts only if the PR increased it:
     // editing inside an already complex function without making it worse must
     // not inherit the function's whole score. A function without a base score
-    // (new file, renamed file, or an analyzer without baseline support) counts
+    // (new file, renamed file, or a base analysis failure) counts
     // in full as new code.
     .filter((fn) => fn.baseComplexity == null || fn.complexity > fn.baseComplexity)
     .sort((a, b) => b.complexity - a.complexity)
