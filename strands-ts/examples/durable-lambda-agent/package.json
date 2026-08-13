@@ -1,0 +1,26 @@
+{
+  "name": "durable-lambda-agent",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:sdk": "npm run build --prefix ../../..",
+    "build": "tsc --noEmit",
+    "bundle": "node bundle.mjs",
+    "deploy": "bash scripts/deploy.sh",
+    "invoke": "bash scripts/invoke.sh",
+    "invoke:restart": "bash scripts/invoke.sh --restart",
+    "invoke:crash": "bash scripts/invoke.sh --crash",
+    "validate:template": "sam validate --lint --template-file template.yml"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "3.1078.0",
+    "@aws/durable-execution-sdk-js": "1.1.6",
+    "@strands-agents/sdk": "file:../..",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "25.9.4",
+    "esbuild": "0.28.1",
+    "typescript": "6.0.3"
+  }
+}
