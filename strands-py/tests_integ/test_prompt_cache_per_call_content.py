@@ -29,13 +29,11 @@ from strands.models.model import CacheConfig
 from strands.vended_plugins.context_injector import ContextInjector
 
 # One place to bump on the next model rotation.
-BEDROCK_MODEL_ID = "us.anthropic.claude-opus-4-8"
+BEDROCK_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 ANTHROPIC_MODEL_ID = "claude-opus-4-8"
 MAX_TOKENS = 512
 
-# Enough tokens ahead of the cache point to clear every provider's minimum cacheable prefix — 4096 on
-# Opus 4.8, the highest of any current Claude. Shrinking this multiplier to tune one provider silently
-# stops the other from writing a turn-1 entry; keep it well above 4096 tokens.
+# Enough tokens ahead of the cache point to clear every provider's minimum cacheable prefix.
 DURABLE_PREFIX = "The subject prefers concise written answers. " * 700
 
 
