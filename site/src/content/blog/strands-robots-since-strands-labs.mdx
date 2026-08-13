@@ -1,0 +1,97 @@
+---
+title: "Strands Robots, six months on: from a Robot class to a full physical-AI toolkit"
+date: 2026-07-20
+description: "Six months after we introduced Strands Robots in Strands Labs, one Robot class and one SO-101 arm have become a registry of 72 robots, three simulation backends, policy scoring, a terrain curriculum, teleoperation, ROS 2, and a human-gated fleet mesh. Here is the big picture of what changed."
+authors:
+  - sundar-raghavan
+  - cagatay-cali
+  - arron-bailiss
+  - joy-chakraborty
+tags:
+  - Physical AI
+  - Robotics
+  - Open Source
+draft: true
+---
+
+When we [introduced Strands Labs](/blog/introducing-strands-labs/) in February, Strands Robots shipped with a single headline idea: a `Robot` class you hand to a Strands agent, with an NVIDIA GR00T policy driving an SO-101 arm. That idea still holds, and the five-line agent loop is unchanged. What has changed is everything around it. Over the last six months the package grew from "control one arm with one policy" into a toolkit that records datasets, benchmarks and evaluates policies, trains from scratch, walks robots over generated terrain, coordinates a fleet, and bridges to ROS 2 hardware, without changing the agent code you write on top.
+
+This post is the guided tour of what shipped. It is a companion to the two deep-dives we published on the Hugging Face blog, [From the Hugging Face Hub to robot hardware](https://huggingface.co/blog/amazon/strands-lerobot-hub-to-hardware) and the streaming data loop, and it pulls the thread together: the same `Robot()` factory, more capability behind it.
+
+## The through-line: one interface, more behind it
+
+The design contract from the Labs intro is intact. `Robot("so101")` returns a MuJoCo simulation by default; `mode="real"` returns a hardware robot driven by LeRobot; the agent code is identical across both. Policies are still swapped with a string. Everything below is additive: new actions on the same tool surface, new providers behind the same `create_policy()`, new backends behind the same factory. If you wrote an agent against the February API, it still runs.
+
+The clearest measure of six months is what that one string now accepts. February was one arm. The robot registry is now 72 entries, 23 arms, 18 humanoids, 10 mobile bases, 9 hands, 5 mobile manipulators, 4 bimanual rigs, 2 aerial, each with its assets, joint layout, and camera conventions already described, and three simulation backends behind the same factory, MuJoCo by default with Isaac Sim and Newton available for heavier physics. Adding a robot to your own agent is a registry entry, not an integration project.
+
+```python
+from strands import Agent
+from strands_robots import Robot
+
+robot = Robot("so101")          # sim by default; mode="real" for hardware
+agent = Agent(tools=[robot])
+agent("pick up the red cube")
+```
+
+## Record, then prove it is real LeRobot data
+
+The simulation tool records a LeRobotDataset in the exact format LeRobot writes on hardware, same parquet schema for joint states and actions, same per-camera video layout. A dataset captured in MuJoCo and one captured from a physical SO-101 load through the same loader with no conversion step. That equivalence is the point: it means simulation can generate training data for real hardware, which is the only affordable answer to the data problem in physical AI.
+
+The full record, push, stream, and train loop, including streaming a dataset straight from the Hub with no local download, is the subject of our streaming data loop post on Hugging Face. Strands Robots tracks LeRobot 0.6 to pick up that streaming path.
+
+## Swap the policy with a string
+
+`create_policy()` resolves a growing set of providers behind one interface. The LerobotLocal path handles anything LeRobot's own registry resolves from a `config.json`, ACT, Diffusion Policy, SmolVLA, π0, and π0.5, with Real-Time Chunking turning on automatically for flow-matching policies. GR00T serves over a container. MolmoAct2 checkpoints route through the LerobotLocal path. NVIDIA's Cosmos 3 is available as a provider behind the same interface, alongside whole-body-control, MoveIt2, and cuRobo providers. The agent code does not change when you point it at a different one.
+
+```python
+from strands_robots.policies import create_policy
+
+policy = create_policy("lerobot/act_aloha_sim_transfer_cube_human")
+```
+
+## Benchmark and evaluate policies, not just run them
+
+This is the largest area of new surface since February. Running a policy tells you it moved; scoring one tells you whether it worked. Strands Robots grew a declarative benchmark system: `evaluate_benchmark` scores a policy against a task, canonical locomotion benchmarks ship built in for quadrupeds and humanoids, and you can author your own from a file using a predicate and reward vocabulary, forward progress, fall-over, height collapse, yaw, velocity tracking. Every scored rollout records a video per episode, so you can watch what the number means rather than trust it.
+
+```python
+robot = Robot("go2")
+agent = Agent(tools=[robot])
+agent("evaluate the go2_walk_forward benchmark and record a video per episode")
+```
+
+## Walk robots over generated terrain
+
+Locomotion got a terrain curriculum. `create_world(terrain=..., difficulty=...)` generates heightfields on demand, stairs, slopes, pyramids, and rough ground, so you can build a difficulty progression for a walking policy without hand-authoring a single scene. Rewards measure clearance above the local surface rather than an absolute world height, which is what makes a curriculum meaningful once the ground stops being flat.
+
+## Tune the physics and randomize the domain
+
+The simulation backends expose gravity, timestep, body and geometry properties, applied force, and sensor noise as tunable surfaces. Those are the primitives for domain randomization: perturb mass, friction, and observations across rollouts so a policy trained in simulation survives contact with hardware. Sim-to-real is the whole game in physical AI, and it is mostly a question of how honestly you can make the simulator lie.
+
+## Teleoperate, and bridge to ROS 2
+
+Teleoperation is first-class: a leader device drives a follower, and that motion is the same motion you record into a dataset, which is how you get demonstrations without a policy that works yet. On the ROS 2 side, `use_ros` runs in-process through `rclpy` and gained action support, including goal-level navigation, so an agent can send a navigation goal to a real ROS 2 base. A pure-DDS path is available for robots without a full ROS 2 install.
+
+## Coordinate a fleet, safely
+
+More than one robot is where the mesh comes in. Every `Robot()` and `Simulation()` joins a Zenoh peer mesh automatically, and the `robot_mesh` tool gives an agent a vocabulary for fleet operations: peer discovery, structured commands, broadcasts, and emergency stop. The part we would argue matters most is the gate. Every physically-actuating mesh action waits on a human approval delivered out-of-band of the LLM's tool arguments, so a prompt-injection attempt cannot phrase its way past the operator. An agent that can move a robot arm is a different security problem from an agent that can only write text, and the approval path is where that difference has to be answered.
+
+## Push inference to the edge
+
+For edge robots with a remote GPU, Strands Robots added a client/server split for remote policy inference: the policy runs where the compute is, the robot runs where the robot is, and the agent loop stays the same. This is the pattern behind the edge-cloud continuum, fast, instinctual control at the edge, deliberate reasoning in the cloud, that our Hugging Face physical-AI post explores in depth.
+
+## The broader ecosystem
+
+Strands Robots is one project in [Strands Labs](/blog/introducing-strands-labs/), alongside Robots Sim (heavier simulation backends including Isaac Sim and Newton, plus a LIBERO benchmark) and AI Functions. For NVIDIA Cosmos specifically, [`strands-cosmos`](https://github.com/strands-labs/strands-for-cosmos) is a companion package that exposes Cosmos world models as Strands model providers and tools, video understanding, generation, and edge VLM inference on Jetson. Both plug into the same Strands agent you already write.
+
+## Where to go from here
+
+Everything here lives in [`strands-labs/robots`](https://github.com/strands-labs/robots) under Apache 2.0. The `examples/` folder walks through one primitive at a time, and the notebook series runs CPU-only with no hardware and no GPU, so you can get to a moving simulated robot before deciding whether to buy anything. Start with the two Hugging Face deep-dives for the end-to-end story, then open an issue with what worked and what did not. The SDK improves fastest when developer feedback arrives on the surface that needs it.
+
+## Resources
+
+- [Strands Robots](https://github.com/strands-labs/robots): SDK, AgentTools, `Robot` factory, Apache 2.0
+- [Strands Robots docs](https://strands-labs.github.io/robots): full documentation
+- [Strands Robots Sim](https://github.com/strands-labs/robots-sim): heavier simulation backends
+- [From the Hugging Face Hub to robot hardware](https://huggingface.co/blog/amazon/strands-lerobot-hub-to-hardware): the LeRobot deep-dive
+- [Introducing Strands Labs](/blog/introducing-strands-labs/): where Strands Robots started
+- [LeRobot](https://github.com/huggingface/lerobot): datasets, policies, hardware drivers
