@@ -234,6 +234,31 @@ print(f"Activated skills: {activated}")
 </Tab>
 </Tabs>
 
+### Keeping instructions resident with `injection_mode`
+
+:::note[Python only]
+The `injection_mode` option is currently available in the Python SDK. TypeScript support is planned as a follow-up.
+:::
+
+The default progressive-disclosure flow delivers a skill's instructions once, as a tool result. In long-running, multi-turn workflows those instructions can drift out of the model's attention as the conversation grows. For those cases, pass `injection_mode="system_prompt"` to keep activated skills' full instructions resident in the per-call system prompt instead:
+
+```python
+from strands import Agent, AgentSkills
+
+agent = Agent(plugins=[
+    AgentSkills(skills=["./skills/"], injection_mode="system_prompt"),
+])
+```
+
+Both modes expose exactly one tool named `skills` — only its signature differs:
+
+- **`"tool"` (default)** — `skills(skill_name)` activates a skill and returns its full instructions as the tool result. Metadata is injected durably into `agent.system_prompt`.
+- **`"system_prompt"`** — `skills(action, skill_name)` where `action` is `"activate"` or `"deactivate"`. Activating a skill puts its full instructions (and `allowed-tools` guidance) into the system prompt, where they persist across turns; deactivating removes them to reclaim context.
+
+In `system_prompt` mode, delivery is **ephemeral**: the skills block is re-rendered from the current activation state and appended to the per-call system prompt through an internal [Context Injector](./context-injector) — `agent.system_prompt` itself is never modified. Activation state lives in [agent state](../agents/state.mdx), so it persists across runs through the session manager. Programmatic equivalents (`activate_skill_for` / `deactivate_skill_for`) are available on the plugin.
+
+Note that resident instructions consume context window on every call — prefer the default `"tool"` mode when many skills are available or instructions are large, and `"system_prompt"` mode when a small number of skills must stay salient across a long workflow.
+
 ## SKILL.md format
 
 Skills follow the [Agent Skills specification](https://agentskills.io/specification). A skill is a directory containing a `SKILL.md` file with YAML frontmatter and markdown instructions. See the specification for full details on authoring skills.
@@ -302,6 +327,7 @@ The `AgentSkills` constructor accepts the following parameters.
 | `state_key` | `str` | `"agent_skills"` | Key for storing plugin state in `agent.state`. |
 | `max_resource_files` | `int` | `20` | Maximum number of resource files listed in skill activation responses. |
 | `strict` | `bool` | `False` | If `True`, raise exceptions on validation issues instead of logging warnings. |
+| `injection_mode` | `SkillInjectionMode` | `"tool"` | Keyword-only. `"tool"` returns activated instructions as a tool result; `"system_prompt"` keeps activated skills' instructions resident in the per-call system prompt with `activate`/`deactivate` toggles. |
 
 </Tab>
 <Tab label="TypeScript">

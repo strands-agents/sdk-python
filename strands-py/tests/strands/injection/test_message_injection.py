@@ -1,7 +1,7 @@
 """Tests for the injection delivery primitives."""
 
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -9,6 +9,7 @@ from strands._middleware.stages import InvokeModelContext
 from strands.injection._message_injection import (
     _create_injection_middleware,
     _fold_into_last_user_message,
+    _fold_into_system_prompt,
     _is_user_turn,
     _resolve_trigger,
 )
@@ -42,12 +43,12 @@ def make_agent(state: Any = None) -> Any:
     return agent
 
 
-def invoke_ctx(messages: list[dict], agent: Any = None) -> InvokeModelContext:
+def invoke_ctx(messages: list[dict], agent: Any = None, system_prompt: Any = None) -> InvokeModelContext:
     """Build an InvokeModelContext; the handler reads messages and agent.state/agent."""
     return InvokeModelContext(
         agent=agent or make_agent(),
         messages=messages,
-        system_prompt=None,
+        system_prompt=system_prompt,
         tool_specs=[],
         tool_choice=None,
         invocation_state={},
@@ -243,3 +244,177 @@ class TestCreateInjectionMiddleware:
         await handler(ctx)
 
         assert len(before["content"]) == 1  # original user message untouched
+
+
+class TestFoldIntoSystemPrompt:
+    def test_none_prompt_becomes_the_text(self):
+        assert _fold_into_system_prompt(None, "INJECTED") == "INJECTED"
+
+    def test_string_prompt_appends_with_blank_line(self):
+        assert _fold_into_system_prompt("Base prompt.", "INJECTED") == "Base prompt.\n\nINJECTED"
+
+    def test_block_prompt_appends_trailing_text_block(self):
+        blocks = [{"text": "Base prompt."}, {"cachePoint": {"type": "default"}}]
+        result = _fold_into_system_prompt(blocks, "INJECTED")
+        assert result == [
+            {"text": "Base prompt."},
+            {"cachePoint": {"type": "default"}},
+            {"text": "INJECTED"},
+        ]
+
+    def test_returns_new_list_and_does_not_mutate_input(self):
+        blocks = [{"text": "Base prompt."}]
+        result = _fold_into_system_prompt(blocks, "INJECTED")
+        assert result is not blocks
+        assert blocks == [{"text": "Base prompt."}]
+
+
+@pytest.mark.asyncio
+class TestSystemPromptLocation:
+    async def test_appends_to_per_call_system_prompt_and_leaves_messages_untouched(self):
+        handler = _create_injection_middleware(lambda context: "INJECTED", location="systemPrompt")
+        ctx = invoke_ctx([user("ask")], system_prompt="Base prompt.")
+
+        result = await handler(ctx)
+
+        assert result.system_prompt == "Base prompt.\n\nINJECTED"
+        assert result.messages == [user("ask")]
+
+    async def test_none_prompt_becomes_injected_text(self):
+        handler = _create_injection_middleware(lambda context: "INJECTED", location="systemPrompt")
+
+        result = await handler(invoke_ctx([user("ask")], system_prompt=None))
+
+        assert result.system_prompt == "INJECTED"
+
+    async def test_respects_trigger_gate(self):
+        handler = _create_injection_middleware(lambda context: "INJECTED", location="systemPrompt")
+        ctx = invoke_ctx([assistant("reply")], system_prompt="Base prompt.")
+
+        result = await handler(ctx)
+
+        assert result is ctx
+
+    async def test_every_turn_injects_on_tool_result_turn(self):
+        handler = _create_injection_middleware(lambda context: "INJECTED", trigger="everyTurn", location="systemPrompt")
+        ctx = invoke_ctx([user("ask"), assistant("use tool"), tool_result()], system_prompt="Base prompt.")
+
+        result = await handler(ctx)
+
+        assert result.system_prompt == "Base prompt.\n\nINJECTED"
+        # The tool-result turn is untouched: injection landed in the system prompt instead.
+        assert result.messages == ctx.messages
+
+    async def test_default_location_still_folds_into_messages(self):
+        handler = _create_injection_middleware(lambda context: "INJECTED")
+        ctx = invoke_ctx([user("ask")], system_prompt="Base prompt.")
+
+        result = await handler(ctx)
+
+        assert result.system_prompt == "Base prompt."
+        assert result.messages == [{"role": "user", "content": [{"text": "INJECTED"}, {"text": "ask"}]}]
+
+
+@pytest.mark.asyncio
+class TestInjectedTokenAccounting:
+    """The handler folds the injected text's estimated tokens into ``projected_input_tokens``.
+
+    The event-loop projection is computed before input middleware runs, so it cannot see
+    injected text; the handler corrects the projection on the returned context so downstream
+    consumers see the true size of the request.
+    """
+
+    def agent_with_counter(self, injected_tokens: int = 100, limit: int | None = None) -> Any:
+        agent = make_agent()
+        agent.model.count_tokens = AsyncMock(return_value=injected_tokens)
+        agent.model.context_window_limit = limit
+        return agent
+
+    def ctx_with_projection(
+        self, agent: Any, projected: int | None, system_prompt: Any = "Base."
+    ) -> InvokeModelContext:
+        return InvokeModelContext(
+            agent=agent,
+            messages=[user("ask")],
+            system_prompt=system_prompt,
+            tool_specs=[],
+            tool_choice=None,
+            invocation_state={},
+            projected_input_tokens=projected,
+        )
+
+    async def test_system_prompt_injection_bumps_projection(self):
+        agent = self.agent_with_counter(injected_tokens=100)
+        handler = _create_injection_middleware(lambda context: "INJECTED", location="systemPrompt")
+
+        result = await handler(self.ctx_with_projection(agent, projected=448))
+
+        assert result.projected_input_tokens == 548
+        assert result.system_prompt == "Base.\n\nINJECTED"
+
+    async def test_last_user_message_injection_bumps_projection(self):
+        agent = self.agent_with_counter(injected_tokens=100)
+        handler = _create_injection_middleware(lambda context: "INJECTED")
+
+        result = await handler(self.ctx_with_projection(agent, projected=2))
+
+        assert result.projected_input_tokens == 102
+
+    async def test_counts_the_injected_text(self):
+        agent = self.agent_with_counter()
+        handler = _create_injection_middleware(lambda context: "INJECTED", location="systemPrompt")
+
+        await handler(self.ctx_with_projection(agent, projected=1))
+
+        agent.model.count_tokens.assert_awaited_once_with([{"role": "user", "content": [{"text": "INJECTED"}]}])
+
+    async def test_no_projection_skips_counting(self):
+        agent = self.agent_with_counter()
+        handler = _create_injection_middleware(lambda context: "INJECTED", location="systemPrompt")
+
+        result = await handler(self.ctx_with_projection(agent, projected=None))
+
+        assert result.projected_input_tokens is None
+        agent.model.count_tokens.assert_not_awaited()
+        assert result.system_prompt == "Base.\n\nINJECTED"  # injection still applied
+
+    async def test_counting_failure_fails_open_and_keeps_injection(self, caplog):
+        agent = make_agent()
+        agent.model.count_tokens = AsyncMock(side_effect=RuntimeError("boom"))
+        handler = _create_injection_middleware(lambda context: "INJECTED", location="systemPrompt")
+
+        result = await handler(self.ctx_with_projection(agent, projected=448))
+
+        assert result.projected_input_tokens == 448  # projection unchanged
+        assert result.system_prompt == "Base.\n\nINJECTED"  # injection stands
+        assert "projection left unchanged" in caplog.text
+
+    async def test_no_injection_leaves_projection_untouched(self):
+        agent = self.agent_with_counter()
+        handler = _create_injection_middleware(lambda context: None, location="systemPrompt")
+
+        result = await handler(self.ctx_with_projection(agent, projected=448))
+
+        assert result is not None
+        assert result.projected_input_tokens == 448
+        agent.model.count_tokens.assert_not_awaited()
+
+    async def test_overflow_logs_deterministic_warning(self, caplog):
+        agent = self.agent_with_counter(injected_tokens=2000, limit=1000)
+        handler = _create_injection_middleware(lambda context: "INJECTED", location="systemPrompt")
+
+        with caplog.at_level("WARNING"):
+            result = await handler(self.ctx_with_projection(agent, projected=500))
+
+        assert result.projected_input_tokens == 2500
+        assert "past the model's context window" in caplog.text
+
+    async def test_within_limit_logs_no_warning(self, caplog):
+        agent = self.agent_with_counter(injected_tokens=100, limit=10000)
+        handler = _create_injection_middleware(lambda context: "INJECTED", location="systemPrompt")
+
+        with caplog.at_level("WARNING"):
+            result = await handler(self.ctx_with_projection(agent, projected=500))
+
+        assert result.projected_input_tokens == 600
+        assert "past the model's context window" not in caplog.text

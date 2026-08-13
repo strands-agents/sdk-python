@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 
 from ..._middleware.stages import InvokeModelStage
 from ...injection._message_injection import RenderContent, _create_injection_middleware
-from ...injection.types import InjectionTriggerPredicate
+from ...injection.types import InjectionLocation, InjectionTriggerPredicate
 from ...plugins import Plugin
 
 if TYPE_CHECKING:
@@ -57,6 +57,13 @@ class ContextInjector(Plugin):
             (``"userTurn"`` — default — or ``"everyTurn"``); a predicate over the
             ``InjectionContext`` is the escape hatch. A predicate that raises fails open
             (injection is skipped). Defaults to ``"userTurn"``.
+        location: Where the injected text lands. ``"lastUserMessage"`` (default) folds it into
+            the latest user message — per-ask context that belongs next to the user's message.
+            ``"systemPrompt"`` appends it to the per-call system prompt — standing guidance
+            (skill instructions, policies) that belongs with the agent's directives. Both are
+            ephemeral: the durable system prompt and history are never touched. Pair
+            ``"systemPrompt"`` with ``trigger="everyTurn"`` when the guidance must be present
+            on every model call, including tool-result turns.
 
     Example:
         ```python
@@ -79,6 +86,7 @@ class ContextInjector(Plugin):
         *,
         name: str | None = None,
         trigger: InjectionTriggerPredicate | None = None,
+        location: InjectionLocation | None = None,
     ) -> None:
         """Initialize the ContextInjector plugin.
 
@@ -86,15 +94,17 @@ class ContextInjector(Plugin):
             render_content: Renders the text to inject for this call. Sync or async.
             name: Plugin name. Defaults to ``"strands:context-injector"``.
             trigger: When to inject. Defaults to ``"userTurn"``.
+            location: Where the text lands. Defaults to ``"lastUserMessage"``.
         """
         self.name = name or _DEFAULT_NAME
         self._render_content = render_content
         self._trigger = trigger
+        self._location = location
         super().__init__()
 
     def init_agent(self, agent: Agent) -> None:
         """Register the injection middleware on the agent's ``InvokeModelStage`` input phase."""
         agent._middleware_registry.add_middleware(
             InvokeModelStage.Input,
-            _create_injection_middleware(self._render_content, trigger=self._trigger),
+            _create_injection_middleware(self._render_content, trigger=self._trigger, location=self._location),
         )

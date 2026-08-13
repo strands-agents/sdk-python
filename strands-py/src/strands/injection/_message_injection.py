@@ -1,7 +1,8 @@
 """Delivery primitives for context injection.
 
-These fold just-in-time text into the latest user message *ephemerally* — the model sees the
-augmented input for one call while the agent's durable history is never touched. Reach injection
+These fold just-in-time text into the model input *ephemerally* — into the latest user
+message or the per-call system prompt, depending on the configured location — so the model
+sees the augmented input for one call while the agent's durable history is never touched. Reach injection
 through the ``ContextInjector`` plugin or the ``MemoryManager`` rather than these primitives
 directly.
 """
@@ -14,11 +15,11 @@ from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Protocol
 
-from .types import InjectionContext, InjectionTriggerPredicate
+from .types import InjectionContext, InjectionLocation, InjectionTriggerPredicate
 
 if TYPE_CHECKING:
     from .._middleware.stages import InvokeModelContext
-    from ..types.content import ContentBlock, Message, Messages
+    from ..types.content import ContentBlock, Message, Messages, SystemContentBlock, SystemPrompt
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +47,14 @@ def _create_injection_middleware(
     render_content: RenderContent,
     *,
     trigger: InjectionTriggerPredicate | None = None,
+    location: InjectionLocation | None = None,
 ) -> Callable[[InvokeModelContext], Awaitable[InvokeModelContext]]:
     """Build an ``InvokeModelStage.Input`` handler that folds injected text into the conversation.
 
-    The handler folds ``render_content``'s text into the latest user message, ephemerally: the
-    model sees the augmented input for this one call while the agent's durable history is
-    never touched. The handler gates on the resolved trigger, asks ``render_content`` for the
+    The handler folds ``render_content``'s text into the model input, ephemerally: the model
+    sees the augmented input for this one call while the agent's durable history is never
+    touched. ``location`` selects where the text lands — the latest user message (default) or
+    the per-call system prompt. The handler gates on the resolved trigger, asks ``render_content`` for the
     text, and returns a context with the folded messages. Anything that skips — the trigger
     not firing, ``render_content`` returning empty, or any callback raising — returns the
     context unchanged so the model call proceeds (fail open). The injected text never enters
@@ -63,6 +66,8 @@ def _create_injection_middleware(
         trigger: When to inject. An ``InjectionTrigger`` name selects a built-in policy
             (``"userTurn"`` — default — or ``"everyTurn"``); a predicate over the
             ``InjectionContext`` is the escape hatch. Defaults to ``"userTurn"``.
+        location: Where the text lands. ``"lastUserMessage"`` (default) folds it into the
+            latest user message; ``"systemPrompt"`` appends it to the per-call system prompt.
 
     Returns:
         An ``InvokeModelStage.Input`` handler that returns a (possibly) folded context.
@@ -90,9 +95,56 @@ def _create_injection_middleware(
         if text is None or not text.strip():
             return context
 
-        return replace(context, messages=_fold_into_last_user_message(context.messages, text))
+        if location == "systemPrompt":
+            folded = replace(context, system_prompt=_fold_into_system_prompt(context.system_prompt, text))
+        else:
+            folded = replace(context, messages=_fold_into_last_user_message(context.messages, text))
+        return await _account_for_injected_text(folded, text)
 
     return handler
+
+
+async def _account_for_injected_text(context: InvokeModelContext, text: str) -> InvokeModelContext:
+    """Fold the injected text's estimated tokens into the per-call projection.
+
+    ``projected_input_tokens`` is computed by the event loop from the agent's durable state
+    *before* input middleware runs, so it cannot see injected text. Without this correction,
+    downstream consumers of the projection (the context-status middleware, window-enforcement
+    middleware) would undercount the request actually sent to the provider by the size of the
+    injected content. Counting failures fail open: the injection stands and the projection is
+    left unchanged. When the corrected projection exceeds the model's context window limit, a
+    warning is logged deterministically — the injected content is standing guidance that cannot
+    be recovered by trimming durable history, so the call is allowed to proceed and surface the
+    provider's error rather than silently dropping the injection.
+
+    Args:
+        context: The middleware context with the injected text already folded in.
+        text: The text that was injected.
+
+    Returns:
+        The context with ``projected_input_tokens`` increased by the injected text's estimated
+        token count, or the context unchanged when no projection is available or counting fails.
+    """
+    if context.projected_input_tokens is None:
+        return context
+
+    try:
+        probe: Message = {"role": "user", "content": [{"text": text}]}
+        injected_tokens = await context.agent.model.count_tokens([probe])
+    except Exception as error:  # noqa: BLE001 - fail open: accounting must not abort the model call.
+        logger.warning("reason=<%s> | token accounting for injected text failed | projection left unchanged", error)
+        return context
+
+    projected = context.projected_input_tokens + injected_tokens
+    limit = context.agent.model.context_window_limit
+    if limit is not None and projected > limit:
+        logger.warning(
+            "projected_input_tokens=<%d>, context_window_limit=<%d> | injected context pushes the projected"
+            " input past the model's context window | the provider may reject this request",
+            projected,
+            limit,
+        )
+    return replace(context, projected_input_tokens=projected)
 
 
 def _resolve_trigger(trigger: InjectionTriggerPredicate | None) -> Callable[[InjectionContext], bool]:
@@ -188,3 +240,32 @@ def _fold_into_last_user_message(messages: Messages, text: str) -> Messages:
     result = list(messages)
     result[target_index] = folded
     return result
+
+
+def _fold_into_system_prompt(system_prompt: SystemPrompt, text: str) -> SystemPrompt:
+    """Append ``text`` to the per-call system prompt, returning a NEW value.
+
+    The text is **appended** so it lands after the agent's own directives — and, for a
+    structured prompt, after any ``cachePoint`` marking the static prefix, keeping that prefix
+    cacheable while the injected text varies call to call.
+
+    The input is never mutated:
+
+    - ``None``: the injected text becomes the entire prompt.
+    - ``str``: the text is appended, separated by a blank line.
+    - list of blocks: a new list with a trailing text block is returned; existing blocks
+      (including cache points) are preserved untouched.
+
+    Args:
+        system_prompt: The per-call system prompt to fold into.
+        text: The text to append.
+
+    Returns:
+        A new system prompt value carrying the injected text.
+    """
+    if system_prompt is None:
+        return text
+    if isinstance(system_prompt, str):
+        return f"{system_prompt}\n\n{text}"
+    injected: SystemContentBlock = {"text": text}
+    return [*system_prompt, injected]

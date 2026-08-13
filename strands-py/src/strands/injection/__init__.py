@@ -6,10 +6,11 @@ into the model input before a call without touching durable history. The deliver
 or the ``MemoryManager`` rather than using them directly.
 """
 
-from .types import InjectionConfig, InjectionContext, InjectionTrigger
+from .types import InjectionConfig, InjectionContext, InjectionLocation, InjectionTrigger
 
 __all__ = [
     "InjectionConfig",
     "InjectionContext",
+    "InjectionLocation",
     "InjectionTrigger",
 ]

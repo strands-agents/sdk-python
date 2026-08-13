@@ -32,11 +32,11 @@ def register(plugin: ContextInjector) -> tuple[Any, Any]:
     return agent, call
 
 
-def invoke_ctx(messages: list[dict], agent: Any) -> InvokeModelContext:
+def invoke_ctx(messages: list[dict], agent: Any, system_prompt: Any = None) -> InvokeModelContext:
     return InvokeModelContext(
         agent=agent,
         messages=messages,
-        system_prompt=None,
+        system_prompt=system_prompt,
         tool_specs=[],
         tool_choice=None,
         invocation_state={},
@@ -122,3 +122,50 @@ class TestRegisteredHandler:
             {"role": "assistant", "content": [{"text": "prior"}]},
             {"role": "user", "content": [{"text": "ask"}]},
         ]
+
+
+@pytest.mark.asyncio
+class TestSystemPromptLocation:
+    async def run(self, plugin, messages, system_prompt=None):
+        agent, call = register(plugin)
+        handler = call.args[1]
+        return await handler(invoke_ctx(messages, agent, system_prompt))
+
+    async def test_appends_to_per_call_system_prompt(self):
+        result = await self.run(
+            ContextInjector(lambda context: "INJECTED", location="systemPrompt"),
+            [user("ask")],
+            system_prompt="Base prompt.",
+        )
+        assert result.system_prompt == "Base prompt.\n\nINJECTED"
+        assert result.messages == [{"role": "user", "content": [{"text": "ask"}]}]
+
+    async def test_appends_trailing_block_to_structured_prompt(self):
+        blocks = [{"text": "Base prompt."}, {"cachePoint": {"type": "default"}}]
+        result = await self.run(
+            ContextInjector(lambda context: "INJECTED", location="systemPrompt"),
+            [user("ask")],
+            system_prompt=blocks,
+        )
+        assert result.system_prompt == [
+            {"text": "Base prompt."},
+            {"cachePoint": {"type": "default"}},
+            {"text": "INJECTED"},
+        ]
+
+    async def test_combines_with_every_turn_trigger(self):
+        result = await self.run(
+            ContextInjector(lambda context: "INJECTED", trigger="everyTurn", location="systemPrompt"),
+            [user("ask"), assistant("reply")],
+            system_prompt="Base prompt.",
+        )
+        assert result.system_prompt == "Base prompt.\n\nINJECTED"
+
+    async def test_default_location_leaves_system_prompt_untouched(self):
+        result = await self.run(
+            ContextInjector(lambda context: "INJECTED"),
+            [user("ask")],
+            system_prompt="Base prompt.",
+        )
+        assert result.system_prompt == "Base prompt."
+        assert result.messages == [{"role": "user", "content": [{"text": "INJECTED"}, {"text": "ask"}]}]
