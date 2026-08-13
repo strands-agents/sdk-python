@@ -1,4 +1,4 @@
-Defined in: [src/retry/backoff-strategy.ts:84](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/retry/backoff-strategy.ts#L84)
+Defined in: [src/retry/backoff-strategy.ts:84](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/retry/backoff-strategy.ts#L84)
 
 Options for [LinearBackoff](/docs/api/typescript/LinearBackoff/index.md).
 
@@ -10,7 +10,7 @@ Options for [LinearBackoff](/docs/api/typescript/LinearBackoff/index.md).
 optional baseMs?: number;
 ```
 
-Defined in: [src/retry/backoff-strategy.ts:86](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/retry/backoff-strategy.ts#L86)
+Defined in: [src/retry/backoff-strategy.ts:86](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/retry/backoff-strategy.ts#L86)
 
 Base delay in ms. Delay grows as `baseMs * attempt`. Default 1000.
 
@@ -22,7 +22,7 @@ Base delay in ms. Delay grows as `baseMs * attempt`. Default 1000.
 optional maxMs?: number;
 ```
 
-Defined in: [src/retry/backoff-strategy.ts:88](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/retry/backoff-strategy.ts#L88)
+Defined in: [src/retry/backoff-strategy.ts:88](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/retry/backoff-strategy.ts#L88)
 
 Upper bound applied before jitter. Default 30\_000.
 
@@ -34,6 +34,6 @@ Upper bound applied before jitter. Default 30\_000.
 optional jitter?: JitterKind;
 ```
 
-Defined in: [src/retry/backoff-strategy.ts:90](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/retry/backoff-strategy.ts#L90)
+Defined in: [src/retry/backoff-strategy.ts:90](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/retry/backoff-strategy.ts#L90)
 
 Jitter mode. Default ‘full’.

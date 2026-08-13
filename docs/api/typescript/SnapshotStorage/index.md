@@ -1,4 +1,4 @@
-Defined in: [src/session/storage.ts:44](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/session/storage.ts#L44)
+Defined in: [src/session/storage.ts:44](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/session/storage.ts#L44)
 
 Interface for snapshot persistence. Implementations provide storage backends (S3, filesystem, etc.).
 
@@ -27,7 +27,7 @@ sessions/<session_id>/
 saveSnapshot(params): Promise<void>;
 ```
 
-Defined in: [src/session/storage.ts:48](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/session/storage.ts#L48)
+Defined in: [src/session/storage.ts:48](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/session/storage.ts#L48)
 
 Persists a snapshot to storage.
 
@@ -53,7 +53,7 @@ Persists a snapshot to storage.
 loadSnapshot(params): Promise<Snapshot>;
 ```
 
-Defined in: [src/session/storage.ts:58](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/session/storage.ts#L58)
+Defined in: [src/session/storage.ts:58](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/session/storage.ts#L58)
 
 Loads a snapshot from storage.
 
@@ -77,7 +77,7 @@ Loads a snapshot from storage.
 listSnapshotIds(params): Promise<string[]>;
 ```
 
-Defined in: [src/session/storage.ts:74](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/session/storage.ts#L74)
+Defined in: [src/session/storage.ts:74](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/session/storage.ts#L74)
 
 Lists all available immutable snapshot IDs for a session scope, sorted chronologically. Snapshot IDs are UUID v7 strings vended by the SDK — callers should treat them as opaque handles and never construct them manually.
 
@@ -111,7 +111,7 @@ const page2 = await storage.listSnapshotIds({ location, startAfter: page1.at(-1)
 deleteSession(params): Promise<void>;
 ```
 
-Defined in: [src/session/storage.ts:79](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/session/storage.ts#L79)
+Defined in: [src/session/storage.ts:79](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/session/storage.ts#L79)
 
 Deletes all snapshots and directories belonging to the session ID.
 
@@ -134,7 +134,7 @@ Deletes all snapshots and directories belonging to the session ID.
 loadManifest(params): Promise<SnapshotManifest>;
 ```
 
-Defined in: [src/session/storage.ts:84](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/session/storage.ts#L84)
+Defined in: [src/session/storage.ts:84](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/session/storage.ts#L84)
 
 Loads the snapshot manifest.
 
@@ -157,7 +157,7 @@ Loads the snapshot manifest.
 saveManifest(params): Promise<void>;
 ```
 
-Defined in: [src/session/storage.ts:89](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/session/storage.ts#L89)
+Defined in: [src/session/storage.ts:89](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/session/storage.ts#L89)
 
 Saves the snapshot manifest.
 

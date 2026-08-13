@@ -720,6 +720,7 @@
 
 ## Blog
 
+- [Figma to Code at Scale: Building with Strands Agents](https://strandsagents.com/blog/figma-to-code-at-scale-building-with-strands-agents/index.md): A team at Amazon Ads built a multi-agent system that converts Figma designs into production ad layouts. Here's what their architecture looks like, why they chose Strands, and the lessons they learned shipping it.
 - [Introducing Harness Optimizer: Automatically optimize your agent harness](https://strandsagents.com/blog/introducing-harness-optimizer/index.md): Harness Optimizer is an open-source library that optimizes the context around your LLM agent (system prompt, tool docs, skills) the way you'd train a model: rollouts in, rewards out, parameters updated.
 - [Reduced cost, better isolation, and more resilience: Strands Agents evolves next-gen capabilities](https://strandsagents.com/blog/reduced-cost-better-isolation-more-resilience/index.md): Strands Agents ships context management that cuts costs in half, Strands Shell for sandboxed agent execution, and chaos testing and red teaming in Strands Evals 1.0.
 - [Inside Agentic Football Cup: 10 Strands Agents, 1 Second to Decide](https://strandsagents.com/blog/inside-agentic-football-cup/index.md): How we use Strands Agents and the model-driven approach to run 5v5 autonomous football matches inside a 4-hour developer workshop, with a hard latency contract, structured outputs, and multi-agent coordination.

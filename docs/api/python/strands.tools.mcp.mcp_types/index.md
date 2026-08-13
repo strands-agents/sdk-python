@@ -1,12 +1,30 @@
 Type definitions for MCP integration.
 
+## MCPClientCredentials
+
+```python
+class MCPClientCredentials(TypedDict)
+```
+
+Defined in: [src/strands/tools/mcp/mcp\_types.py:15](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_types.py#L15)
+
+OAuth client credentials for machine-to-machine authentication.
+
+Used with the `MCPClient` `auth` parameter, or the `auth` key of a server entry in a `load_servers` config, to authenticate against a streamable HTTP MCP server with the OAuth client\_credentials grant.
+
+**Attributes**:
+
+-   `client_id` - The OAuth client ID.
+-   `client_secret` - The OAuth client secret.
+-   `scopes` - OAuth scopes to request, joined with spaces. Advisory only: if the server advertises its own scopes (via the `WWW-Authenticate` header or its protected-resource / authorization-server metadata), the server’s list is used instead and this value is ignored.
+
 ## MCPToolResult
 
 ```python
 class MCPToolResult(ToolResult)
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_types.py:50](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_types.py#L50)
+Defined in: [src/strands/tools/mcp/mcp\_types.py:72](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_types.py#L72)
 
 Result of an MCP tool execution.
 

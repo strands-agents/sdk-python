@@ -1,4 +1,4 @@
-Defined in: [src/sandbox/types.ts:32](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/sandbox/types.ts#L32)
+Defined in: [src/sandbox/types.ts:32](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/sandbox/types.ts#L32)
 
 Metadata about a file or directory in a sandbox.
 
@@ -12,7 +12,7 @@ Provides minimal structured information that lets tools distinguish files from d
 readonly name: string;
 ```
 
-Defined in: [src/sandbox/types.ts:33](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/sandbox/types.ts#L33)
+Defined in: [src/sandbox/types.ts:33](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/sandbox/types.ts#L33)
 
 ---
 
@@ -22,7 +22,7 @@ Defined in: [src/sandbox/types.ts:33](https://github.com/strands-agents/harness-
 readonly optional isDir?: boolean;
 ```
 
-Defined in: [src/sandbox/types.ts:34](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/sandbox/types.ts#L34)
+Defined in: [src/sandbox/types.ts:34](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/sandbox/types.ts#L34)
 
 ---
 
@@ -32,4 +32,4 @@ Defined in: [src/sandbox/types.ts:34](https://github.com/strands-agents/harness-
 readonly optional size?: number;
 ```
 
-Defined in: [src/sandbox/types.ts:35](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/sandbox/types.ts#L35)
+Defined in: [src/sandbox/types.ts:35](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/sandbox/types.ts#L35)

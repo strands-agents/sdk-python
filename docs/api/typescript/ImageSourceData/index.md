@@ -11,6 +11,6 @@ type ImageSourceData =
 };
 ```
 
-Defined in: [src/types/media.ts:141](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/types/media.ts#L141)
+Defined in: [src/types/media.ts:141](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/types/media.ts#L141)
 
 Source for an image (Data version). Supports multiple formats for different providers.

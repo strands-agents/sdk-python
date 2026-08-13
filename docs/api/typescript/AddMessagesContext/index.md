@@ -1,4 +1,4 @@
-Defined in: [src/memory/types.ts:43](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/memory/types.ts#L43)
+Defined in: [src/memory/types.ts:43](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/memory/types.ts#L43)
 
 Context the [MemoryManager](/docs/api/typescript/MemoryManager/index.md) supplies to [MemoryStore.addMessages](/docs/api/typescript/MemoryStore/index.md#addmessages) alongside a batch.
 
@@ -12,6 +12,6 @@ An extension point: fields are added here without changing the [MemoryStore.addM
 readonly optional sequenceNumbers?: readonly number[];
 ```
 
-Defined in: [src/memory/types.ts:51](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/memory/types.ts#L51)
+Defined in: [src/memory/types.ts:51](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/memory/types.ts#L51)
 
 Per-message identities aligned one-to-one with `messages` (`sequenceNumbers[i]` identifies `messages[i]`). A retried batch reuses the same numbers, so a store can build an idempotency key that survives retries - unlike a content hash, which collides when two messages share text (e.g. “ok”). Numbers increase with order but may have gaps, and reset to 0 each agent run, so a durable dedup token must combine one with a run-unique id.

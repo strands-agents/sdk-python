@@ -1,4 +1,4 @@
-Defined in: [src/models/streaming.ts:344](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/models/streaming.ts#L344)
+Defined in: [src/models/streaming.ts:344](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/models/streaming.ts#L344)
 
 Event emitted when guardrails block content and trigger redaction.
 
@@ -14,7 +14,7 @@ Event emitted when guardrails block content and trigger redaction.
 new ModelRedactionEvent(data): ModelRedactionEvent;
 ```
 
-Defined in: [src/models/streaming.ts:360](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/models/streaming.ts#L360)
+Defined in: [src/models/streaming.ts:360](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/models/streaming.ts#L360)
 
 #### Parameters
 
@@ -34,7 +34,7 @@ Defined in: [src/models/streaming.ts:360](https://github.com/strands-agents/harn
 readonly type: "modelRedactionEvent";
 ```
 
-Defined in: [src/models/streaming.ts:348](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/models/streaming.ts#L348)
+Defined in: [src/models/streaming.ts:348](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/models/streaming.ts#L348)
 
 Discriminator for redact events.
 
@@ -50,7 +50,7 @@ Discriminator for redact events.
 readonly optional inputRedaction?: RedactInputContent;
 ```
 
-Defined in: [src/models/streaming.ts:353](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/models/streaming.ts#L353)
+Defined in: [src/models/streaming.ts:353](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/models/streaming.ts#L353)
 
 Input redaction information (when input is blocked).
 
@@ -66,7 +66,7 @@ Input redaction information (when input is blocked).
 readonly optional outputRedaction?: RedactOutputContent;
 ```
 
-Defined in: [src/models/streaming.ts:358](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/models/streaming.ts#L358)
+Defined in: [src/models/streaming.ts:358](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/models/streaming.ts#L358)
 
 Output redaction information (when output is blocked).
 

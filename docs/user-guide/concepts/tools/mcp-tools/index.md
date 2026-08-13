@@ -201,6 +201,53 @@ github_mcp_client = MCPClient(
 )
 ```
 
+#### OAuth Authentication
+
+For servers protected by OAuth, pass the server `url` directly with an `auth` credential. `MCPClient` builds the streamable HTTP transport internally and authenticates with the OAuth client\_credentials grant, which suits machine-to-machine deployments where no user is present to complete a browser flow.
+
+```python
+import os
+from strands.tools.mcp import MCPClient
+
+oauth_mcp_client = MCPClient(
+    url="https://api.example.com/mcp/",
+    auth={
+        "client_id": os.environ["OAUTH_CLIENT_ID"],
+        "client_secret": os.environ["OAUTH_CLIENT_SECRET"],
+        "scopes": ["mcp:tools"],  # optional
+    },
+)
+```
+
+`scopes` is joined with spaces and is advisory only: if the server advertises its own scopes (via the `WWW-Authenticate` header or its protected-resource / authorization-server metadata), the server’s scopes are used instead and this value is ignored. Token acquisition and refresh happen automatically. The `headers` parameter can be combined with `auth` when the server also expects custom headers.
+
+For advanced flows such as the interactive authorization\_code grant, pass any `httpx.Auth` implementation as `auth_provider` instead. The `mcp` package’s `OAuthClientProvider` is one such implementation:
+
+```python
+from mcp.client.auth import OAuthClientProvider
+
+oauth_mcp_client = MCPClient(
+    url="https://api.example.com/mcp/",
+    auth_provider=OAuthClientProvider(...),
+)
+```
+
+`auth` and `auth_provider` are mutually exclusive, both require `url`, and OAuth is supported for streamable HTTP only. The same `auth` credential can be set on a server entry in a [`load_servers`](#using-multiple-mcp-servers) config, where `${VAR}` interpolation keeps secrets in the environment:
+
+```json
+{
+  "mcpServers": {
+    "protected-server": {
+      "url": "https://api.example.com/mcp/",
+      "auth": {
+        "client_id": "${OAUTH_CLIENT_ID}",
+        "client_secret": "${OAUTH_CLIENT_SECRET}"
+      }
+    }
+  }
+}
+```
+
 #### AWS IAM
 
 For MCP servers on AWS that use SigV4 authentication with IAM credentials, you can conveniently use the [`mcp-proxy-for-aws`](https://pypi.org/project/mcp-proxy-for-aws/) package to handle AWS credential management and request signing automatically. See the [detailed guide](https://dev.to/aws/no-oauth-required-an-mcp-client-for-aws-iam-k1o) for more information.

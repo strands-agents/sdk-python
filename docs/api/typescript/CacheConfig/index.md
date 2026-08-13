@@ -1,4 +1,4 @@
-Defined in: [src/models/model.ts:70](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/models/model.ts#L70)
+Defined in: [src/models/model.ts:70](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/models/model.ts#L70)
 
 Configuration for prompt caching.
 
@@ -10,7 +10,7 @@ Configuration for prompt caching.
 optional strategy?: "auto" | "anthropic";
 ```
 
-Defined in: [src/models/model.ts:79](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/models/model.ts#L79)
+Defined in: [src/models/model.ts:79](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/models/model.ts#L79)
 
 Whether to skip caching for models that do not support it.
 
@@ -31,7 +31,7 @@ Whether to skip caching for models that do not support it.
 optional ttl?: CacheTTL;
 ```
 
-Defined in: [src/models/model.ts:91](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/models/model.ts#L91)
+Defined in: [src/models/model.ts:91](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/models/model.ts#L91)
 
 TTL for every cache point, overridden by a per-section TTL. Provider default when omitted.
 
@@ -45,7 +45,7 @@ Bedrock requires checkpoint TTLs to be non-increasing across `toolConfig`, syste
 optional toolsTTL?: boolean | CacheTTL;
 ```
 
-Defined in: [src/models/model.ts:98](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/models/model.ts#L98)
+Defined in: [src/models/model.ts:98](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/models/model.ts#L98)
 
 Cache the tool definitions. A TTL sets this section’s duration; `false` disables it.
 
@@ -63,7 +63,7 @@ true
 optional messagesTTL?: boolean | CacheTTL;
 ```
 
-Defined in: [src/models/model.ts:106](https://github.com/strands-agents/harness-sdk/blob/a2ac1180f3709b565df82695f03d489f3bce5955/strands-ts/src/models/model.ts#L106)
+Defined in: [src/models/model.ts:106](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/models/model.ts#L106)
 
 Cache the conversation prefix, on the last user message. A TTL sets this section’s duration; `false` disables it.
 

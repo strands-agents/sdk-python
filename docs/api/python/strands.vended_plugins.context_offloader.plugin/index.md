@@ -44,7 +44,7 @@ agent = Agent(plugins=[
 class LineRange(TypedDict)
 ```
 
-Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:136](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L136)
+Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:137](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L137)
 
 A span of lines to retrieve (1-indexed, inclusive).
 
@@ -54,7 +54,7 @@ A span of lines to retrieve (1-indexed, inclusive).
 class ShouldOffload(Protocol)
 ```
 
-Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:153](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L153)
+Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:154](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L154)
 
 Callback protocol for deciding whether a tool result should be offloaded.
 
@@ -65,7 +65,7 @@ def __call__(tool_name: str, token_count: int,
              **kwargs: Any) -> bool | Awaitable[bool]
 ```
 
-Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:156](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L156)
+Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:157](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L157)
 
 Return True to offload, False to keep the result in context. May be sync or async.
 
@@ -81,7 +81,7 @@ Return True to offload, False to keep the result in context. May be sync or asyn
 class ContextOffloader(Plugin)
 ```
 
-Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:168](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L168)
+Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:169](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L169)
 
 Plugin that offloads oversized tool results to reduce context consumption.
 
@@ -140,7 +140,7 @@ def __init__(storage: Storage | _LegacyStorage | None = None,
              evict_after_cycles: int | None = 20) -> None
 ```
 
-Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:224](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L224)
+Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:225](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L225)
 
 Initialize the ContextOffloader plugin.
 
@@ -163,7 +163,7 @@ Initialize the ContextOffloader plugin.
 def init_agent(agent: Agent) -> None
 ```
 
-Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:315](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L315)
+Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:316](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L316)
 
 Conditionally register the retrieval tool and bind storage.
 
@@ -181,7 +181,7 @@ async def retrieve_offloaded_content(
         context_lines: int | None = None) -> dict | str
 ```
 
-Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:368](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L368)
+Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:369](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L369)
 
 Retrieve offloaded content by reference.
 
