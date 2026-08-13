@@ -1,19 +1,20 @@
 """Abstract interface for conversation history management."""
 
+import copy
 import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, TypedDict, Union
 
-from ...hooks.events import BeforeModelCallEvent
+from ..._middleware.stages import InvokeModelContext
+from ..._middleware.types import MiddlewareInputHandler
 from ...hooks.registry import HookProvider, HookRegistry
-from ...types.content import Message
+from ...models._defaults import DEFAULT_COMPRESSION_THRESHOLD
+from ...types.content import Message, split_system_prompt
 
 if TYPE_CHECKING:
     from ...agent.agent import Agent
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_COMPRESSION_THRESHOLD = 0.7
 
 
 class ProactiveCompressionConfig(TypedDict, total=False):
@@ -38,19 +39,17 @@ class ConversationManager(ABC, HookProvider):
     - Control context length
     - Maintain relevant conversation state
 
-    ConversationManager implements the HookProvider protocol, allowing derived classes to register hooks for agent
-    lifecycle events. Derived classes that override register_hooks must call the base implementation to ensure proper
-    hook registration chain.
+    ConversationManager implements the HookProvider protocol so derived classes can register hooks for agent
+    lifecycle events when needed.
 
     The primary responsibility of a ConversationManager is overflow recovery: when the model encounters a context
     window overflow, :meth:`reduce_context` is called with ``e`` set and MUST reduce the history enough for the next
     model call to succeed.
 
     Subclasses can enable proactive compression by passing ``proactive_compression`` in the constructor.
-    When enabled, the base class registers a ``BeforeModelCallEvent`` hook that checks projected input tokens
-    against the model's context window limit and calls :meth:`reduce_context` (without ``e``) when the
-    threshold is exceeded. This is a best-effort operation — errors are swallowed so the model call can
-    still proceed.
+    When enabled, invoke-model middleware checks the effective model's projected input tokens against its
+    context window and calls :meth:`reduce_context` (without ``e``) when the threshold is exceeded. This
+    is a best-effort operation: errors are swallowed so the model call can still proceed.
 
     Example:
         ```python
@@ -94,54 +93,67 @@ class ConversationManager(ABC, HookProvider):
         self._compression_threshold = threshold
 
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
-        """Register hooks for agent lifecycle events.
+        """Register conversation-manager-specific hooks.
 
-        Always registers a ``BeforeModelCallEvent`` hook for proactive compression.
-        When ``proactive_compression`` is not configured, the handler is a no-op (early return).
-
-        Derived classes that override this method must call the base implementation to ensure proper hook
-        registration chain.
+        The base manager has no hooks. Derived classes may override this method to subscribe to
+        lifecycle events and can call the base implementation without additional requirements.
 
         Args:
             registry: The hook registry to register callbacks with.
             **kwargs: Additional keyword arguments for future extensibility.
         """
-        # Always subscribe — the threshold check happens inside the handler
-        registry.add_callback(BeforeModelCallEvent, self._on_before_model_call_threshold)
 
-    def _on_before_model_call_threshold(self, event: BeforeModelCallEvent) -> None:
-        """Handle BeforeModelCallEvent for proactive compression.
+    def _proactive_compression_middleware(self) -> MiddlewareInputHandler:
+        """Build middleware that compresses against the effective model's context window."""
 
-        When proactive compression is not configured, this is a no-op.
-        When configured, checks projected input tokens against the context window limit
-        and calls reduce_context() without error (best-effort) when threshold is exceeded.
+        async def middleware(context: InvokeModelContext) -> InvokeModelContext:
+            if self._compression_threshold is None:
+                return context
 
-        Args:
-            event: The before model call event.
-        """
-        # Early return if proactive compression is not enabled
-        if self._compression_threshold is None:
-            return
+            try:
+                input_tokens = await self._count_input_tokens(context)
+                context.projected_input_tokens = input_tokens
+                ratio = context.model.estimate_utilization(input_tokens)
+            except Exception:
+                logger.debug("proactive compression measurement failed, proceeding with model call", exc_info=True)
+                return context
 
-        if event.projected_input_tokens is None:
-            logger.debug("projected_input_tokens=<None> | skipping proactive compression")
-            return
+            if ratio < self._compression_threshold:
+                return context
 
-        ratio = event.agent.model.estimate_utilization(event.projected_input_tokens)
-        if ratio >= self._compression_threshold:
             logger.debug(
                 "projected_tokens=<%s>, context_window_limit=<%s>, ratio=<%.2f>, compression_threshold=<%s>"
                 " | compression threshold exceeded, reducing context",
-                event.projected_input_tokens,
-                event.agent.model.context_window_limit,
+                input_tokens,
+                context.model.context_window_limit,
                 ratio,
                 self._compression_threshold,
             )
-            # Proactive compression is best-effort: swallow errors so the model call can still proceed.
             try:
-                self.reduce_context(agent=event.agent)
+                self.reduce_context(agent=context.agent)
             except Exception:
-                logger.debug("proactive compression failed, will proceed with model call", exc_info=True)
+                logger.debug("proactive compression failed, proceeding with model call", exc_info=True)
+
+            try:
+                context.messages = copy.deepcopy(context.agent.messages)
+                context.projected_input_tokens = None
+                context.projected_input_tokens = await self._count_input_tokens(context)
+            except Exception:
+                logger.debug("proactive compression refresh failed, proceeding with model call", exc_info=True)
+            return context
+
+        return middleware
+
+    @staticmethod
+    async def _count_input_tokens(context: InvokeModelContext) -> int:
+        """Count the middleware request with its effective model."""
+        system_prompt, system_prompt_content = split_system_prompt(context.system_prompt)
+        return await context.model.count_tokens(
+            context.messages,
+            tool_specs=list(context.tool_specs),
+            system_prompt=system_prompt,
+            system_prompt_content=system_prompt_content,
+        )
 
     def restore_from_session(self, state: dict[str, Any]) -> list[Message] | None:
         """Restore the Conversation Manager's state from a session.

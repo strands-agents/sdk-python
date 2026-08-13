@@ -45,7 +45,7 @@ from ..types._snapshot import (
 if TYPE_CHECKING:
     from ..tools import ToolProvider
 from .._middleware import MiddlewareRegistry
-from .._middleware.stages import AgentStreamContext, AgentStreamStage
+from .._middleware.stages import AgentStreamContext, AgentStreamStage, InvokeModelStage
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..hooks import (
     AfterInvocationEvent,
@@ -451,10 +451,14 @@ class Agent(AgentBase):
         if self._model_router is not None:
             self._plugin_registry.add_and_init(self._model_router)
 
+        self._middleware_registry.add_middleware(
+            InvokeModelStage.Input,
+            self.conversation_manager._proactive_compression_middleware(),
+        )
+
         # In agentic mode, surface live token usage to the model so it can decide when to compress.
         if context_manager == "agentic":
             from .._context_manager.modes.agentic.agentic_context import create_token_usage_middleware
-            from .._middleware.stages import InvokeModelStage
 
             self._middleware_registry.add_middleware(InvokeModelStage.Input, create_token_usage_middleware())
 

@@ -35,13 +35,11 @@ events, so a streaming consumer sees that partial output followed by the replace
 ``AfterModelCallEvent`` documents this for any hook-requested retry; routing reaches it more often
 because it advances on any failure the retry strategy declines, not only throttling.
 
-Known limitation: routing applies to ``InvokeModelStage``, so ``agent.model`` stays the first declared
-candidate and subsystems reading it reason about that model rather than the one running. Proactive
-compression sizes against ``agent.model``'s context window, so routing among candidates with
-materially different windows can under-compress and overflow the routed model; the agent span reports
-the first candidate's model id; and ``Agent.structured_output()`` calls the model directly, bypassing
-routing entirely. Prefer candidates with comparable context windows and tokenizers until the selected
-model is threaded to those consumers.
+Known limitation: ``agent.model`` stays the first declared candidate, so subsystems reading it reason
+about that model rather than the one running. ``BeforeModelCallEvent.projected_input_tokens`` and the
+agent span still describe the first candidate, and ``Agent.structured_output()`` calls the model
+directly, bypassing routing entirely. Proactive compression is coordinated through invoke-model
+middleware and uses the effective selected model.
 """
 
 from __future__ import annotations

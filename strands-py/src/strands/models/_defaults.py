@@ -22,6 +22,9 @@ _C = TypeVar("_C", bound=Mapping[str, object])
 # Default context window limit (in tokens) when the model does not report one.
 DEFAULT_CONTEXT_WINDOW_LIMIT = 200_000
 
+# Context-window utilization at which proactive compression and context-fit routing act.
+DEFAULT_COMPRESSION_THRESHOLD = 0.7
+
 # Context window limits (in tokens) for known model IDs.
 #
 # Best-effort lookup table — unknown models return None and callers

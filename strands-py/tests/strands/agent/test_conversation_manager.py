@@ -1,8 +1,9 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from strands import tool
+from strands._middleware.stages import InvokeModelContext
 from strands.agent.agent import Agent
 from strands.agent.conversation_manager.conversation_manager import ConversationManager
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
@@ -442,10 +443,9 @@ def test_derived_class_does_not_need_to_implement_register_hooks():
     manager = MinimalConversationManager()
     registry = HookRegistry()
 
-    # Should work without error — the base class always registers the hook
+    # Calling the inherited implementation succeeds and does not add callbacks.
     manager.register_hooks(registry)
-    # Base class always registers the proactive compression hook
-    assert registry.has_callbacks()
+    assert not registry.has_callbacks()
 
 
 def test_per_turn_hooks_registration():
@@ -831,12 +831,22 @@ def _make_mock_agent(messages=None, context_window_limit=1000):
     return agent
 
 
-def _make_threshold_event(agent, projected_input_tokens=None):
-    return BeforeModelCallEvent(
+def _make_invoke_context(agent, input_tokens=0):
+    agent.model.count_tokens = AsyncMock(return_value=input_tokens)
+    return InvokeModelContext(
         agent=agent,
+        messages=list(agent.messages),
+        system_prompt=None,
+        tool_specs=[],
+        tool_choice=None,
         invocation_state={},
-        projected_input_tokens=projected_input_tokens,
+        model=agent.model,
     )
+
+
+async def _run_proactive_compression(manager, agent, input_tokens=0):
+    context = _make_invoke_context(agent, input_tokens)
+    return await manager._proactive_compression_middleware()(context)
 
 
 def test_proactive_compression_rejects_zero():
@@ -876,97 +886,96 @@ def test_proactive_compression_false_disables():
     assert manager._compression_threshold is None
 
 
-def test_proactive_compression_always_registers_hook():
-    """Hook is always registered regardless of proactive_compression setting."""
+def test_proactive_compression_base_register_hooks_is_noop():
     manager = _MinimalManager()
     registry = HookRegistry()
+
     manager.register_hooks(registry)
-    # Always registers the hook
-    assert registry.has_callbacks()
+
+    assert not registry.has_callbacks()
 
 
-def test_proactive_compression_hook_is_noop_when_not_configured():
-    """BeforeModelCallEvent handler is a no-op when proactive_compression is not set."""
+@pytest.mark.asyncio
+async def test_proactive_compression_middleware_is_noop_when_not_configured():
     manager = _MinimalManager()
     agent = _make_mock_agent(context_window_limit=1000)
-    registry = HookRegistry()
-    manager.register_hooks(registry)
+    context = _make_invoke_context(agent, input_tokens=900)
 
-    event = _make_threshold_event(agent, projected_input_tokens=900)
-    registry.invoke_callbacks(event)
+    result = await manager._proactive_compression_middleware()(context)
 
+    assert result is context
     assert manager.reduce_context_call_count == 0
+    agent.model.count_tokens.assert_not_awaited()
 
 
-def test_proactive_compression_calls_reduce_context_when_exceeded():
+@pytest.mark.asyncio
+async def test_proactive_compression_calls_reduce_context_and_refreshes_input_when_exceeded():
     manager = _MinimalManager(proactive_compression={"compression_threshold": 0.7})
-    agent = _make_mock_agent(messages=[{"role": "user", "content": [{"text": "msg"}]}], context_window_limit=1000)
-    registry = HookRegistry()
-    manager.register_hooks(registry)
-
-    event = _make_threshold_event(agent, projected_input_tokens=800)
-    registry.invoke_callbacks(event)
+    agent = _make_mock_agent(
+        messages=[{"role": "user", "content": [{"text": "first"}]}, {"role": "assistant", "content": []}],
+        context_window_limit=1000,
+    )
+    context = await _run_proactive_compression(manager, agent, input_tokens=800)
 
     assert manager.reduce_context_call_count == 1
+    assert context.messages == agent.messages == [{"role": "assistant", "content": []}]
+    assert context.projected_input_tokens == 800
+    agent.model.count_tokens.assert_awaited()
+    assert agent.model.count_tokens.await_count == 2
 
 
-def test_proactive_compression_no_call_when_below():
+@pytest.mark.asyncio
+async def test_proactive_compression_no_call_when_below():
     manager = _MinimalManager(proactive_compression={"compression_threshold": 0.7})
     agent = _make_mock_agent(context_window_limit=1000)
-    registry = HookRegistry()
-    manager.register_hooks(registry)
 
-    event = _make_threshold_event(agent, projected_input_tokens=500)
-    registry.invoke_callbacks(event)
+    context = await _run_proactive_compression(manager, agent, input_tokens=500)
 
     assert manager.reduce_context_call_count == 0
+    assert context.projected_input_tokens == 500
+    assert agent.model.count_tokens.await_count == 1
 
 
-def test_proactive_compression_no_call_when_projected_tokens_none():
+@pytest.mark.asyncio
+async def test_proactive_compression_measurement_failure_is_swallowed():
     manager = _MinimalManager(proactive_compression=True)
     agent = _make_mock_agent(context_window_limit=1000)
-    registry = HookRegistry()
-    manager.register_hooks(registry)
+    context = _make_invoke_context(agent)
+    agent.model.count_tokens.side_effect = RuntimeError("count failed")
 
-    event = _make_threshold_event(agent, projected_input_tokens=None)
-    registry.invoke_callbacks(event)
+    result = await manager._proactive_compression_middleware()(context)
 
+    assert result is context
     assert manager.reduce_context_call_count == 0
 
 
-def test_proactive_compression_uses_default_when_context_window_limit_not_set():
+@pytest.mark.asyncio
+async def test_proactive_compression_uses_default_when_context_window_limit_not_set():
     manager = _MinimalManager(proactive_compression={"compression_threshold": 0.7})
     agent = _make_mock_agent(context_window_limit=None)
-    registry = HookRegistry()
-    manager.register_hooks(registry)
 
-    # projected_input_tokens=150_000 is 75% of the 200k default, exceeding 0.7 threshold
-    event = _make_threshold_event(agent, projected_input_tokens=150_000)
     with patch("strands.models.model.logger") as mock_logger:
-        registry.invoke_callbacks(event)
+        await _run_proactive_compression(manager, agent, input_tokens=150_000)
         mock_logger.warning.assert_called_once()
         assert "using default" in mock_logger.warning.call_args[0][0]
 
     assert manager.reduce_context_call_count == 1
 
 
-def test_proactive_compression_warns_only_once_per_instance():
-    """Second invocation on the same manager instance suppresses the context_window_limit warning."""
+@pytest.mark.asyncio
+async def test_proactive_compression_warns_only_once_per_model_instance():
     manager = _MinimalManager(proactive_compression={"compression_threshold": 0.7})
     agent = _make_mock_agent(context_window_limit=None)
-    registry = HookRegistry()
-    manager.register_hooks(registry)
 
-    event = _make_threshold_event(agent, projected_input_tokens=150_000)
     with patch("strands.models.model.logger") as mock_logger:
-        registry.invoke_callbacks(event)
-        registry.invoke_callbacks(event)
-        assert mock_logger.warning.call_count == 1
+        await _run_proactive_compression(manager, agent, input_tokens=150_000)
+        await _run_proactive_compression(manager, agent, input_tokens=150_000)
+
+    assert mock_logger.warning.call_count == 1
 
 
-def test_proactive_compression_exception_swallowed():
-    """Exceptions in reduce_context during proactive compression should not propagate."""
-
+@pytest.mark.asyncio
+async def test_proactive_compression_exception_swallowed():
     class _FailingManager(ConversationManager):
         def apply_management(self, agent, **kwargs):
             pass
@@ -976,32 +985,42 @@ def test_proactive_compression_exception_swallowed():
 
     manager = _FailingManager(proactive_compression={"compression_threshold": 0.7})
     agent = _make_mock_agent(context_window_limit=1000)
-    registry = HookRegistry()
-    manager.register_hooks(registry)
 
-    event = _make_threshold_event(agent, projected_input_tokens=800)
-    registry.invoke_callbacks(event)
+    context = await _run_proactive_compression(manager, agent, input_tokens=800)
+
+    assert context.messages == agent.messages
 
 
-def test_proactive_compression_true_default_threshold_behavior():
-    """proactive_compression=True uses 0.7 — triggered at 0.7+ but not below."""
+@pytest.mark.asyncio
+async def test_proactive_compression_recount_failure_clears_stale_projection():
+    manager = _MinimalManager(proactive_compression={"compression_threshold": 0.7})
+    agent = _make_mock_agent(
+        messages=[{"role": "user", "content": [{"text": "first"}]}, {"role": "assistant", "content": []}],
+        context_window_limit=1000,
+    )
+    context = _make_invoke_context(agent, input_tokens=800)
+    agent.model.count_tokens.side_effect = [800, RuntimeError("recount failed")]
+
+    result = await manager._proactive_compression_middleware()(context)
+
+    assert result.messages == agent.messages == [{"role": "assistant", "content": []}]
+    assert result.projected_input_tokens is None
+
+
+@pytest.mark.asyncio
+async def test_proactive_compression_true_default_threshold_behavior():
     manager = _MinimalManager(proactive_compression=True)
     agent = _make_mock_agent(messages=[{"role": "user", "content": [{"text": "msg"}]}], context_window_limit=1000)
-    registry = HookRegistry()
-    manager.register_hooks(registry)
 
-    # 650/1000 = 0.65 < 0.7 — should NOT trigger
-    event = _make_threshold_event(agent, projected_input_tokens=650)
-    registry.invoke_callbacks(event)
+    await _run_proactive_compression(manager, agent, input_tokens=650)
     assert manager.reduce_context_call_count == 0
 
-    # 800/1000 = 0.8 >= 0.7 — should trigger
-    event2 = _make_threshold_event(agent, projected_input_tokens=800)
-    registry.invoke_callbacks(event2)
+    await _run_proactive_compression(manager, agent, input_tokens=800)
     assert manager.reduce_context_call_count == 1
 
 
-def test_sliding_window_proactive_compression_trims():
+@pytest.mark.asyncio
+async def test_sliding_window_proactive_compression_trims():
     manager = SlidingWindowConversationManager(
         window_size=4, should_truncate_results=False, proactive_compression={"compression_threshold": 0.7}
     )
@@ -1012,16 +1031,15 @@ def test_sliding_window_proactive_compression_trims():
         for i in range(6)
     ]
     agent = _make_mock_agent(messages=messages, context_window_limit=1000)
-    registry = HookRegistry()
-    manager.register_hooks(registry)
 
-    event = _make_threshold_event(agent, projected_input_tokens=800)
-    registry.invoke_callbacks(event)
+    context = await _run_proactive_compression(manager, agent, input_tokens=800)
 
     assert len(agent.messages) == 4
+    assert context.messages == agent.messages
 
 
-def test_sliding_window_proactive_compression_no_trim_below():
+@pytest.mark.asyncio
+async def test_sliding_window_proactive_compression_no_trim_below():
     manager = SlidingWindowConversationManager(
         window_size=4, should_truncate_results=False, proactive_compression={"compression_threshold": 0.7}
     )
@@ -1030,13 +1048,11 @@ def test_sliding_window_proactive_compression_no_trim_below():
         {"role": "assistant", "content": [{"text": "Hi"}]},
     ]
     agent = _make_mock_agent(messages=messages, context_window_limit=1000)
-    registry = HookRegistry()
-    manager.register_hooks(registry)
 
-    event = _make_threshold_event(agent, projected_input_tokens=500)
-    registry.invoke_callbacks(event)
+    context = await _run_proactive_compression(manager, agent, input_tokens=500)
 
     assert len(agent.messages) == 2
+    assert context.messages == messages
 
 
 # --- pin_first tests ---

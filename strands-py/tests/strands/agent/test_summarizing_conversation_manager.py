@@ -1,15 +1,14 @@
 from typing import cast
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
+from strands._middleware.stages import InvokeModelContext
 from strands.agent.agent import Agent
 from strands.agent.conversation_manager.summarizing_conversation_manager import (
     DEFAULT_SUMMARIZATION_PROMPT,
     SummarizingConversationManager,
 )
-from strands.hooks.events import BeforeModelCallEvent
-from strands.hooks.registry import HookRegistry
 from strands.models.model import Model
 from strands.types.content import Messages
 from strands.types.exceptions import ContextWindowOverflowException
@@ -841,11 +840,26 @@ def _make_summarizing_threshold_agent(messages, summary_response="Summary of con
     agent.model.context_window_limit = context_window_limit
     agent.model._utilization_limit_warned = False
     agent.model.estimate_utilization = lambda input_tokens: Model.estimate_utilization(agent.model, input_tokens)
+    agent.model.count_tokens = AsyncMock()
     agent.model.stream = Mock(side_effect=lambda *a, **kw: _mock_model_stream(summary_response))
     return agent
 
 
-def test_proactive_compression_summarizes_when_exceeded():
+def _make_summarizing_invoke_context(agent, input_tokens):
+    agent.model.count_tokens.return_value = input_tokens
+    return InvokeModelContext(
+        agent=agent,
+        messages=list(agent.messages),
+        system_prompt=None,
+        tool_specs=[],
+        tool_choice=None,
+        invocation_state={},
+        model=agent.model,
+    )
+
+
+@pytest.mark.asyncio
+async def test_proactive_compression_summarizes_when_exceeded():
     manager = SummarizingConversationManager(
         summary_ratio=0.5,
         preserve_recent_messages=2,
@@ -858,18 +872,18 @@ def test_proactive_compression_summarizes_when_exceeded():
         for i in range(20)
     ]
     agent = _make_summarizing_threshold_agent(messages, context_window_limit=1000)
-    registry = HookRegistry()
-    manager.register_hooks(registry)
+    context = _make_summarizing_invoke_context(agent, input_tokens=800)
 
-    event = BeforeModelCallEvent(agent=agent, invocation_state={}, projected_input_tokens=800)
-    registry.invoke_callbacks(event)
+    result = await manager._proactive_compression_middleware()(context)
 
-    # 20 * 0.5 = 10 summarized → 1 summary + 10 remaining = 11
     assert len(agent.messages) == 11
     assert agent.messages[0]["role"] == "user"
+    assert result.messages == agent.messages
+    assert agent.model.count_tokens.await_count == 2
 
 
-def test_proactive_compression_no_summarize_when_below():
+@pytest.mark.asyncio
+async def test_proactive_compression_no_summarize_when_below():
     manager = SummarizingConversationManager(proactive_compression={"compression_threshold": 0.7})
     messages = [
         {"role": "user", "content": [{"text": f"Message {i}"}]}
@@ -878,16 +892,17 @@ def test_proactive_compression_no_summarize_when_below():
         for i in range(20)
     ]
     agent = _make_summarizing_threshold_agent(messages, context_window_limit=1000)
-    registry = HookRegistry()
-    manager.register_hooks(registry)
+    context = _make_summarizing_invoke_context(agent, input_tokens=500)
 
-    event = BeforeModelCallEvent(agent=agent, invocation_state={}, projected_input_tokens=500)
-    registry.invoke_callbacks(event)
+    result = await manager._proactive_compression_middleware()(context)
 
     assert len(agent.messages) == 20
+    assert result.messages == messages
+    assert agent.model.count_tokens.await_count == 1
 
 
-def test_proactive_compression_swallows_errors():
+@pytest.mark.asyncio
+async def test_proactive_compression_swallows_errors():
     manager = SummarizingConversationManager(
         summary_ratio=0.5,
         preserve_recent_messages=2,
@@ -899,18 +914,11 @@ def test_proactive_compression_swallows_errors():
         else {"role": "assistant", "content": [{"text": f"Response {i}"}]}
         for i in range(20)
     ]
-    agent = MagicMock()
-    agent.messages = messages
-    agent.model = MagicMock()
-    agent.model.context_window_limit = 1000
-    agent.model._utilization_limit_warned = False
-    agent.model.estimate_utilization = lambda input_tokens: Model.estimate_utilization(agent.model, input_tokens)
+    agent = _make_summarizing_threshold_agent(messages, context_window_limit=1000)
     agent.model.stream = Mock(side_effect=lambda *a, **kw: _mock_model_stream_error(RuntimeError("model failed")))
+    context = _make_summarizing_invoke_context(agent, input_tokens=800)
 
-    registry = HookRegistry()
-    manager.register_hooks(registry)
+    result = await manager._proactive_compression_middleware()(context)
 
-    event = BeforeModelCallEvent(agent=agent, invocation_state={}, projected_input_tokens=800)
-    # Should not throw — proactive compression is best-effort
-    registry.invoke_callbacks(event)
     assert len(agent.messages) == 20
+    assert result.messages == agent.messages
