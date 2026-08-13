@@ -1,3 +1,9 @@
+/**
+ * Agentic context management: model-driven compression via injected tools.
+ *
+ * @experimental This module is experimental and may change in future versions.
+ */
+
 import { z } from 'zod'
 import { Message, TextBlock } from '../../../types/messages.js'
 import { tool } from '../../../tools/tool-factory.js'
@@ -12,7 +18,7 @@ import {
 import type { InvokeModelContext } from '../../../middleware/stages.js'
 import type { MiddlewareInputHandler } from '../../../middleware/types.js'
 import type { Model } from '../../../models/model.js'
-import { DEFAULT_CONTEXT_WINDOW_LIMIT } from '../../../conversation-manager/conversation-manager.js'
+import { DEFAULT_CONTEXT_WINDOW_LIMIT } from '../../../models/defaults.js'
 
 /** Default number of recent messages to preserve verbatim during summarization or truncation. */
 const DEFAULT_KEEP_RECENT_MESSAGES = 10

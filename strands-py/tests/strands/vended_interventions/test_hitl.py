@@ -565,14 +565,14 @@ class TestStdioMode:
 
 
 class TestPublicExports:
-    """Only HumanInTheLoop is exported; the callback Protocols stay defined but unexported."""
+    """Public API exports: HumanInTheLoop, HumanInTheLoopClassifier, LLMClassifierConfig."""
 
-    def test_only_human_in_the_loop_is_exported(self):
+    def test_public_exports(self):
         import strands.vended_interventions as vended
         import strands.vended_interventions.hitl as hitl
 
         assert vended.__all__ == ["CedarAuthorization", "HumanInTheLoop"]
-        assert hitl.__all__ == ["HumanInTheLoop"]
+        assert hitl.__all__ == ["HumanInTheLoop", "HumanInTheLoopClassifier", "LLMClassifierConfig"]
         assert vended.HumanInTheLoop is hitl.HumanInTheLoop
         assert hitl.HumanInTheLoop.name == "strands:human-in-the-loop"
 
@@ -661,3 +661,442 @@ class TestCustomInterventionHandler:
         result = agent("Run tool")
         assert result.stop_reason == "end_turn"
         assert executed == [True]
+
+
+class TestClassifierMode:
+    """Tests for the classifier option that enables LLM-driven risk classification."""
+
+    def test_classifier_true_interrupts_when_risky(self):
+        from unittest.mock import MagicMock
+
+        from strands.vended_interventions.hitl.classifier import ClassifierResult
+
+        executed = []
+
+        @tool(name="delete_file")
+        def delete_file() -> str:
+            executed.append(True)
+            return "deleted"
+
+        agent_model = MockedModelProvider(
+            [tool_use_message("delete_file", tool_input={"path": "/data"}), text_message("Done")]
+        )
+
+        mock_classifier = MagicMock(
+            return_value=ClassifierResult(requires_human_in_the_loop=True, reason="destructive operation")
+        )
+
+        agent = Agent(
+            model=agent_model,
+            tools=[delete_file],
+            interventions=[HumanInTheLoop(classifier=mock_classifier)],
+        )
+
+        result = agent("Delete the file")
+
+        assert result.stop_reason == "interrupt"
+        assert executed == []
+        assert "destructive operation" in result.interrupts[0].reason
+
+    def test_classifier_allows_tool_when_not_risky(self):
+        from unittest.mock import MagicMock
+
+        from strands.vended_interventions.hitl.classifier import ClassifierResult
+
+        executed = []
+
+        @tool(name="read_file")
+        def read_file() -> str:
+            executed.append(True)
+            return "content"
+
+        agent_model = MockedModelProvider(
+            [tool_use_message("read_file", tool_input={"path": "/tmp/x"}), text_message("Done")]
+        )
+
+        mock_classifier = MagicMock(
+            return_value=ClassifierResult(requires_human_in_the_loop=False, reason="read-only operation")
+        )
+
+        agent = Agent(
+            model=agent_model,
+            tools=[read_file],
+            interventions=[HumanInTheLoop(classifier=mock_classifier)],
+        )
+
+        result = agent("Read the file")
+
+        assert result.stop_reason == "end_turn"
+        assert executed == [True]
+
+    def test_allowed_tools_bypasses_classifier(self):
+        from unittest.mock import MagicMock
+
+        from strands.vended_interventions.hitl.classifier import ClassifierResult
+
+        executed = []
+
+        @tool(name="read_file")
+        def read_file() -> str:
+            executed.append(True)
+            return "content"
+
+        agent_model = MockedModelProvider([tool_use_message("read_file"), text_message("Done")])
+
+        mock_classifier = MagicMock(
+            return_value=ClassifierResult(requires_human_in_the_loop=True, reason="should not be called")
+        )
+
+        agent = Agent(
+            model=agent_model,
+            tools=[read_file],
+            interventions=[HumanInTheLoop(allowed_tools=["read_file"], classifier=mock_classifier)],
+        )
+
+        result = agent("Read")
+
+        assert result.stop_reason == "end_turn"
+        assert executed == [True]
+        mock_classifier.assert_not_called()
+
+    def test_custom_classifier_function(self):
+        from strands.vended_interventions.hitl.classifier import ClassifierResult
+
+        executed = []
+
+        @tool(name="deploy")
+        def deploy() -> str:
+            executed.append(True)
+            return "deployed"
+
+        agent_model = MockedModelProvider(
+            [tool_use_message("deploy", tool_input={"env": "prod"}), text_message("Done")]
+        )
+
+        def my_classifier(event, **kwargs):
+            return ClassifierResult(
+                requires_human_in_the_loop=event.tool_use["name"] == "deploy",
+                reason="deployment requires approval",
+            )
+
+        agent = Agent(
+            model=agent_model,
+            tools=[deploy],
+            interventions=[HumanInTheLoop(classifier=my_classifier)],
+        )
+
+        result = agent("Deploy")
+
+        assert result.stop_reason == "interrupt"
+        assert executed == []
+
+    def test_classifier_reason_appears_in_prompt(self):
+        from unittest.mock import MagicMock
+
+        from strands.vended_interventions.hitl.classifier import ClassifierResult
+
+        prompts = []
+
+        @tool(name="send_email")
+        def send_email() -> str:
+            return "sent"
+
+        agent_model = MockedModelProvider(
+            [tool_use_message("send_email", tool_input={"to": "all@co.com"}), text_message("Done")]
+        )
+
+        mock_classifier = MagicMock(
+            return_value=ClassifierResult(requires_human_in_the_loop=True, reason="external communication")
+        )
+
+        def capture_ask(prompt, **kwargs):
+            prompts.append(prompt)
+            return "no"
+
+        agent = Agent(
+            model=agent_model,
+            tools=[send_email],
+            interventions=[HumanInTheLoop(classifier=mock_classifier, ask=capture_ask)],
+        )
+
+        agent("Send email")
+
+        assert "external communication" in prompts[0]
+        assert "send_email" in prompts[0]
+
+    def test_classifier_config_resolves_to_built_in(self):
+        from unittest.mock import MagicMock, patch
+
+        from strands.vended_interventions.hitl.classifier import ClassifierResult, LLMClassifierConfig
+
+        mock_fn = MagicMock(return_value=ClassifierResult(requires_human_in_the_loop=False))
+
+        with patch(
+            "strands.vended_interventions.hitl.hitl._create_llm_risk_classifier", return_value=mock_fn
+        ) as mock_create:
+            config = LLMClassifierConfig(system_prompt="custom prompt")
+            HumanInTheLoop(classifier=config)
+
+            mock_create.assert_called_once_with(config)
+
+    def test_async_custom_classifier(self):
+        from strands.vended_interventions.hitl.classifier import ClassifierResult
+
+        executed = []
+
+        @tool(name="deploy")
+        def deploy() -> str:
+            executed.append(True)
+            return "deployed"
+
+        agent_model = MockedModelProvider(
+            [tool_use_message("deploy", tool_input={"env": "prod"}), text_message("Done")]
+        )
+
+        async def my_classifier(event, **kwargs):
+            return ClassifierResult(
+                requires_human_in_the_loop=True,
+                reason="async classifier says no",
+            )
+
+        agent = Agent(
+            model=agent_model,
+            tools=[deploy],
+            interventions=[HumanInTheLoop(classifier=my_classifier)],
+        )
+
+        result = agent("Deploy")
+
+        assert result.stop_reason == "interrupt"
+        assert executed == []
+
+    def test_classifier_error_fails_closed(self):
+        executed = []
+
+        @tool(name="my_tool")
+        def my_tool() -> str:
+            executed.append(True)
+            return "ran"
+
+        def broken_classifier(event, **kwargs):
+            raise RuntimeError("model down")
+
+        agent_model = MockedModelProvider([tool_use_message("my_tool"), text_message("Done")])
+        agent = Agent(
+            model=agent_model,
+            tools=[my_tool],
+            interventions=[HumanInTheLoop(classifier=broken_classifier)],
+        )
+
+        result = agent("Go")
+
+        assert result.stop_reason == "interrupt"
+        assert executed == []
+
+    def test_malformed_classifier_result_fails_closed(self):
+        from types import SimpleNamespace
+
+        executed = []
+
+        @tool(name="my_tool")
+        def my_tool() -> str:
+            executed.append(True)
+            return "ran"
+
+        def bad_classifier(event, **kwargs):
+            return SimpleNamespace(requires_human_in_the_loop=None)
+
+        agent_model = MockedModelProvider([tool_use_message("my_tool"), text_message("Done")])
+        agent = Agent(
+            model=agent_model,
+            tools=[my_tool],
+            interventions=[HumanInTheLoop(classifier=bad_classifier)],
+        )
+
+        result = agent("Go")
+
+        assert result.stop_reason == "interrupt"
+        assert executed == []
+
+    def test_classifier_not_called_on_resume(self):
+
+        from strands.vended_interventions.hitl.classifier import ClassifierResult
+
+        executed = []
+        call_count = []
+
+        @tool(name="my_tool")
+        def my_tool() -> str:
+            executed.append(True)
+            return "ran"
+
+        def counting_classifier(event, **kwargs):
+            call_count.append(1)
+            return ClassifierResult(requires_human_in_the_loop=True, reason="risky")
+
+        agent_model = MockedModelProvider([tool_use_message("my_tool"), text_message("Done")])
+        agent = Agent(
+            model=agent_model,
+            tools=[my_tool],
+            interventions=[HumanInTheLoop(classifier=counting_classifier)],
+        )
+
+        result = agent("Go")
+        assert result.stop_reason == "interrupt"
+        assert len(call_count) == 1
+
+        interrupt_id = result.interrupts[0].id
+        result = agent([{"interruptResponse": {"interruptId": interrupt_id, "response": "y"}}])
+        assert result.stop_reason == "end_turn"
+        assert executed == [True]
+        # Classifier was only called once (not again on resume)
+        assert len(call_count) == 1
+
+    def test_wildcard_with_classifier_warns(self, caplog):
+        import logging
+
+        from strands.vended_interventions.hitl.classifier import ClassifierResult
+
+        def my_classifier(event, **kwargs):
+            return ClassifierResult(requires_human_in_the_loop=True)
+
+        with caplog.at_level(logging.WARNING):
+            HumanInTheLoop(allowed_tools=["*"], classifier=my_classifier)
+
+        assert "classifier has no effect" in caplog.text
+
+
+class TestBuiltInClassifier:
+    """Tests for the _create_llm_risk_classifier function body."""
+
+    @pytest.mark.asyncio
+    async def test_creates_inner_agent_and_returns_decision(self):
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from strands.vended_interventions.hitl.classifier import (
+            ClassifierResult,
+            _create_llm_risk_classifier,
+            _RiskDecision,
+        )
+
+        classifier = _create_llm_risk_classifier()
+
+        mock_result = MagicMock()
+        mock_result.structured_output = _RiskDecision(requires_approval=True, reason="destructive")
+
+        event = MagicMock()
+        event.tool_use = {"name": "delete_file", "input": {"path": "/data"}}
+        event.agent.model = MagicMock()
+
+        with patch("strands.agent.Agent") as mock_agent_cls:
+            mock_agent = MagicMock()
+            mock_agent.invoke_async = AsyncMock(return_value=mock_result)
+            mock_agent_cls.return_value = mock_agent
+
+            result = await classifier(event)
+
+        assert isinstance(result, ClassifierResult)
+        assert result.requires_human_in_the_loop is True
+        assert result.reason == "destructive"
+        mock_agent_cls.assert_called_once()
+        mock_agent.invoke_async.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_raises_when_no_model_available(self):
+        from unittest.mock import MagicMock
+
+        from strands.vended_interventions.hitl.classifier import _create_llm_risk_classifier
+
+        classifier = _create_llm_risk_classifier()
+
+        event = MagicMock()
+        event.tool_use = {"name": "tool", "input": {}}
+        event.agent.model = None
+
+        with pytest.raises(ValueError, match="no model"):
+            await classifier(event)
+
+    @pytest.mark.asyncio
+    async def test_raises_when_structured_output_is_none(self):
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from strands.vended_interventions.hitl.classifier import _create_llm_risk_classifier
+
+        classifier = _create_llm_risk_classifier()
+
+        mock_result = MagicMock()
+        mock_result.structured_output = None
+        mock_result.stop_reason = "end_turn"
+
+        event = MagicMock()
+        event.tool_use = {"name": "tool", "input": {}}
+        event.agent.model = MagicMock()
+
+        with patch("strands.agent.Agent") as mock_agent_cls:
+            mock_agent = MagicMock()
+            mock_agent.invoke_async = AsyncMock(return_value=mock_result)
+            mock_agent_cls.return_value = mock_agent
+
+            with pytest.raises(ValueError, match="no structured output"):
+                await classifier(event)
+
+    @pytest.mark.asyncio
+    async def test_uses_configured_model_over_agent_model(self):
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from strands.vended_interventions.hitl.classifier import (
+            LLMClassifierConfig,
+            _create_llm_risk_classifier,
+            _RiskDecision,
+        )
+
+        configured_model = MagicMock(name="configured_model")
+        agent_model = MagicMock(name="agent_model")
+        classifier = _create_llm_risk_classifier(LLMClassifierConfig(model=configured_model))
+
+        mock_result = MagicMock()
+        mock_result.structured_output = _RiskDecision(requires_approval=False, reason="safe")
+
+        event = MagicMock()
+        event.tool_use = {"name": "read", "input": {}}
+        event.agent.model = agent_model
+
+        with patch("strands.agent.Agent") as mock_agent_cls:
+            mock_agent = MagicMock()
+            mock_agent.invoke_async = AsyncMock(return_value=mock_result)
+            mock_agent_cls.return_value = mock_agent
+
+            await classifier(event)
+
+        call_kwargs = mock_agent_cls.call_args[1]
+        assert call_kwargs["model"] is configured_model
+
+    @pytest.mark.asyncio
+    async def test_uses_custom_system_prompt(self):
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from strands.vended_interventions.hitl.classifier import (
+            LLMClassifierConfig,
+            _create_llm_risk_classifier,
+            _RiskDecision,
+        )
+
+        custom_prompt = "Only approve writes."
+        classifier = _create_llm_risk_classifier(LLMClassifierConfig(system_prompt=custom_prompt))
+
+        mock_result = MagicMock()
+        mock_result.structured_output = _RiskDecision(requires_approval=False, reason="ok")
+
+        event = MagicMock()
+        event.tool_use = {"name": "read", "input": {}}
+        event.agent.model = MagicMock()
+
+        with patch("strands.agent.Agent") as mock_agent_cls:
+            mock_agent = MagicMock()
+            mock_agent.invoke_async = AsyncMock(return_value=mock_result)
+            mock_agent_cls.return_value = mock_agent
+
+            await classifier(event)
+
+        call_kwargs = mock_agent_cls.call_args[1]
+        assert call_kwargs["system_prompt"] == custom_prompt

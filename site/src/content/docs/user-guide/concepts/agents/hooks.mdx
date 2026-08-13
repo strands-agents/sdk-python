@@ -152,11 +152,15 @@ flowchart LR
   end
   subgraph Tool["Tool Events"]
     direction TB
+        BeforeToolsEvent["BeforeToolsEvent"]
         BeforeToolCallEvent["BeforeToolCallEvent"]
         AfterToolCallEvent["AfterToolCallEvent"]
+        AfterToolsEvent["AfterToolsEvent"]
         ToolMessage["MessageAddedEvent"]
+        BeforeToolsEvent --> BeforeToolCallEvent
         BeforeToolCallEvent --> AfterToolCallEvent
-        AfterToolCallEvent --> ToolMessage
+        AfterToolCallEvent --> AfterToolsEvent
+        AfterToolsEvent --> ToolMessage
   end
   subgraph End["Request End Events"]
     direction TB
@@ -193,15 +197,19 @@ flowchart LR
   end
   subgraph Tool["Tool Events"]
     direction TB
+        BeforeToolsEvent["BeforeToolsEvent"]
         BeforeToolCallEvent["BeforeToolCallEvent"]
         ToolStreamUpdateEvent["ToolStreamUpdateEvent"]
         ToolResultEvent["ToolResultEvent"]
         AfterToolCallEvent["AfterToolCallEvent"]
+        AfterToolsEvent["AfterToolsEvent"]
         ToolMessage["MessageAddedEvent"]
+        BeforeToolsEvent --> BeforeToolCallEvent
         BeforeToolCallEvent --> ToolStreamUpdateEvent
         ToolStreamUpdateEvent --> ToolResultEvent
         ToolResultEvent --> AfterToolCallEvent
-        AfterToolCallEvent --> ToolMessage
+        AfterToolCallEvent --> AfterToolsEvent
+        AfterToolsEvent --> ToolMessage
   end
   subgraph End["Request End Events"]
     direction TB
@@ -294,8 +302,10 @@ Init --> Invocation
 | `MessageAddedEvent`                | Triggered when a message is added to the agent's conversation history                                         |
 | `BeforeModelCallEvent`             | Triggered before the model is invoked for inference                                                           |
 | `AfterModelCallEvent`              | Triggered after model invocation completes. Uses reverse callback ordering                                    |
+| `BeforeToolsEvent`                 | Triggered before tools are executed in a batch                                                                |
 | `BeforeToolCallEvent`              | Triggered before a tool is invoked                                                                            |
 | `AfterToolCallEvent`               | Triggered after tool invocation completes. Uses reverse callback ordering                                     |
+| `AfterToolsEvent`                  | Triggered after tools are executed in a batch. Uses reverse callback ordering                                 |
 | `MultiAgentInitializedEvent`       | Triggered when multi-agent orchestrator is initialized                                                        |
 | `BeforeMultiAgentInvocationEvent`  | Triggered before orchestrator execution starts                                                                |
 | `AfterMultiAgentInvocationEvent`   | Triggered after orchestrator execution completes. Uses reverse callback ordering                              |
@@ -350,6 +360,9 @@ Most event properties are read-only to prevent unintended modifications. However
 - [`AfterModelCallEvent`](@api/python/strands.hooks.events#AfterModelCallEvent)
     - `retry` - Request a retry of the model invocation. See [Model Call Retry](#model-call-retry).
 
+- [`BeforeToolsEvent`](@api/python/strands.hooks.events#BeforeToolsEvent)
+    - `cancel` - Cancel all tool calls in the batch with a message. See [Limit Tool Counts](#limit-tool-counts).
+
 - [`BeforeToolCallEvent`](@api/python/strands.hooks.events#BeforeToolCallEvent)
     - `cancel_tool` - Cancel tool execution with a message. See [Limit Tool Counts](#limit-tool-counts).
     - `selected_tool` - Replace the tool to be executed. See [Tool Interception](#tool-interception).
@@ -359,6 +372,9 @@ Most event properties are read-only to prevent unintended modifications. However
     - `result` - Modify the tool result. See [Result Modification](#result-modification).
     - `retry` - Request a retry of the tool invocation. See [Tool Call Retry](#tool-call-retry).
     - `exception` *(read-only)* - The original exception if the tool raised one, otherwise `None`. See [Exception Handling](#exception-handling).
+
+- [`AfterToolsEvent`](@api/python/strands.hooks.events#AfterToolsEvent)
+    - `end_turn` - Halt the agent loop after the tool batch without calling the model again. Set `True` for a default final assistant message, or a string to use as the final assistant message. The returned result has `stop_reason="end_turn"`.
 
 - [`AfterInvocationEvent`](@api/python/strands.hooks.events#AfterInvocationEvent)
     - `resume` - Trigger a follow-up agent invocation with new input. See [Invocation resume](#invocation-resume).
@@ -386,6 +402,9 @@ Most event properties are read-only to prevent unintended modifications. However
 - `AfterToolCallEvent`
     - `retry` - Request a retry of the tool invocation.
     - `result` - Mutable. Rewrite the `ToolResultBlock` before it propagates to the model. See [Result Modification](#result-modification).
+
+- `AfterToolsEvent`
+    - `endTurn` - Halt the agent loop after the tool batch without calling the model again. Set `true` for a default final assistant message, or a string to use as the final assistant message. The returned result has `stopReason="endTurn"`.
 
 - `AfterInvocationEvent`
     - `resume` - Trigger a follow-up agent invocation with new input. Setting it re-enters the agent loop under the same invocation lock. See [Invocation resume](#invocation-resume).
@@ -956,8 +975,8 @@ class RetryOnServiceUnavailable(HookProvider):
 </Tab>
 <Tab label="TypeScript">
 
-```ts
-// This feature is not yet available in TypeScript SDK
+```typescript
+--8<-- "user-guide/concepts/agents/hooks.ts:model_call_retry_class"
 ```
 </Tab>
 </Tabs>
@@ -978,8 +997,8 @@ result = agent("What is the capital of France?")
 </Tab>
 <Tab label="TypeScript">
 
-```ts
-// This feature is not yet available in TypeScript SDK
+```typescript
+--8<-- "user-guide/concepts/agents/hooks.ts:model_call_retry_usage"
 ```
 </Tab>
 </Tabs>
@@ -1072,8 +1091,8 @@ class RetryOnToolError(HookProvider):
 </Tab>
 <Tab label="TypeScript">
 
-```ts
-// This feature is not yet available in TypeScript SDK
+```typescript
+--8<-- "user-guide/concepts/agents/hooks.ts:tool_call_retry_class"
 ```
 </Tab>
 </Tabs>
@@ -1106,8 +1125,8 @@ result = agent("Look up the weather")
 </Tab>
 <Tab label="TypeScript">
 
-```ts
-// This feature is not yet available in TypeScript SDK
+```typescript
+--8<-- "user-guide/concepts/agents/hooks.ts:tool_call_retry_usage"
 ```
 </Tab>
 </Tabs>

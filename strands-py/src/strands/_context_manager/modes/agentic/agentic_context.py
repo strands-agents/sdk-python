@@ -1,5 +1,8 @@
 """Agentic context management: model-driven compression via injected tools.
 
+.. warning:: Experimental
+    This module is experimental and may change in future versions.
+
 When an agent is created with ``context_manager="agentic"``, three tools are injected
 (``summarize_context``, ``truncate_context``, ``pin_context``) that let the model manage
 its own conversation history, plus a middleware that surfaces live token usage to the model
@@ -20,7 +23,7 @@ from ....agent.conversation_manager.compression.context_compression import (
     matches_message_type,
 )
 from ....agent.conversation_manager.compression.pin_message import is_pinned, pin_message, unpin_message
-from ....agent.conversation_manager.conversation_manager import DEFAULT_CONTEXT_WINDOW_LIMIT
+from ....models._defaults import DEFAULT_CONTEXT_WINDOW_LIMIT
 from ....tools.decorator import tool
 from ....types.content import Message, _ensure_tracking_id
 from ....types.exceptions import ContextWindowOverflowException

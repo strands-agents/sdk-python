@@ -24,9 +24,6 @@ class HttpRequestOutput(TypedDict):
 
 DEFAULT_HTTP_REQUEST_DESCRIPTION = (
     "Makes HTTP requests to external APIs. Supports GET, POST, PUT, DELETE, PATCH, HEAD, "
-    "and OPTIONS methods. Returns response with status, headers, and body. "
-    "Requests to non-public destinations (loopback, RFC1918, link-local, multicast, "
-    "reserved, and cloud metadata endpoints) are rejected by default; the tool operator "
-    "can allowlist specific hosts."
+    "and OPTIONS methods. Returns response with status, headers, and body."
 )
 """Description for the http_request tool shown to the model."""

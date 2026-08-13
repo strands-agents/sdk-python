@@ -1,0 +1,61 @@
+---
+/**
+ * Facet controls (SDK, language, verified, type chips) for the search dialog.
+ * Static markup with data-cat-* hooks; the page script binds every instance
+ * document-wide, so these stay in sync with the filter bar's language/SDK
+ * segments and the left rail's type/badge chips.
+ */
+import CatalogSegments from './CatalogSegments.astro'
+import { TYPE_ICONS, VERIFIED_ICON, type FacetOption } from './types'
+
+interface Props {
+  types: FacetOption[]
+  showSdkFacet: boolean
+  hasVerified: boolean
+  hasFeatured: boolean
+  hasNew: boolean
+}
+
+const { types, showSdkFacet, hasVerified, hasFeatured, hasNew } = Astro.props
+---
+
+<div class="cat-facet-row">
+  <CatalogSegments showSdkFacet={showSdkFacet} />
+  {
+    hasFeatured && (
+      <button class="cat-seg-btn cat-seg-btn--solo" type="button" data-cat-badge="featured" aria-pressed="false">
+        Featured
+      </button>
+    )
+  }
+  {
+    hasNew && (
+      <button class="cat-seg-btn cat-seg-btn--solo" type="button" data-cat-badge="new" aria-pressed="false">
+        New
+      </button>
+    )
+  }
+  {
+    hasVerified && (
+      <button class="cat-seg-btn cat-seg-btn--solo" type="button" data-cat-badge="verified" aria-pressed="false">
+        <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="currentColor" d={VERIFIED_ICON} />
+        </svg>
+        Verified
+      </button>
+    )
+  }
+</div>
+<div class="cat-type-rail" role="group" aria-label="Type">
+  {
+    types.map((t) => (
+      <button class="cat-chip" type="button" data-cat-type={t.value} aria-pressed="false">
+        <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="currentColor" d={TYPE_ICONS[t.value]} />
+        </svg>
+        {t.label}
+        <span class="cat-count">{t.count}</span>
+      </button>
+    ))
+  }
+</div>

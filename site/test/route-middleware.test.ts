@@ -18,7 +18,7 @@ const testNavLinks: NavLink[] = [
   { label: 'Home', href: '/' },
   { label: 'User Guide', href: '/docs/user-guide/quickstart/overview/', basePath: '/docs/user-guide/' },
   { label: 'Examples', href: '/docs/examples/', basePath: '/docs/examples/' },
-  { label: 'Community', href: '/docs/community/community-packages/', basePath: '/docs/community/' },
+  { label: 'Integrations', href: '/integrations/', basePath: ['/integrations/', '/docs/integrations/'] },
   { label: 'Contribute', href: 'https://github.com/example', external: true },
 ]
 
@@ -88,10 +88,10 @@ describe('findCurrentNavSection', () => {
     expect(result?.label).toBe('User Guide')
   })
 
-  it('should find Community nav for community paths', () => {
-    const result = findCurrentNavSection('/docs/community/community-packages/', testNavLinks)
+  it('should find Integrations nav for integrations docs paths', () => {
+    const result = findCurrentNavSection('/docs/integrations/get-featured/', testNavLinks)
     expect(result).toBeDefined()
-    expect(result?.label).toBe('Community')
+    expect(result?.label).toBe('Integrations')
   })
 
   it('should find Home nav for root path', () => {
@@ -156,19 +156,19 @@ describe('Sidebar filtering with live navigation.yml data', () => {
     })
   })
 
-  it('should filter sidebar to only Community items for /community/ basePath', () => {
-    const result = filterSidebarByBasePath(runtimeSidebar as any, '/docs/community/')
+  it('should filter sidebar to only Integrations items for /integrations/ basePath', () => {
+    const result = filterSidebarByBasePath(runtimeSidebar as any, '/docs/integrations/')
 
     const allLinks = getAllLinks(result)
-    console.log(`\nCommunity section has ${allLinks.length} links`)
+    console.log(`\nIntegrations section has ${allLinks.length} links`)
 
     expect(allLinks.length).toBeGreaterThan(0)
     allLinks.forEach((link) => {
-      expect(link.href).toMatch(/^\/docs\/community\//)
+      expect(link.href).toMatch(/^\/docs\/integrations\//)
     })
   })
 
-  it('should not include User Guide or Community items when filtering for Examples', () => {
+  it('should not include User Guide or Integrations items when filtering for Examples', () => {
     const result = filterSidebarByBasePath(runtimeSidebar as any, '/docs/examples/')
 
     const allLinks = getAllLinks(result)
@@ -228,12 +228,12 @@ describe('Integration: Full filtering flow', () => {
     })
   })
 
-  it('should correctly filter sidebar for /community/community-packages/ page', () => {
-    const currentPath = '/docs/community/community-packages/'
+  it('should correctly filter sidebar for integrations docs pages', () => {
+    const currentPath = '/docs/integrations/get-featured/'
     const currentNav = findCurrentNavSection(currentPath, testNavLinks)
 
     expect(currentNav).toBeDefined()
-    expect(currentNav?.label).toBe('Community')
+    expect(currentNav?.label).toBe('Integrations')
 
     const basePath = currentNav?.basePath || currentNav?.href || ''
     const filtered = filterSidebarByBasePath(runtimeSidebar as any, basePath)
@@ -242,7 +242,7 @@ describe('Integration: Full filtering flow', () => {
     const allLinks = getAllLinks(result)
     expect(allLinks.length).toBeGreaterThan(0)
     allLinks.forEach((link) => {
-      expect(link.href.startsWith('/docs/community/')).toBe(true)
+      expect(link.href.startsWith('/docs/integrations/')).toBe(true)
     })
   })
 })

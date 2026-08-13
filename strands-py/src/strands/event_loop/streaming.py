@@ -294,6 +294,11 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
         try:
             current_tool_use["input"] = json.loads(current_tool_use["input"])
         except ValueError:
+            logger.warning(
+                "tool_name=<%s>, raw_input=<%s> | failed to parse tool input json, defaulting to empty dict",
+                current_tool_use.get("name", "unknown"),
+                current_tool_use["input"][:200] if isinstance(current_tool_use.get("input"), str) else "",
+            )
             current_tool_use["input"] = {}
 
         tool_use_id = current_tool_use.get("toolUseId", "")
@@ -338,8 +343,9 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
             }
         }
 
-        if "signature" in state:
-            content_block["reasoningContent"]["reasoningText"]["signature"] = state["signature"]
+        # Consume the signature so it belongs to exactly this block and does not leak into the next one.
+        if (signature := state.pop("signature", None)) is not None:
+            content_block["reasoningContent"]["reasoningText"]["signature"] = signature
 
         content.append(content_block)
         state["reasoningText"] = ""
