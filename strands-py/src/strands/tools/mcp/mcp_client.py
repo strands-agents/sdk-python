@@ -26,6 +26,7 @@ from pathlib import Path
 from re import Pattern
 from types import TracebackType
 from typing import Any, TypeVar, cast
+from urllib.parse import unquote
 
 import anyio
 from mcp import ClientSession, ListToolsResult, StdioServerParameters, stdio_client
@@ -57,7 +58,7 @@ from typing_extensions import Protocol, TypedDict
 
 from ...types import PaginatedList
 from ...types.exceptions import MCPClientInitializationError, ToolProviderException
-from ...types.media import ImageFormat
+from ...types.media import DocumentFormat, ImageFormat
 from ...types.tools import AgentTool, ToolResultContent, ToolResultStatus
 from ..tool_provider import ToolProvider
 from .mcp_agent_tool import MCPAgentTool
@@ -136,6 +137,23 @@ MIME_TO_FORMAT: dict[str, ImageFormat] = {
     "image/gif": "gif",
     "image/webp": "webp",
 }
+
+MIME_TO_DOCUMENT_FORMAT: dict[str, DocumentFormat] = {
+    "application/pdf": "pdf",
+    "application/msword": "doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "application/vnd.ms-excel": "xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+}
+"""Binary document MIME types, mapped to their DocumentFormat.
+
+Textual document formats (csv, html, txt, md) are deliberately absent: their MIME
+types are already decoded to text content by the textual branch below, which loses
+nothing and keeps existing behavior unchanged.
+"""
+
+_DOCUMENT_NAME_DISALLOWED = re.compile(r"[^a-zA-Z0-9\s\-()\[\]]")
+_DOCUMENT_NAME_WHITESPACE = re.compile(r"\s+")
 
 CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE = (
     "the client session is not running. Ensure the agent is used within "
@@ -1203,6 +1221,22 @@ class MCPClient(ToolProvider):
                         }
                     }
 
+                if resource.mimeType in MIME_TO_DOCUMENT_FORMAT:
+                    if not raw_bytes:
+                        self._log_debug_with_thread("embedded resource document blob is empty - dropping")
+                        return None
+
+                    self._log_debug_with_thread(
+                        "mapping MCP embedded resource document with mime type: %s", resource.mimeType
+                    )
+                    return {
+                        "document": {
+                            "format": MIME_TO_DOCUMENT_FORMAT[resource.mimeType],
+                            "name": _document_name_from_uri(str(resource.uri)),
+                            "source": {"bytes": raw_bytes},
+                        }
+                    }
+
                 self._log_debug_with_thread("embedded resource blob with non-textual/unknown mimeType - dropping")
                 return None
 
@@ -1788,3 +1822,28 @@ def _interpolate_env_vars(value: Any) -> Any:
     if isinstance(value, dict):
         return {key: _interpolate_env_vars(item) for key, item in value.items()}
     return value
+
+
+def _document_name_from_uri(uri: str) -> str:
+    """Derives a document name from a resource URI.
+
+    DocumentContent leaves name optional, but the providers that consume it do not:
+    Bedrock's DocumentBlock requires a non-empty name, so omitting it produces a
+    request the API rejects. MCP resources carry only a URI, so a name is derived
+    from it here.
+
+    The URI's last segment is sanitized rather than passed through, because Bedrock
+    also constrains the name's contents - alphanumerics, whitespace, hyphens,
+    parentheses, and square brackets only, no consecutive whitespace, and no dots.
+    The extension is dropped for that reason; the format is carried separately.
+
+    Args:
+        uri: The resource URI, e.g. "mcp://resource/uat%20results.pdf"
+
+    Returns:
+        str: A sanitized document name, never empty.
+    """
+    last_segment = unquote(uri).rstrip("/").rsplit("/", 1)[-1]
+    stem = last_segment.rsplit(".", 1)[0] if "." in last_segment else last_segment
+    sanitized = _DOCUMENT_NAME_WHITESPACE.sub(" ", _DOCUMENT_NAME_DISALLOWED.sub("-", stem)).strip()
+    return sanitized or "document"

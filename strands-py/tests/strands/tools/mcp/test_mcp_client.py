@@ -24,6 +24,7 @@ from mcp.types import Tool as MCPTool
 from pydantic import AnyUrl
 
 from strands.tools.mcp import MCPClient
+from strands.tools.mcp.mcp_client import _document_name_from_uri
 from strands.tools.mcp.mcp_types import MCPToolResult
 from strands.types.exceptions import MCPClientInitializationError
 
@@ -1135,6 +1136,102 @@ def test_call_tool_sync_embedded_non_textual_blob_dropped(mock_transport, mock_s
         mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None, progress_callback=None, meta=None)
         assert result["status"] == "success"
         assert len(result["content"]) == 0  # Content should be dropped
+
+
+def test_call_tool_sync_embedded_document_blob(mock_transport, mock_session):
+    """EmbeddedResource.resource (blob with document MIME) should map to document content."""
+    pdf_bytes = b"%PDF-1.4 fake document bytes"
+    payload = base64.b64encode(pdf_bytes).decode()
+
+    embedded_resource = {
+        "type": "resource",
+        "resource": {
+            "uri": "mcp://resource/uat-results.pdf",
+            "blob": payload,
+            "mimeType": "application/pdf",
+        },
+    }
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[embedded_resource])
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="er-document", name="get_file_contents", arguments={})
+
+        mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None, progress_callback=None, meta=None)
+        assert result["status"] == "success"
+        assert len(result["content"]) == 1
+        assert result["content"][0]["document"]["format"] == "pdf"
+        assert result["content"][0]["document"]["name"] == "uat-results"
+        assert result["content"][0]["document"]["source"]["bytes"] == pdf_bytes
+
+
+@pytest.mark.parametrize(
+    ("mime_type", "expected_format"),
+    [
+        ("application/pdf", "pdf"),
+        ("application/msword", "doc"),
+        ("application/vnd.openxmlformats-officedocument.wordprocessingml.document", "docx"),
+        ("application/vnd.ms-excel", "xls"),
+        ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xlsx"),
+    ],
+)
+def test_call_tool_sync_embedded_document_mime_types(mock_transport, mock_session, mime_type, expected_format):
+    """Every document MIME type should map to its DocumentFormat."""
+    embedded_resource = {
+        "type": "resource",
+        "resource": {
+            "uri": "mcp://resource/attachment",
+            "blob": base64.b64encode(b"document bytes").decode(),
+            "mimeType": mime_type,
+        },
+    }
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[embedded_resource])
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="er-doc-mime", name="get_file_contents", arguments={})
+
+        assert result["status"] == "success"
+        assert result["content"][0]["document"]["format"] == expected_format
+
+
+def test_call_tool_sync_embedded_empty_document_blob_dropped(mock_transport, mock_session):
+    """A document blob that decodes to zero bytes should be dropped.
+
+    base64.b64decode discards non-alphabet characters, so a corrupt blob can decode
+    without raising and still yield nothing. An empty document source is rejected by
+    providers, so it must not be forwarded.
+    """
+    embedded_resource = {
+        "type": "resource",
+        "resource": {
+            "uri": "mcp://resource/empty.pdf",
+            "blob": "!!!!",
+            "mimeType": "application/pdf",
+        },
+    }
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[embedded_resource])
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="er-empty-doc", name="get_file_contents", arguments={})
+
+        assert result["status"] == "success"
+        assert len(result["content"]) == 0
+
+
+@pytest.mark.parametrize(
+    ("uri", "expected_name"),
+    [
+        ("mcp://resource/uat-results.pdf", "uat-results"),
+        ("mcp://resource/uat%20results%20v2.pdf", "uat results v2"),
+        ("mcp://resource/report.final.pdf", "report-final"),
+        ("servicenow://attachment/abc123/Change (CHG0012345).pdf", "Change (CHG0012345)"),
+        ("mcp://resource/no-extension", "no-extension"),
+        ("mcp://resource/", "resource"),
+        ("mcp://resource/.pdf", "document"),
+    ],
+)
+def test_document_name_from_uri(uri, expected_name):
+    """Document names should be derived from the URI and sanitized for providers."""
+    assert _document_name_from_uri(uri) == expected_name
 
 
 def test_call_tool_sync_embedded_multiple_textual_mimes(mock_transport, mock_session):
