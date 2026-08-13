@@ -173,7 +173,7 @@ describe('catalog content collection', () => {
     const byTier = Map.groupBy(entries, (e) => e.data.maintainedBy)
     expect(byTier.get('strands')?.length).toBe(28)
     expect(byTier.get('aws')?.length).toBe(7)
-    expect(byTier.get('vendor')?.length).toBe(20)
+    expect(byTier.get('vendor')?.length).toBe(21)
     // Built-ins point at their source path in the SDK monorepo and always
     // have on-site docs.
     for (const e of byTier.get('strands') ?? []) {
