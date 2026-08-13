@@ -1271,8 +1271,8 @@ export class BedrockModel extends Model<BedrockModelConfig> {
 
       case 'cachePointBlock': {
         const cachePoint: BedrockCachePointBlock = { type: block.cacheType }
-        if (block.ttl !== undefined) {
-          // Bedrock validates TTL values server-side, so accept any string here.
+        if (block.ttl) {
+          // Bedrock validates non-empty TTL values server-side, so do not restrict them to known values here.
           cachePoint.ttl = block.ttl as BedrockSdkCacheTTL
         }
         return { cachePoint }

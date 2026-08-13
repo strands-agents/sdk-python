@@ -823,6 +823,32 @@ describe('BedrockModel', () => {
       })
     })
 
+    // https://github.com/strands-agents/harness-sdk/issues/3759
+    it.each([null, ''])('omits a falsy ttl on user-supplied cache point blocks in messages', async (ttl) => {
+      const provider = new BedrockModel()
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('Message with cache point'),
+            new CachePointBlock({ cacheType: 'default', ttl: ttl as unknown as string }),
+          ],
+        }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      expect(mockConverseStreamCommand).toHaveBeenLastCalledWith({
+        messages: [
+          {
+            role: 'user',
+            content: [{ text: 'Message with cache point' }, { cachePoint: { type: 'default' } }],
+          },
+        ],
+        modelId: expect.any(String),
+      })
+    })
+
     it('preserves ttl on cache point blocks in system prompt', async () => {
       const provider = new BedrockModel()
       const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
