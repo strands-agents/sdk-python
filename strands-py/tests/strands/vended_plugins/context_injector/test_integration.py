@@ -35,6 +35,20 @@ def model_seen(model):
     return seen
 
 
+@pytest.fixture
+def trailing_blocks_seen(model):
+    """Capture the ``per_call_trailing_blocks`` each model call receives, wrapping the mock's stream()."""
+    seen: list[int] = []
+    original_stream = model.stream
+
+    def stream(messages, *args, **kwargs):
+        seen.append(kwargs.get("per_call_trailing_blocks", 0))
+        return original_stream(messages, *args, **kwargs)
+
+    model.stream = stream
+    return seen
+
+
 def test_injected_text_reaches_model_but_not_durable_history(model, model_seen):
     agent = Agent(
         model=model,
@@ -52,3 +66,25 @@ def test_injected_text_reaches_model_but_not_durable_history(model, model_seen):
     # (b) The durable conversation never contains the injected text.
     assert "<ctx>EPHEMERAL</ctx>" not in _texts(agent.messages)
     assert "what is the weather?" in _texts(agent.messages)
+
+
+def test_per_call_trailing_blocks_reaches_the_model(model, trailing_blocks_seen):
+    """The boundary is only useful if it survives the whole chain down to the provider call."""
+    agent = Agent(
+        model=model,
+        callback_handler=None,
+        plugins=[ContextInjector(lambda context: "<ctx>EPHEMERAL</ctx>")],
+    )
+
+    agent("what is the weather?")
+
+    assert trailing_blocks_seen == [1]
+
+
+def test_no_per_call_trailing_blocks_reaches_the_model_without_injection(model, trailing_blocks_seen):
+    """An ordinary call reaches the provider with exactly the arguments it received before."""
+    agent = Agent(model=model, callback_handler=None)
+
+    agent("what is the weather?")
+
+    assert trailing_blocks_seen == [0]

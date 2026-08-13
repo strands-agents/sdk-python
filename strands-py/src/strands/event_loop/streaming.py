@@ -496,6 +496,7 @@ async def stream_messages(
     system_prompt_content: list[SystemContentBlock] | None = None,
     invocation_state: dict[str, Any] | None = None,
     model_state: dict[str, Any] | None = None,
+    per_call_trailing_blocks: int = 0,
     cancel_signal: threading.Event | None = None,
     **kwargs: Any,
 ) -> AsyncGenerator[TypedEvent, None]:
@@ -511,6 +512,8 @@ async def stream_messages(
             system prompt data.
         invocation_state: Caller-provided state/context that was passed to the agent when it was invoked.
         model_state: Runtime state for model providers (e.g., server-side response ids).
+        per_call_trailing_blocks: How many trailing blocks of the last user message are rebuilt on every
+            call, so a provider placing cache breakpoints keeps its own ahead of them.
         cancel_signal: Optional threading.Event to check for cancellation during streaming.
         **kwargs: Additional keyword arguments for future extensibility.
 
@@ -533,6 +536,8 @@ async def stream_messages(
         system_prompt_content=system_prompt_content,
         invocation_state=invocation_state,
         model_state=model_state,
+        # Omitted when zero, so an ordinary call's arguments are unchanged.
+        **({"per_call_trailing_blocks": per_call_trailing_blocks} if per_call_trailing_blocks else {}),
     )
 
     async for event in process_stream(chunks, start_time, cancel_signal):

@@ -46,7 +46,9 @@ export function createInjectionMiddleware(
       return context
     }
 
-    return { ...context, messages: foldIntoLastUserMessage([...context.messages], text) }
+    const { messages: folded, appended } = foldIntoLastUserMessage([...context.messages], text)
+    // Accumulate: several producers may append on one call, and the breakpoint precedes all of it.
+    return { ...context, messages: folded, perCallTrailingBlocks: (context.perCallTrailingBlocks ?? 0) + appended }
   }
 }
 
@@ -116,7 +118,7 @@ export function isUserTurn(messages: MessageData[]): boolean {
  * @returns A new array with the folded message, or the input array when there is no user message
  * @internal Delivery primitive. Reach injection through `ContextInjector` or `MemoryManager`.
  */
-export function foldIntoLastUserMessage(messages: Message[], text: string): Message[] {
+export function foldIntoLastUserMessage(messages: Message[], text: string): { messages: Message[]; appended: number } {
   let targetIndex = -1
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i]!.role === 'user') {
@@ -125,15 +127,14 @@ export function foldIntoLastUserMessage(messages: Message[], text: string): Mess
     }
   }
   if (targetIndex < 0) {
-    return messages
+    return { messages, appended: 0 }
   }
 
   const target = messages[targetIndex]!
-  const injected = new TextBlock(text)
-  // A tool result must stay the first block in the turn that answers a tool use, so append rather than
-  // prepend when the target carries one.
-  const hasToolResult = target.content.some((block) => block.type === 'toolResultBlock')
-  const content = hasToolResult ? [...target.content, injected] : [injected, ...target.content]
+  // Some providers concatenate adjacent text blocks, which would run this onto the user's own words.
+  const separator = target.content.length > 0 && !text.startsWith('\n') ? '\n\n' : ''
+  const injected = new TextBlock(`${separator}${text}`)
+  const content = [...target.content, injected]
   const folded = new Message({
     role: target.role,
     content,
@@ -144,5 +145,5 @@ export function foldIntoLastUserMessage(messages: Message[], text: string): Mess
 
   const result = [...messages]
   result[targetIndex] = folded
-  return result
+  return { messages: result, appended: targetIndex === messages.length - 1 ? 1 : 0 }
 }

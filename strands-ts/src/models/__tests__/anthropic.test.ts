@@ -1835,5 +1835,74 @@ describe('AnthropicModel', () => {
         },
       ])
     })
+
+    it('keeps the breakpoint ahead of per-call trailing content', async () => {
+      // The reusable prefix ends where per-call content begins, so the breakpoint precedes it.
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
+      const message = new Message({
+        role: 'user',
+        content: [new TextBlock('durable ask'), new TextBlock('per-call')],
+      })
+
+      await collectIterator(provider.stream([message], { perCallTrailingBlocks: 1 }))
+
+      expect(captured.request.messages[0].content).toEqual([
+        { type: 'text', text: 'durable ask', cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: 'per-call' },
+      ])
+    })
+
+    it('keeps the breakpoint ahead of a multi-block per-call tail', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
+      const message = new Message({
+        role: 'user',
+        content: [new TextBlock('durable ask'), new TextBlock('injected'), new TextBlock('status')],
+      })
+
+      await collectIterator(provider.stream([message], { perCallTrailingBlocks: 2 }))
+
+      expect(breakpoints(captured.request)).toEqual([['messages', 0, { type: 'ephemeral' }]])
+      expect(captured.request.messages[0].content[0].cache_control).toEqual({ type: 'ephemeral' })
+      expect(captured.request.messages[0].content[1].cache_control).toBeUndefined()
+      expect(captured.request.messages[0].content[2].cache_control).toBeUndefined()
+    })
+
+    it('skips the breakpoint when nothing durable precedes the per-call tail', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
+
+      await collectIterator(provider.stream([userMessage('per-call only')], { perCallTrailingBlocks: 1 }))
+
+      expect(breakpoints(captured.request)).toEqual([])
+    })
+
+    it('carries the configured ttl onto the per-call-tail breakpoint', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto', ttl: '1h' } })
+      const message = new Message({
+        role: 'user',
+        content: [new TextBlock('durable ask'), new TextBlock('per-call')],
+      })
+
+      await collectIterator(provider.stream([message], { perCallTrailingBlocks: 1 }))
+
+      expect(breakpoints(captured.request)).toEqual([['messages', 0, { type: 'ephemeral', ttl: '1h' }]])
+    })
+
+    it('emits no breakpoint for a per-call tail without cacheConfig', async () => {
+      // A per-call tail says where a breakpoint would go, never that one should exist.
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient })
+      const message = new Message({
+        role: 'user',
+        content: [new TextBlock('durable ask'), new TextBlock('per-call')],
+      })
+
+      await collectIterator(provider.stream([message], { perCallTrailingBlocks: 1 }))
+
+      expect(breakpoints(captured.request)).toEqual([])
+    })
   })
 })

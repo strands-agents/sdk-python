@@ -2007,3 +2007,68 @@ class TestPromptCaching:
                 "content": [{"type": "text", "text": "again", "cache_control": {"type": "ephemeral", "ttl": "1h"}}],
             },
         ]
+
+    def test_per_call_trailing_blocks_keeps_the_breakpoint_ahead_of_per_call_content(self, model):
+        """The reusable prefix ends where per-call content begins, so the breakpoint precedes it."""
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        messages = [{"role": "user", "content": [{"text": "durable ask"}, {"text": "per-call"}]}]
+
+        request = model.format_request(messages, per_call_trailing_blocks=1)
+
+        blocks = request["messages"][0]["content"]
+        assert [("cache_control" in block, block["text"]) for block in blocks] == [
+            (True, "durable ask"),
+            (False, "per-call"),
+        ]
+
+    def test_per_call_trailing_blocks_covers_every_block_of_a_multi_block_tail(self, model):
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        messages = [
+            {"role": "user", "content": [{"text": "durable ask"}, {"text": "injected"}, {"text": "status"}]}
+        ]
+
+        request = model.format_request(messages, per_call_trailing_blocks=2)
+
+        blocks = request["messages"][0]["content"]
+        assert [("cache_control" in block, block["text"]) for block in blocks] == [
+            (True, "durable ask"),
+            (False, "injected"),
+            (False, "status"),
+        ]
+
+    def test_per_call_trailing_blocks_skips_the_breakpoint_when_nothing_durable_precedes_it(self, model):
+        """With no durable prefix there is nothing worth a breakpoint, so none is emitted."""
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        messages = [{"role": "user", "content": [{"text": "per-call only"}]}]
+
+        request = model.format_request(messages, per_call_trailing_blocks=1)
+
+        assert self._breakpoints(request) == []
+
+    def test_per_call_trailing_blocks_carries_the_configured_ttl(self, model):
+        model.update_config(cache_config=CacheConfig(strategy="auto", ttl="1h"))
+        messages = [{"role": "user", "content": [{"text": "durable ask"}, {"text": "per-call"}]}]
+
+        request = model.format_request(messages, per_call_trailing_blocks=1)
+
+        assert self._breakpoints(request) == [("messages", 0, {"type": "ephemeral", "ttl": "1h"})]
+
+    def test_no_per_call_trailing_blocks_places_the_breakpoint_on_the_last_block(self, model):
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        messages = [{"role": "user", "content": [{"text": "durable ask"}, {"text": "also durable"}]}]
+
+        request = model.format_request(messages)
+
+        blocks = request["messages"][0]["content"]
+        assert [("cache_control" in block, block["text"]) for block in blocks] == [
+            (False, "durable ask"),
+            (True, "also durable"),
+        ]
+
+    def test_per_call_trailing_blocks_emits_no_breakpoint_without_cache_config(self, model):
+        """A per-call tail says where a breakpoint would go, never that one should exist."""
+        messages = [{"role": "user", "content": [{"text": "durable ask"}, {"text": "per-call"}]}]
+
+        request = model.format_request(messages, per_call_trailing_blocks=1)
+
+        assert self._breakpoints(request) == []

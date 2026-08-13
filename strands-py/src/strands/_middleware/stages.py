@@ -39,6 +39,13 @@ class InvokeModelContext:
     invocation_state: dict[str, Any]
     model: Model
     projected_input_tokens: int | None = None
+    per_call_trailing_blocks: int = 0
+    """How many trailing blocks of the last user message are rebuilt on every call.
+
+    Producers add to this; a provider placing prompt-cache breakpoints keeps its own ahead of the
+    count, since a prefix that changes every call is never read back. Counted from the end of the
+    message so it survives a provider's content cleaning, which only drops earlier blocks.
+    """
 
 
 InvokeModelStage: MiddlewareStage[InvokeModelContext, ModelStopReason, TypedEvent] = MiddlewareStage(name="invokeModel")
