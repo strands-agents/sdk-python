@@ -4,7 +4,8 @@ import { resolveRedirect, resolveRedirectFromUrl } from '../src/util/redirect'
 const redirectCases: Array<{ description: string; input: string; expected: string | null }> = [
   // Renamed pages
   { description: 'python-tools renamed to custom-tools',   input: 'docs/user-guide/concepts/tools/python-tools',         expected: 'docs/user-guide/concepts/tools/custom-tools' },
-  { description: 'multi_agent_example index -> main page', input: 'docs/examples/python/multi_agent_example',             expected: 'docs/examples/python/multi_agent_example/multi_agent_example' },
+  { description: 'retired example page -> samples repo',   input: 'docs/examples/python/multi_agent_example',             expected: 'https://github.com/strands-agents/samples' },
+  { description: 'unlisted examples path -> samples repo', input: 'docs/examples/some/future/page',                       expected: 'https://github.com/strands-agents/samples' },
   // Vanity URLs → external
   { description: '/discord redirects to Discord invite', input: 'discord', expected: 'https://discord.gg/strands' },
   // No redirect

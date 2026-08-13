@@ -130,20 +130,6 @@ describe('Sidebar filtering with live navigation.yml data', () => {
     console.log(`\nLoaded ${runtimeSidebar.length} top-level sidebar items`)
   })
 
-  it('should filter sidebar to only Examples items for /examples/ basePath', () => {
-    const result = filterSidebarByBasePath(runtimeSidebar as any, '/docs/examples/')
-
-    const allLinks = getAllLinks(result)
-    console.log(`\nExamples section has ${allLinks.length} links:`)
-    allLinks.slice(0, 5).forEach((link) => console.log(`  - ${link.href}`))
-    if (allLinks.length > 5) console.log(`  ... and ${allLinks.length - 5} more`)
-
-    expect(allLinks.length).toBeGreaterThan(0)
-    allLinks.forEach((link) => {
-      expect(link.href).toMatch(/^\/docs\/examples\//)
-    })
-  })
-
   it('should filter sidebar to only User Guide items for /user-guide/ basePath', () => {
     const result = filterSidebarByBasePath(runtimeSidebar as any, '/docs/user-guide/')
 
@@ -188,45 +174,6 @@ describe('Integration: Full filtering flow', () => {
   const docsDir = path.resolve('./src/content')
   const buildTimeSidebar = loadSidebarFromConfig(configPath, docsDir)
   const runtimeSidebar = convertToRuntimeFormat(buildTimeSidebar)
-
-  it('should correctly filter sidebar for /examples/ page', () => {
-    const currentPath = '/docs/examples/'
-    const currentNav = findCurrentNavSection(currentPath, testNavLinks)
-
-    expect(currentNav).toBeDefined()
-    expect(currentNav?.label).toBe('Examples')
-    expect(currentNav?.basePath).toBe('/docs/examples/')
-
-    const basePath = currentNav?.basePath || currentNav?.href || ''
-    const filtered = filterSidebarByBasePath(runtimeSidebar as any, basePath)
-    const result = applyCollapse(filtered)
-
-    const allLinks = getAllLinks(result)
-    console.log(`\n/docs/examples/ page should show ${allLinks.length} sidebar links`)
-
-    expect(allLinks.length).toBeGreaterThan(0)
-    allLinks.forEach((link) => {
-      expect(link.href.startsWith('/docs/examples/')).toBe(true)
-    })
-  })
-
-  it('should correctly filter sidebar for nested /examples/python/weather_forecaster/ page', () => {
-    const currentPath = '/docs/examples/python/weather_forecaster/'
-    const currentNav = findCurrentNavSection(currentPath, testNavLinks)
-
-    expect(currentNav).toBeDefined()
-    expect(currentNav?.label).toBe('Examples')
-
-    const basePath = currentNav?.basePath || currentNav?.href || ''
-    const filtered = filterSidebarByBasePath(runtimeSidebar as any, basePath)
-    const result = applyCollapse(filtered)
-
-    const allLinks = getAllLinks(result)
-    expect(allLinks.length).toBeGreaterThan(0)
-    allLinks.forEach((link) => {
-      expect(link.href.startsWith('/docs/examples/')).toBe(true)
-    })
-  })
 
   it('should correctly filter sidebar for integrations docs pages', () => {
     const currentPath = '/docs/integrations/get-featured/'

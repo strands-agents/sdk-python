@@ -17,8 +17,8 @@ navbar:
     href: /docs/user-guide/quickstart/typescript/
     basePath: /docs/user-guide/
   - label: Examples
-    href: /docs/examples/
-    basePath: /docs/examples/
+    href: https://github.com/strands-agents/samples
+    external: true
   - label: Integrations
     href: /integrations/
     basePath:
@@ -279,21 +279,6 @@ sidebar:
           - docs/user-guide/shell/mcp-server
           - docs/user-guide/shell/security
       - docs/user-guide/versioning-and-support
-
-  - label: Examples
-    items:
-      - docs/examples
-      - docs/examples/python/weather_forecaster
-      - docs/examples/python/memory_agent
-      - docs/examples/python/file_operations
-      - docs/examples/python/agents_workflows
-      - docs/examples/python/knowledge_base_agent
-      - docs/examples/structured_output
-      - docs/examples/python/multi_agent_example/multi_agent_example
-      - docs/examples/python/graph_loops_example
-      - docs/examples/python/meta_tooling
-      - docs/examples/python/mcp_calculator
-      - docs/examples/python/multimodal
 
   - label: Community
     items:
