@@ -23,7 +23,7 @@ from .._exception_notes import add_exception_note
 from ..event_loop import streaming
 from ..tools import convert_pydantic_to_tool_spec
 from ..tools._tool_helpers import noop_tool
-from ..types.content import ContentBlock, Messages, SystemContentBlock
+from ..types.content import CachePoint, ContentBlock, Messages, SystemContentBlock
 from ..types.exceptions import (
     ContextWindowOverflowException,
     ModelThrottledException,
@@ -55,6 +55,9 @@ BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES = [
     "too many total text bytes",
     "prompt is too long",
 ]
+
+# Bedrock reports this exact substring for the Converse incompatibility tracked in #1223.
+_TOOL_RESULT_TURN_VALIDATION_MESSAGE = "Conversation blocks and tool result blocks cannot be provided in the same turn."
 
 # Models that should include tool result status (include_tool_result_status = True)
 _MODELS_INCLUDE_STATUS = [
@@ -194,6 +197,7 @@ class BedrockModel(Model):
             model_id=BedrockModel._get_default_model_with_warning(resolved_region, model_config),
             include_tool_result_status="auto",
         )
+        self._tool_result_turn_separation_model_id: str | None = None
         self.update_config(**model_config)
 
         logger.debug("config=<%s> | initializing", self.config)
@@ -288,10 +292,17 @@ class BedrockModel(Model):
             )
             system_blocks.append({"cachePoint": {"type": cache_prompt}})
 
+        # Built ahead of the request so the tools cache point is known to the system cache point behind it.
+        tools_cache_point = self._build_tools_cache_point() if tool_specs else []
+
+        formatted_messages = self._format_bedrock_messages(messages)
+        if self._tool_result_turn_separation_model_id == self.config["model_id"]:
+            formatted_messages = self._separate_tool_result_turns(formatted_messages)
+
         return {
             "modelId": self.config["model_id"],
-            "messages": self._format_bedrock_messages(messages),
-            "system": system_blocks,
+            "messages": formatted_messages,
+            "system": self._apply_system_cache_ttl(system_blocks, tools_cache_point),
             **({"serviceTier": {"type": self.config["service_tier"]}} if self.config.get("service_tier") else {}),
             **(
                 {
@@ -312,7 +323,7 @@ class BedrockModel(Model):
                                 }
                                 for tool_spec in tool_specs
                             ],
-                            *self._build_tools_cache_point(),
+                            *tools_cache_point,
                         ],
                         **({"toolChoice": tool_choice if tool_choice else {"auto": {}}}),
                     }
@@ -386,6 +397,53 @@ class BedrockModel(Model):
             return {}
 
         return {"additionalModelRequestFields": additional_fields}
+
+    def _apply_system_cache_ttl(
+        self, system_blocks: list[SystemContentBlock], tools_cache_point: list[dict[str, Any]]
+    ) -> list[SystemContentBlock]:
+        """Apply ``cache_config.ttl`` to a caller-placed system cache point that carries no TTL of its own.
+
+        Bedrock rejects a TTL that exceeds an earlier cache point's, in the order toolConfig, system,
+        messages. Filling the system point in keeps it from sitting at the default between two configured
+        points. A TTL the caller wrote is left as written, and the fill-in stands down when the tools point
+        carries a different TTL, leaving the caller to reconcile the two.
+
+        Args:
+            system_blocks: System content blocks for the request.
+            tools_cache_point: The toolConfig cache point emitted for this request, if any.
+
+        Returns:
+            The blocks, with a cache point replaced rather than mutated since the caller owns the block.
+        """
+        ttl: str | None = None
+        cache_config = self.config.get("cache_config")
+        if cache_config and cache_config.ttl:
+            strategy: str | None = cache_config.strategy
+            if strategy == "auto":
+                strategy = self._cache_strategy
+            tools_ttl_differs = bool(tools_cache_point) and (
+                tools_cache_point[0]["cachePoint"].get("ttl") != cache_config.ttl
+            )
+            if strategy == "anthropic" and not tools_ttl_differs:
+                ttl = cache_config.ttl
+
+        normalized: list[SystemContentBlock] = []
+        for block in system_blocks:
+            cache_point = block.get("cachePoint")
+            # A TTL the caller wrote is theirs, so only a falsy one is rewritten.
+            if cache_point is None or cache_point.get("ttl"):
+                normalized.append(block)
+                continue
+
+            point: CachePoint = {**cache_point}
+            # pop() rather than a conditional write, exactly as the message path does, so both paths drop
+            # a falsy TTL by the same rule.
+            point.pop("ttl", None)
+            if ttl:
+                point["ttl"] = ttl
+            normalized.append(SystemContentBlock(**{**block, "cachePoint": point}))
+
+        return normalized
 
     def _build_tools_cache_point(self) -> list[dict[str, Any]]:
         """Build the cache point block appended to ``toolConfig.tools`` if ``cache_tools`` is configured.
@@ -686,6 +744,33 @@ class BedrockModel(Model):
                 self._inject_cache_point(cleaned_messages)
 
         return cleaned_messages
+
+    @staticmethod
+    def _separate_tool_result_turns(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Separate adjacent user turns rejected by some Bedrock models.
+
+        A neutral assistant turn separates a tool-result-only user turn from the
+        next conversation turn described in #1223. The transformation is
+        request-local and idempotent, so persisted conversation history is not
+        mutated and repeated application does not add more separators.
+        """
+        separated_messages: list[dict[str, Any]] = []
+
+        for message in messages:
+            if separated_messages and separated_messages[-1].get("role") == "user" and message.get("role") == "user":
+                previous_content = separated_messages[-1].get("content", [])
+                current_content = message.get("content", [])
+                if (
+                    previous_content
+                    and all("toolResult" in block for block in previous_content)
+                    and current_content
+                    and all("toolResult" not in block for block in current_content)
+                ):
+                    separated_messages.append({"role": "assistant", "content": [{"text": "Tool result received."}]})
+
+            separated_messages.append(message)
+
+        return separated_messages
 
     def _should_include_tool_result_status(self) -> bool:
         """Determine whether to include tool result status based on current config."""
@@ -1127,14 +1212,35 @@ class BedrockModel(Model):
         try:
             logger.debug("formatting request")
             request = self.format_request(messages, tool_specs, system_prompt_content, tool_choice)
+            model_id = request["modelId"]
             logger.debug("request=<%s>", request)
 
             logger.debug("invoking model")
             streaming = self.config.get("streaming", True)
+            converse_method = self.client.converse_stream if streaming else self.client.converse
+
+            try:
+                response = converse_method(**request)
+            except ClientError as error:
+                error_details = error.response.get("Error", {})
+                if error_details.get(
+                    "Code"
+                ) != "ValidationException" or _TOOL_RESULT_TURN_VALIDATION_MESSAGE not in error_details.get(
+                    "Message", ""
+                ):
+                    raise
+
+                separated_messages = self._separate_tool_result_turns(request["messages"])
+                if separated_messages == request["messages"]:
+                    raise
+
+                logger.debug("model_id=<%s> | separating tool result and conversation turns", model_id)
+                request = {**request, "messages": separated_messages}
+                response = converse_method(**request)
+                self._tool_result_turn_separation_model_id = model_id
 
             logger.debug("got response from model")
             if streaming:
-                response = self.client.converse_stream(**request)
                 for chunk in response["stream"]:
                     if (
                         "metadata" in chunk
@@ -1149,7 +1255,6 @@ class BedrockModel(Model):
                     callback(chunk)
 
             else:
-                response = self.client.converse(**request)
                 for event in self.convert_non_streaming_to_streaming(response):
                     callback(event)
 

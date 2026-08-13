@@ -1206,6 +1206,81 @@ describe('BedrockModel', () => {
   })
 
   describe('stream', () => {
+    it.each([
+      { mode: 'streaming', stream: true },
+      { mode: 'non-streaming', stream: false },
+    ])('passes the cancellation signal to the $mode Bedrock request', async ({ stream }) => {
+      const mockSend = vi.fn(async () => {
+        if (stream) {
+          return {
+            stream: (async function* (): AsyncGenerator<unknown> {
+              yield { messageStart: { role: 'assistant' } }
+              yield { messageStop: { stopReason: 'end_turn' } }
+            })(),
+          }
+        }
+        return {
+          output: { message: { role: 'assistant', content: [{ text: 'Hello' }] } },
+          stopReason: 'end_turn',
+          usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+          metrics: { latencyMs: 100 },
+        }
+      })
+      mockBedrockClientImplementation({ send: mockSend })
+      const controller = new AbortController()
+      const provider = new BedrockModel({ stream })
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+
+      await collectIterator(provider.stream(messages, { cancelSignal: controller.signal }))
+
+      expect(mockSend).toHaveBeenCalledWith(expect.anything(), { abortSignal: controller.signal })
+    })
+
+    it('stops a fake in-flight Bedrock producer when the signal aborts', async () => {
+      let producedTokens = 0
+      let producerStopped = false
+      let resolveFirstToken!: () => void
+      const firstTokenProduced = new Promise<void>((resolve) => {
+        resolveFirstToken = resolve
+      })
+      const mockSend = vi.fn(async (_command: unknown, sendOptions?: unknown) => {
+        const signal = (sendOptions as { abortSignal?: AbortSignal } | undefined)?.abortSignal
+        return {
+          stream: (async function* (): AsyncGenerator<unknown> {
+            yield { messageStart: { role: 'assistant' } }
+            yield { contentBlockStart: { start: {}, contentBlockIndex: 0 } }
+            while (producedTokens < 20) {
+              if (signal?.aborted) {
+                producerStopped = true
+                break
+              }
+              producedTokens += 1
+              if (producedTokens === 1) {
+                resolveFirstToken()
+              }
+              yield { contentBlockDelta: { delta: { text: 'token ' }, contentBlockIndex: 0 } }
+              await new Promise<void>((resolve) => setTimeout(resolve, 1))
+            }
+            yield { contentBlockStop: { contentBlockIndex: 0 } }
+            yield { messageStop: { stopReason: 'end_turn' } }
+          })(),
+        }
+      })
+      mockBedrockClientImplementation({ send: mockSend })
+      const controller = new AbortController()
+      const provider = new BedrockModel()
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+
+      const streamResult = collectIterator(provider.stream(messages, { cancelSignal: controller.signal }))
+      await firstTokenProduced
+      const tokensAtCancel = producedTokens
+      controller.abort()
+      await streamResult
+
+      expect(producerStopped).toBe(true)
+      expect(producedTokens).toBe(tokensAtCancel)
+    })
+
     it('handles tool use input delta', async () => {
       setupMockSend(async function* () {
         yield { messageStart: { role: 'assistant' } }
@@ -2161,6 +2236,306 @@ describe('BedrockModel', () => {
       expect(call?.messages?.[0]?.content).toStrictEqual([
         { document: { name: 'readme', format: 'md', source: { bytes: new Uint8Array([1]) } } },
       ])
+    })
+
+    describe('cache sections', () => {
+      const toolSpecs = [{ name: 'calculator', description: 'Calculate', inputSchema: { type: 'object' as const } }]
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+
+      /** The auto-injected cache points, as [tools, lastUserMessage]. */
+      const cachePoints = (): [unknown, unknown] => {
+        const call = mockConverseStreamCommand.mock.lastCall?.[0]
+        const tools = call?.toolConfig?.tools ?? []
+        const userMsg = call?.messages?.[0]
+        const content = userMsg?.content ?? []
+        const toolsLast = tools[tools.length - 1]
+        const messagesLast = content[content.length - 1]
+        return [
+          toolsLast && 'cachePoint' in toolsLast ? toolsLast.cachePoint : undefined,
+          messagesLast && 'cachePoint' in messagesLast ? messagesLast.cachePoint : undefined,
+        ]
+      }
+
+      /** The cache points in `system`, in order. */
+      const systemCachePoints = (): unknown[] =>
+        (mockConverseStreamCommand.mock.lastCall?.[0]?.system ?? [])
+          .filter((block) => 'cachePoint' in block)
+          .map((block) => ('cachePoint' in block ? block.cachePoint : undefined))
+
+      const systemPromptWith = (ttl?: string): SystemContentBlock[] => [
+        new TextBlock('durable system prompt'),
+        new CachePointBlock({ cacheType: 'default', ...(ttl === undefined ? {} : { ttl }) }),
+      ]
+
+      it('caches every section when no strategy is given', async () => {
+        // strategy defaults to 'auto', so a config that omits it still enables caching.
+        const provider = new BedrockModel({ cacheConfig: {} })
+
+        collectIterator(provider.stream(messages, { toolSpecs }))
+
+        expect(cachePoints()).toStrictEqual([{ type: 'default' }, { type: 'default' }])
+      })
+
+      it('caches only the tool definitions when messagesTTL is false', async () => {
+        const provider = new BedrockModel({ cacheConfig: { messagesTTL: false } })
+
+        collectIterator(provider.stream(messages, { toolSpecs }))
+
+        expect(cachePoints()).toStrictEqual([{ type: 'default' }, undefined])
+      })
+
+      it('caches only the conversation when toolsTTL is false', async () => {
+        const provider = new BedrockModel({ cacheConfig: { toolsTTL: false } })
+
+        collectIterator(provider.stream(messages, { toolSpecs }))
+
+        expect(cachePoints()).toStrictEqual([undefined, { type: 'default' }])
+      })
+
+      it('emits nothing when every section is disabled', async () => {
+        const provider = new BedrockModel({ cacheConfig: { toolsTTL: false, messagesTTL: false } })
+
+        collectIterator(provider.stream(messages, { toolSpecs }))
+
+        expect(cachePoints()).toStrictEqual([undefined, undefined])
+      })
+
+      it('applies the shared ttl to both sections', async () => {
+        // Bedrock requires checkpoint TTLs to be non-increasing across toolConfig then messages, which
+        // equal values satisfy.
+        const provider = new BedrockModel({ cacheConfig: { ttl: '1h' } })
+
+        collectIterator(provider.stream(messages, { toolSpecs }))
+
+        expect(cachePoints()).toStrictEqual([
+          { type: 'default', ttl: '1h' },
+          { type: 'default', ttl: '1h' },
+        ])
+      })
+
+      it('lets a per-section ttl override the shared ttl', async () => {
+        const provider = new BedrockModel({ cacheConfig: { ttl: '1h', messagesTTL: '5m' } })
+
+        collectIterator(provider.stream(messages, { toolSpecs }))
+
+        expect(cachePoints()).toStrictEqual([
+          { type: 'default', ttl: '1h' },
+          { type: 'default', ttl: '5m' },
+        ])
+      })
+
+      it('treats an empty ttl as unset rather than shipping it', async () => {
+        // Bedrock validates ttl against an enum and rejects ''.
+        const provider = new BedrockModel({ cacheConfig: { ttl: '', messagesTTL: '' } })
+
+        collectIterator(provider.stream(messages, { toolSpecs }))
+
+        expect(cachePoints()).toStrictEqual([{ type: 'default' }, { type: 'default' }])
+      })
+
+      it('falls through an empty per-section ttl to the shared ttl', async () => {
+        // An empty section ttl is unconfigured rather than an override, so the shared one applies.
+        const provider = new BedrockModel({ cacheConfig: { ttl: '1h', messagesTTL: '' } })
+
+        collectIterator(provider.stream(messages, { toolSpecs }))
+
+        expect(cachePoints()).toStrictEqual([
+          { type: 'default', ttl: '1h' },
+          { type: 'default', ttl: '1h' },
+        ])
+      })
+
+      it('applies the shared ttl to a caller-placed system cache point', async () => {
+        // Bedrock rejects a TTL that exceeds an earlier checkpoint's, so a shared ttl that reached tools
+        // and messages but not the system point between them would emit an invalid request.
+        const provider = new BedrockModel({ cacheConfig: { ttl: '1h' } })
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt: systemPromptWith() }))
+
+        const [tools, messagePoint] = cachePoints()
+        expect([tools, systemCachePoints(), messagePoint]).toStrictEqual([
+          { type: 'default', ttl: '1h' },
+          [{ type: 'default', ttl: '1h' }],
+          { type: 'default', ttl: '1h' },
+        ])
+      })
+
+      it('falls through an empty system cache point ttl to the shared ttl', async () => {
+        const provider = new BedrockModel({ cacheConfig: { ttl: '1h' } })
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt: systemPromptWith('') }))
+
+        expect(systemCachePoints()).toStrictEqual([{ type: 'default', ttl: '1h' }])
+      })
+
+      it('leaves a system cache point ttl the caller wrote as written', async () => {
+        // Two conflicting TTLs are the caller's to reconcile; only an absent one is filled in.
+        const provider = new BedrockModel({ cacheConfig: { ttl: '1h' } })
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt: systemPromptWith('5m') }))
+
+        expect(systemCachePoints()).toStrictEqual([{ type: 'default', ttl: '5m' }])
+      })
+
+      it('leaves a system cache point alone when no ttl is configured', async () => {
+        const provider = new BedrockModel({ cacheConfig: {} })
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt: systemPromptWith() }))
+
+        expect(systemCachePoints()).toStrictEqual([{ type: 'default' }])
+      })
+
+      it('leaves a system cache point alone when the model does not support caching', async () => {
+        // A config that never reaches the wire must not reach the system point either.
+        const provider = new BedrockModel({ modelId: 'meta.llama3-70b-instruct-v1:0', cacheConfig: { ttl: '1h' } })
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt: systemPromptWith() }))
+
+        expect(systemCachePoints()).toStrictEqual([{ type: 'default' }])
+      })
+
+      it('does not mutate the system prompt blocks the caller owns', async () => {
+        const provider = new BedrockModel({ cacheConfig: { ttl: '1h' } })
+        const systemPrompt = systemPromptWith()
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt }))
+
+        expect(systemCachePoints()).toStrictEqual([{ type: 'default', ttl: '1h' }])
+        expect((systemPrompt[1] as CachePointBlock).ttl).toBeUndefined()
+      })
+
+      it('applies the shared ttl to every system cache point', async () => {
+        // Every checkpoint has to move together; a TTL on only the first would leave the rest behind it.
+        const provider = new BedrockModel({ cacheConfig: { ttl: '1h' } })
+        const systemPrompt: SystemContentBlock[] = [
+          new TextBlock('a'),
+          new CachePointBlock({ cacheType: 'default' }),
+          new TextBlock('b'),
+          new CachePointBlock({ cacheType: 'default' }),
+        ]
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt }))
+
+        expect(systemCachePoints()).toStrictEqual([
+          { type: 'default', ttl: '1h' },
+          { type: 'default', ttl: '1h' },
+        ])
+      })
+
+      it('treats an empty shared ttl as unconfigured', async () => {
+        // An empty TTL is not a TTL, so it must not reach the wire for the Bedrock enum to reject. Asserted
+        // without tools so the tools checkpoint cannot be what holds the fill-in back.
+        const provider = new BedrockModel({ cacheConfig: { ttl: '' } })
+
+        collectIterator(provider.stream(messages, { systemPrompt: systemPromptWith() }))
+
+        expect(systemCachePoints()).toStrictEqual([{ type: 'default' }])
+      })
+
+      it('drops an empty system cache point ttl when no ttl is configured', async () => {
+        // A falsy TTL is not a TTL: Bedrock validates ttl against an enum and rejects ''. No fill-in applies
+        // here, so normalizing is the only thing standing between the caller's '' and a rejected request.
+        const provider = new BedrockModel({})
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt: systemPromptWith('') }))
+
+        expect(systemCachePoints()).toStrictEqual([{ type: 'default' }])
+      })
+
+      it('drops an empty system cache point ttl behind a shorter tools ttl', async () => {
+        // The fill-in stands down behind a shorter tools TTL, but the caller's empty TTL still must not ship.
+        const provider = new BedrockModel({ cacheConfig: { ttl: '1h', toolsTTL: '5m', messagesTTL: false } })
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt: systemPromptWith('') }))
+
+        const [tools] = cachePoints()
+        expect([tools, systemCachePoints()]).toStrictEqual([{ type: 'default', ttl: '5m' }, [{ type: 'default' }]])
+      })
+
+      it('does not mutate a system cache point whose empty ttl it drops', async () => {
+        // The caller owns the block, so normalizing must not reach back into it.
+        const provider = new BedrockModel({})
+        const systemPrompt = systemPromptWith('')
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt }))
+
+        expect(systemCachePoints()).toStrictEqual([{ type: 'default' }])
+        expect((systemPrompt[1] as CachePointBlock).ttl).toBe('')
+      })
+
+      it('leaves a system cache point alone when the tools checkpoint ahead of it is shorter', async () => {
+        // Bedrock rejects a TTL longer than an earlier checkpoint's, so filling in the shared ttl over a
+        // shorter toolsTTL would trade one invalid request for another.
+        const provider = new BedrockModel({ cacheConfig: { ttl: '1h', toolsTTL: '5m', messagesTTL: false } })
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt: systemPromptWith() }))
+
+        const [tools] = cachePoints()
+        expect([tools, systemCachePoints()]).toStrictEqual([{ type: 'default', ttl: '5m' }, [{ type: 'default' }]])
+      })
+
+      it('leaves a system cache point alone when the tools checkpoint ahead of it is longer', async () => {
+        // The fill-in stands down on ANY difference from the tools TTL, not only a shortening one.
+        // Comparing two durations means parsing them, and CacheTTL accepts arbitrary strings, so a longer
+        // tools TTL is treated the same. The emitted request is equivalent either way: the provider
+        // default this leaves the point at is 5m, which is what the shared ttl would have stamped here.
+        const provider = new BedrockModel({ cacheConfig: { ttl: '5m', toolsTTL: '1h' } })
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt: systemPromptWith() }))
+
+        const [tools] = cachePoints()
+        expect([tools, systemCachePoints()]).toStrictEqual([{ type: 'default', ttl: '1h' }, [{ type: 'default' }]])
+      })
+
+      it('applies the shared ttl when the tools section carries it too', async () => {
+        const provider = new BedrockModel({ cacheConfig: { ttl: '1h', toolsTTL: '1h' } })
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt: systemPromptWith() }))
+
+        expect(systemCachePoints()).toStrictEqual([{ type: 'default', ttl: '1h' }])
+      })
+
+      it('applies the shared ttl when the tools section is disabled', async () => {
+        // No tools checkpoint means nothing precedes the system point, so the shared ttl is safe.
+        const provider = new BedrockModel({ cacheConfig: { ttl: '1h', toolsTTL: false } })
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt: systemPromptWith() }))
+
+        expect(systemCachePoints()).toStrictEqual([{ type: 'default', ttl: '1h' }])
+      })
+
+      it('applies the shared ttl when the request carries no tools at all', async () => {
+        const provider = new BedrockModel({ cacheConfig: { ttl: '1h', toolsTTL: '5m' } })
+
+        collectIterator(provider.stream(messages, { systemPrompt: systemPromptWith() }))
+
+        expect(systemCachePoints()).toStrictEqual([{ type: 'default', ttl: '1h' }])
+      })
+
+      it('resolves the ttl for a caller-placed cache point too', async () => {
+        // The honored path takes its own route to the cache point, so it needs the same resolution:
+        // `true` enables the section without being a duration, and the shared ttl still applies.
+        const placed = [
+          new Message({
+            role: 'user',
+            content: [new TextBlock('durable prefix'), new CachePointBlock({ cacheType: 'default' })],
+          }),
+        ]
+
+        const enabledWithoutDuration = new BedrockModel({ cacheConfig: { messagesTTL: true } })
+        collectIterator(enabledWithoutDuration.stream(placed))
+        expect(mockConverseStreamCommand.mock.lastCall?.[0]?.messages?.[0]?.content).toStrictEqual([
+          { text: 'durable prefix' },
+          { cachePoint: { type: 'default' } },
+        ])
+
+        const sharedTTL = new BedrockModel({ cacheConfig: { ttl: '1h' } })
+        collectIterator(sharedTTL.stream(placed))
+        expect(mockConverseStreamCommand.mock.lastCall?.[0]?.messages?.[0]?.content).toStrictEqual([
+          { text: 'durable prefix' },
+          { cachePoint: { type: 'default', ttl: '1h' } },
+        ])
+      })
     })
 
     it('inserts cache point before a non-PDF document block', async () => {
