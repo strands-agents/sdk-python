@@ -19,7 +19,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { isAnalyzable } from './classify.mjs'
 import { buildReport, formatReport } from './report.mjs'
 import { parseSarif } from './complexity-python.mjs'
-import { loadTypescript, parseEslintReport } from './complexity-typescript.mjs'
+import { loadEngine, analyzeTypescriptFiles } from './complexity-typescript.mjs'
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url))
 
@@ -45,10 +45,13 @@ function parseArgs(argv) {
 function git(root, ...args) {
   // quotePath=false keeps non-ASCII paths literal instead of octal-escaped and
   // quoted, so they match the paths the analyzers report.
+  // stderr piped, not inherited: probing a file absent at the base revision is
+  // routine and must not leak "fatal:" noise into the report.
   return execFileSync('git', ['-c', 'core.quotePath=false', ...args], {
     cwd: root,
     encoding: 'utf8',
     maxBuffer: 256 * 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'pipe'],
   })
 }
 
@@ -149,34 +152,6 @@ function run(cmd, args, okStatuses, options = {}) {
   }
 }
 
-/**
- * ESLint flat config for complexity reporting.
- *
- * Generated rather than checked in because the plugin paths must resolve to the
- * pinned tools install, which may sit outside the analyzed tree. The threshold
- * is 0 so sonarjs reports a score for every function; the label thresholds live
- * in classify.mjs.
- */
-function complexityConfig() {
-  const toUrl = (specifier) => pathToFileURL(path.join(TOOLS_DIR, 'node_modules', specifier)).href
-  return `
-import sonarjs from ${JSON.stringify(toUrl('eslint-plugin-sonarjs/cjs/plugin.js'))}
-import tsparser from ${JSON.stringify(toUrl('@typescript-eslint/parser/dist/index.js'))}
-
-export default [
-  {
-    files: ['**/*.ts', '**/*.tsx', '**/*.mts', '**/*.cts'],
-    languageOptions: {
-      parser: tsparser,
-      parserOptions: { ecmaVersion: 2022, sourceType: 'module' },
-    },
-    plugins: { sonarjs },
-    rules: { 'sonarjs/cognitive-complexity': ['warn', 0] },
-  },
-]
-`
-}
-
 function analyzePython(root, tmp, pythonFiles) {
   if (pythonFiles.length === 0) return []
   const sarif = path.join(tmp, 'python.sarif')
@@ -209,102 +184,85 @@ function analyzePython(root, tmp, pythonFiles) {
 }
 
 /**
- * Score the merge-base versions of the changed Python files.
+ * Score the merge-base versions of the changed source files.
  *
- * Python complexity counts only functions whose score increased over the base
- * (complexipy's snapshot-watermark semantics): editing inside an already
- * complex function without making it worse should not inherit the function's
- * whole score. Returns a map of `file::name` to base complexity. A file with
- * no base version (new or renamed) yields no entries, so its functions count
- * in full as new code. TypeScript has no analyzer support for this and keeps
- * absolute scoring.
+ * A touched function counts toward the label only if the PR increased its
+ * score, so editing inside an already complex function without making it
+ * worse inherits nothing. Returns `file::name` -> base complexity. A file
+ * with no base version (new or renamed) yields no entries, so its functions
+ * count in full as new code.
  */
-function baselinePython(root, tmp, from, pythonFiles) {
-  const baseline = new Map()
-  if (pythonFiles.length === 0) return baseline
-
+function baseline(root, tmp, from, pythonFiles, tsFiles, engine) {
+  const map = new Map()
   const baseDir = path.join(tmp, 'base')
-  const extracted = []
-  for (const file of pythonFiles) {
-    let content
-    try {
-      content = git(root, 'show', `${from}:${file}`)
-    } catch {
-      continue
+  const extract = (files) => {
+    const extracted = []
+    for (const file of files) {
+      let content
+      try {
+        content = git(root, 'show', `${from}:${file}`)
+      } catch {
+        continue
+      }
+      const dest = path.join(baseDir, file)
+      fs.mkdirSync(path.dirname(dest), { recursive: true })
+      fs.writeFileSync(dest, content)
+      extracted.push(dest)
     }
-    const dest = path.join(baseDir, file)
-    fs.mkdirSync(path.dirname(dest), { recursive: true })
-    fs.writeFileSync(dest, content)
-    extracted.push(dest)
+    return extracted
   }
-  if (extracted.length === 0) return baseline
+  const add = (fns) => {
+    for (const fn of fns) {
+      const key = `${fn.file}::${fn.name}`
+      // Names are qualified (Class::method) and nested functions fold into
+      // their parent, so a collision requires a module-level redefinition;
+      // keeping the max under-counts, the safe direction.
+      map.set(key, Math.max(map.get(key) ?? 0, fn.complexity))
+    }
+  }
 
-  const sarif = path.join(tmp, 'python-base.sarif')
-  const ok = run(
-    'complexipy',
-    [
-      '--quiet',
-      '--ignore-complexity',
-      '--max-complexity-allowed',
-      '0',
-      '--output-format',
-      'sarif',
-      '--output',
-      sarif,
-      ...extracted,
-    ],
-    [1],
-    { cwd: baseDir }
-  )
-  if (!ok || !fs.existsSync(sarif)) {
-    // Without a baseline every touched function counts in full, which is the
-    // pre-existing behavior rather than a wrong label; warn and continue.
-    console.error('warning: complexipy failed on the base revision; python complexity falls back to absolute scoring')
-    return baseline
+  const basePy = extract(pythonFiles)
+  if (basePy.length > 0) {
+    const sarif = path.join(tmp, 'python-base.sarif')
+    const ok = run(
+      'complexipy',
+      [
+        '--quiet',
+        '--ignore-complexity',
+        '--max-complexity-allowed',
+        '0',
+        '--output-format',
+        'sarif',
+        '--output',
+        sarif,
+        ...basePy,
+      ],
+      [1],
+      { cwd: baseDir }
+    )
+    if (ok && fs.existsSync(sarif)) {
+      add(parseSarif(JSON.parse(fs.readFileSync(sarif, 'utf8')), baseDir))
+    } else {
+      // No baseline means touched functions count in full; wrong labels are
+      // worse than the old behavior, so warn and continue.
+      console.error('warning: complexipy failed on the base revision; python complexity falls back to absolute scoring')
+    }
   }
-  for (const fn of parseSarif(JSON.parse(fs.readFileSync(sarif, 'utf8')), baseDir)) {
-    const key = `${fn.file}::${fn.name}`
-    // Names are already qualified (`Class::method`) and nested functions fold
-    // into their parent's score, so within one file a key collision requires a
-    // module-level redefinition. If one occurs, keeping the highest base score
-    // can mask a real increase in the lower-scored twin; that under-counts,
-    // which is the safe direction for an advisory label.
-    baseline.set(key, Math.max(baseline.get(key) ?? 0, fn.complexity))
+
+  const baseTs = extract(tsFiles)
+  if (baseTs.length > 0 && engine) {
+    add(analyzeTypescriptFiles(engine, baseTs, baseDir))
   }
-  return baseline
+  return map
 }
 
-async function analyzeTypescript(root, tmp, tsFiles) {
-  if (tsFiles.length === 0) return []
-  const report = path.join(tmp, 'typescript.json')
-  const eslint = path.join(TOOLS_DIR, 'node_modules', '.bin', 'eslint')
-  if (!fs.existsSync(eslint)) {
-    console.error(
-      `warning: complexity analyzers not installed in ${TOOLS_DIR}; skipping TypeScript complexity\n` +
-        '         run: npm ci --ignore-scripts --prefix .github/scripts/pr-metrics/tools'
-    )
-    return []
-  }
-  // With an explicit -c, ESLint's base path is the cwd, not the config's
-  // directory — so the config lives in a temp dir and `cwd: root` is what keeps
-  // the analyzed files inside the base path.
-  const configPath = path.join(tmp, 'eslint.complexity.config.mjs')
-  fs.writeFileSync(configPath, complexityConfig())
-  const ok = run(
-    eslint,
-    ['--no-config-lookup', '-c', configPath, '--format', 'json', '--output-file', report, ...tsFiles],
-    // The complexity rule is a warning, so a clean run exits 0 and exit 1 means
-    // some other rule errored; either way the report is written. Exit 2 is a
-    // fatal config or parse failure and must not be read as "no findings".
-    [1],
-    { cwd: root }
+function analyzeTypescript(engine, root, tsFiles) {
+  if (tsFiles.length === 0 || !engine) return []
+  return analyzeTypescriptFiles(
+    engine,
+    tsFiles.map((f) => path.join(root, f)),
+    root
   )
-  if (!ok || !fs.existsSync(report)) {
-    console.error('warning: eslint did not produce a report; skipping TypeScript complexity')
-    return []
-  }
-  const ts = await loadTypescript(TOOLS_DIR)
-  return parseEslintReport(ts, JSON.parse(fs.readFileSync(report, 'utf8')), root)
 }
 
 async function main() {
@@ -326,14 +284,25 @@ async function main() {
   const pythonFiles = present.filter((p) => p.endsWith('.py'))
   const tsFiles = present.filter((p) => !p.endsWith('.py'))
 
+  let engine = null
+  if (tsFiles.length > 0) {
+    try {
+      engine = loadEngine(TOOLS_DIR)
+    } catch {
+      console.error(
+        `warning: complexity analyzers not installed in ${TOOLS_DIR}; skipping TypeScript complexity\n` +
+          '         run: npm ci --ignore-scripts --prefix .github/scripts/pr-metrics/tools'
+      )
+    }
+  }
+
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-complexity-'))
   try {
-    const baseline = baselinePython(args.root, tmp, from, pythonFiles)
-    const pythonFunctions = analyzePython(args.root, tmp, pythonFiles).map((fn) => ({
-      ...fn,
-      baseComplexity: baseline.get(`${fn.file}::${fn.name}`) ?? null,
-    }))
-    const functions = [...pythonFunctions, ...(await analyzeTypescript(args.root, tmp, tsFiles))]
+    const base = baseline(args.root, tmp, from, pythonFiles, tsFiles, engine)
+    const functions = [
+      ...analyzePython(args.root, tmp, pythonFiles),
+      ...analyzeTypescript(engine, args.root, tsFiles),
+    ].map((fn) => ({ ...fn, baseComplexity: base.get(`${fn.file}::${fn.name}`) ?? null }))
     const report = buildReport({ diff, files, functions })
     if (args.json) fs.writeFileSync(args.json, JSON.stringify(report))
     console.log(formatReport(report))

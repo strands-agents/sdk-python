@@ -15,7 +15,7 @@ import { parseChangedLines, rangeTouched } from './diff.mjs'
 import { buildReport } from './report.mjs'
 import { escapeHtml, labelsFromMetrics, resolvePrNumber } from './apply-labels.mjs'
 import { parseSarif } from './complexity-python.mjs'
-import { functionRanges, loadTypescript, parseEslintReport } from './complexity-typescript.mjs'
+import { loadEngine, analyzeTypescriptFiles } from './complexity-typescript.mjs'
 import { isMainModule, parseNumstatZ } from './run-analysis.mjs'
 
 test('classify separates tests from source', () => {
@@ -589,88 +589,67 @@ test('resolvePrNumber returns null when no PR matches', async () => {
   assert.equal(await resolvePrNumber({ github: stubGithub([]), context: stubContext([]), core, claimed: null }), null)
 })
 
-// The TypeScript path carries more logic than the Python one (AST ranges, name
-// resolution, nesting) and previously had no coverage. It needs the pinned
-// typescript from tools/, so skip rather than fail when that is not installed.
-let ts = null
+// The TypeScript engine needs the pinned tools install; skip rather than
+// fail when it is absent.
+let engine = null
 try {
-  ts = await loadTypescript(new URL('tools', import.meta.url).pathname)
+  engine = loadEngine(new URL('tools', import.meta.url).pathname)
 } catch {
   // Reported by the skip reason below.
 }
-const tsTest = (name, fn) => test(name, { skip: ts ? false : 'run npm run complexity:setup' }, fn)
+const tsTest = (name, fn) => test(name, { skip: engine ? false : 'run npm run complexity:setup' }, fn)
 
-tsTest('functionRanges names declarations, methods and bound arrows', () => {
-  const ranges = functionRanges(
-    ts,
+tsTest('analyzeTypescriptFiles reports qualified names, scores and full spans', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cjx-'))
+  const file = path.join(dir, 'sample.ts')
+  fs.writeFileSync(
+    file,
     [
-      'export function topLevel(a) { return a }',
-      'class Widget {',
-      '  constructor() {}',
-      '  render(x) { return x }',
-      '  get size() { return 1 }',
+      'export class Widget {',
+      '  render(x: number): number {',
+      '    if (x > 0) {',
+      '      if (x > 1) { return 2 }',
+      '    }',
+      '    return 0',
+      '  }',
       '}',
-      'const bound = (y) => y + 1',
-      'const list = [1].map((n) => n * 2)',
-    ].join('\n'),
-    'sample.ts'
+      'const bound = (y: boolean) => (y ? 1 : 0)',
+    ].join('\n')
   )
-  const names = ranges.map((r) => r.name)
-  assert.ok(names.includes('topLevel'))
-  assert.ok(names.includes('Widget::constructor'))
-  assert.ok(names.includes('Widget::render'))
-  assert.ok(names.includes('Widget::size'))
-  assert.ok(names.includes('bound'))
-  // An inline callback has no name of its own; the call it feeds is the label.
-  assert.ok(names.includes('map callback'))
-})
-
-tsTest('functionRanges spans a function body, not just its signature line', () => {
-  const ranges = functionRanges(ts, ['function outer() {', '  return 1', '}'].join('\n'), 'sample.ts')
-  assert.equal(ranges[0].startLine, 1)
-  assert.equal(ranges[0].endLine, 3)
-})
-
-tsTest('parseEslintReport resolves an anchor to its enclosing function range', () => {
-  const file = new URL('pr-metrics.test.fixture.ts', import.meta.url).pathname
-  fs.writeFileSync(file, ['class C {', '  method(a) {', '    return a', '  }', '}', ''].join('\n'))
   try {
-    const functions = parseEslintReport(
-      ts,
-      [
-        {
-          filePath: file,
-          messages: [
-            {
-              ruleId: 'sonarjs/cognitive-complexity',
-              // sonarjs anchors at the method name on line 2, not the body.
-              line: 2,
-              column: 3,
-              message: 'Refactor this function to reduce its Cognitive Complexity from 31 to the 15 allowed.',
-            },
-          ],
-        },
-      ],
-      new URL('.', import.meta.url).pathname
-    )
-    assert.equal(functions.length, 1)
-    assert.equal(functions[0].complexity, 31)
-    assert.equal(functions[0].name, 'C::method')
-    // The range must cover the whole method so diff scoping can intersect it.
-    assert.equal(functions[0].startLine, 2)
-    assert.equal(functions[0].endLine, 4)
+    const fns = analyzeTypescriptFiles(engine, [file], dir)
+    const render = fns.find((f) => f.name === 'Widget::render')
+    assert.ok(render, 'method is class-qualified')
+    assert.equal(render.complexity, 3)
+    assert.equal(render.startLine, 2)
+    assert.equal(render.endLine, 7)
+    assert.equal(render.file, 'sample.ts')
+    const bound = fns.find((f) => f.name === 'bound')
+    assert.ok(bound, 'const arrow takes its binding name')
+    assert.equal(bound.complexity, 1)
   } finally {
-    fs.rmSync(file, { force: true })
+    fs.rmSync(dir, { recursive: true, force: true })
   }
 })
 
-tsTest('parseEslintReport ignores findings from other rules', () => {
-  const functions = parseEslintReport(
-    ts,
-    [{ filePath: '/nonexistent.ts', messages: [{ ruleId: 'no-unused-vars', line: 1, column: 1, message: 'x' }] }],
-    '/'
-  )
-  assert.deepEqual(functions, [])
+tsTest('analyzeTypescriptFiles skips an unparseable file with a warning', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cjx-'))
+  const bad = path.join(dir, 'bad.ts')
+  const good = path.join(dir, 'good.ts')
+  fs.writeFileSync(bad, 'function ( {{{')
+  fs.writeFileSync(good, 'export function ok(a: number) { return a ? 1 : 0 }')
+  const warnings = []
+  try {
+    const fns = analyzeTypescriptFiles(engine, [bad, good], dir, (m) => warnings.push(m))
+    assert.deepEqual(
+      fns.map((f) => f.name),
+      ['ok']
+    )
+    assert.equal(warnings.length, 1)
+    assert.match(warnings[0], /could not parse/)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 // The guard must compare realpaths: import.meta.url is symlink-resolved
