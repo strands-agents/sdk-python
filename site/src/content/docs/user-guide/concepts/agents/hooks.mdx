@@ -590,7 +590,7 @@ class ResultProcessor(HookProvider):
         registry.add_callback(AfterToolCallEvent, self.process_result)
 
     def process_result(self, event: AfterToolCallEvent) -> None:
-        if event.tool_use.name == "http_request":
+        if event.tool_use["name"] == "http_request":
             # Truncate long response bodies before they reach the model
             original_content = event.result["content"][0]["text"]
             event.result["content"][0]["text"] = original_content[:4000]
@@ -678,7 +678,7 @@ class ResultProcessor(HookProvider):
         registry.add_callback(AfterToolCallEvent, self.process_result)
 
     def process_result(self, event: AfterToolCallEvent) -> None:
-        if event.tool_use.name == "http_request":
+        if event.tool_use["name"] == "http_request":
             original_content = event.result["content"][0]["text"]
             logger.info(f"Truncating http_request result: {len(original_content)} chars")
             event.result["content"][0]["text"] = original_content[:4000]

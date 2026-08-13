@@ -120,27 +120,31 @@ Logs related to tool discovery, registration, and execution:
 
 ```
 # Tool registration
-DEBUG | strands.tools.registry | tool_name=<http_request> | registering tool
 DEBUG | strands.tools.registry | tool_name=<http_request>, tool_type=<function>, is_dynamic=<False> | registering tool
 DEBUG | strands.tools.registry | tool_name=<http_request> | loaded tool config
 DEBUG | strands.tools.registry | tool_count=<1> | tools configured
 
+# Tool execution
+DEBUG | strands.tools.executors._executor | tool_use=<{'toolUseId': 'tooluse_kZ3N...', 'name': 'http_request', ...}> | streaming
+```
+
+With `load_tools_from_directory=True`, the registry also scans a local `./tools/`
+directory, validates what it finds, and hot-reloads changes:
+
+```
 # Tool discovery
 DEBUG | strands.tools.registry | tools_dir=</path/to/tools> | found tools directory
 DEBUG | strands.tools.registry | tools_dir=</path/to/tools> | scanning
-DEBUG | strands.tools.registry | tool_modules=<['http_request', 'weather']> | discovered
+DEBUG | strands.tools.registry | tool_modules=<['weather']> | discovered
 
 # Tool validation
 WARNING | strands.tools.registry | tool_name=<invalid_tool> | spec validation failed | Missing required fields in tool spec: description
-DEBUG | strands.tools.registry | tool_name=<http_request> | loaded dynamic tool config
-
-# Tool execution
-DEBUG | strands.event_loop.event_loop | tool_use=<http_request_tool_use_id> | streaming
+DEBUG | strands.tools.registry | tool_name=<weather> | loaded dynamic tool config
 
 # Tool hot reloading
-DEBUG | strands.tools.registry | tool_name=<http_request> | searching directories for tool
-DEBUG | strands.tools.registry | tool_name=<http_request> | reloading tool
-DEBUG | strands.tools.registry | tool_name=<http_request> | successfully reloaded tool
+DEBUG | strands.tools.registry | tool_name=<weather> | searching directories for tool
+DEBUG | strands.tools.registry | tool_name=<weather> | reloading tool
+DEBUG | strands.tools.registry | tool_name=<weather> | successfully reloaded tool
 ```
 
 **Event Loop**

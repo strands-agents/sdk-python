@@ -63,6 +63,8 @@ The TypeScript SDK automatically tracks key metrics during agent execution throu
 All these metrics are accessible through the `AgentResult` object returned when you invoke an agent:
 
 ```typescript
+--8<-- "user-guide/observability-evaluation/metrics_imports.ts:basic_metrics_imports"
+
 --8<-- "user-guide/observability-evaluation/metrics.ts:basic_metrics"
 ```
 
@@ -120,7 +122,7 @@ cycles = latest_invocation.cycles
 usage = latest_invocation.usage
 
 # Or access all invocations
-for invocation in response.metrics.agent_invocations:
+for invocation in result2.metrics.agent_invocations:
     print(f"Invocation usage: {invocation.usage}")
     for cycle in invocation.cycles:
         print(f"  Cycle {cycle.event_loop_cycle_id}: {cycle.usage}")
@@ -153,6 +155,8 @@ The `agentInvocations` property is a list of `InvocationMetricsData` objects tha
 This allows you to track metrics at both the individual invocation level and across all invocations:
 
 ```typescript
+--8<-- "user-guide/observability-evaluation/metrics_imports.ts:agent_loop_metrics_imports"
+
 --8<-- "user-guide/observability-evaluation/metrics.ts:agent_loop_metrics"
 ```
 </Tab>
@@ -204,8 +208,8 @@ print(result.metrics.get_summary())
 ```python
 {
   "total_cycles": 2,
-  "total_duration": 1.4812111854553223,
-  "average_cycle_time": 0.7406055927276611,
+  "total_duration": 4.147886276245117,
+  "average_cycle_time": 2.0739431381225586,
   "tool_usage": {
       "http_request": {
           "tool_info": {
@@ -232,8 +236,8 @@ print(result.metrics.get_summary())
       "raw_name": None,
       "parent_id": None,
       "start_time": 1767110391.614767,
-      "end_time": None,
-      "duration": None,
+      "end_time": 1767110394.281442,
+      "duration": 2.666675090789795,
       "children": [{
           "id": "0de6d280-14ff-423b-af80-9cc823c8c3a1",
           "name": "stream_messages",
@@ -355,6 +359,8 @@ This summary provides a complete picture of the agent's execution, including cyc
 The `AgentMetrics` class implements `toJSON()`, so you can serialize the complete metrics snapshot with `JSON.stringify()`. This gives you a comprehensive overview of your agent's performance in a single call:
 
 ```typescript
+--8<-- "user-guide/observability-evaluation/metrics_imports.ts:metrics_summary_imports"
+
 --8<-- "user-guide/observability-evaluation/metrics.ts:metrics_summary"
 ```
 ```json
@@ -450,6 +456,8 @@ In addition to aggregate metrics, the Strands Agents SDK automatically collects 
 Each trace is an `AgentTrace` instance representing a cycle in the agent loop, with child traces for model invocations and tool calls:
 
 ```typescript
+--8<-- "user-guide/observability-evaluation/metrics_imports.ts:local_traces_imports"
+
 --8<-- "user-guide/observability-evaluation/metrics.ts:local_traces"
 ```
 
