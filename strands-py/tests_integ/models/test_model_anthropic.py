@@ -181,16 +181,13 @@ def test_input_and_max_tokens_exceed_context_limit(quiet_strands_logging):
         agent(messages)
 
 
-CACHING_MODEL_ID = "claude-opus-4-8"
-
-
 def test_cache_config_earns_a_read_on_the_second_turn():
     """Automatic cache-point placement produces a reusable prefix rather than rewriting it every turn."""
     # Salted so a rerun cannot read an entry an earlier run wrote, and sized past the model's cache minimum.
     prefix = f"Dossier {uuid.uuid4()}. " + ("The subject prefers concise written answers. " * 600)
     model = AnthropicModel(
         client_args={"api_key": os.getenv("ANTHROPIC_API_KEY")},
-        model_id=CACHING_MODEL_ID,
+        model_id=MODEL_ID,
         max_tokens=256,
         cache_config=CacheConfig(strategy="auto"),
     )
@@ -220,7 +217,7 @@ def test_cache_tools_earns_a_read_on_the_second_turn():
 
     model = AnthropicModel(
         client_args={"api_key": os.getenv("ANTHROPIC_API_KEY")},
-        model_id=CACHING_MODEL_ID,
+        model_id=MODEL_ID,
         max_tokens=256,
         cache_tools=CacheToolsConfig(ttl="5m"),
     )
