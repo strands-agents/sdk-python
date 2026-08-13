@@ -31,9 +31,6 @@ export class ContextManager implements Plugin {
 
   private readonly _strategies: ContextStrategy[]
 
-  private _agent: LocalAgent | undefined
-  private _agentId: string | undefined
-
   constructor(config?: ContextManagerConfig) {
     this._strategies = config?.strategies ?? [
       Offload.truncate('toolResults').when({ threshold: 2500 }),
@@ -42,21 +39,15 @@ export class ContextManager implements Plugin {
   }
 
   initAgent(agent: LocalAgent): void {
-    if (this._agent && this._agent !== agent) {
-      throw new Error('ContextManager instance cannot be shared across multiple agents')
-    }
-    this._agent = agent
-    this._agentId = agent.id
-
     for (const strategy of this._strategies) {
       strategy.init?.(agent)
     }
 
     agent.addHook(BeforeModelCallEvent, async (event) => {
       try {
-        await this._runStrategies(event.projectedInputTokens)
+        await this._runStrategies(event.agent, event.projectedInputTokens)
       } catch (error) {
-        logger.warn(`agentId=<${this._agentId}>, error=<${error}> | proactive strategy pipeline failed`)
+        logger.warn(`agentId=<${event.agent.id}>, error=<${error}> | proactive strategy pipeline failed`)
       }
     })
 
@@ -68,26 +59,26 @@ export class ContextManager implements Plugin {
       }
 
       if (overflowRetries >= 3) {
-        logger.warn(`agentId=<${this._agentId}> | overflow retry limit reached, giving up`)
+        logger.warn(`agentId=<${event.agent.id}> | overflow retry limit reached, giving up`)
         overflowRetries = 0
         return
       }
 
       try {
-        await this._runStrategies()
+        await this._runStrategies(event.agent)
       } catch (strategyError) {
         logger.warn(
-          `agentId=<${this._agentId}>, error=<${strategyError}> | strategy pipeline failed, falling through to truncate`
+          `agentId=<${event.agent.id}>, error=<${strategyError}> | strategy pipeline failed, falling through to truncate`
         )
       }
 
-      const postTokens = await this._agent!.model.countTokens(agent.messages)
-      const postUtilization = this._agent!.model.estimateUtilization(postTokens)
+      const postTokens = await event.agent.model.countTokens(event.agent.messages)
+      const postUtilization = event.agent.model.estimateUtilization(postTokens)
       if (postUtilization >= 1.0) {
         try {
-          this._truncate(agent.messages)
+          this._truncate(event.agent)
         } catch (truncateError) {
-          logger.warn(`agentId=<${this._agentId}>, error=<${truncateError}> | truncation failed`)
+          logger.warn(`agentId=<${event.agent.id}>, error=<${truncateError}> | truncation failed`)
         }
       }
 
@@ -96,23 +87,21 @@ export class ContextManager implements Plugin {
     })
   }
 
-  private async _runStrategies(precomputedInputTokens?: number): Promise<void> {
-    if (!this._agent) return
-
-    const messages = this._agent.messages
-    const inputTokens = precomputedInputTokens ?? (await this._agent.model.countTokens(messages))
-    const utilization = this._agent.model.estimateUtilization(inputTokens)
+  private async _runStrategies(agent: LocalAgent, precomputedInputTokens?: number): Promise<void> {
+    const messages = agent.messages
+    const inputTokens = precomputedInputTokens ?? (await agent.model.countTokens(messages))
+    const utilization = agent.model.estimateUtilization(inputTokens)
 
     const strategyContext: ContextState = {
       messages,
-      agent: this._agent,
+      agent,
       utilization,
     }
 
     for (const strategy of this._strategies) {
       const acted = await strategy.apply(strategyContext)
       if (acted) {
-        logger.debug(`strategy=<${strategy.name}>, agentId=<${this._agentId}> | strategy applied`)
+        logger.debug(`strategy=<${strategy.name}>, agentId=<${agent.id}> | strategy applied`)
       }
     }
   }
@@ -121,7 +110,8 @@ export class ContextManager implements Plugin {
    * Unconditional truncation: drop the oldest messages (preserving the first message
    * and respecting tool-use/tool-result pair boundaries).
    */
-  private _truncate(messages: Message[]): void {
+  private _truncate(agent: LocalAgent): void {
+    const messages = agent.messages
     if (messages.length <= 3) return
 
     const startIndex = this._findSafeStartIndex(messages)
@@ -137,7 +127,7 @@ export class ContextManager implements Plugin {
     if (removeCount <= 0) return
 
     messages.splice(startIndex, removeCount)
-    logger.debug(`agentId=<${this._agentId}>, removed=<${removeCount}> | truncated oldest messages on overflow`)
+    logger.debug(`agentId=<${agent.id}>, removed=<${removeCount}> | truncated oldest messages on overflow`)
   }
 
   /**
