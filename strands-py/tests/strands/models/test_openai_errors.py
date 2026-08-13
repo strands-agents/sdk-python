@@ -22,8 +22,6 @@ class OpenAICompatibleError(Exception):
         "too many total text bytes",
         "exceed customer model maximum",
         "the engine prompt length exceeds the max_model_len",
-        # Bedrock Mantle omits the "customer" qualifier
-        # (https://github.com/strands-agents/harness-sdk/issues/3718)
         "prompt tokens (1200008) exceed model maximum (1050000) for openai.gpt-5.6-terra",
     ],
 )
