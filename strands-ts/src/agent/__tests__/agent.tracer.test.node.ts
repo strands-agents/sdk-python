@@ -195,6 +195,20 @@ describe('Agent tracer integration', () => {
   })
 
   describe('agent loop span lifecycle', () => {
+    it('ends the loop span once when the public stream iterator is closed mid-cycle', async () => {
+      const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Done' })
+      const agent = new Agent({ model })
+      const tracer = getLatestTracer()
+
+      for await (const event of agent.stream('Hi')) {
+        if (event.type === 'messageAddedEvent') break
+      }
+
+      expect(tracer.startAgentLoopSpan).toHaveBeenCalledTimes(1)
+      expect(tracer.endAgentLoopSpan).toHaveBeenCalledTimes(1)
+      expect(tracer.endAgentLoopSpan).toHaveBeenCalledWith({ mock: 'loopSpan' })
+    })
+
     it('starts and ends loop span for each cycle', async () => {
       const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Done' })
       const agent = new Agent({ model })

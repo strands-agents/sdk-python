@@ -1505,6 +1505,7 @@ export class Agent implements LocalAgent, InvokableAgent {
           messages: this.messages,
         })
 
+        let cycleError: Error | undefined
         try {
           // Normalize input and append user messages on first invocation only
           if (currentArgs !== undefined) {
@@ -1535,9 +1536,6 @@ export class Agent implements LocalAgent, InvokableAgent {
                   'The model failed to invoke the structured output tool even after it was forced.'
                 )
               }
-
-              this._meter.endCycle(cycleStartTime)
-              this._tracer.endAgentLoopSpan(cycleSpan)
 
               // Schema set, model ignored the tool — drop the response and force the tool next cycle.
               // Appending the plain-text turn here would leave the conversation ending on an
@@ -1580,9 +1578,6 @@ export class Agent implements LocalAgent, InvokableAgent {
               yield this._appendMessage(modelResult.message, invocationState)
               yield this._appendMessage(toolResultMessage, invocationState)
 
-              this._meter.endCycle(cycleStartTime)
-              this._tracer.endAgentLoopSpan(cycleSpan)
-
               result = new AgentResult({
                 stopReason: 'cancelled',
                 lastMessage: modelResult.message,
@@ -1603,8 +1598,6 @@ export class Agent implements LocalAgent, InvokableAgent {
               const priorResumePosition = resumePosition
               resumePosition = undefined
               if (priorResumePosition !== 'afterModel') {
-                this._meter.endCycle(cycleStartTime)
-                this._tracer.endAgentLoopSpan(cycleSpan)
                 result = new AgentResult({
                   stopReason: 'checkpoint',
                   lastMessage: modelResult.message,
@@ -1626,8 +1619,6 @@ export class Agent implements LocalAgent, InvokableAgent {
           // When the consumer breaks the stream (e.g. agent.cancel() + break),
           // yield* returns undefined because the inner generator was closed.
           if (!toolsResult) {
-            this._meter.endCycle(cycleStartTime)
-            this._tracer.endAgentLoopSpan(cycleSpan)
             continue
           }
           const toolResultMessage = toolsResult.message
@@ -1635,8 +1626,6 @@ export class Agent implements LocalAgent, InvokableAgent {
           // Tools were skipped (not executed) — preserve pending state so the next resume
           // can run them.
           if (this.isCancelled && toolsResult.toolsSkipped && this._interruptState.pendingToolExecution) {
-            this._meter.endCycle(cycleStartTime)
-            this._tracer.endAgentLoopSpan(cycleSpan)
             continue
           }
 
@@ -1657,9 +1646,6 @@ export class Agent implements LocalAgent, InvokableAgent {
           if (this._interruptState.activated) {
             this._interruptState.deactivate()
           }
-
-          this._meter.endCycle(cycleStartTime)
-          this._tracer.endAgentLoopSpan(cycleSpan)
 
           // Hook requested halt: exit without calling the model again
           const { afterToolsEvent } = toolsResult
@@ -1713,9 +1699,15 @@ export class Agent implements LocalAgent, InvokableAgent {
             return result
           }
         } catch (error) {
-          this._meter.endCycle(cycleStartTime)
-          this._tracer.endAgentLoopSpan(cycleSpan, { error: error as Error })
+          cycleError = error as Error
           throw error
+        } finally {
+          this._meter.endCycle(cycleStartTime)
+          if (cycleError) {
+            this._tracer.endAgentLoopSpan(cycleSpan, { error: cycleError })
+          } else {
+            this._tracer.endAgentLoopSpan(cycleSpan)
+          }
         }
       }
     } catch (error) {
