@@ -100,7 +100,7 @@ Strands SDK already handles unknown tools and malformed JSON gracefully. `VLLMTo
 import os
 
 from strands import Agent
-from strands.vended_tools import sleep
+from strands.vended_tools import http_request
 from strands_vllm import VLLMModel, VLLMToolValidationHooks
 
 model = VLLMModel(
@@ -111,11 +111,15 @@ model = VLLMModel(
 
 agent = Agent(
     model=model,
-    tools=[sleep],
+    tools=[http_request],
     hooks=[VLLMToolValidationHooks()],
 )
 
-result = agent("Pause for 2 seconds, then tell me you are done.")
+result = agent(
+    "Fetch the current weather from https://api.open-meteo.com/v1/forecast"
+    "?latitude=47.6&longitude=-122.3&current=temperature_2m"
+    " and tell me if I need a jacket in Seattle."
+)
 print(result)
 ```
 
@@ -166,7 +170,7 @@ import asyncio
 import os
 
 from strands import Agent
-from strands.vended_tools import sleep
+from strands.vended_tools import http_request
 from strands_vllm import TokenManager, VLLMModel, VLLMTokenRecorder, VLLMToolValidationHooks
 
 async def main():
@@ -179,12 +183,16 @@ async def main():
     recorder = VLLMTokenRecorder()
     agent = Agent(
         model=model,
-        tools=[sleep],
+        tools=[http_request],
         hooks=[VLLMToolValidationHooks()],
         callback_handler=recorder,
     )
 
-    await agent.invoke_async("Pause for 2 seconds, then tell me you are done.")
+    await agent.invoke_async(
+        "Fetch the current weather from https://api.open-meteo.com/v1/forecast"
+        "?latitude=47.6&longitude=-122.3&current=temperature_2m"
+        " and tell me if I need a jacket in Seattle."
+    )
 
     # Build RL trajectory with loss mask
     tm = TokenManager()
@@ -235,9 +243,9 @@ The `VLLMModel` accepts the following parameters:
 
 **Example error messages** (more informative than Strands defaults):
 
-- Unknown tool: `Error: unknown tool: fake_tool | allowed_tools=[sleep, search, ...]`
-- Missing argument: `Error: tool_name=<sleep> | missing required argument(s): duration`
-- Unknown argument: `Error: tool_name=<sleep> | unknown argument(s): invalid_param`
+- Unknown tool: `Error: unknown tool: fake_tool | allowed_tools=[http_request, ...]`
+- Missing argument: `Error: tool_name=<http_request> | missing required argument(s): url`
+- Unknown argument: `Error: tool_name=<http_request> | unknown argument(s): invalid_param`
 
 ## Troubleshooting
 

@@ -22,8 +22,8 @@ The simplest way to use a callback handler is to pass a callback function to you
 
 ```python
 from strands import Agent
+from strands.vended_tools import http_request
 
-# calculator is defined at the end of this page
 def custom_callback_handler(**kwargs):
     # Process stream data
     if "data" in kwargs:
@@ -33,11 +33,15 @@ def custom_callback_handler(**kwargs):
 
 # Create an agent with custom callback handler
 agent = Agent(
-    tools=[calculator],
+    tools=[http_request],
     callback_handler=custom_callback_handler
 )
 
-agent("Calculate 2+2")
+agent(
+    "Fetch the current weather from https://api.open-meteo.com/v1/forecast"
+    "?latitude=47.6&longitude=-122.3&current=temperature_2m"
+    " and tell me if I need a jacket in Seattle."
+)
 ```
 
 ## Default Callback Handler
@@ -71,18 +75,18 @@ Custom callback handlers can be useful to debug sequences of events in the agent
 
 ```python
 from strands import Agent
+from strands.vended_tools import http_request
 
-# calculator is defined at the end of this page
 def debugger_callback_handler(**kwargs):
     # Print the values in kwargs so that we can see everything
     print(kwargs)
 
 agent = Agent(
-    tools=[calculator],
+    tools=[http_request],
     callback_handler=debugger_callback_handler
 )
 
-agent("What is 922 + 5321")
+agent("Fetch https://api.github.com/zen and repeat what it says.")
 ```
 
 This handler prints all calls to the callback handler including full event details.
@@ -94,8 +98,8 @@ This handler demonstrates how to buffer text and only show it when a complete me
 ```python
 import json
 from strands import Agent
+from strands.vended_tools import http_request
 
-# calculator is defined at the end of this page
 def message_buffer_handler(**kwargs):
     # When a new message is created from the assistant, print its content
     if "message" in kwargs and kwargs["message"].get("role") == "assistant":
@@ -103,11 +107,14 @@ def message_buffer_handler(**kwargs):
 
 # Usage with an agent
 agent = Agent(
-    tools=[calculator],
+    tools=[http_request],
     callback_handler=message_buffer_handler
 )
 
-agent("What is 2+2 and tell me about AWS Lambda")
+agent(
+    "Fetch https://api.github.com/repos/strands-agents/harness-sdk"
+    " and summarize the repository."
+)
 ```
 
 This handler leverages the `message` event which is triggered when a complete message is created. By using this approach, we can buffer the incrementally streamed text and only display complete, coherent messages rather than partial fragments. This is particularly useful in conversational interfaces or when responses benefit from being processed as complete units.
@@ -118,8 +125,8 @@ This callback handler illustrates the event loop lifecycle events and how they r
 
 ```python
 from strands import Agent
+from strands.vended_tools import http_request
 
-# calculator is defined at the end of this page
 def event_loop_tracker(**kwargs):
     # Track event loop lifecycle
     if kwargs.get("init_event_loop", False):
@@ -146,12 +153,16 @@ def event_loop_tracker(**kwargs):
 
 # Create agent with event loop tracker
 agent = Agent(
-    tools=[calculator],
+    tools=[http_request],
     callback_handler=event_loop_tracker
 )
 
 # This will show the full event lifecycle in the console
-agent("What is the capital of France and what is 42+7?")
+agent(
+    "What is the capital of France? Then fetch https://api.open-meteo.com/v1/forecast"
+    "?latitude=48.85&longitude=2.35&current=temperature_2m"
+    " and tell me the temperature there."
+)
 ```
 
 The output will show the sequence of events:
@@ -170,14 +181,3 @@ When implementing callback handlers:
 2. **Handle All Event Types**: Be prepared for different event types
 3. **Graceful Errors**: Handle exceptions within your handler
 4. **State Management**: Store accumulated state in the `request_state`
-
-## The `calculator` tool used above
-
-The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic: see
-[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
-for how `@tool` works.
-
-```python
---8<-- "_shared/calculator.py:calculator"
-```

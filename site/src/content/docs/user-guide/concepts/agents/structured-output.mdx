@@ -281,17 +281,22 @@ Combine structured output with tool usage to format tool execution results:
 
 ```python
 from strands import Agent
+from strands.vended_tools import http_request
 from pydantic import BaseModel, Field
 
-# calculator is defined at the end of this page
-class MathResult(BaseModel):
-    operation: str = Field(description="the performed operation")
-    result: int = Field(description="the result of the operation")
+class WeatherReport(BaseModel):
+    temperature_c: float = Field(description="current temperature in Celsius")
+    needs_jacket: bool = Field(description="whether a jacket is recommended")
 
 tool_agent = Agent(
-    tools=[calculator]
+    tools=[http_request]
 )
-res = tool_agent("What is 42 + 8", structured_output_model=MathResult)
+res = tool_agent(
+    "Fetch the current weather from https://api.open-meteo.com/v1/forecast"
+    "?latitude=47.6&longitude=-122.3&current=temperature_2m"
+    " and tell me if I need a jacket in Seattle.",
+    structured_output_model=WeatherReport,
+)
 ```
 </Tab>
 <Tab label="TypeScript">
@@ -459,14 +464,3 @@ print(f"Size: {result.structured_output.employees}")    # 500
 ```
 </Tab>
 </Tabs>
-
-## The `calculator` tool used above
-
-The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic: see
-[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
-for how `@tool` works.
-
-```python
---8<-- "_shared/calculator.py:calculator"
-```

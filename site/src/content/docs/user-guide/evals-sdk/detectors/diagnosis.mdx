@@ -219,31 +219,36 @@ This example shows the complete workflow: run evaluations with diagnosis, then a
 ```python
 import asyncio
 from strands import Agent
+from strands.vended_tools import http_request
 from strands_evals import Case, Experiment, DiagnosisConfig, eval_task, TracedHandler
 from strands_evals.detectors import ConfidenceLevel, DiagnosisTrigger
 from strands_evals.evaluators import OutputEvaluator, GoalSuccessRateEvaluator
 
 @eval_task(TracedHandler())
-def math_agent():
+def weather_agent():
     return Agent(
-        tools=[calculator],  # calculator is defined at the end of this page
-        system_prompt="You are a math assistant. Use the calculator tool for computations.",
+        tools=[http_request],
+        system_prompt="You are a weather assistant. "
+                      "Use the http_request tool to fetch data.",
         callback_handler=None,
     )
 
 cases = [
     Case(
-        name="basic-math",
-        input="What is 15% of 230?",
-        expected_output="34.5",
-        metadata={"task_description": "Correct calculation provided"},
+        name="seattle-weather",
+        input="What is the current temperature in Seattle? Get it from "
+        "https://api.open-meteo.com/v1/forecast?latitude=47.6&longitude=-122.3"
+        "&current=temperature_2m",
+        metadata={"task_description": "Current temperature reported from the API"},
     ),
 ]
 
 experiment = Experiment(
     cases=cases,
     evaluators=[
-        OutputEvaluator(rubric="Score 1.0 if the answer is numerically correct. Score 0.0 otherwise."),
+        OutputEvaluator(
+            rubric="Score 1.0 if a temperature is reported. Score 0.0 otherwise."
+        ),
         GoalSuccessRateEvaluator(),
     ],
     diagnosis_config=DiagnosisConfig(
@@ -253,7 +258,7 @@ experiment = Experiment(
 )
 
 async def main():
-    report = await experiment.run_evaluations_async(math_agent, max_workers=1)
+    report = await experiment.run_evaluations_async(weather_agent, max_workers=1)
 
     # The experiment already returns a single combined report across all evaluators —
     # each row in `report.cases` carries an `evaluator` key naming the producer.
@@ -277,14 +282,3 @@ asyncio.run(main())
 - [Detectors Overview](index.md): High-level detectors guide
 - [Task Decorator](../how-to/eval_task.md): Simplify task functions with `@eval_task`
 - [Remote Trace Providers](../how-to/trace_providers.md): Fetch traces from production backends
-
-## The `calculator` tool used above
-
-The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic: see
-[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
-for how `@tool` works.
-
-```python
---8<-- "_shared/calculator.py:calculator"
-```

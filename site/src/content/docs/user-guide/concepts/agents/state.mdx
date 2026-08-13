@@ -90,21 +90,27 @@ Direct tool calls are (by default) recorded in the conversation history:
 
 ```python
 from strands import Agent
+from strands.vended_tools import http_request
 
-# calculator is defined at the end of this page
-agent = Agent(tools=[calculator])
+agent = Agent(tools=[http_request])
 
 # Direct tool call with recording (default behavior)
-agent.tool.calculator(a=123, b=456, op="*")
+agent.tool.http_request(method="GET", url="https://api.github.com/zen")
 
 # Direct tool call without recording
-agent.tool.calculator(a=765, b=987, op="/", record_direct_tool_call=False)
+agent.tool.http_request(
+    method="GET",
+    url="https://api.github.com/repos/strands-agents/harness-sdk",
+    record_direct_tool_call=False,
+)
 
 print(agent.messages)
 ```
-In this example we can see that the first `agent.tool.calculator()` call is recorded in the agent's conversation history.
+In this example we can see that the first `agent.tool.http_request()` call is
+recorded in the agent's conversation history.
 
-The second `agent.tool.calculator()` call is **not** recorded in the history because we specified the `record_direct_tool_call=False` argument.
+The second `agent.tool.http_request()` call is **not** recorded in the history
+because we specified the `record_direct_tool_call=False` argument.
 </Tab>
 <Tab label="TypeScript">
 
@@ -335,14 +341,3 @@ Invocation state (<Syntax py="invocation_state" ts="invocationState" />):
 ## Persisting State Across Sessions
 
 For automatic persistence of agent state and conversation history across application restarts, see [Session Management](session-management.md). For manual, point-in-time capture and restore of agent state, see [Snapshots](snapshots.mdx).
-
-## The `calculator` tool used above
-
-The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic: see
-[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
-for how `@tool` works.
-
-```python
---8<-- "_shared/calculator.py:calculator"
-```

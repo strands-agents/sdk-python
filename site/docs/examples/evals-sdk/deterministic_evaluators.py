@@ -3,10 +3,10 @@
 Fast, code-based evaluation without LLM judges.
 """
 
-import operator
 import asyncio
 
-from strands import Agent, tool
+from strands import Agent
+from strands.vended_tools import http_request
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import Contains, Equals, StartsWith, ToolCalled
 
@@ -39,41 +39,26 @@ experiment = Experiment(
 from strands_evals.extractors import tools_use_extractor
 
 
-_OPS = {
-    "+": operator.add,
-    "-": operator.sub,
-    "*": operator.mul,
-    "/": operator.truediv,
-    "**": operator.pow,
-}
-
-
-@tool
-def calculator(a: float, b: float, op: str) -> float:
-    """Apply an arithmetic operator to two numbers.
-
-    Args:
-        a: Left operand.
-        b: Right operand.
-        op: One of "+", "-", "*", "/", "**".
-    """
-    return _OPS[op](a, b)
-
-
 def get_response_with_tools(case: Case) -> dict:
-    agent = Agent(tools=[calculator], callback_handler=None)
+    agent = Agent(tools=[http_request], callback_handler=None)
     response = agent(case.input)
     trajectory = tools_use_extractor.extract_agent_tools_used_from_messages(agent.messages)
     return {"output": str(response), "trajectory": trajectory}
 
 
 tool_cases = [
-    Case(name="calc", input="What is 15 * 23?", expected_trajectory=["calculator"]),
+    Case(
+        name="weather",
+        input="What is the current temperature in Seattle? Get it from "
+        "https://api.open-meteo.com/v1/forecast?latitude=47.6&longitude=-122.3"
+        "&current=temperature_2m",
+        expected_trajectory=["http_request"],
+    ),
 ]
 
 tool_experiment = Experiment(
     cases=tool_cases,
-    evaluators=[ToolCalled(tool_name="calculator")],
+    evaluators=[ToolCalled(tool_name="http_request")],
 )
 
 

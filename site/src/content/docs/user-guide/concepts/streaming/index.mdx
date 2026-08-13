@@ -271,8 +271,8 @@ This example demonstrates how to identify event emitted from an agent:
 
 ```python
 from strands import Agent
+from strands.vended_tools import http_request
 
-# calculator is defined at the end of this page
 def process_event(event):
     """Shared event processor for both async iterators and callback handlers"""
     # Track event loop lifecycle
@@ -297,8 +297,12 @@ def process_event(event):
         data_snippet = event["data"][:20] + ("..." if len(event["data"]) > 20 else "")
         print(f"📟 Text: {data_snippet}")
 
-agent = Agent(tools=[calculator], callback_handler=None)
-async for event in agent.stream_async("What is the capital of France and what is 42+7?"):
+agent = Agent(tools=[http_request], callback_handler=None)
+async for event in agent.stream_async(
+    "What is the capital of France? Then fetch https://api.open-meteo.com/v1/forecast"
+    "?latitude=48.85&longitude=2.35&current=temperature_2m"
+    " and tell me the temperature there."
+):
     process_event(event)
 
 ```
@@ -322,21 +326,21 @@ Utilizing both [agents as a tool](../multi-agent/agents-as-tools.md) and [tool s
 from typing import AsyncIterator
 from dataclasses import dataclass
 from strands import Agent, tool
+from strands.vended_tools import http_request
 
-# calculator is defined at the end of this page
 @dataclass
 class SubAgentResult:
     agent: Agent
     event: dict
 
 @tool
-async def math_agent(query: str) -> AsyncIterator:
-    """Solve math problems using the calculator tool."""
+async def weather_agent(query: str) -> AsyncIterator:
+    """Answer weather questions using the http_request tool."""
     agent = Agent(
-        name="Math Expert",
-        system_prompt="You are a math expert. Use the calculator tool for calculations.",
+        name="Weather Assistant",
+        system_prompt="You are a weather assistant. Use http_request for live data.",
         callback_handler=None,
-        tools=[calculator]
+        tools=[http_request]
     )
 
     result = None
@@ -364,14 +368,16 @@ def process_sub_agent_events(event):
 
 # Using with async iterators
 orchestrator_async_iterator = Agent(
-    system_prompt="Route math questions to the math_agent tool.",
+    system_prompt="Route weather questions to the weather_agent tool.",
     callback_handler=None,
-    tools=[math_agent]
+    tools=[weather_agent]
 )
 
 
 # With async-iterator
-async for event in orchestrator_async_iterator.stream_async("What is 3+3?"):
+async for event in orchestrator_async_iterator.stream_async(
+    "What is the temperature in Seattle right now?"
+):
     process_sub_agent_events(event)
 
 
@@ -380,12 +386,12 @@ def handle_events(**kwargs):
     process_sub_agent_events(kwargs)
 
 orchestrator_callback = Agent(
-    system_prompt="Route math questions to the math_agent tool.",
+    system_prompt="Route weather questions to the weather_agent tool.",
     callback_handler=handle_events,
-    tools=[math_agent]
+    tools=[weather_agent]
 )
 
-orchestrator_callback("What is 3+3?")
+orchestrator_callback("What is the temperature in Tokyo right now?")
 ```
 </Tab>
 <Tab label="TypeScript">
@@ -401,14 +407,3 @@ orchestrator_callback("What is 3+3?")
 - Learn about [Async Iterators](async-iterators.md) for asynchronous streaming
 - Explore [Callback Handlers](callback-handlers.md) for synchronous event processing
 - See the Agent API Reference for complete method documentation: [Python](@api/python/strands.agent.agent) | [TypeScript](@api/typescript/Agent)
-
-## The `calculator` tool used above
-
-The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic: see
-[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
-for how `@tool` works.
-
-```python
---8<-- "_shared/calculator.py:calculator"
-```

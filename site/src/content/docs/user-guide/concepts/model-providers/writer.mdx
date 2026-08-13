@@ -24,7 +24,7 @@ After installing `writer`, you can import and initialize Strands Agents' Writer 
 
 ```python
 from strands import Agent
-from strands.vended_tools import sleep
+from strands.vended_tools import http_request
 from strands.models.writer import WriterModel
 
 model = WriterModel(
@@ -33,12 +33,20 @@ model = WriterModel(
     model_id="palmyra-x5",
 )
 
-agent = Agent(model=model, tools=[sleep])
-response = agent("Pause for 2 seconds, then tell me you are done.")
+agent = Agent(model=model, tools=[http_request])
+response = agent(
+    "Fetch the current weather from https://api.open-meteo.com/v1/forecast"
+    "?latitude=47.6&longitude=-122.3&current=temperature_2m"
+    " and tell me if I need a jacket in Seattle."
+)
 print(response)
 ```
 
-> **Note**: By default, Strands Agents use a `PrintingCallbackHandler` that streams responses to stdout as they're generated. When you call `agent("Pause for 2 seconds, then tell me you are done.")`, you'll see the response appear in real-time as it's being generated. The `print(response)` above also shows the final collected result after the response is complete. See [Callback Handlers](../streaming/callback-handlers.md) for more details.
+> **Note**: By default, Strands Agents use a `PrintingCallbackHandler` that streams
+> responses to stdout as they're generated. When you call the agent, you'll see the
+> response appear in real-time as it's being generated. The `print(response)` above
+> also shows the final collected result after the response is complete. See
+> [Callback Handlers](../streaming/callback-handlers.md) for more details.
 
 ## Configuration
 

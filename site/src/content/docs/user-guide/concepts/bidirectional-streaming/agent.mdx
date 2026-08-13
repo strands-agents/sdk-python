@@ -46,13 +46,17 @@ The standard `Agent` follows a traditional request-response pattern:
 
 ```python
 from strands import Agent
+from strands.vended_tools import http_request
 
-# calculator is defined at the end of this page
-agent = Agent(tools=[calculator])
+agent = Agent(tools=[http_request])
 
 # Single request-response cycle
-result = agent("Calculate 25 * 48")
-print(result.message)  # "The result is 1200"
+result = agent(
+    "Fetch the current weather from https://api.open-meteo.com/v1/forecast"
+    "?latitude=47.6&longitude=-122.3&current=temperature_2m"
+    " and tell me if I need a jacket in Seattle."
+)
+print(result.message)
 ```
 
 **Characteristics:**
@@ -70,9 +74,10 @@ print(result.message)  # "The result is 1200"
 import asyncio
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
 from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.vended_tools import http_request
 
 model = BidiNovaSonicModel()
-agent = BidiAgent(model=model, tools=[calculator])
+agent = BidiAgent(model=model, tools=[http_request])
 audio_io = BidiAudioIO()
 
 async def main():
@@ -141,7 +146,7 @@ flowchart TB
 **Agent Initialization**
 
 ```python
-agent = BidiAgent(model=model, tools=[calculator])
+agent = BidiAgent(model=model, tools=[http_request])
 ```
 
 Creates tool registry, initializes agent state, and sets up hook registry.
@@ -197,12 +202,13 @@ User → send() → Model → receive() → Model Task → Event Queue → recei
 ```python
 from strands.experimental.bidi import BidiAgent
 from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.vended_tools import http_request
 
 model = BidiNovaSonicModel()
 
 agent = BidiAgent(
     model=model,
-    tools=[calculator, weather],
+    tools=[http_request],
     system_prompt="You are a helpful voice assistant.",
     messages=[],  # Optional conversation history
     agent_id="voice_assistant_1",
@@ -269,7 +275,7 @@ stateDiagram-v2
 #### 1. Creation
 
 ```python
-agent = BidiAgent(model=model, tools=[calculator])
+agent = BidiAgent(model=model, tools=[http_request])
 # Tool registry initialized, agent state created, hooks registered
 # NOT connected to model yet
 ```
@@ -450,14 +456,3 @@ The agent automatically cleans up background tasks, model connections, I/O chann
 - [Model Providers](models/nova_sonic.md) - Provider-specific configuration
 - [Quickstart](quickstart.md) - Getting started guide
 - [Python API Reference](@api/python/strands.experimental.bidi.agent.agent) - Complete API documentation
-
-## The `calculator` tool used above
-
-The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic: see
-[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
-for how `@tool` works.
-
-```python
---8<-- "_shared/calculator.py:calculator"
-```

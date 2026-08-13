@@ -171,6 +171,7 @@ Now let's evaluate how well agents use tools. Create `my_evaluation/trajectory_e
 
 ```python
 from strands import Agent
+from strands.vended_tools import http_request
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import TrajectoryEvaluator
 from strands_evals.extractors import tools_use_extractor
@@ -178,8 +179,9 @@ from strands_evals.extractors import tools_use_extractor
 # Define task function that captures tool usage
 def get_response_with_tools(case: Case) -> dict:
     agent = Agent(
-        tools=[calculator],  # calculator is defined at the end of this page
-        system_prompt="You are a helpful assistant. Use tools when appropriate.",
+        tools=[http_request],
+        system_prompt="You are a weather assistant. "
+                      "Use the http_request tool to fetch data.",
         callback_handler=None
     )
     response = agent(case.input)
@@ -192,22 +194,30 @@ def get_response_with_tools(case: Case) -> dict:
 # Create test cases with expected tool usage
 test_cases = [
     Case[str, str](
-        name="calculation-1",
-        input="What is 15% of 230?",
-        expected_trajectory=["calculator"],
-        metadata={"category": "math", "expected_tools": ["calculator"]}
+        name="weather-1",
+        input="What is the current temperature in Seattle? Get it from "
+        "https://api.open-meteo.com/v1/forecast?latitude=47.6&longitude=-122.3"
+        "&current=temperature_2m",
+        expected_trajectory=["http_request"],
+        metadata={"category": "weather", "expected_tools": ["http_request"]}
     ),
     Case[str, str](
-        name="calculation-2",
-        input="What is 12 * 12?",
-        expected_trajectory=["calculator"],
-        metadata={"category": "math", "expected_tools": ["calculator"]}
+        name="weather-2",
+        input="What is the current temperature in Tokyo? Get it from "
+        "https://api.open-meteo.com/v1/forecast?latitude=35.7&longitude=139.7"
+        "&current=temperature_2m",
+        expected_trajectory=["http_request"],
+        metadata={"category": "weather", "expected_tools": ["http_request"]}
     ),
     Case[str, str](
-        name="complex-1",
-        input="What is 25 * 48, and then divide that by 4?",
-        expected_trajectory=["calculator", "calculator"],
-        metadata={"category": "multi_tool", "expected_tools": ["calculator"]}
+        name="comparison-1",
+        input="Is it warmer in Seattle or Miami right now? Check "
+        "https://api.open-meteo.com/v1/forecast?latitude=47.6&longitude=-122.3"
+        "&current=temperature_2m and "
+        "https://api.open-meteo.com/v1/forecast?latitude=25.8&longitude=-80.2"
+        "&current=temperature_2m",
+        expected_trajectory=["http_request", "http_request"],
+        metadata={"category": "multi_tool", "expected_tools": ["http_request"]}
     )
 ]
 
@@ -232,7 +242,7 @@ evaluator = TrajectoryEvaluator(
 )
 
 # Update evaluator with tool descriptions to prevent context overflow
-sample_agent = Agent(tools=[calculator])
+sample_agent = Agent(tools=[http_request])
 tool_descriptions = tools_use_extractor.extract_tools_description(sample_agent, is_short=True)
 evaluator.update_trajectory_description(tool_descriptions)
 
@@ -261,24 +271,29 @@ The `TracedHandler` handles all of this automatically:
 
 ```python
 from strands import Agent
+from strands.vended_tools import http_request
 from strands_evals import eval_task, TracedHandler, Case, Experiment
 from strands_evals.evaluators import HelpfulnessEvaluator
 
 @eval_task(TracedHandler())
 def user_task_function():
-    return Agent(tools=[calculator], callback_handler=None)
+    return Agent(tools=[http_request], callback_handler=None)
 
 # Create test cases for helpfulness evaluation
 test_cases = [
     Case[str, str](
         name="helpful-1",
-        input="I need help calculating the tip for a $45.67 restaurant bill with 18% tip.",
+        input="What is the current temperature in Seattle? Get it from "
+        "https://api.open-meteo.com/v1/forecast?latitude=47.6&longitude=-122.3"
+        "&current=temperature_2m",
         metadata={"category": "practical_help"}
     ),
     Case[str, str](
         name="helpful-2",
-        input="Can you explain what 2^8 equals and show the calculation?",
-        metadata={"category": "educational"}
+        input="What is the current temperature in Tokyo? Get it from "
+        "https://api.open-meteo.com/v1/forecast?latitude=35.7&longitude=139.7"
+        "&current=temperature_2m",
+        metadata={"category": "practical_help"}
     )
 ]
 
@@ -300,6 +315,7 @@ If you need more control (e.g., custom session mapping or per-case agent configu
 
 ```python
 from strands import Agent
+from strands.vended_tools import http_request
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import HelpfulnessEvaluator
 from strands_evals.telemetry import StrandsEvalsTelemetry
@@ -310,7 +326,7 @@ telemetry = StrandsEvalsTelemetry().setup_in_memory_exporter()
 def user_task_function(case: Case) -> dict:
     telemetry.in_memory_exporter.clear()
     agent = Agent(
-        tools=[calculator],
+        tools=[http_request],
         trace_attributes={
             "gen_ai.conversation.id": case.session_id,
             "session.id": case.session_id
@@ -462,7 +478,7 @@ from strands_evals.evaluators import TrajectoryEvaluator
 # Define tool context
 tool_context = """
 Available tools:
-- calculator(a: float, b: float, op: str) -> float: Apply an arithmetic operator to two numbers
+- http_request(method: str, url: str) -> dict: Fetch a URL and return the response
 - file_read(path: str) -> str: Read file contents
 - file_write(path: str, content: str) -> str: Write content to a file
 """
@@ -475,7 +491,7 @@ async def generate_experiment():
         context=tool_context,
         num_cases=5,
         evaluator=TrajectoryEvaluator,
-        task_description="Assistant with calculation and file tools",
+        task_description="Research and file assistant",
         num_topics=2  # Distribute across multiple topics
     )
     
@@ -566,14 +582,3 @@ Ready to dive deeper? Explore these resources:
 - [Experiment Generator](experiment_generator.md) - Automatically generate comprehensive test suites
 - [Serialization](how-to/serialization.md) - Save, load, and version your evaluation experiments
 - [Detectors](detectors/index.md) - Automatic failure detection and root cause analysis for agent traces
-
-## The `calculator` tool used above
-
-The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic: see
-[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
-for how `@tool` works.
-
-```python
---8<-- "_shared/calculator.py:calculator"
-```

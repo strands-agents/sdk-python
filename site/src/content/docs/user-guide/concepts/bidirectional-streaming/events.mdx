@@ -335,8 +335,8 @@ Emitted when the model requests tool execution. See [Tools Overview](../tools/in
     "type": "tool_use_stream",
     "current_tool_use": {
         "toolUseId": "tool_123",
-        "name": "calculator",
-        "input": {"a": 2, "b": 2, "op": "+"}
+        "name": "http_request",
+        "input": {"method": "GET", "url": "https://api.github.com/zen"}
     }
 }
 ```
@@ -495,14 +495,18 @@ asyncio.run(main())
 import asyncio
 from strands.experimental.bidi import BidiAgent
 from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.vended_tools import http_request
 
 async def main():
     model = BidiNovaSonicModel()
-    # calculator is defined at the end of this page
-    agent = BidiAgent(model=model, tools=[calculator])
+    agent = BidiAgent(model=model, tools=[http_request])
     
     async with agent as agent:
-        await agent.send("What is 25 times 48?")
+        await agent.send(
+            "Fetch the current weather from https://api.open-meteo.com/v1/forecast"
+            "?latitude=47.6&longitude=-122.3&current=temperature_2m"
+            " and tell me if I need a jacket in Seattle."
+        )
         
         async for event in agent.receive():
             event_type = event["type"]
@@ -584,14 +588,3 @@ asyncio.run(main())
 Hook events are a separate concept from streaming events. While streaming events flow through `agent.receive()` during conversations, hook events are callbacks that trigger at specific lifecycle points (like initialization, message added, or interruption). Hook events allow you to inject custom logic for cross-cutting concerns like logging, analytics, and session persistence without processing the event stream directly.
 
 For details on hook events and usage patterns, see the [Hooks](hooks.md) documentation.
-
-## The `calculator` tool used above
-
-The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic: see
-[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
-for how `@tool` works.
-
-```python
---8<-- "_shared/calculator.py:calculator"
-```

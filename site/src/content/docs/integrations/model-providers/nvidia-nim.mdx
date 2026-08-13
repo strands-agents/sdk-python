@@ -30,7 +30,7 @@ pip install strands-nvidia-nim strands-agents-tools
 
 ```python
 from strands import Agent
-from strands.vended_tools import sleep
+from strands.vended_tools import http_request
 from strands_nvidia_nim import NvidiaNIM
 
 model = NvidiaNIM(
@@ -42,8 +42,12 @@ model = NvidiaNIM(
     }
 )
 
-agent = Agent(model=model, tools=[sleep])
-agent("Pause for 2 seconds, then tell me you are done.")
+agent = Agent(model=model, tools=[http_request])
+agent(
+    "Fetch the current weather from https://api.open-meteo.com/v1/forecast"
+    "?latitude=47.6&longitude=-122.3&current=temperature_2m"
+    " and tell me if I need a jacket in Seattle."
+)
 ```
 
 ### Using Environment Variables
@@ -55,7 +59,7 @@ export NVIDIA_NIM_API_KEY=your-nvidia-nim-api-key
 ```python
 import os
 from strands import Agent
-from strands.vended_tools import sleep
+from strands.vended_tools import http_request
 from strands_nvidia_nim import NvidiaNIM
 
 model = NvidiaNIM(
@@ -64,8 +68,12 @@ model = NvidiaNIM(
     params={"max_tokens": 1000, "temperature": 0.7}
 )
 
-agent = Agent(model=model, tools=[sleep])
-agent("Pause for 2 seconds, then tell me you are done.")
+agent = Agent(model=model, tools=[http_request])
+agent(
+    "Fetch the current weather from https://api.open-meteo.com/v1/forecast"
+    "?latitude=47.6&longitude=-122.3&current=temperature_2m"
+    " and tell me if I need a jacket in Seattle."
+)
 ```
 
 ## Configuration

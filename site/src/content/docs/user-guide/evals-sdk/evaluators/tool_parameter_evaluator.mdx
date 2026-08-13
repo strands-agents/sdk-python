@@ -62,6 +62,7 @@ When using `StrandsInMemorySessionMapper`, you **must** include session ID trace
 ```python
 import asyncio
 from strands import Agent
+from strands.vended_tools import http_request
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import ToolParameterAccuracyEvaluator
 from strands_evals.mappers import StrandsInMemorySessionMapper
@@ -78,7 +79,7 @@ def user_task_function(case: Case) -> dict:
             "gen_ai.conversation.id": case.session_id,
             "session.id": case.session_id
         },
-        tools=[calculator],  # calculator is defined at the end of this page
+        tools=[http_request],
         callback_handler=None
     )
     agent_response = agent(case.input)
@@ -93,9 +94,11 @@ def user_task_function(case: Case) -> dict:
 # Create test cases
 test_cases = [
     Case[str, str](
-        name="simple-calculation",
-        input="Calculate the square root of 144",
-        metadata={"category": "math", "difficulty": "easy"}
+        name="seattle-weather",
+        input="What is the current temperature in Seattle? Get it from "
+        "https://api.open-meteo.com/v1/forecast?latitude=47.6&longitude=-122.3"
+        "&current=temperature_2m",
+        metadata={"category": "weather", "difficulty": "easy"}
     ),
 ]
 
@@ -161,14 +164,3 @@ The judge determines if each parameter value can be traced back to information i
 - [**TrajectoryEvaluator**](trajectory_evaluator.md): Evaluates the overall sequence of tool calls
 - [**FaithfulnessEvaluator**](faithfulness_evaluator.md): Evaluates if responses are grounded in context
 - [**OutputEvaluator**](output_evaluator.md): Evaluates the quality of final outputs
-
-## The `calculator` tool used above
-
-The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic: see
-[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
-for how `@tool` works.
-
-```python
---8<-- "_shared/calculator.py:calculator"
-```

@@ -29,16 +29,18 @@ Tools are passed to agents during initialization or at runtime, making them avai
 ```python
 from strands import Agent
 from strands_tools import file_read
-from strands.vended_tools import shell
+from strands.vended_tools import http_request, shell
 
-# calculator is defined at the end of this page
 # Add tools to our agent
 agent = Agent(
-    tools=[calculator, file_read, shell]
+    tools=[http_request, file_read, shell]
 )
 
-# Agent will automatically determine when to use the calculator tool
-agent("What is 42 ^ 9")
+# Agent can use the http_request tool to fetch live data
+agent(
+    "How many stars does the strands-agents/harness-sdk repo have? Check "
+    "https://api.github.com/repos/strands-agents/harness-sdk"
+)
 
 print("\n\n")  # Print new lines
 
@@ -589,13 +591,3 @@ def search_database(query: str, max_results: int = 10) -> list:
 ```
 </Tab>
 </Tabs>
-
-## The `calculator` tool used above
-
-The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic: see
-[Function-Based Tools](#function-based-tools) above for how `@tool` works.
-
-```python
---8<-- "_shared/calculator.py:calculator"
-```

@@ -598,7 +598,7 @@ In Python, use the `cache_tools` parameter to enable tool caching independently:
 
 ```python
 from strands import Agent
-from strands.vended_tools import file_editor, http_request, shell, sleep
+from strands.vended_tools import file_editor, http_request, shell
 from strands.models import BedrockModel
 
 # Using tool caching with BedrockModel
@@ -610,18 +610,26 @@ bedrock_model = BedrockModel(
 # Tool definitions must exceed the model's minimum cacheable token count
 # (1,024 tokens for Claude Sonnet), so cache a few tools rather than one.
 # The extra tools are here only to clear that minimum; the prompt below
-# exercises only sleep.
+# exercises only http_request.
 agent = Agent(
     model=bedrock_model,
-    tools=[file_editor, http_request, shell, sleep]
+    tools=[file_editor, http_request, shell]
 )
 # First request will cache the tools
-response1 = agent("Pause for 2 seconds, then tell me you are done.")
+response1 = agent(
+    "Fetch the current weather from https://api.open-meteo.com/v1/forecast"
+    "?latitude=47.6&longitude=-122.3&current=temperature_2m"
+    " and tell me if I need a jacket in Seattle."
+)
 print(f"Cache write tokens: {response1.metrics.accumulated_usage.get('cacheWriteInputTokens')}")
 print(f"Cache read tokens: {response1.metrics.accumulated_usage.get('cacheReadInputTokens')}")
 
 # Second request will reuse the cached tools
-response2 = agent("Pause for 2 seconds, then tell me you are done.")
+response2 = agent(
+    "Fetch the current weather from https://api.open-meteo.com/v1/forecast"
+    "?latitude=47.6&longitude=-122.3&current=temperature_2m"
+    " and tell me if I need a jacket in Seattle."
+)
 print(f"Cache write tokens: {response2.metrics.accumulated_usage.get('cacheWriteInputTokens')}")
 print(f"Cache read tokens: {response2.metrics.accumulated_usage.get('cacheReadInputTokens')}")
 ```

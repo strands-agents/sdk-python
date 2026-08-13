@@ -44,16 +44,22 @@ The decorator wraps your function so that `Experiment.run_evaluations` receives 
 Accept a `Case` parameter to customize agent behavior per test case:
 
 ```python
-# calculator is defined at the end of this page
+from strands.vended_tools import http_request
 
 @eval_task()
 def my_task(case):
-    tools = [calculator] if (case.metadata or {}).get("use_calc") else []
+    tools = [http_request] if (case.metadata or {}).get("use_http") else []
     return Agent(tools=tools, callback_handler=None)
 
 cases = [
-    Case(name="math", input="What is 15 * 23?", metadata={"use_calc": True}),
-    Case(name="chat", input="Tell me a joke", metadata={"use_calc": False}),
+    Case(
+        name="weather",
+        input="What is the current temperature in Seattle? Get it from "
+        "https://api.open-meteo.com/v1/forecast?latitude=47.6&longitude=-122.3"
+        "&current=temperature_2m",
+        metadata={"use_http": True},
+    ),
+    Case(name="chat", input="Tell me a joke", metadata={"use_http": False}),
 ]
 ```
 
@@ -143,14 +149,3 @@ def task_function():
 - [Getting Started](../quickstart.md): Quickstart guide
 - [Evaluators Overview](../evaluators/index.md): Available evaluators
 - [Remote Trace Providers](trace_providers.md): Evaluate traces from production backends
-
-## The `calculator` tool used above
-
-The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic: see
-[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
-for how `@tool` works.
-
-```python
---8<-- "_shared/calculator.py:calculator"
-```

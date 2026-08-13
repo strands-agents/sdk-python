@@ -22,13 +22,17 @@ All these metrics are accessible through the [`AgentResult`](@api/python/strands
 
 ```python
 from strands import Agent
+from strands.vended_tools import http_request
 
-# calculator is defined at the end of this page
 # Create an agent with tools
-agent = Agent(tools=[calculator])
+agent = Agent(tools=[http_request])
 
 # Invoke the agent with a prompt and get an AgentResult
-result = agent("What is the square root of 144?")
+result = agent(
+    "Fetch the current weather from https://api.open-meteo.com/v1/forecast"
+    "?latitude=47.6&longitude=-122.3&current=temperature_2m"
+    " and tell me if I need a jacket in Seattle."
+)
 
 # Access metrics through the AgentResult
 print(f"Total tokens: {result.metrics.accumulated_usage['totalTokens']}")
@@ -90,15 +94,15 @@ This allows you to track metrics at both the individual invocation level and acr
 
 ```python
 from strands import Agent
+from strands.vended_tools import http_request
 
-# calculator is defined at the end of this page
-agent = Agent(tools=[calculator])
+agent = Agent(tools=[http_request])
 
 # First invocation
-result1 = agent("What is 5 + 3?")
+result1 = agent("What is the current temperature in Seattle?")
 
 # Second invocation
-result2 = agent("What is the square root of 144?")
+result2 = agent("And what about Tokyo?")
 
 # Access metrics for the latest invocation
 latest_invocation = result2.metrics.latest_agent_invocation
@@ -181,7 +185,7 @@ These metrics help you identify performance bottlenecks, tools with high error r
 
 The Strands Agents SDK provides a convenient `get_summary()` method on the `EventLoopMetrics` class that gives you a comprehensive overview of your agent's performance in a single call. This method aggregates all the metrics data into a structured dictionary that's easy to analyze or export.
 
-Let's look at the output from calling `get_summary()` on the metrics from our calculator example from the beginning of this document:
+Let's look at the output from calling `get_summary()` on the metrics from our example agent at the beginning of this document:
 
 ```python
 result = agent("What is the square root of 144?")
@@ -306,10 +310,13 @@ Each trace represents a cycle in the agent loop, with child traces for model inv
 
 ```python
 from strands import Agent
+from strands.vended_tools import http_request
 
-# calculator is defined at the end of this page
-agent = Agent(tools=[calculator])
-result = agent("What is 15 * 8 + 42?")
+agent = Agent(tools=[http_request])
+result = agent(
+    "Fetch https://api.github.com/repos/strands-agents/harness-sdk"
+    " and tell me how many open issues the repo has."
+)
 
 # Traces are included in the summary output
 print(result.metrics.get_summary())
@@ -317,7 +324,7 @@ print(result.metrics.get_summary())
 
 Each trace contains:
 
-- **name**: Human-readable label (e.g., "Cycle 1", "stream_messages", "Tool: calculator")
+- **name**: Human-readable label (e.g., "Cycle 1", "stream_messages", "Tool: http_request")
 - **duration**: Execution time in seconds
 - **children**: Nested traces for operations within the cycle
 - **metadata**: Associated data like `cycleId`, `toolUseId`, and `toolName`
@@ -337,7 +344,7 @@ Each trace is an `AgentTrace` instance representing a cycle in the agent loop, w
 
 Each `AgentTrace` contains:
 
-- **name**: Human-readable label (e.g., "Cycle 1", "stream_messages", "Tool: calculator")
+- **name**: Human-readable label (e.g., "Cycle 1", "stream_messages", "Tool: http_request")
 - **duration**: Execution time in milliseconds
 - **children**: Nested `AgentTrace` instances for operations within the cycle
 - **metadata**: Associated data like `cycleId`, `toolUseId`, and `toolName`
@@ -360,14 +367,3 @@ Traces are separate from `AgentMetrics` and are accessed via `result.traces`. No
 5. **Combine Technical Metrics with Business KPIs**: In addition to technical metrics, collect and analyze KPIs that measure business outcomes, such as resolution rate, escalation rate, customer satisfaction, and task completion. Track both types of metrics with equal weight to gain a more complete view of overall agent performance. For more information, see the [AWS Well-Architected Framework Agentic AI Lens Design Principles for Operational Excellence](https://docs.aws.amazon.com/wellarchitected/latest/agentic-ai-lens/operational-excellence-design-principles.html).
 
 6. **Regular Metrics Reviews**: Schedule periodic reviews of agent metrics to identify trends and opportunities for optimization. Look for gradual changes in performance that might indicate drift in tool behavior or model responses.
-
-## The `calculator` tool used above
-
-The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic: see
-[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
-for how `@tool` works.
-
-```python
---8<-- "_shared/calculator.py:calculator"
-```

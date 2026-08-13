@@ -4,6 +4,7 @@
 import { Agent, tool, SessionManager, FileStorage } from '@strands-agents/sdk'
 import { A2AAgent } from '@strands-agents/sdk/a2a'
 import { A2AExpressServer } from '@strands-agents/sdk/a2a/express'
+import { httpRequest } from '@strands-agents/sdk/vended-tools/http-request'
 import { z } from 'zod'
 
 async function basicUsageExample() {
@@ -12,7 +13,7 @@ async function basicUsageExample() {
   const a2aAgent = new A2AAgent({ url: 'http://localhost:9000' })
 
   // Invoke it just like a regular Agent
-  const result = await a2aAgent.invoke('Show me 10 ^ 6')
+  const result = await a2aAgent.invoke('What is the current temperature in Seattle?')
   console.log(result.lastMessage.content)
   // --8<-- [end:basic_usage]
 }
@@ -36,25 +37,27 @@ async function streamingExample() {
 
 async function asToolExample() {
   // --8<-- [start:as_tool]
-  const calculatorAgent = new A2AAgent({
-    url: 'http://calculator-service:9000',
+  const weatherAgent = new A2AAgent({
+    url: 'http://weather-service:9000',
   })
 
-  const calculate = tool({
-    name: 'calculate',
-    description: 'Perform a mathematical calculation.',
+  const getWeather = tool({
+    name: 'getWeather',
+    description: 'Fetch the current weather for a location.',
     inputSchema: z.object({
-      expression: z.string().describe('The math expression to evaluate'),
+      location: z.string().describe('The location to fetch weather for'),
     }),
     callback: async (input) => {
-      const calcResult = await calculatorAgent.invoke(input.expression)
-      return String(calcResult.lastMessage.content[0])
+      const weatherResult = await weatherAgent.invoke(
+        `What is the current weather in ${input.location}?`
+      )
+      return String(weatherResult.lastMessage.content[0])
     },
   })
 
   const orchestrator = new Agent({
-    systemPrompt: 'You are a helpful assistant. Use the calculate tool for math.',
-    tools: [calculate],
+    systemPrompt: 'You are a helpful assistant. Use the getWeather tool for weather.',
+    tools: [getWeather],
   })
   // --8<-- [end:as_tool]
 }
@@ -65,10 +68,10 @@ async function basicServerExample() {
   const server = new A2AExpressServer({
     agentFactory: (contextId) =>
       new Agent({
-        systemPrompt: 'You are a calculator agent that can perform basic arithmetic.',
+        tools: [httpRequest],
       }),
-    name: 'Calculator Agent',
-    description: 'A calculator agent that can perform basic arithmetic operations.',
+    name: 'Weather Agent',
+    description: 'An agent that can fetch live weather data.',
   })
 
   await server.serve()
@@ -85,14 +88,14 @@ async function factoryServerExample() {
   const server = new A2AExpressServer({
     agentFactory: (contextId) =>
       new Agent({
-        name: 'Calculator Agent',
-        description: 'A calculator agent.',
+        name: 'Weather Agent',
+        description: 'An agent that can fetch live weather data.',
         sessionManager: new SessionManager({
           sessionId: contextId,
           storage: { snapshot: storage },
         }),
       }),
-    name: 'Calculator Agent',
+    name: 'Weather Agent',
     maxContexts: 1000,
   })
 
@@ -116,7 +119,7 @@ async function serverConfigExample() {
     version: '1.0.0',
     httpUrl: 'https://my-agent.example.com', // Public URL override
     skills: [
-      { id: 'math', name: 'Math', description: 'Performs calculations', tags: [] },
+      { id: 'weather', name: 'Weather', description: 'Live weather data', tags: [] },
     ],
   })
 

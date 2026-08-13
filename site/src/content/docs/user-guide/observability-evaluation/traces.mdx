@@ -364,7 +364,7 @@ You can add custom attributes to any span:
 ```python
 agent = Agent(
     system_prompt="You are a helpful assistant that provides concise responses.",
-    tools=[http_request, calculator],
+    tools=[http_request],
     trace_attributes={
         "session.id": "abc-1234",
         "user.id": "user-email-example@domain.com",
@@ -531,14 +531,3 @@ There are several ways to send traces, metrics, and logs to CloudWatch. Please v
 1. [AWS Distro for OpenTelemetry Collector](https://aws-otel.github.io/docs/getting-started/x-ray#configuring-the-aws-x-ray-exporter)
 2. [AWS CloudWatch OpenTelemetry User Guide](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch-OpenTelemetry-Sections.html)
   - Please ensure Transaction Search is enabled in CloudWatch.
-
-## The `calculator` tool used above
-
-The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic: see
-[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
-for how `@tool` works.
-
-```python
---8<-- "_shared/calculator.py:calculator"
-```

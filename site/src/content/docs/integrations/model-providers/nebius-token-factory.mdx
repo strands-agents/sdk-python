@@ -25,7 +25,7 @@ After installing the `openai` package, you can import and initialize the Strands
 
 ```python
 from strands import Agent
-from strands.vended_tools import sleep
+from strands.vended_tools import http_request
 from strands.models.openai import OpenAIModel
 
 model = OpenAIModel(
@@ -40,8 +40,12 @@ model = OpenAIModel(
     }
 )
 
-agent = Agent(model=model, tools=[sleep])
-agent("Pause for 2 seconds, then tell me you are done.")
+agent = Agent(model=model, tools=[http_request])
+agent(
+    "Fetch the current weather from https://api.open-meteo.com/v1/forecast"
+    "?latitude=47.6&longitude=-122.3&current=temperature_2m"
+    " and tell me if I need a jacket in Seattle."
+)
 ```
 
 ## Configuration

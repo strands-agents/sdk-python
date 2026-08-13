@@ -53,10 +53,10 @@ The two modes are mutually exclusive — argparse rejects mixing them.
 # my_pkg/agents.py
 
 from strands import Agent
+from strands.vended_tools import http_request
 
-# calculator is defined at the end of this page
 def build_agent():
-    return Agent(tools=[calculator], callback_handler=None)
+    return Agent(tools=[http_request], callback_handler=None)
 ```
 
 The CLI synthesizes the standard task wrapper around it: telemetry setup → per-case OTel context (`session.id`, `gen_ai.conversation.id`) → factory call → invoke with `case.input` → map spans to a `Session` → return `{"output", "trajectory"}`. Trace-based evaluators (`HelpfulnessEvaluator`, `FaithfulnessEvaluator`, `GoalSuccessRateEvaluator`, etc.) read the `trajectory` directly.
@@ -65,7 +65,7 @@ The factory may also take a single `Case` argument for per-case customization:
 
 ```python
 def build_agent(case):
-    tools = [calculator] if (case.metadata or {}).get("use_calc") else []
+    tools = [http_request] if (case.metadata or {}).get("use_http") else []
     return Agent(tools=tools, callback_handler=None)
 ```
 
@@ -249,7 +249,7 @@ strands-evals generate \
   --context "$(cat tools.txt)" \
   --num-cases 10 \
   --evaluator TrajectoryEvaluator \
-  --task-description "Calculation and time-aware assistant" \
+  --task-description "Research and file assistant" \
   --num-topics 3 \
   -o experiments/generated.json
 ```
@@ -325,14 +325,3 @@ A typical CI flow combines `validate` (fast schema gate) with `run` (the actual 
 - [Serialization](how-to/serialization.md) — the on-disk shapes consumed by `validate`, `report`, and `generate --experiment`.
 - [Experiment Generator](experiment_generator.md) — the API behind `strands-evals generate`.
 - [Detectors](detectors/index.md) — the API behind `strands-evals diagnose`.
-
-## The `calculator` tool used above
-
-The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic: see
-[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
-for how `@tool` works.
-
-```python
---8<-- "_shared/calculator.py:calculator"
-```

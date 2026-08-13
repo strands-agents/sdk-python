@@ -42,7 +42,7 @@ After installing dependencies, you can import and initialize the Strands Agents'
 
 ```python
 from strands import Agent
-from strands.vended_tools import sleep
+from strands.vended_tools import http_request
 from strands.models.gemini import GeminiModel
 
 model = GeminiModel(
@@ -60,8 +60,12 @@ model = GeminiModel(
     }
 )
 
-agent = Agent(model=model, tools=[sleep])
-response = agent("Pause for 2 seconds, then tell me you are done.")
+agent = Agent(model=model, tools=[http_request])
+response = agent(
+    "Fetch the current weather from https://api.open-meteo.com/v1/forecast"
+    "?latitude=47.6&longitude=-122.3&current=temperature_2m"
+    " and tell me if I need a jacket in Seattle."
+)
 print(response)
 ```
 </Tab>
@@ -331,7 +335,7 @@ Users can pass their own custom Gemini client to the GeminiModel for Strands Age
 ```python
 from google import genai
 from strands import Agent
-from strands.vended_tools import sleep
+from strands.vended_tools import http_request
 from strands.models.gemini import GeminiModel
 
 client = genai.Client(api_key="<KEY>")
@@ -349,8 +353,12 @@ model = GeminiModel(
     }
 )
 
-agent = Agent(model=model, tools=[sleep])
-response = agent("Pause for 2 seconds, then tell me you are done.")
+agent = Agent(model=model, tools=[http_request])
+response = agent(
+    "Fetch the current weather from https://api.open-meteo.com/v1/forecast"
+    "?latitude=47.6&longitude=-122.3&current=temperature_2m"
+    " and tell me if I need a jacket in Seattle."
+)
 print(response)
 ```
 </Tab>

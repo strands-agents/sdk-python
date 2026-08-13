@@ -243,7 +243,7 @@ print(f"Rating: {book_analysis.rating}")
 
 ```python
 from strands import Agent
-from strands.vended_tools import sleep
+from strands.vended_tools import http_request
 from strands.models.ollama import OllamaModel
 
 # Create an Ollama model
@@ -255,11 +255,15 @@ ollama_model = OllamaModel(
 # Create an agent with tools
 agent = Agent(
     model=ollama_model,
-    tools=[sleep]
+    tools=[http_request]
 )
 
 # Use the agent with tools
-response = agent("Pause for 2 seconds, then tell me you are done.")
+response = agent(
+    "Fetch the current weather from https://api.open-meteo.com/v1/forecast"
+    "?latitude=47.6&longitude=-122.3&current=temperature_2m"
+    " and tell me if I need a jacket in Seattle."
+)
 ```
 
 ## Troubleshooting

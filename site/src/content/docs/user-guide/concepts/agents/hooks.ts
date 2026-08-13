@@ -19,6 +19,7 @@ import {
   AfterNodeCallEvent,
 } from '@strands-agents/sdk/multiagent'
 import type { MultiAgent, MultiAgentPlugin } from '@strands-agents/sdk/multiagent'
+import { httpRequest } from '@strands-agents/sdk/vended-tools/http-request'
 
 // Mock tools for examples
 const myTool = new FunctionTool({
@@ -26,47 +27,6 @@ const myTool = new FunctionTool({
   description: 'A sample tool',
   inputSchema: { type: 'object', properties: {} },
   callback: async () => 'result',
-})
-
-const OPS: Record<string, (a: number, b: number) => number> = {
-  '+': (a, b) => a + b,
-  '-': (a, b) => a - b,
-  '*': (a, b) => a * b,
-  '/': (a, b) => a / b,
-  '**': (a, b) => a ** b,
-}
-
-const calculator = new FunctionTool({
-  name: 'calculator',
-  description: 'Apply an arithmetic operator to two numbers',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      a: { type: 'number', description: 'Left operand' },
-      b: { type: 'number', description: 'Right operand' },
-      op: { type: 'string', description: 'One of "+", "-", "*", "/", "**"' },
-    },
-  },
-  callback: async (input: unknown) => {
-    const { a, b, op } = input as { a: number; b: number; op: string }
-    return OPS[op](a, b).toString()
-  },
-})
-
-const sleep = new FunctionTool({
-  name: 'sleep',
-  description: 'Sleep for a specified duration',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      duration: { type: 'number', description: 'Duration in milliseconds' },
-    },
-  },
-  callback: async (input: unknown) => {
-    const typedInput = input as { duration: number }
-    await new Promise((resolve) => setTimeout(resolve, typedInput.duration))
-    return `Slept for ${typedInput.duration}ms`
-  },
 })
 
 // =====================
@@ -186,14 +146,14 @@ async function resultModificationExample() {
     }
 
     private processResult(event: AfterToolCallEvent): void {
-      if (event.toolUse.name !== 'calculator') return
+      if (event.toolUse.name !== 'http_request') return
 
-      // Prefix calculator output before it propagates to the model.
+      // Truncate long response bodies before they propagate to the model.
       event.result = new ToolResultBlock({
         toolUseId: event.result.toolUseId,
         status: event.result.status,
         content: event.result.content.map((block) =>
-          block.type === 'textBlock' ? new TextBlock(`Result: ${block.text}`) : block
+          block.type === 'textBlock' ? new TextBlock(block.text.slice(0, 4000)) : block
         ),
         ...(event.result.error !== undefined ? { error: event.result.error } : {}),
       })
@@ -313,18 +273,18 @@ async function loggingModificationsExample() {
     }
 
     private processResult(event: AfterToolCallEvent): void {
-      if (event.toolUse.name !== 'calculator') return
+      if (event.toolUse.name !== 'http_request') return
 
       const original = event.result.content.find((block) => block.type === 'textBlock')
       if (original?.type !== 'textBlock') return
 
       // Log the change before mutating so the audit trail captures both states.
-      console.log(`Modifying calculator result: ${original.text}`)
+      console.log(`Truncating http_request result: ${original.text.length} chars`)
       event.result = new ToolResultBlock({
         toolUseId: event.result.toolUseId,
         status: event.result.status,
         content: event.result.content.map((block) =>
-          block.type === 'textBlock' ? new TextBlock(`Result: ${block.text}`) : block
+          block.type === 'textBlock' ? new TextBlock(block.text.slice(0, 4000)) : block
         ),
         ...(event.result.error !== undefined ? { error: event.result.error } : {}),
       })
@@ -372,13 +332,13 @@ async function fixedToolArgumentsExample() {
 
   // --8<-- [start:fixed_tool_arguments_usage]
   const fixParameters = new ConstantToolArguments({
-    calculator: {
-      op: '/',
+    http_request: {
+      method: 'GET',
     },
   })
 
-  const agent = new Agent({ tools: [calculator], plugins: [fixParameters] })
-  const result = await agent.invoke('What is 2 / 3?')
+  const agent = new Agent({ tools: [httpRequest], plugins: [fixParameters] })
+  const result = await agent.invoke('Fetch https://api.github.com/zen')
   // --8<-- [end:fixed_tool_arguments_usage]
 }
 
@@ -425,14 +385,14 @@ async function limitToolCountsExample() {
   // --8<-- [end:limit_tool_counts_class]
 
   // --8<-- [start:limit_tool_counts_usage]
-  const limitPlugin = new LimitToolCounts({ sleep: 3 })
+  const limitPlugin = new LimitToolCounts({ http_request: 3 })
 
-  const agent = new Agent({ tools: [sleep], plugins: [limitPlugin] })
+  const agent = new Agent({ tools: [httpRequest], plugins: [limitPlugin] })
 
-  // This call will only have 3 successful sleeps
-  await agent.invoke("Sleep 5 times for 10ms each or until you can't anymore")
-  // This will sleep successfully again because the count resets every invocation
-  await agent.invoke('Sleep once')
+  // Only the first three requests succeed
+  await agent.invoke('Check the current weather in Seattle, Tokyo, Miami, and London')
+  // The count resets every invocation, so this call can make requests again
+  await agent.invoke('Now check Berlin')
   // --8<-- [end:limit_tool_counts_usage]
 }
 

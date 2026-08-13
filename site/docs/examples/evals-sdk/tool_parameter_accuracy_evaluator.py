@@ -1,33 +1,12 @@
-import operator
 import asyncio
 
-from strands import Agent, tool
+from strands import Agent
+from strands.vended_tools import http_request
 
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import ToolParameterAccuracyEvaluator
 from strands_evals.mappers import StrandsInMemorySessionMapper
 from strands_evals.telemetry import StrandsEvalsTelemetry
-
-
-_OPS = {
-    "+": operator.add,
-    "-": operator.sub,
-    "*": operator.mul,
-    "/": operator.truediv,
-    "**": operator.pow,
-}
-
-
-@tool
-def calculator(a: float, b: float, op: str) -> float:
-    """Apply an arithmetic operator to two numbers.
-
-    Args:
-        a: Left operand.
-        b: Right operand.
-        op: One of "+", "-", "*", "/", "**".
-    """
-    return _OPS[op](a, b)
 
 # Setup telemetry
 telemetry = StrandsEvalsTelemetry().setup_in_memory_exporter()
@@ -40,7 +19,7 @@ def user_task_function(case: Case) -> dict:
         # IMPORTANT: trace_attributes with session IDs are required when using StrandsInMemorySessionMapper
         # to prevent spans from different test cases from being mixed together in the memory exporter
         trace_attributes={"gen_ai.conversation.id": case.session_id, "session.id": case.session_id},
-        tools=[calculator],
+        tools=[http_request],
         callback_handler=None,
     )
     agent_response = agent(case.input)
@@ -53,19 +32,27 @@ def user_task_function(case: Case) -> dict:
 # 2. Create test cases
 test_cases = [
     Case[str, str](
-        name="simple-calculation",
-        input="Calculate the square root of 144",
-        metadata={"category": "math", "difficulty": "easy"},
+        name="seattle-weather",
+        input="What is the current temperature in Seattle? Get it from "
+        "https://api.open-meteo.com/v1/forecast?latitude=47.6&longitude=-122.3"
+        "&current=temperature_2m",
+        metadata={"category": "weather", "difficulty": "easy"},
     ),
     Case[str, str](
-        name="percentage-calculation",
-        input="What's 20 percent of 250?",
-        metadata={"category": "math", "difficulty": "easy"},
+        name="tokyo-weather",
+        input="What is the current temperature in Tokyo? Get it from "
+        "https://api.open-meteo.com/v1/forecast?latitude=35.7&longitude=139.7"
+        "&current=temperature_2m",
+        metadata={"category": "weather", "difficulty": "easy"},
     ),
     Case[str, str](
-        name="complex-calculation",
-        input="I need to calculate 15 + 27, then multiply the result by 3, and finally subtract 10.",
-        metadata={"category": "math", "difficulty": "medium"},
+        name="weather-comparison",
+        input="Is it warmer in Seattle or Miami right now? Check "
+        "https://api.open-meteo.com/v1/forecast?latitude=47.6&longitude=-122.3"
+        "&current=temperature_2m and "
+        "https://api.open-meteo.com/v1/forecast?latitude=25.8&longitude=-80.2"
+        "&current=temperature_2m",
+        metadata={"category": "multi_tool", "difficulty": "medium"},
     ),
 ]
 

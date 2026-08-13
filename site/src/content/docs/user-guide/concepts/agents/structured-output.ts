@@ -1,4 +1,5 @@
-import { Agent, StructuredOutputError, tool } from '@strands-agents/sdk'
+import { Agent, StructuredOutputError } from '@strands-agents/sdk'
+import { httpRequest } from '@strands-agents/sdk/vended-tools/http-request'
 import { z } from 'zod'
 
 // --8<-- [start:basic_usage]
@@ -87,35 +88,20 @@ async function streamingStructuredOutput() {
 
 async function combiningWithTools() {
   // --8<-- [start:combining_tools]
-  const calculatorTool = tool({
-    name: 'calculator',
-    description: 'Perform basic arithmetic operations',
-    inputSchema: z.object({
-      operation: z.enum(['add', 'subtract', 'multiply', 'divide']),
-      a: z.number(),
-      b: z.number(),
-    }),
-    callback: (input) => {
-      const ops = {
-        add: input.a + input.b,
-        subtract: input.a - input.b,
-        multiply: input.a * input.b,
-        divide: input.a / input.b,
-      }
-      return ops[input.operation]
-    },
-  })
-
-  const MathResultSchema = z.object({
-    operation: z.string().describe('the performed operation'),
-    result: z.number().describe('the result of the operation'),
+  const WeatherReportSchema = z.object({
+    temperatureC: z.number().describe('current temperature in Celsius'),
+    needsJacket: z.boolean().describe('whether a jacket is recommended'),
   })
 
   const agent = new Agent({
-    tools: [calculatorTool],
-    structuredOutputSchema: MathResultSchema,
+    tools: [httpRequest],
+    structuredOutputSchema: WeatherReportSchema,
   })
-  const result = await agent.invoke('What is 42 + 8')
+  const result = await agent.invoke(
+    'What is the current weather in Seattle? Get it from ' +
+      'https://api.open-meteo.com/v1/forecast' +
+      '?latitude=47.6&longitude=-122.3&current=temperature_2m'
+  )
   // --8<-- [end:combining_tools]
 }
 
