@@ -342,10 +342,21 @@ async function main() {
   }
 }
 
-// pathToFileURL percent-encodes, which a bare string concatenation does not, so
-// comparing raw paths would silently no-op for a checkout path containing a
-// space or non-ASCII character. It also rejects a missing argv[1], which is the
-// case when this module is imported from `node -e`, a worker, or the REPL.
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+/**
+ * Whether `moduleUrl` is the entry script `argvPath` names. Compares realpaths
+ * as file URLs: `import.meta.url` is percent-encoded and symlink-resolved
+ * (macOS /tmp -> /private/tmp), so comparing raw paths silently never runs
+ * main() from a symlinked or space-containing checkout.
+ */
+export function isMainModule(argvPath, moduleUrl) {
+  if (!argvPath) return false
+  try {
+    return pathToFileURL(fs.realpathSync(argvPath)).href === moduleUrl
+  } catch {
+    return false
+  }
+}
+
+if (isMainModule(process.argv[1], import.meta.url)) {
   await main()
 }

@@ -6,14 +6,17 @@
 
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import test from 'node:test'
+import { pathToFileURL } from 'node:url'
 import { classify, FileKind, countsTowardSize, isAnalyzable, sizeLabel, complexityLabel } from './classify.mjs'
 import { parseChangedLines, rangeTouched } from './diff.mjs'
 import { buildReport } from './report.mjs'
 import { escapeHtml, labelsFromMetrics, resolvePrNumber } from './apply-labels.mjs'
 import { parseSarif } from './complexity-python.mjs'
 import { functionRanges, loadTypescript, parseEslintReport } from './complexity-typescript.mjs'
-import { parseNumstatZ } from './run-analysis.mjs'
+import { isMainModule, parseNumstatZ } from './run-analysis.mjs'
 
 test('classify separates tests from source', () => {
   assert.equal(classify('strands-py/src/strands/agent.py'), FileKind.SOURCE)
@@ -668,4 +671,26 @@ tsTest('parseEslintReport ignores findings from other rules', () => {
     '/'
   )
   assert.deepEqual(functions, [])
+})
+
+// The guard must compare realpaths: import.meta.url is symlink-resolved
+// (macOS /tmp -> /private/tmp), so a raw-path comparison silently never runs
+// main() from a symlinked checkout, reporting nothing with exit 0.
+test('isMainModule resolves symlinks in the entry path', () => {
+  const real = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'ismain-'))
+  const link = `${real}-link`
+  fs.symlinkSync(real, link)
+  try {
+    const script = path.join(real, 'entry.mjs')
+    fs.writeFileSync(script, '')
+    const moduleUrl = pathToFileURL(script).href
+    assert.equal(isMainModule(path.join(link, 'entry.mjs'), moduleUrl), true)
+    assert.equal(isMainModule(script, moduleUrl), true)
+    assert.equal(isMainModule(path.join(real, 'other.mjs'), moduleUrl), false)
+    assert.equal(isMainModule(undefined, moduleUrl), false)
+    assert.equal(isMainModule('/nonexistent/entry.mjs', moduleUrl), false)
+  } finally {
+    fs.rmSync(link, { force: true })
+    fs.rmSync(real, { recursive: true, force: true })
+  }
 })
