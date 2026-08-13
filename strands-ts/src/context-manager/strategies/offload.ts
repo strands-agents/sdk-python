@@ -134,7 +134,6 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
   protected readonly _preserveRecent: number
   protected readonly _toolFilter: Set<string> | undefined
   protected readonly _excludeFilter: Set<string> | undefined
-  protected _baseAgent: LocalAgent | undefined
 
   constructor(target?: OffloadTarget, conditions?: OffloadConditions) {
     if (Array.isArray(target) && target.length === 0) {
@@ -157,18 +156,16 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
   }
 
   init(agent: LocalAgent): void {
-    this._baseAgent = agent
     if (this._isMessageLevel) return
     if (this._preserveRecent > 0) return
     agent.addHook(MessageAddedEvent, async (event) => {
-      const messages = agent.messages
+      const messages = event.agent.messages
       const toolNameMap = buildToolNameMap(messages)
-      await this._transformBlocks(event.message, messages, toolNameMap)
+      await this._transformBlocks(event.message, messages, toolNameMap, event.agent)
     })
   }
 
   async apply(context: ContextState): Promise<boolean> {
-    if (!this._baseAgent) this._baseAgent = context.agent
     if (this._utilization !== undefined && context.utilization < this._utilization) return false
 
     if (this._isMessageLevel) {
@@ -180,7 +177,7 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
 
   /** Per-block execution: walk each message, transform individual blocks above threshold. */
   private async _applyPerBlock(context: ContextState): Promise<boolean> {
-    const { messages } = context
+    const { messages, agent } = context
     const threshold = this._threshold ?? 0
     const toolNameMap = buildToolNameMap(messages)
     const eligible =
@@ -197,7 +194,7 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
     let acted = false
 
     for (const message of eligible) {
-      if (await this._transformBlocks(message, messages, toolNameMap, threshold)) {
+      if (await this._transformBlocks(message, messages, toolNameMap, agent, threshold)) {
         acted = true
       }
     }
@@ -243,6 +240,7 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
     message: Message,
     messages: Message[],
     toolNameMap: Map<string, string>,
+    agent: LocalAgent,
     threshold?: number
   ): Promise<boolean> {
     const effectiveThreshold = threshold ?? this._threshold ?? 0
@@ -263,10 +261,10 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
       }
 
       const role = block instanceof ToolResultBlock ? 'user' : message.role
-      const tokens = await this._baseAgent!.model.countTokens([new Message({ role, content: [block] })])
+      const tokens = await agent.model.countTokens([new Message({ role, content: [block] })])
       if (tokens <= effectiveThreshold) continue
 
-      const replacement = await this._replaceBlock(block, tokens, message)
+      const replacement = await this._replaceBlock(block, tokens, message, agent)
       if (replacement && replacement !== block) {
         ;(message.content as unknown[])[blockIndex] = replacement
         acted = true
@@ -284,7 +282,7 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
 
   /** Collect eligible messages for message-level operations, respecting preserveRecent, head-pin, and threshold. */
   protected async _getEligibleMessages(context: ContextState): Promise<Message[]> {
-    const { messages } = context
+    const { messages, agent } = context
     const toolNameMap = buildToolNameMap(messages)
 
     let candidates: Message[]
@@ -308,7 +306,7 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
 
     const eligible: Message[] = []
     for (const message of candidates) {
-      if (await this._messageHasBlockOverThreshold(message, toolNameMap)) {
+      if (await this._messageHasBlockOverThreshold(message, toolNameMap, agent)) {
         eligible.push(message)
       }
     }
@@ -316,7 +314,11 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
   }
 
   /** Check if a message contains any target-matching block over the threshold. */
-  private async _messageHasBlockOverThreshold(message: Message, toolNameMap: Map<string, string>): Promise<boolean> {
+  private async _messageHasBlockOverThreshold(
+    message: Message,
+    toolNameMap: Map<string, string>,
+    agent: LocalAgent
+  ): Promise<boolean> {
     for (const block of message.content) {
       if (block instanceof TextBlock) {
         if (!this._targetIncludesText(message)) continue
@@ -331,7 +333,7 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
       }
 
       const role = block instanceof ToolResultBlock ? 'user' : message.role
-      const tokens = await this._baseAgent!.model.countTokens([new Message({ role, content: [block] })])
+      const tokens = await agent.model.countTokens([new Message({ role, content: [block] })])
       if (tokens > this._threshold!) return true
     }
     return false
@@ -341,7 +343,8 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
   protected abstract _replaceBlock(
     block: TextBlock | ToolResultBlock,
     tokens: number,
-    message: Message
+    message: Message,
+    agent: LocalAgent
   ): Promise<ContentBlock | null>
 }
 
@@ -357,7 +360,8 @@ class DropStrategy extends BaseOffloadStrategy {
   protected async _replaceBlock(
     block: TextBlock | ToolResultBlock,
     _tokens: number,
-    message: Message
+    message: Message,
+    _agent: LocalAgent
   ): Promise<ContentBlock | null> {
     if (block instanceof ToolResultBlock) {
       logger.debug(`toolUseId=<${block.toolUseId}> | dropped tool result from context window`)
@@ -442,7 +446,8 @@ class TruncateStrategy extends BaseOffloadStrategy {
   protected async _replaceBlock(
     block: TextBlock | ToolResultBlock,
     tokens: number,
-    message: Message
+    message: Message,
+    _agent: LocalAgent
   ): Promise<ContentBlock | null> {
     if (block instanceof ToolResultBlock) {
       logger.debug(`toolUseId=<${block.toolUseId}>, tokens=<${tokens}> | truncated tool result`)
@@ -459,7 +464,6 @@ class SummarizeStrategy extends BaseOffloadStrategy {
   readonly name = 'offload:summarize'
 
   private readonly _config: SummarizeConfig
-  private _model: Model | undefined
 
   constructor(target?: OffloadTarget, config?: SummarizeConfig, conditions?: OffloadConditions) {
     super(target, conditions)
@@ -467,36 +471,22 @@ class SummarizeStrategy extends BaseOffloadStrategy {
   }
 
   override init(agent: LocalAgent): void {
-    this._baseAgent = agent
     if (this._utilization !== undefined) return
     super.init(agent)
   }
 
-  protected override async _transformBlocks(
-    message: Message,
-    messages: Message[],
-    toolNameMap: Map<string, string>,
-    threshold?: number
-  ): Promise<boolean> {
-    if (!this._model && this._baseAgent) {
-      this._model = this._resolveModel(this._baseAgent)
-    }
-    return super._transformBlocks(message, messages, toolNameMap, threshold)
-  }
-
   override async apply(context: ContextState): Promise<boolean> {
-    const model = this._resolveModel(context.agent)
-    if (!model) {
+    if (!this._resolveModel(context.agent)) {
       logger.warn('no model available for summarization')
       return false
     }
-    this._model = model
     if (context.messages.length === 0) return false
     return super.apply(context)
   }
 
   protected override async _applyPerMessage(context: ContextState): Promise<boolean> {
-    if (!this._model) return false
+    const model = this._resolveModel(context.agent)
+    if (!model) return false
 
     const { messages } = context
     if (messages.length <= 1) return false
@@ -520,10 +510,10 @@ class SummarizeStrategy extends BaseOffloadStrategy {
     if (safe.length === 0) return false
 
     const contentBlocks = flattenMessagesToContent(safe)
-    const summary = await summarizeContent(contentBlocks, this._model, this._config)
+    const summary = await summarizeContent(contentBlocks, model, this._config)
     if (!summary) return false
 
-    const totalTokens = await this._model.countTokens(safe)
+    const totalTokens = await model.countTokens(safe)
     const summaryMessage = new Message({
       role: 'user',
       content: [
@@ -554,12 +544,14 @@ class SummarizeStrategy extends BaseOffloadStrategy {
   protected async _replaceBlock(
     block: TextBlock | ToolResultBlock,
     tokens: number,
-    message: Message
+    message: Message,
+    agent: LocalAgent
   ): Promise<ContentBlock | null> {
-    if (!this._model) return null
+    const model = this._resolveModel(agent)
+    if (!model) return null
 
     if (block instanceof ToolResultBlock) {
-      const summary = await summarizeContent(toolResultToContentBlocks(block.content), this._model, this._config)
+      const summary = await summarizeContent(toolResultToContentBlocks(block.content), model, this._config)
       if (!summary) return null
 
       logger.debug(`toolUseId=<${block.toolUseId}>, tokens=<${tokens}> | summarized tool result`)
@@ -570,7 +562,7 @@ class SummarizeStrategy extends BaseOffloadStrategy {
       })
     }
 
-    const summary = await summarizeContent([new TextBlock(block.text)], this._model, this._config)
+    const summary = await summarizeContent([new TextBlock(block.text)], model, this._config)
     if (!summary) return null
 
     logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | summarized text block`)
