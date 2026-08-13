@@ -8,7 +8,15 @@ import {
 } from '../src/util/catalog-filter'
 
 function state(overrides: Partial<CatalogFilterState> = {}): CatalogFilterState {
-  return { search: '', types: new Set(), languages: new Set(), badges: new Set(), sdk: 'agents', ...overrides }
+  return {
+    search: '',
+    types: new Set(),
+    languages: new Set(),
+    badges: new Set(),
+    maintainedBy: new Set(),
+    sdk: 'agents',
+    ...overrides,
+  }
 }
 
 const card: CardFilterData = {
@@ -16,6 +24,7 @@ const card: CardFilterData = {
   type: 'tool',
   languages: ['python'],
   badges: ['verified'],
+  maintainedBy: 'community',
   sdk: 'agents',
 }
 
@@ -69,6 +78,7 @@ describe('URL state round-trip', () => {
       types: new Set(['tool', 'plugin']),
       languages: new Set(['python']),
       badges: new Set(['verified']),
+      maintainedBy: new Set(['vendor']),
       sdk: 'evals',
     })
     const back = queryToState(stateToQuery(s))
@@ -76,11 +86,18 @@ describe('URL state round-trip', () => {
     expect(back.types).toEqual(new Set(['tool', 'plugin']))
     expect(back.languages).toEqual(new Set(['python']))
     expect(back.badges).toEqual(new Set(['verified']))
+    expect(back.maintainedBy).toEqual(new Set(['vendor']))
     expect(back.sdk).toBe('evals')
   })
 
-  it('parses the native badge from a deep link', () => {
-    expect(queryToState('badge=native').badges).toEqual(new Set(['native']))
+  it('filters by maintainer tier', () => {
+    expect(matchesFilters(card, state({ maintainedBy: new Set(['community', 'aws']) }))).toBe(true)
+    expect(matchesFilters(card, state({ maintainedBy: new Set(['strands']) }))).toBe(false)
+  })
+
+  it('parses maintainer tiers from a deep link', () => {
+    expect(queryToState('by=strands,aws').maintainedBy).toEqual(new Set(['strands', 'aws']))
+    expect(queryToState('by=official').maintainedBy).toEqual(new Set())
   })
 
   it('drops unknown values when parsing', () => {

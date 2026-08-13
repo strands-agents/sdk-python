@@ -69,31 +69,22 @@ describe('catalog content collection', () => {
     ).toBe(false)
   })
 
-  it('accepts the native badge for SDK built-ins', () => {
-    const result = catalogEntrySchema.safeParse({
-      name: 'Anthropic',
-      description: 'Run Strands agents on Claude models through the Anthropic API.',
-      integrationType: 'model-provider',
-      languages: { python: {}, typescript: {} },
-      github: 'https://github.com/strands-agents/harness-sdk',
-      docsPage: 'docs/user-guide/concepts/model-providers/anthropic',
-      badges: ['native'],
-      addedDate: '2025-12-01',
-    })
-    expect(result.success).toBe(true)
-  })
-
-  it('rejects stacked verified and native badges', () => {
-    const result = catalogEntrySchema.safeParse({
-      name: 'stacked-badges',
-      description: 'verified and native do not stack',
+  it('accepts every maintainer tier and defaults to community', () => {
+    const base = {
+      name: 'tiered-entry',
+      description: 'maintainer tier probe',
       integrationType: 'model-provider',
       languages: { python: {} },
       github: 'https://github.com/strands-agents/harness-sdk',
-      badges: ['verified', 'native'],
       addedDate: '2025-12-01',
-    })
-    expect(result.success).toBe(false)
+    }
+    for (const maintainedBy of ['strands', 'aws', 'vendor', 'community']) {
+      expect(catalogEntrySchema.safeParse({ ...base, maintainedBy }).success, maintainedBy).toBe(true)
+    }
+    const parsed = catalogEntrySchema.safeParse(base)
+    expect(parsed.success).toBe(true)
+    if (parsed.success) expect(parsed.data.maintainedBy).toBe('community')
+    expect(catalogEntrySchema.safeParse({ ...base, maintainedBy: 'official' }).success).toBe(false)
   })
 
   it('rejects an unknown language key', () => {
@@ -171,21 +162,23 @@ describe('catalog content collection', () => {
     }
   })
 
-  it('loads native SDK entries', async () => {
+  it('loads built-in SDK entries', async () => {
     const entries = await getCollection('catalog')
     const anthropic = entries.find((e) => e.id === 'anthropic')
     expect(anthropic).toBeDefined()
-    expect(anthropic!.data.badges).toEqual(['native'])
+    expect(anthropic!.data.maintainedBy).toBe('strands')
     expect(anthropic!.data.docsPage).toBe('docs/user-guide/concepts/model-providers/anthropic')
-    const native = entries.filter((e) => e.data.badges.includes('native'))
-    expect(native.length).toBe(28)
-    // Native entries point at their source path in the SDK monorepo and
-    // always have on-site docs; verified is a community-vetting signal, so
-    // the two never stack.
-    for (const e of native) {
+    // The content layer silently drops entries whose YAML fails to parse;
+    // pinned counts catch that. Update them when granting or removing tiers.
+    const byTier = Map.groupBy(entries, (e) => e.data.maintainedBy)
+    expect(byTier.get('strands')?.length).toBe(28)
+    expect(byTier.get('aws')?.length).toBe(7)
+    expect(byTier.get('vendor')?.length).toBe(20)
+    // Built-ins point at their source path in the SDK monorepo and always
+    // have on-site docs.
+    for (const e of byTier.get('strands') ?? []) {
       expect(e.data.github, e.id).toMatch(/^https:\/\/github\.com\/strands-agents\/harness-sdk\//)
       expect(e.data.docsPage, e.id).toBeDefined()
-      expect(e.data.badges, e.id).toEqual(['native'])
     }
   })
 

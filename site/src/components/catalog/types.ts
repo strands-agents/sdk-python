@@ -72,6 +72,25 @@ export const CATALOG_TYPES = [
 export const TYPE_LABELS: Record<string, string> = Object.fromEntries(CATALOG_TYPES.map((t) => [t.value, t.label]))
 export const TYPE_ICONS: Record<string, string> = Object.fromEntries(CATALOG_TYPES.map((t) => [t.value, t.icon]))
 
+// Maintainer tiers, highest commitment first: who stands behind an
+// integration and what support users can infer. `label` names the facet chip;
+// `flag` names the card badge (an SDK entry's badge reads "Built-in", not the
+// team name). Values match the zod enum in src/content.config.ts — keep the
+// two in sync.
+export const MAINTAINED_BY_TIERS = [
+  { value: 'strands', label: 'Strands', flag: 'Built-in', title: 'Built into the Strands SDK' },
+  { value: 'aws', label: 'AWS', flag: 'AWS', title: 'Maintained by AWS' },
+  { value: 'vendor', label: 'Vendor', flag: 'Vendor', title: 'Maintained by the integration vendor' },
+  { value: 'community', label: 'Community', flag: 'Community', title: 'Maintained by a community developer' },
+] as const
+
+export const MAINTAINED_BY_FLAGS: Record<string, string> = Object.fromEntries(
+  MAINTAINED_BY_TIERS.map((t) => [t.value, t.flag])
+)
+export const MAINTAINED_BY_TITLES: Record<string, string> = Object.fromEntries(
+  MAINTAINED_BY_TIERS.map((t) => [t.value, t.title])
+)
+
 /** Shield-check glyph for the verified badge (cards and the verified facet). */
 export const VERIFIED_ICON =
   'M12 1 3 5v6c0 5.6 3.8 10.7 9 12 5.2-1.3 9-6.4 9-12V5l-9-4zm-1.5 15L7 12.5 8.4 11l2.1 2.1 5.1-5.1L17 9.4 10.5 16z'

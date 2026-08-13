@@ -1,6 +1,7 @@
 name: strands-dakera
 description: Persistent, decay-weighted MemoryStore backed by a self-hosted Dakera server, plus a full-CRUD memory tool sharing the same backend.
 integrationType: memory-store
+maintainedBy: vendor
 languages:
   python:
     package: strands-dakera

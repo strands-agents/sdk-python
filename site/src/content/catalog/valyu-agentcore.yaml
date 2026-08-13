@@ -1,6 +1,7 @@
 name: valyu-agentcore
 description: Valyu search tools for AWS Bedrock AgentCore providing web, financial, academic, biomedical, patent, and regulatory data search.
 integrationType: tool
+maintainedBy: vendor
 languages:
   python:
     package: valyu-agentcore

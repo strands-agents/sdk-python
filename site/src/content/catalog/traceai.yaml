@@ -1,6 +1,7 @@
 name: "traceai"
 description: "OpenTelemetry instrumentation for the Strands Agents TypeScript SDK, part of the Future AGI traceAI observability framework."
 integrationType: plugin
+maintainedBy: vendor
 languages:
   typescript:
     package: "@traceai/strands"

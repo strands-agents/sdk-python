@@ -10,14 +10,14 @@ import { TYPE_ICONS, VERIFIED_ICON, type FacetOption } from './types'
 
 interface Props {
   types: FacetOption[]
+  maintainedBy: FacetOption[]
   showSdkFacet: boolean
   hasVerified: boolean
   hasFeatured: boolean
   hasNew: boolean
-  hasNative: boolean
 }
 
-const { types, showSdkFacet, hasVerified, hasFeatured, hasNew, hasNative } = Astro.props
+const { types, maintainedBy, showSdkFacet, hasVerified, hasFeatured, hasNew } = Astro.props
 ---
 
 <div class="cat-facet-row">
@@ -37,13 +37,6 @@ const { types, showSdkFacet, hasVerified, hasFeatured, hasNew, hasNative } = Ast
     )
   }
   {
-    hasNative && (
-      <button class="cat-seg-btn cat-seg-btn--solo" type="button" data-cat-badge="native" aria-pressed="false">
-        Native
-      </button>
-    )
-  }
-  {
     hasVerified && (
       <button class="cat-seg-btn cat-seg-btn--solo" type="button" data-cat-badge="verified" aria-pressed="false">
         <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
@@ -52,6 +45,16 @@ const { types, showSdkFacet, hasVerified, hasFeatured, hasNew, hasNative } = Ast
         Verified
       </button>
     )
+  }
+</div>
+<div class="cat-type-rail" role="group" aria-label="Maintained by">
+  {
+    maintainedBy.map((t) => (
+      <button class="cat-chip" type="button" data-cat-maintained={t.value} aria-pressed="false">
+        {t.label}
+        <span class="cat-count">{t.count}</span>
+      </button>
+    ))
   }
 </div>
 <div class="cat-type-rail" role="group" aria-label="Type">

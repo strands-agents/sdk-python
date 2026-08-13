@@ -175,21 +175,21 @@
   border-color: color-mix(in srgb, var(--sl-color-accent) 25%, var(--sl-color-gray-5));
 }
 
-/* Native (SDK built-in) cards carry the badge's note-blue on the border and
-   type tile so first-party entries scan apart from community ones. */
-.cat-card--native {
+/* Built-in (SDK) cards carry the badge's note-blue on the border and type
+   tile so first-party entries scan apart from the rest of the catalog. */
+.cat-card--builtin {
   border-color: color-mix(in srgb, var(--sl-badge-note-border) 45%, var(--sl-color-gray-5));
 }
-.cat-card--native:hover {
+.cat-card--builtin:hover {
   border-color: color-mix(in srgb, var(--sl-badge-note-border) 75%, var(--sl-color-gray-5));
   background: color-mix(in srgb, var(--sl-badge-note-bg) 12%, var(--sl-color-bg-nav));
 }
-.cat-card--native .cat-tile {
+.cat-card--builtin .cat-tile {
   color: var(--sl-badge-note-text);
   background: color-mix(in srgb, var(--sl-badge-note-bg) 30%, transparent);
   border-color: color-mix(in srgb, var(--sl-badge-note-border) 35%, transparent);
 }
-.cat-card--native:hover .cat-card-title {
+.cat-card--builtin:hover .cat-card-title {
   color: var(--sl-badge-note-text);
 }
 
@@ -297,12 +297,24 @@
   background: color-mix(in srgb, var(--sl-color-accent) 7%, transparent);
   border-color: color-mix(in srgb, var(--sl-color-accent) 40%, transparent);
 }
-/* Native marks SDK built-ins: note-blue outline so it reads apart from the
-   maintainer-granted green (Verified/Featured) and the informational New. */
-.cat-flag--native {
+/* Maintainer-tier flags. Built-in (Strands) is note-blue so it reads apart
+   from the maintainer-granted green (Verified/Featured) and the informational
+   New; AWS is caution-orange; Vendor stays a neutral outline. Community
+   renders no flag: it is the default tier. */
+.cat-flag--strands {
   color: var(--sl-badge-note-text);
   background: color-mix(in srgb, var(--sl-badge-note-bg) 35%, transparent);
   border-color: color-mix(in srgb, var(--sl-badge-note-border) 55%, transparent);
+}
+.cat-flag--aws {
+  color: var(--sl-badge-caution-text);
+  background: color-mix(in srgb, var(--sl-badge-caution-bg) 35%, transparent);
+  border-color: color-mix(in srgb, var(--sl-badge-caution-border) 55%, transparent);
+}
+.cat-flag--vendor {
+  color: var(--sl-color-gray-2);
+  background: color-mix(in srgb, var(--sl-color-gray-4) 20%, transparent);
+  border-color: color-mix(in srgb, var(--sl-color-gray-4) 70%, transparent);
 }
 
 .cat-card-desc {

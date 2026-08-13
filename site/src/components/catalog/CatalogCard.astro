@@ -13,7 +13,7 @@
 import type { CatalogCardModel } from '../../util/catalog'
 import { pathWithBase } from '../../util/links'
 import { DOWNLOAD_ICON, GITHUB_ICON, NPM_ICON, PYPI_ICON, STAR_ICON } from './icons'
-import { TYPE_ICONS, TYPE_LABELS, VERIFIED_ICON } from './types'
+import { MAINTAINED_BY_FLAGS, MAINTAINED_BY_TITLES, TYPE_ICONS, TYPE_LABELS, VERIFIED_ICON } from './types'
 
 interface Props {
   card: CatalogCardModel
@@ -32,10 +32,11 @@ const href = card.external ? card.href : pathWithBase(card.href)
 ---
 
 <article
-  class:list={['cat-card', { 'cat-card--featured': card.featured, 'cat-card--native': card.badges.includes('native') }]}
+  class:list={['cat-card', { 'cat-card--featured': card.featured, 'cat-card--builtin': card.maintainedBy === 'strands' }]}
   data-type={card.integrationType}
   data-langs={card.languages.join(' ')}
   data-badges={[...card.badges, ...(card.featured ? ['featured'] : [])].join(' ')}
+  data-maintained={card.maintainedBy}
   data-sdk={card.sdk}
   data-search={`${card.name} ${card.description} by ${card.maintainer}`.toLowerCase()}
 >
@@ -72,9 +73,9 @@ const href = card.external ? card.href : pathWithBase(card.href)
         )
       }
       {
-        card.badges.includes('native') && (
-          <span class="cat-flag cat-flag--native" title="Built into the Strands SDK">
-            Native
+        card.maintainedBy !== 'community' && (
+          <span class:list={['cat-flag', `cat-flag--${card.maintainedBy}`]} title={MAINTAINED_BY_TITLES[card.maintainedBy]}>
+            {MAINTAINED_BY_FLAGS[card.maintainedBy]}
           </span>
         )
       }

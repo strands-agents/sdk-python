@@ -19,6 +19,7 @@ export interface CatalogCardModel {
   name: string
   description: string
   integrationType: CatalogEntryData['integrationType']
+  maintainedBy: CatalogEntryData['maintainedBy']
   sdk: 'agents' | 'evals'
   languages: ('python' | 'typescript')[]
   href: string
@@ -84,6 +85,7 @@ export function toCardModel(
     name: data.name,
     description: data.description,
     integrationType: data.integrationType,
+    maintainedBy: data.maintainedBy,
     sdk: data.sdk,
     languages,
     href: docsHref ?? data.docsUrl ?? data.github,

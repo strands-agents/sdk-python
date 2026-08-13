@@ -59,6 +59,7 @@ addedDate: 2026-07-31        # the date you open the PR
 | `addedDate` | ✅ | Date of submission (drives the "New" badge) |
 | `docsUrl` | Recommended | Link to your own docs page about the Strands integration — your card's primary link. Must start with `https://`. |
 | `docsPage` | Legacy | On-site docs page reference — existing entries only; new submissions link their own docs via `docsUrl` |
+| `maintainedBy` | Optional | Who stands behind the integration, shown and filtered on the catalog. Defaults to `community` (maintained by an individual developer). Set `vendor` only if you represent the company behind the integration and the entry's `github` org is that company's official org — a maintainer verifies this before merging. `strands` and `aws` are granted by the Strands team. |
 
 The maintainer shown on your card and the PyPI/npm links are derived automatically — the
 maintainer from your `github` URL's owner, the registry links from your `package` names.

@@ -1,6 +1,7 @@
 name: ag-ui
 description: Connect agents to rich clients like CopilotKit through the AG-UI protocol, with streaming chat and tool-based generative UI
 integrationType: integration
+maintainedBy: vendor
 languages:
   python:
     package: ag-ui-strands

@@ -150,16 +150,14 @@ export const catalogEntrySchema = z
     // on-site docsPage, the card's primary link prefers this over the bare
     // GitHub repo so users land on usage instructions.
     docsUrl: z.string().url().startsWith('https://', 'docsUrl must be https').optional(),
+    // Who stands behind the integration, shown and filtered on the catalog.
+    // `strands` (SDK built-ins) and `aws` are granted by the Strands team;
+    // `vendor` requires a maintainer to verify the entry is vended by the
+    // integrator's official org; submitters leave it unset (community).
+    maintainedBy: z.enum(['strands', 'aws', 'vendor', 'community']).default('community'),
     // Editorial fields — maintainer-granted only; submitters leave them unset.
-    // `native` marks integrations built into the SDK itself; `verified` marks
-    // community packages vetted by the Strands team. A card never carries both.
     featured: z.boolean().default(false),
-    badges: z
-      .array(z.enum(['verified', 'native']))
-      .default([])
-      .refine((b) => !(b.includes('verified') && b.includes('native')), {
-        message: 'verified and native badges do not stack',
-      }),
+    badges: z.array(z.enum(['verified'])).default([]),
     // Drives the "New" badge on the catalog card.
     addedDate: z.coerce.date(),
   })

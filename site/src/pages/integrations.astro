@@ -11,7 +11,7 @@ import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro'
 import CatalogCard from '../components/catalog/CatalogCard.astro'
 import CatalogFilterBar from '../components/catalog/CatalogFilterBar.astro'
 import CatalogFacets from '../components/catalog/CatalogFacets.astro'
-import { CATALOG_TYPES, TYPE_ICONS } from '../components/catalog/types'
+import { CATALOG_TYPES, MAINTAINED_BY_TIERS, TYPE_ICONS } from '../components/catalog/types'
 import { toCardModel, sortEntries, type CatalogStatsFile } from '../util/catalog'
 import { pathWithBase } from '../util/links'
 import statsFile from '../data/catalog-stats.json'
@@ -28,7 +28,6 @@ const showSdkFacet = cards.some((c) => c.sdk === 'evals')
 const hasVerified = cards.some((c) => c.badges.includes('verified'))
 const hasFeatured = cards.some((c) => c.featured)
 const hasNew = cards.some((c) => c.badges.includes('new'))
-const hasNative = cards.some((c) => c.badges.includes('native'))
 
 // Counts span both SDKs while filtering is per-SDK; with no evals entries the
 // two coincide, so if/when evals entries land these need client-side recompute.
@@ -36,6 +35,12 @@ const typeFacets = CATALOG_TYPES.map(({ value, labelPlural }) => ({
   value,
   label: labelPlural,
   count: cards.filter((c) => c.integrationType === value).length,
+})).filter((t) => t.count > 0)
+
+const maintainedByFacets = MAINTAINED_BY_TIERS.map(({ value, label }) => ({
+  value,
+  label,
+  count: cards.filter((c) => c.maintainedBy === value).length,
 })).filter((t) => t.count > 0)
 
 const title = 'Integrations'
@@ -74,8 +79,21 @@ const description = 'Built-in and community tools, model providers, plugins, and
             ))
           }
         </ul>
+        <p class="cat-rail-label" id="cat-maintained-label">Maintained by</p>
+        <ul class="cat-rail-list" aria-labelledby="cat-maintained-label">
+          {
+            maintainedByFacets.map((t) => (
+              <li class="cat-rail-item">
+                <button class="cat-chip" type="button" data-cat-maintained={t.value} aria-pressed="false">
+                  {t.label}
+                  <span class="cat-count">{t.count}</span>
+                </button>
+              </li>
+            ))
+          }
+        </ul>
         {
-          (hasFeatured || hasNew || hasNative || hasVerified) && (
+          (hasFeatured || hasNew || hasVerified) && (
             <>
               <p class="cat-rail-label" id="cat-highlight-label">Highlights</p>
               <ul class="cat-rail-list" aria-labelledby="cat-highlight-label">
@@ -92,14 +110,6 @@ const description = 'Built-in and community tools, model providers, plugins, and
                     <button class="cat-chip" type="button" data-cat-badge="new" aria-pressed="false">
                       New
                       <span class="cat-count">{cards.filter((c) => c.badges.includes('new')).length}</span>
-                    </button>
-                  </li>
-                )}
-                {hasNative && (
-                  <li class="cat-rail-item">
-                    <button class="cat-chip" type="button" data-cat-badge="native" aria-pressed="false">
-                      Native
-                      <span class="cat-count">{cards.filter((c) => c.badges.includes('native')).length}</span>
                     </button>
                   </li>
                 )}
@@ -147,11 +157,11 @@ const description = 'Built-in and community tools, model providers, plugins, and
       <div class="cat-dialog-facets">
         <CatalogFacets
           types={typeFacets}
+          maintainedBy={maintainedByFacets}
           showSdkFacet={showSdkFacet}
           hasVerified={hasVerified}
           hasFeatured={hasFeatured}
           hasNew={hasNew}
-          hasNative={hasNative}
         />
       </div>
       <ul class="cat-dialog-list" data-cat-dialog-list>
@@ -161,6 +171,7 @@ const description = 'Built-in and community tools, model providers, plugins, and
             data-type={card.integrationType}
             data-langs={card.languages.join(' ')}
             data-badges={[...card.badges, ...(card.featured ? ['featured'] : [])].join(' ')}
+            data-maintained={card.maintainedBy}
             data-sdk={card.sdk}
             data-search={`${card.name} ${card.description} by ${card.maintainer}`.toLowerCase()}
           >
@@ -207,6 +218,7 @@ const description = 'Built-in and community tools, model providers, plugins, and
   const typeBtns = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-type]'))
   const langBtns = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-lang]'))
   const badgeBtns = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-badge]'))
+  const maintainedBtns = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-maintained]'))
   const sdkBtns = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-sdk]'))
   const emptyEl = document.querySelector<HTMLElement>('[data-cat-empty]')
   const countEl = document.querySelector<HTMLElement>('[data-cat-count]')
@@ -225,6 +237,8 @@ const description = 'Built-in and community tools, model providers, plugins, and
   for (const badge of state.badges) if (!renderedBadges.has(badge)) state.badges.delete(badge)
   const renderedTypes = new Set(typeBtns.map((btn) => btn.dataset.catType))
   for (const t of state.types) if (!renderedTypes.has(t)) state.types.delete(t)
+  const renderedMaintained = new Set(maintainedBtns.map((btn) => btn.dataset.catMaintained))
+  for (const t of state.maintainedBy) if (!renderedMaintained.has(t)) state.maintainedBy.delete(t)
 
   function cardData(el: HTMLElement): CardFilterData {
     return {
@@ -232,6 +246,7 @@ const description = 'Built-in and community tools, model providers, plugins, and
       type: el.dataset.type || '',
       languages: (el.dataset.langs || '').split(' ').filter(Boolean),
       badges: (el.dataset.badges || '').split(' ').filter(Boolean),
+      maintainedBy: el.dataset.maintained || 'community',
       sdk: el.dataset.sdk || 'agents',
     }
   }
@@ -261,6 +276,8 @@ const description = 'Built-in and community tools, model providers, plugins, and
     for (const btn of typeBtns) btn.setAttribute('aria-pressed', String(state.types.has(btn.dataset.catType || '')))
     for (const btn of langBtns) btn.setAttribute('aria-pressed', String(state.languages.has(btn.dataset.catLang || '')))
     for (const btn of badgeBtns) btn.setAttribute('aria-pressed', String(state.badges.has(btn.dataset.catBadge || '')))
+    for (const btn of maintainedBtns)
+      btn.setAttribute('aria-pressed', String(state.maintainedBy.has(btn.dataset.catMaintained || '')))
     for (const btn of sdkBtns) btn.setAttribute('aria-checked', String(state.sdk === btn.dataset.catSdk))
 
     // `entry` (the open docs drawer) is not filter state; carry the current
@@ -324,6 +341,11 @@ const description = 'Built-in and community tools, model providers, plugins, and
   for (const btn of badgeBtns)
     btn.addEventListener('click', () => {
       toggle(state.badges, btn.dataset.catBadge || '')
+      apply()
+    })
+  for (const btn of maintainedBtns)
+    btn.addEventListener('click', () => {
+      toggle(state.maintainedBy, btn.dataset.catMaintained || '')
       apply()
     })
   for (const btn of sdkBtns)

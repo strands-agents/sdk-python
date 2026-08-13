@@ -10,6 +10,7 @@ function entry(overrides: Partial<CatalogEntryData> = {}): CatalogEntryData {
     description: 'Example integration',
     integrationType: 'tool',
     sdk: 'agents',
+    maintainedBy: 'community',
     languages: { python: { package: 'strands-example' } },
     github: 'https://github.com/example/strands-example',
     featured: false,
