@@ -23,7 +23,7 @@ export interface CardFilterData {
 
 const KNOWN_TYPES = new Set<string>(CATALOG_TYPES.map((t) => t.value))
 const KNOWN_LANGUAGES = new Set(['python', 'typescript'])
-const KNOWN_BADGES = new Set(['verified', 'featured', 'new'])
+const KNOWN_BADGES = new Set(['verified', 'native', 'featured', 'new'])
 const KNOWN_SDKS = new Set(['agents', 'evals'])
 const DEFAULT_SDK = 'agents'
 

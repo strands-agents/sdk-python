@@ -79,6 +79,10 @@ describe('URL state round-trip', () => {
     expect(back.sdk).toBe('evals')
   })
 
+  it('parses the native badge from a deep link', () => {
+    expect(queryToState('badge=native').badges).toEqual(new Set(['native']))
+  })
+
   it('drops unknown values when parsing', () => {
     const back = queryToState('type=widget&lang=rust&sdk=nope')
     expect(back.types.size).toBe(0)

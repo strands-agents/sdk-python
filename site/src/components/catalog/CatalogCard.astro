@@ -32,7 +32,7 @@ const href = card.external ? card.href : pathWithBase(card.href)
 ---
 
 <article
-  class:list={['cat-card', { 'cat-card--featured': card.featured }]}
+  class:list={['cat-card', { 'cat-card--featured': card.featured, 'cat-card--native': card.badges.includes('native') }]}
   data-type={card.integrationType}
   data-langs={card.languages.join(' ')}
   data-badges={[...card.badges, ...(card.featured ? ['featured'] : [])].join(' ')}

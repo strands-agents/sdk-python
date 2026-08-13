@@ -175,6 +175,24 @@
   border-color: color-mix(in srgb, var(--sl-color-accent) 25%, var(--sl-color-gray-5));
 }
 
+/* Native (SDK built-in) cards carry the badge's note-blue on the border and
+   type tile so first-party entries scan apart from community ones. */
+.cat-card--native {
+  border-color: color-mix(in srgb, var(--sl-badge-note-border) 45%, var(--sl-color-gray-5));
+}
+.cat-card--native:hover {
+  border-color: color-mix(in srgb, var(--sl-badge-note-border) 75%, var(--sl-color-gray-5));
+  background: color-mix(in srgb, var(--sl-badge-note-bg) 12%, var(--sl-color-bg-nav));
+}
+.cat-card--native .cat-tile {
+  color: var(--sl-badge-note-text);
+  background: color-mix(in srgb, var(--sl-badge-note-bg) 30%, transparent);
+  border-color: color-mix(in srgb, var(--sl-badge-note-border) 35%, transparent);
+}
+.cat-card--native:hover .cat-card-title {
+  color: var(--sl-badge-note-text);
+}
+
 /* Whole-card click: the title link stretches over the card; secondary links
    re-raise themselves above it. */
 .cat-card-title::after {
