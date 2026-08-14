@@ -227,6 +227,9 @@ export interface StreamOptions {
    * visible to the caller after the stream completes.
    */
   modelState?: StateStore
+
+  /** How many trailing blocks of the last user message are rebuilt on every call. */
+  dynamicTrailingBlocks?: number
 }
 
 /**

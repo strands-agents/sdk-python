@@ -86,6 +86,15 @@ export interface InvokeModelContext {
   readonly invocationState: InvocationState
   /** Estimated input token count for this model call, or undefined if estimation failed. */
   readonly projectedInputTokens?: number
+
+  /**
+   * How many trailing blocks of the last user message are rebuilt on every call.
+   *
+   * Producers add to this; a provider placing cache points keeps its own ahead of the
+   * count, since a prefix that changes every call is never read back. Counted from the end of the
+   * message so it survives a provider's content cleaning, which only drops earlier blocks.
+   */
+  readonly dynamicTrailingBlocks?: number
 }
 
 /**
