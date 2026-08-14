@@ -19,8 +19,9 @@ from typing import Any
 
 import httpx
 from mcp import ClientSession
+from mcp.types import ServerCapabilities
 
-__all__ = ["MCP_V2", "GetSessionIdCallback", "MCPError", "streamable_http_transport"]
+__all__ = ["MCP_V2", "GetSessionIdCallback", "MCPError", "initialize_session", "streamable_http_transport"]
 
 # Feature-probed rather than version-parsed so pre-releases and backports
 # resolve by capability: `ClientSession.discover` is the 2.x replacement for
@@ -41,6 +42,32 @@ except ImportError:
     from collections.abc import Callable
 
     GetSessionIdCallback = Callable[[], str | None]  # type: ignore[misc, assignment]
+
+
+async def initialize_session(session: ClientSession) -> tuple[str | None, ServerCapabilities | None]:
+    """Negotiate the connection on an entered session, on either `mcp` major line.
+
+    The 2026-07-28 spec replaced the mandatory `initialize` handshake with a
+    stateless `server/discover` probe (SEP-2575). `negotiate_auto` is the
+    official 2.x client's connect-time policy: it probes `server/discover`
+    first and falls back to the legacy handshake for pre-2026 servers, so
+    either server era works. It lives in a private module, so the forced-2.x
+    CI job is what catches a relocation.
+
+    Args:
+        session: An entered `ClientSession` that has not yet negotiated.
+
+    Returns:
+        The server's instructions (if any) and advertised capabilities.
+    """
+    if MCP_V2:
+        from mcp.client._probe import negotiate_auto  # type: ignore[import-not-found]
+
+        await negotiate_auto(session)
+        return session.instructions, session.server_capabilities  # type: ignore[attr-defined]
+
+    init_result = await session.initialize()
+    return init_result.instructions, session.get_server_capabilities()
 
 
 def streamable_http_transport(

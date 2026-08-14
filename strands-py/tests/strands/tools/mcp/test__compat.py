@@ -9,17 +9,20 @@ the `MCP_V2` flag forced.
 """
 
 import importlib
+import sys
 from collections.abc import Callable
 from contextlib import asynccontextmanager
-from unittest.mock import MagicMock, patch
+from types import ModuleType
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import mcp.client.streamable_http as streamable_http_module
 import pytest
 
 from strands.tools.mcp import _compat
-from strands.tools.mcp._compat import MCPError, streamable_http_transport
+from strands.tools.mcp._compat import MCPError, initialize_session, streamable_http_transport
 
 requires_mcp_v1 = pytest.mark.skipif(_compat.MCP_V2, reason="exercises the mcp 1.x branch")
+requires_mcp_v2 = pytest.mark.skipif(not _compat.MCP_V2, reason="exercises the mcp 2.x line")
 requires_v2_transport_names = pytest.mark.skipif(
     not hasattr(streamable_http_module, "streamable_http_client"),
     reason="installed mcp line lacks the 2.x transport names",
@@ -64,6 +67,54 @@ def test_get_session_id_callback_falls_back_to_plain_callable(monkeypatch):
     finally:
         monkeypatch.undo()
         importlib.reload(_compat)
+
+
+@requires_mcp_v2
+def test_installed_v2_line_exposes_negotiate_auto():
+    """Test that the private negotiation policy `initialize_session` imports exists on the 2.x line."""
+    from mcp.client._probe import negotiate_auto
+
+    assert callable(negotiate_auto)
+
+
+@pytest.mark.asyncio
+async def test_initialize_session_v1_runs_the_initialize_handshake(monkeypatch):
+    """Test that the 1.x handshake is initialize(), with instructions read from its result."""
+    monkeypatch.setattr(_compat, "MCP_V2", False)
+    server_capabilities = MagicMock()
+    session = MagicMock()
+    session.initialize = AsyncMock(return_value=MagicMock(instructions="use the tools"))
+    session.get_server_capabilities = MagicMock(return_value=server_capabilities)
+
+    instructions, capabilities = await initialize_session(session)
+
+    session.initialize.assert_awaited_once_with()
+    assert instructions == "use the tools"
+    assert capabilities is server_capabilities
+
+
+@pytest.mark.asyncio
+async def test_initialize_session_v2_negotiates_and_reads_session_properties(monkeypatch):
+    """Test that the 2.x handshake delegates to negotiate_auto and reads the session properties.
+
+    The `mcp.client._probe` module exists only on the 2.x line, so a stub
+    module stands in for it to exercise this branch under the 1.x pin.
+    """
+    monkeypatch.setattr(_compat, "MCP_V2", True)
+    negotiate_auto = AsyncMock()
+    probe_module = ModuleType("mcp.client._probe")
+    probe_module.negotiate_auto = negotiate_auto  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "mcp.client._probe", probe_module)
+    server_capabilities = MagicMock()
+    session = MagicMock()
+    session.instructions = "use the tools"
+    session.server_capabilities = server_capabilities
+
+    instructions, capabilities = await initialize_session(session)
+
+    negotiate_auto.assert_awaited_once_with(session)
+    assert instructions == "use the tools"
+    assert capabilities is server_capabilities
 
 
 @requires_mcp_v1

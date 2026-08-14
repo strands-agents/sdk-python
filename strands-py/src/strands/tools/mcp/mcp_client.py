@@ -61,7 +61,7 @@ from ...types.exceptions import MCPClientInitializationError, ToolProviderExcept
 from ...types.media import ImageFormat
 from ...types.tools import AgentTool, ToolResultContent, ToolResultStatus
 from ..tool_provider import ToolProvider
-from ._compat import MCPError, streamable_http_transport
+from ._compat import MCPError, initialize_session, streamable_http_transport
 from .mcp_agent_tool import MCPAgentTool
 from .mcp_instrumentation import inject_trace_context, mcp_instrumentation
 from .mcp_tasks import DEFAULT_TASK_CONFIG, DEFAULT_TASK_POLL_TIMEOUT, DEFAULT_TASK_TTL, TasksConfig
@@ -1078,17 +1078,15 @@ class MCPClient(ToolProvider):
                     ),
                 ) as session:
                     self._log_debug_with_thread("initializing MCP session")
-                    init_result = await session.initialize()
+                    instructions, caps = await initialize_session(session)
 
                     self._log_debug_with_thread("session initialized successfully")
-                    # Store server instructions from InitializeResult for Host applications
-                    self.server_instructions = init_result.instructions
+                    # Store server instructions from the handshake for Host applications
+                    self.server_instructions = instructions
                     # Store the session for use while we await the close event
                     self._background_thread_session = session
 
-                    # Cache server task capability immediately after initialization
-                    # Capabilities are exchanged during session.initialize(), so this is available now
-                    caps = session.get_server_capabilities()
+                    # Capabilities are exchanged during the handshake, so this is available now
                     self._server_task_capable = (
                         caps is not None
                         and caps.tasks is not None
