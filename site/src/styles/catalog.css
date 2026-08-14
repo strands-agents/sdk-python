@@ -311,10 +311,16 @@
 .cat-card-stats {
   display: inline-flex;
   gap: 0.55rem;
-  margin-left: auto;
   flex-shrink: 0;
   font-size: var(--cat-text-meta);
   color: var(--sl-color-gray-3);
+}
+.cat-card-flags {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 .cat-card:hover .cat-card-title {
   color: var(--cat-accent-text);
@@ -333,8 +339,6 @@
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  /* Breathing room from the title; the head's gap alone reads cramped. */
-  margin-left: 0.2rem;
   font-family: var(--sl-font-system-mono);
   font-size: var(--sl-text-xs);
   line-height: 1;
