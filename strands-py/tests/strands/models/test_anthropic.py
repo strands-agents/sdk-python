@@ -2023,9 +2023,7 @@ class TestPromptCaching:
 
     def test_dynamic_trailing_blocks_covers_every_block_of_a_multi_block_tail(self, model):
         model.update_config(cache_config=CacheConfig(strategy="auto"))
-        messages = [
-            {"role": "user", "content": [{"text": "durable ask"}, {"text": "injected"}, {"text": "status"}]}
-        ]
+        messages = [{"role": "user", "content": [{"text": "durable ask"}, {"text": "injected"}, {"text": "status"}]}]
 
         request = model.format_request(messages, dynamic_trailing_blocks=2)
 
@@ -2072,3 +2070,155 @@ class TestPromptCaching:
         request = model.format_request(messages, dynamic_trailing_blocks=1)
 
         assert self._breakpoints(request) == []
+
+
+# =============================================================================
+# Bedrock Mantle (bedrock_mantle_config) integration with AnthropicModel
+# =============================================================================
+
+
+class TestAnthropicModelBedrockMantleConfig:
+    @pytest.fixture
+    def mantle_client_cls(self):
+        with unittest.mock.patch.object(
+            strands.models.anthropic.anthropic, "AsyncAnthropicBedrockMantle"
+        ) as mock_client_cls:
+            yield mock_client_cls
+
+    def test_bedrock_mantle_config_builds_mantle_client(self, mantle_client_cls, max_tokens):
+        """bedrock_mantle_config swaps in the Mantle client and passes only the resolved region.
+
+        Keys the config leaves unset stay absent rather than being passed as None, which would
+        change the auth mode the client selects.
+        """
+        model = AnthropicModel(
+            model_id="anthropic.claude-sonnet-5",
+            max_tokens=max_tokens,
+            bedrock_mantle_config={"region": "us-east-1"},
+        )
+
+        assert model.client is mantle_client_cls.return_value
+
+        tru_client_args = mantle_client_cls.call_args.kwargs
+        exp_client_args = {"aws_region": "us-east-1"}
+
+        assert tru_client_args == exp_client_args
+
+    def test_bedrock_mantle_config_omitted_builds_plain_client(self, anthropic_client, max_tokens):
+        """Without bedrock_mantle_config the provider still builds the direct Anthropic client."""
+        model = AnthropicModel(model_id="claude-sonnet-4-20250514", max_tokens=max_tokens)
+
+        assert model.client is anthropic_client
+
+    def test_bedrock_mantle_config_forwards_profile_and_api_key(self, mantle_client_cls, max_tokens):
+        """Optional profile and api_key map onto the Anthropic client's AWS arguments."""
+        AnthropicModel(
+            model_id="anthropic.claude-sonnet-5",
+            max_tokens=max_tokens,
+            bedrock_mantle_config={"region": "us-east-1", "profile": "p1", "api_key": "k1"},
+        )
+
+        tru_client_args = mantle_client_cls.call_args.kwargs
+        exp_client_args = {"aws_region": "us-east-1", "aws_profile": "p1", "api_key": "k1"}
+
+        assert tru_client_args == exp_client_args
+
+    def test_bedrock_mantle_config_merges_with_client_args(self, mantle_client_cls, max_tokens):
+        """bedrock_mantle_config composes with client_args; transport options are preserved."""
+        sentinel_http_client = unittest.mock.Mock()
+        AnthropicModel(
+            model_id="anthropic.claude-sonnet-5",
+            max_tokens=max_tokens,
+            client_args={
+                "timeout": 42,
+                "http_client": sentinel_http_client,
+                "default_headers": {"X-Trace-Id": "abc"},
+            },
+            bedrock_mantle_config={"region": "us-east-1"},
+        )
+
+        tru_client_args = mantle_client_cls.call_args.kwargs
+        exp_client_args = {
+            "aws_region": "us-east-1",
+            "timeout": 42,
+            "http_client": sentinel_http_client,
+            "default_headers": {"X-Trace-Id": "abc"},
+        }
+
+        assert tru_client_args == exp_client_args
+
+    @pytest.mark.parametrize("argument", ["aws_region", "aws_profile", "api_key"])
+    def test_bedrock_mantle_config_rejects_derived_client_args(self, argument, mantle_client_cls, max_tokens):
+        """client_args must not carry an argument the Mantle config derives."""
+        _ = mantle_client_cls
+
+        with pytest.raises(ValueError, match="client_args must not contain"):
+            AnthropicModel(
+                model_id="anthropic.claude-sonnet-5",
+                max_tokens=max_tokens,
+                client_args={argument: "x"},
+                bedrock_mantle_config={"region": "us-east-1"},
+            )
+
+    def test_bedrock_mantle_config_region_resolved_from_boto3_default(self, mantle_client_cls, max_tokens):
+        """When region is omitted, the default boto3 session chain resolves it."""
+        with unittest.mock.patch("boto3.Session") as mock_session_cls:
+            mock_session_cls.return_value.region_name = "eu-west-1"
+
+            AnthropicModel(model_id="anthropic.claude-sonnet-5", max_tokens=max_tokens, bedrock_mantle_config={})
+
+        mock_session_cls.assert_called_once_with()
+
+        tru_client_args = mantle_client_cls.call_args.kwargs
+        exp_client_args = {"aws_region": "eu-west-1"}
+
+        assert tru_client_args == exp_client_args
+
+    def test_bedrock_mantle_config_region_resolved_from_named_profile(self, mantle_client_cls, max_tokens):
+        """A named profile supplies the region the Anthropic client's own fallback would miss."""
+        with unittest.mock.patch("boto3.Session") as mock_session_cls:
+            mock_session_cls.return_value.region_name = "ap-northeast-1"
+
+            AnthropicModel(
+                model_id="anthropic.claude-sonnet-5",
+                max_tokens=max_tokens,
+                bedrock_mantle_config={"profile": "p1"},
+            )
+
+        mock_session_cls.assert_called_once_with(profile_name="p1")
+
+        tru_client_args = mantle_client_cls.call_args.kwargs
+        exp_client_args = {"aws_region": "ap-northeast-1", "aws_profile": "p1"}
+
+        assert tru_client_args == exp_client_args
+
+    def test_bedrock_mantle_config_unresolvable_region_raises(self, mantle_client_cls, max_tokens):
+        """A region that resolves from nowhere fails at construction with actionable guidance."""
+        _ = mantle_client_cls
+
+        with unittest.mock.patch("boto3.Session") as mock_session_cls:
+            mock_session_cls.return_value.region_name = None
+
+            with pytest.raises(ValueError, match="Could not resolve an AWS region"):
+                AnthropicModel(model_id="anthropic.claude-sonnet-5", max_tokens=max_tokens, bedrock_mantle_config={})
+
+    def test_bedrock_mantle_config_rejects_malformed_region(self, mantle_client_cls, max_tokens):
+        """A region carrying URL control characters is rejected before it reaches the endpoint URL."""
+        _ = mantle_client_cls
+
+        with pytest.raises(ValueError, match="invalid AWS region"):
+            AnthropicModel(
+                model_id="anthropic.claude-sonnet-5",
+                max_tokens=max_tokens,
+                bedrock_mantle_config={"region": "x@attacker.com:443/#"},
+            )
+
+    def test_bedrock_mantle_config_rejects_malformed_region_from_boto3_default(self, mantle_client_cls, max_tokens):
+        """A malformed region resolved from the boto3 default chain is also rejected."""
+        _ = mantle_client_cls
+
+        with unittest.mock.patch("boto3.Session") as mock_session_cls:
+            mock_session_cls.return_value.region_name = "x@attacker.com:443/#"
+
+            with pytest.raises(ValueError, match="invalid AWS region"):
+                AnthropicModel(model_id="anthropic.claude-sonnet-5", max_tokens=max_tokens, bedrock_mantle_config={})

@@ -21,6 +21,7 @@ from ..types.event_loop import Usage
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolChoiceToolDict, ToolSpec
+from ._anthropic_bedrock import MANTLE_DERIVED_CLIENT_ARGS, BedrockMantleConfig, resolve_bedrock_client_args
 from ._defaults import resolve_config_metadata
 from ._validation import _has_location_source, validate_config_keys
 from .model import BaseModelConfig, CacheConfig, CacheToolsConfig, Model
@@ -88,13 +89,29 @@ class AnthropicModel(Model):
         params: dict[str, Any] | None
         use_native_token_count: bool
 
-    def __init__(self, *, client_args: dict[str, Any] | None = None, **model_config: Unpack[AnthropicConfig]):
+    def __init__(
+        self,
+        *,
+        client_args: dict[str, Any] | None = None,
+        bedrock_mantle_config: BedrockMantleConfig | None = None,
+        **model_config: Unpack[AnthropicConfig],
+    ):
         """Initialize provider instance.
 
         Args:
             client_args: Arguments for the underlying Anthropic client (e.g., api_key).
                 For a complete list of supported arguments, see https://docs.anthropic.com/en/api/client-sdks.
+                May be combined with ``bedrock_mantle_config``; when both are set, the config
+                derives the AWS arguments, which must not appear in ``client_args``.
+            bedrock_mantle_config: Route requests through Amazon Bedrock's Mantle
+                (Anthropic-compatible) endpoint. See :class:`BedrockMantleConfig` for accepted
+                keys. Requests are signed with SigV4 unless the config supplies an API key,
+                using the profile it names or the standard AWS credential chain.
             **model_config: Configuration options for the Anthropic model.
+
+        Raises:
+            ValueError: If ``client_args`` carries an argument that ``bedrock_mantle_config``
+                derives, or if no AWS region can be resolved.
         """
         validate_config_keys(model_config, self.AnthropicConfig)
         self.config = AnthropicModel.AnthropicConfig(**model_config)
@@ -102,7 +119,21 @@ class AnthropicModel(Model):
         logger.debug("config=<%s> | initializing", self.config)
 
         client_args = client_args or {}
-        self.client = anthropic.AsyncAnthropic(**client_args)
+        self.client: anthropic.AsyncAnthropic | anthropic.AsyncAnthropicBedrockMantle
+        if bedrock_mantle_config is None:
+            self.client = anthropic.AsyncAnthropic(**client_args)
+            return
+
+        conflicting = [argument for argument in MANTLE_DERIVED_CLIENT_ARGS if argument in client_args]
+        if conflicting:
+            raise ValueError(
+                f"client_args must not contain {conflicting} when bedrock_mantle_config is set; "
+                "these are derived from the Mantle config automatically."
+            )
+
+        self.client = anthropic.AsyncAnthropicBedrockMantle(
+            **resolve_bedrock_client_args(bedrock_mantle_config, client_args)
+        )
 
     @override
     def update_config(self, **model_config: Unpack[AnthropicConfig]) -> None:  # type: ignore[override]
