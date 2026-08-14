@@ -214,6 +214,10 @@ class TestConstructor:
         with pytest.raises(ValueError, match="min_score and max_score are mutually exclusive"):
             make_store({"min_score": 0.5, "max_score": 0.4})
 
+    def test_throws_when_a_zero_min_score_is_paired_with_max_score(self, make_store):
+        with pytest.raises(ValueError, match="min_score and max_score are mutually exclusive"):
+            make_store({"min_score": 0.0, "max_score": 0.4})
+
     def test_allows_writable_with_custom_data_source(self, make_custom_store):
         store, _agent = make_custom_store()
         assert store.writable is True
@@ -470,6 +474,14 @@ class TestScoreBounds:
         assert _contents(await store.search("q")) == ["0.0"]
 
     @pytest.mark.asyncio
+    async def test_a_zero_min_score_is_not_treated_as_unset(self, make_store):
+        # Raw backend scores pass through unchanged, and cosine similarity spans [-1, 1], so a zero
+        # floor is a real config: it drops anti-correlated results.
+        store, runtime, _agent = make_store({"min_score": 0.0})
+        runtime.retrieve.return_value = _scored(0.7, 0.0, -0.3)
+        assert _contents(await store.search("q")) == ["0.7", "0.0"]
+
+    @pytest.mark.asyncio
     async def test_keeps_a_later_result_after_dropping_an_earlier_one(self, make_store):
         store, runtime, _agent = make_store({"min_score": 0.5})
         runtime.retrieve.return_value = _scored(0.9, 0.1, 0.8)
@@ -523,6 +535,14 @@ class TestScoreBounds:
         with caplog.at_level(logging.DEBUG, logger="strands.vended_memory_stores.bedrock_knowledge_base.store"):
             await store.search("q")
         assert "retrieved=<2>, kept=<2> | score bound applied" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_zero_min_score_still_logs_the_bound(self, make_store, caplog):
+        store, runtime, _agent = make_store({"min_score": 0.0})
+        runtime.retrieve.return_value = _scored(0.7)
+        with caplog.at_level(logging.DEBUG, logger="strands.vended_memory_stores.bedrock_knowledge_base.store"):
+            await store.search("q")
+        assert "score bound applied" in caplog.text
 
 
 # --------------------------------------------------------------------------- #
