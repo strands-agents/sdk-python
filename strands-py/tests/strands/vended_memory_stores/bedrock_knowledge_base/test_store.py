@@ -453,7 +453,7 @@ class TestScoreBounds:
     @pytest.mark.asyncio
     async def test_min_score_keeps_results_at_or_above_the_floor(self, make_store):
         store, runtime, _agent = make_store({"min_score": 0.5})
-        runtime.retrieve.return_value = _scored(0.9, 0.5, 0.49, 0.1)
+        runtime.retrieve.return_value = _scored(0.9, 0.5, 0.49, 0.1, 0.0)
         assert _contents(await store.search("q")) == ["0.9", "0.5"]
 
     @pytest.mark.asyncio
@@ -507,12 +507,22 @@ class TestScoreBounds:
         assert results[0].metadata == {"_relevance_score": 0.9}
 
     @pytest.mark.asyncio
-    async def test_logs_when_a_result_is_dropped(self, make_store, caplog):
+    async def test_logs_how_many_results_the_bound_kept(self, make_store, caplog):
         store, runtime, _agent = make_store({"min_score": 0.5})
-        runtime.retrieve.return_value = _scored(0.1)
+        runtime.retrieve.return_value = _scored(0.9, 0.1)
         with caplog.at_level(logging.DEBUG, logger="strands.vended_memory_stores.bedrock_knowledge_base.store"):
             await store.search("q")
-        assert "dropping retrieval result outside score bound" in caplog.text
+        assert "retrieved=<2>, kept=<1> | score bound applied" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_logs_a_full_keep_when_the_knowledge_base_scores_nothing(self, make_store, caplog):
+        # A bound over unscored results drops nothing, which reads the same as a bound that was never
+        # configured. The count tells the two apart.
+        store, runtime, _agent = make_store({"min_score": 0.5})
+        runtime.retrieve.return_value = _scored(None, None)
+        with caplog.at_level(logging.DEBUG, logger="strands.vended_memory_stores.bedrock_knowledge_base.store"):
+            await store.search("q")
+        assert "retrieved=<2>, kept=<2> | score bound applied" in caplog.text
 
 
 # --------------------------------------------------------------------------- #

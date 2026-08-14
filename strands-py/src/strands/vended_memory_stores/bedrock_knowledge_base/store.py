@@ -133,7 +133,10 @@ class BedrockKnowledgeBaseStore(MemoryStore):
         min_score = store_config.get("min_score")
         max_score = store_config.get("max_score")
         if min_score is not None and max_score is not None:
-            raise ValueError("BedrockKnowledgeBaseStore: min_score and max_score are mutually exclusive.")
+            raise ValueError(
+                f"BedrockKnowledgeBaseStore: min_score and max_score are mutually exclusive, but both are set "
+                f"(min_score={min_score}, max_score={max_score})."
+            )
         self.min_score = min_score
         self.max_score = max_score
         self.writable = store_config.get("writable", False)
@@ -254,18 +257,11 @@ class BedrockKnowledgeBaseStore(MemoryStore):
             )
             raise
 
+        results = response.get("retrievalResults") or []
         entries: list[MemoryEntry] = []
-        for result in response.get("retrievalResults") or []:
+        for result in results:
             score = result.get("score")
             if not _passes_score_bound(score, self.min_score, self.max_score):
-                logger.debug(
-                    "store=<%s>, score=<%s>, min_score=<%s>, max_score=<%s> | "
-                    "dropping retrieval result outside score bound",
-                    self.name,
-                    score,
-                    self.min_score,
-                    self.max_score,
-                )
                 continue
 
             metadata: Metadata = {}
@@ -279,6 +275,16 @@ class BedrockKnowledgeBaseStore(MemoryStore):
 
             content = (result.get("content") or {}).get("text") or ""
             entries.append(MemoryEntry(content=content, metadata=metadata))
+
+        if self.min_score is not None or self.max_score is not None:
+            logger.debug(
+                "store=<%s>, min_score=<%s>, max_score=<%s>, retrieved=<%d>, kept=<%d> | score bound applied",
+                self.name,
+                self.min_score,
+                self.max_score,
+                len(results),
+                len(entries),
+            )
 
         return entries
 
