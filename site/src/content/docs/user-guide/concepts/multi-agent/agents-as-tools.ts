@@ -161,10 +161,16 @@ void orchestratorExample
 
 async function delegationBasicExample() {
   // --8<-- [start:delegation_basic]
+  const BillingResponseSchema = z.object({
+    summary: z.string(),
+    refundAmount: z.number(),
+  })
+
   const billingAgent = new Agent({
     name: 'billing_expert',
     description: 'Answers billing questions: charges, refunds, and invoices.',
     systemPrompt: 'You handle billing questions with precision.',
+    structuredOutputSchema: BillingResponseSchema,
     printer: false,
   })
 
@@ -175,7 +181,7 @@ Answer general questions yourself.`,
   })
 
   const result = await orchestrator.invoke('Why was I charged twice?')
-  // result contains the billing agent's response directly
+  // result contains the billing agent's structured JSON response, unchanged
   // --8<-- [end:delegation_basic]
   void result
 }

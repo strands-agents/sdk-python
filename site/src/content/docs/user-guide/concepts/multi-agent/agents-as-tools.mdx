@@ -337,29 +337,37 @@ This example demonstrates how Strands Agents SDK enables specialized experts to 
 
 ## Delegation
 
-When you mark a tool agent as a delegate, the orchestrator returns its
-response directly to the caller, skipping the extra orchestrator model round-trip.
-Use delegation when the sub-agent's response is already complete and the
-orchestrator adds no value by processing it further:
-
+Sometimes, you do not want a sub-agent's response to be re-processed by the
+orchestrator agent, since it would incur unnecessary token usage and potentially
+corrupt the sub-agent's response. For example:
 - A coding agent returning generated source code that shouldn't be rephrased
 - A customer service agent whose compliance-reviewed language must reach
   the user unchanged
 - A retrieval agent returning structured data the caller consumes directly
 
-To mark a tool agent as a delegate, pass `delegate: true` to
-<Syntax py=".as_tool()" ts=".asTool()" />:
+In that case, you can mark a tool agent as a delegate by passing `delegate: true` to
+<Syntax py=".as_tool()" ts=".asTool()" />. When you do so, the orchestrator agent
+returns the delegate's response directly to the user, skipping the extra orchestrator
+model round-trip.
 
 <Tabs>
 <Tab label="Python">
 
 ```python
+from pydantic import BaseModel
 from strands import Agent
+
+
+class BillingResponse(BaseModel):
+    summary: str
+    refund_amount: float
+
 
 billing_agent = Agent(
     name="billing_expert",
     description="Answers billing questions: charges, refunds, and invoices.",
     system_prompt="You handle billing questions with precision.",
+    structured_output_model=BillingResponse,
 )
 
 orchestrator = Agent(
@@ -369,7 +377,7 @@ Answer general questions yourself.""",
 )
 
 result = orchestrator("Why was I charged twice?")
-# result contains the billing agent's response directly
+# result contains the billing agent's structured JSON response, unchanged
 ```
 </Tab>
 <Tab label="TypeScript">
@@ -387,12 +395,12 @@ model processing. Streaming events from the delegate surface natively in
 the parent's stream, so callers see the specialist's tokens as they arrive.
 
 Limitations to be aware of:
-- **Single delegated tool per turn**: Delegated and non-delegated tools
-  can exist on the same agent. However, a delegated tool must be
-  the only tool call in its turn. The SDK cancels the batch if
-  other tools are requested alongside it.
+- **Single delegated tool per turn**: An agent can have both delegated and
+  non-delegated tools. However, if the agent calls a delegated tool during
+  a turn, that tool must be called alone. The SDK cancels the tool
+  batch if other tools are requested alongside the delegated tool.
 - **Incompatible with stateful models**: Delegation exits the
-  loop early, which would leave an unclosed function call on
+  agent loop early, which would leave an unclosed function call on
   the server for models that manage conversation state
   server-side. Combining delegated tools with stateful models
   is not supported.
