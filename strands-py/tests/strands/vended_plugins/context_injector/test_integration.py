@@ -37,12 +37,12 @@ def model_seen(model):
 
 @pytest.fixture
 def trailing_blocks_seen(model):
-    """Capture the ``per_call_trailing_blocks`` each model call receives, wrapping the mock's stream()."""
+    """Capture the ``dynamic_trailing_blocks`` each model call receives, wrapping the mock's stream()."""
     seen: list[int] = []
     original_stream = model.stream
 
     def stream(messages, *args, **kwargs):
-        seen.append(kwargs.get("per_call_trailing_blocks", 0))
+        seen.append(kwargs.get("dynamic_trailing_blocks", 0))
         return original_stream(messages, *args, **kwargs)
 
     model.stream = stream
@@ -68,7 +68,7 @@ def test_injected_text_reaches_model_but_not_durable_history(model, model_seen):
     assert "what is the weather?" in _texts(agent.messages)
 
 
-def test_per_call_trailing_blocks_reaches_the_model(model, trailing_blocks_seen):
+def test_dynamic_trailing_blocks_reaches_the_model(model, trailing_blocks_seen):
     """The boundary is only useful if it survives the whole chain down to the provider call."""
     agent = Agent(
         model=model,
@@ -81,7 +81,7 @@ def test_per_call_trailing_blocks_reaches_the_model(model, trailing_blocks_seen)
     assert trailing_blocks_seen == [1]
 
 
-def test_no_per_call_trailing_blocks_reaches_the_model_without_injection(model, trailing_blocks_seen):
+def test_no_dynamic_trailing_blocks_reaches_the_model_without_injection(model, trailing_blocks_seen):
     """An ordinary call reaches the provider with exactly the arguments it received before."""
     agent = Agent(model=model, callback_handler=None)
 

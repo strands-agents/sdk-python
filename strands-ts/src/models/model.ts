@@ -229,7 +229,7 @@ export interface StreamOptions {
   modelState?: StateStore
 
   /** How many trailing blocks of the last user message are rebuilt on every call. */
-  perCallTrailingBlocks?: number
+  dynamicTrailingBlocks?: number
 }
 
 /**

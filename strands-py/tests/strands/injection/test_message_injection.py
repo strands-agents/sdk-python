@@ -58,7 +58,7 @@ def invoke_ctx(messages: list[dict], agent: Any = None) -> InvokeModelContext:
 class TestFoldIntoLastUserMessage:
     def test_appends_text_after_user_content(self):
         messages = [user("original task"), assistant("prior step"), user("next ask")]
-        result, per_call_trailing_blocks = _fold_into_last_user_message(messages, "INJECTED")
+        result, dynamic_trailing_blocks = _fold_into_last_user_message(messages, "INJECTED")
 
         assert result == [
             {"role": "user", "content": [{"text": "original task"}]},
@@ -69,7 +69,7 @@ class TestFoldIntoLastUserMessage:
     def test_returns_new_list_and_does_not_mutate_input(self):
         original = user("ask")
         messages = [assistant("prior"), original]
-        result, per_call_trailing_blocks = _fold_into_last_user_message(messages, "INJECTED")
+        result, dynamic_trailing_blocks = _fold_into_last_user_message(messages, "INJECTED")
 
         assert result is not messages
         assert messages[1] is original
@@ -79,7 +79,7 @@ class TestFoldIntoLastUserMessage:
     def test_appends_after_tool_result_block(self):
         tr = tool_result()
         messages = [user("task"), assistant("thinking"), tr]
-        result, per_call_trailing_blocks = _fold_into_last_user_message(messages, "INJECTED")
+        result, dynamic_trailing_blocks = _fold_into_last_user_message(messages, "INJECTED")
 
         # Providers require the tool result to be the first block, so the text is appended.
         assert result == [
@@ -90,7 +90,7 @@ class TestFoldIntoLastUserMessage:
 
     def test_targets_most_recent_user_message(self):
         messages = [user("first"), assistant("a"), user("second")]
-        result, per_call_trailing_blocks = _fold_into_last_user_message(messages, "INJECTED")
+        result, dynamic_trailing_blocks = _fold_into_last_user_message(messages, "INJECTED")
 
         assert result == [
             {"role": "user", "content": [{"text": "first"}]},
@@ -100,12 +100,12 @@ class TestFoldIntoLastUserMessage:
 
     def test_preserves_message_metadata(self):
         tagged = {"role": "user", "content": [{"text": "ask"}], "metadata": {"custom": {"keep": "me"}}}
-        result, per_call_trailing_blocks = _fold_into_last_user_message([tagged], "INJECTED")
+        result, dynamic_trailing_blocks = _fold_into_last_user_message([tagged], "INJECTED")
         assert result[0]["metadata"] == {"custom": {"keep": "me"}}
 
     def test_returns_input_unchanged_when_no_user_message(self):
         messages = [assistant("only assistant")]
-        result, per_call_trailing_blocks = _fold_into_last_user_message(messages, "INJECTED")
+        result, dynamic_trailing_blocks = _fold_into_last_user_message(messages, "INJECTED")
         assert result is messages
 
 
@@ -254,7 +254,7 @@ class TestPerCallTrailingBlocksReporting:
         handler = _create_injection_middleware(lambda context: "INJECTED")
         result = await handler(invoke_ctx([user("ask")]))
 
-        assert result.per_call_trailing_blocks == 1
+        assert result.dynamic_trailing_blocks == 1
 
     async def test_accumulates_across_producers_on_one_call(self):
         first = _create_injection_middleware(lambda context: "ONE")
@@ -262,19 +262,19 @@ class TestPerCallTrailingBlocksReporting:
 
         result = await second(await first(invoke_ctx([user("ask")])))
 
-        assert result.per_call_trailing_blocks == 2
+        assert result.dynamic_trailing_blocks == 2
 
     async def test_reports_nothing_when_injection_is_skipped(self):
         handler = _create_injection_middleware(lambda context: None)
         result = await handler(invoke_ctx([user("ask")]))
 
-        assert result.per_call_trailing_blocks == 0
+        assert result.dynamic_trailing_blocks == 0
 
     async def test_reports_nothing_when_the_fold_target_is_not_the_last_message(self):
         handler = _create_injection_middleware(lambda context: "INJECTED", trigger="everyTurn")
         result = await handler(invoke_ctx([user("ask"), assistant("reply")]))
 
-        assert result.per_call_trailing_blocks == 0
+        assert result.dynamic_trailing_blocks == 0
 
     async def test_emits_no_cache_point_into_the_messages(self):
         # Most providers reject a cachePoint inside a message, so the framework never writes one.

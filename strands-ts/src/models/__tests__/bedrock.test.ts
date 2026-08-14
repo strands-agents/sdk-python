@@ -2547,7 +2547,7 @@ describe('BedrockModel', () => {
           new Message({ role: 'user', content: [new TextBlock('durable ask'), new TextBlock('per-call')] }),
         ]
 
-        collectIterator(provider.stream(messages, { perCallTrailingBlocks: 1 }))
+        collectIterator(provider.stream(messages, { dynamicTrailingBlocks: 1 }))
 
         expect(lastContent()).toStrictEqual([
           { text: 'durable ask' },
@@ -2565,7 +2565,7 @@ describe('BedrockModel', () => {
           }),
         ]
 
-        collectIterator(provider.stream(messages, { perCallTrailingBlocks: 2 }))
+        collectIterator(provider.stream(messages, { dynamicTrailingBlocks: 2 }))
 
         expect(lastContent()).toStrictEqual([
           { text: 'durable ask' },
@@ -2588,7 +2588,7 @@ describe('BedrockModel', () => {
         const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
         const messages = [new Message({ role: 'user', content: [new TextBlock('per-call only')] })]
 
-        collectIterator(provider.stream(messages, { perCallTrailingBlocks: 1 }))
+        collectIterator(provider.stream(messages, { dynamicTrailingBlocks: 1 }))
 
         expect(lastContent()).toStrictEqual([{ text: 'per-call only' }])
       })
@@ -2606,7 +2606,7 @@ describe('BedrockModel', () => {
           }),
         ]
 
-        collectIterator(provider.stream(messages, { perCallTrailingBlocks: 1 }))
+        collectIterator(provider.stream(messages, { dynamicTrailingBlocks: 1 }))
 
         // Bedrock rejects a cache point directly after a non-PDF document; the per-call path is routed
         // through the same honor logic, so the same step-back applies.
@@ -2624,7 +2624,7 @@ describe('BedrockModel', () => {
           new Message({ role: 'user', content: [new TextBlock('durable ask'), new TextBlock('per-call')] }),
         ]
 
-        collectIterator(provider.stream(messages, { perCallTrailingBlocks: 1 }))
+        collectIterator(provider.stream(messages, { dynamicTrailingBlocks: 1 }))
 
         expect(lastContent()).toStrictEqual([
           { text: 'durable ask' },
@@ -2639,7 +2639,7 @@ describe('BedrockModel', () => {
           new Message({ role: 'user', content: [new TextBlock('durable ask'), new TextBlock('per-call')] }),
         ]
 
-        collectIterator(provider.stream(messages, { perCallTrailingBlocks: 1 }))
+        collectIterator(provider.stream(messages, { dynamicTrailingBlocks: 1 }))
 
         expect(lastContent()).toStrictEqual([{ text: 'durable ask' }, { text: 'per-call' }])
       })

@@ -286,7 +286,7 @@ describe('createInjectionMiddleware', () => {
       const handler = createInjectionMiddleware({ renderContent: async () => 'INJECTED' })
       const result = await handler(ctx([user('ask')]))
 
-      expect(result.perCallTrailingBlocks).toBe(1)
+      expect(result.dynamicTrailingBlocks).toBe(1)
     })
 
     it('accumulates across producers on one call', async () => {
@@ -295,21 +295,21 @@ describe('createInjectionMiddleware', () => {
 
       const result = await second(await first(ctx([user('ask')])))
 
-      expect(result.perCallTrailingBlocks).toBe(2)
+      expect(result.dynamicTrailingBlocks).toBe(2)
     })
 
     it('reports nothing when injection is skipped', async () => {
       const handler = createInjectionMiddleware({ renderContent: async () => '' })
       const result = await handler(ctx([user('ask')]))
 
-      expect(result.perCallTrailingBlocks ?? 0).toBe(0)
+      expect(result.dynamicTrailingBlocks ?? 0).toBe(0)
     })
 
     it('reports nothing when the fold target is not the last message', async () => {
       const handler = createInjectionMiddleware({ renderContent: async () => 'INJECTED', trigger: 'everyTurn' })
       const result = await handler(ctx([user('ask'), assistant('reply')]))
 
-      expect(result.perCallTrailingBlocks).toBe(0)
+      expect(result.dynamicTrailingBlocks).toBe(0)
     })
 
     it('emits no cache point into the messages', async () => {

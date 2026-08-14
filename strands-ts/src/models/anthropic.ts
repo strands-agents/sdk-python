@@ -382,7 +382,7 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
     const request: Anthropic.MessageStreamParams = {
       model: this._config.modelId,
       max_tokens: this._config.maxTokens ?? MODEL_DEFAULTS.anthropic.maxTokens,
-      messages: this._formatMessages(messages, messagesCache, cacheTargetMessage, options?.perCallTrailingBlocks ?? 0),
+      messages: this._formatMessages(messages, messagesCache, cacheTargetMessage, options?.dynamicTrailingBlocks ?? 0),
       stream: true,
     }
 
@@ -456,7 +456,7 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
     messages: Message[],
     messagesCache: ResolvedCacheSection = { enabled: false },
     cacheTargetMessage = -1,
-    perCallTrailingBlocks = 0
+    dynamicTrailingBlocks = 0
   ): Anthropic.MessageParam[] {
     let strippedCachePoints = 0
     const cacheManaged = messagesCache.enabled
@@ -501,7 +501,7 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
       // Per-call trailing blocks apply only to the cache-target message, where a producer appends
       // content rebuilt every call.
       if (isCacheTarget && !marked) {
-        if (this._attachCacheControl(content, messagesCache.ttl, perCallTrailingBlocks)) {
+        if (this._attachCacheControl(content, messagesCache.ttl, dynamicTrailingBlocks)) {
           logger.debug(`msg_idx=<${messageIndex}> | added cache point to last user message`)
         } else {
           logger.debug(`msg_idx=<${messageIndex}> | no cacheable content block, skipped cache point`)

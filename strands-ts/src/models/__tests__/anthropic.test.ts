@@ -1845,7 +1845,7 @@ describe('AnthropicModel', () => {
         content: [new TextBlock('durable ask'), new TextBlock('per-call')],
       })
 
-      await collectIterator(provider.stream([message], { perCallTrailingBlocks: 1 }))
+      await collectIterator(provider.stream([message], { dynamicTrailingBlocks: 1 }))
 
       expect(captured.request.messages[0].content).toEqual([
         { type: 'text', text: 'durable ask', cache_control: { type: 'ephemeral' } },
@@ -1861,7 +1861,7 @@ describe('AnthropicModel', () => {
         content: [new TextBlock('durable ask'), new TextBlock('injected'), new TextBlock('status')],
       })
 
-      await collectIterator(provider.stream([message], { perCallTrailingBlocks: 2 }))
+      await collectIterator(provider.stream([message], { dynamicTrailingBlocks: 2 }))
 
       expect(breakpoints(captured.request)).toEqual([['messages', 0, { type: 'ephemeral' }]])
       expect(captured.request.messages[0].content[0].cache_control).toEqual({ type: 'ephemeral' })
@@ -1873,7 +1873,7 @@ describe('AnthropicModel', () => {
       const { captured, mockClient } = setupCapture()
       const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
 
-      await collectIterator(provider.stream([userMessage('per-call only')], { perCallTrailingBlocks: 1 }))
+      await collectIterator(provider.stream([userMessage('per-call only')], { dynamicTrailingBlocks: 1 }))
 
       expect(breakpoints(captured.request)).toEqual([])
     })
@@ -1886,7 +1886,7 @@ describe('AnthropicModel', () => {
         content: [new TextBlock('durable ask'), new TextBlock('per-call')],
       })
 
-      await collectIterator(provider.stream([message], { perCallTrailingBlocks: 1 }))
+      await collectIterator(provider.stream([message], { dynamicTrailingBlocks: 1 }))
 
       expect(breakpoints(captured.request)).toEqual([['messages', 0, { type: 'ephemeral', ttl: '1h' }]])
     })
@@ -1900,7 +1900,7 @@ describe('AnthropicModel', () => {
         content: [new TextBlock('durable ask'), new TextBlock('per-call')],
       })
 
-      await collectIterator(provider.stream([message], { perCallTrailingBlocks: 1 }))
+      await collectIterator(provider.stream([message], { dynamicTrailingBlocks: 1 }))
 
       expect(breakpoints(captured.request)).toEqual([])
     })

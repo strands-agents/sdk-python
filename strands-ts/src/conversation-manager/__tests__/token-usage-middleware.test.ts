@@ -69,7 +69,7 @@ describe('createTokenUsageMiddleware', () => {
 
     const result = await middleware(context)
 
-    expect(result.perCallTrailingBlocks).toBe(1)
+    expect(result.dynamicTrailingBlocks).toBe(1)
   })
 
   it('reports no per-call trailing blocks when the status line lands in an assistant message', async () => {
@@ -90,7 +90,7 @@ describe('createTokenUsageMiddleware', () => {
     const lastMessage = result.messages[result.messages.length - 1]!
     expect(lastMessage.role).toBe('assistant')
     expect((lastMessage.content[lastMessage.content.length - 1] as TextBlock).text).toContain('<context-status>')
-    expect(result.perCallTrailingBlocks ?? 0).toBe(0)
+    expect(result.dynamicTrailingBlocks ?? 0).toBe(0)
   })
 
   it('reports no per-call trailing blocks when no status line is appended', async () => {
@@ -99,7 +99,7 @@ describe('createTokenUsageMiddleware', () => {
 
     const result = await middleware(context)
 
-    expect(result.perCallTrailingBlocks ?? 0).toBe(0)
+    expect(result.dynamicTrailingBlocks ?? 0).toBe(0)
   })
 
   it('does not mutate the original messages array', async () => {

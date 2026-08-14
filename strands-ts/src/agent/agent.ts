@@ -2133,7 +2133,7 @@ export class Agent implements LocalAgent, InvokableAgent {
             ...(ctx.systemPrompt !== undefined && { systemPrompt: ctx.systemPrompt }),
             ...(ctx.toolChoice && { toolChoice: ctx.toolChoice }),
             // Omitted when zero, so an ordinary call's options are unchanged.
-            ...(ctx.perCallTrailingBlocks ? { perCallTrailingBlocks: ctx.perCallTrailingBlocks } : {}),
+            ...(ctx.dynamicTrailingBlocks ? { dynamicTrailingBlocks: ctx.dynamicTrailingBlocks } : {}),
           }
           const gen = self._streamFromModel(ctx.messages as Message[], streamOptions, ctx.invocationState)
           let iterResult = await gen.next()

@@ -128,7 +128,7 @@ describe('ContextInjector', () => {
       const seen: number[] = []
       const original = model.stream.bind(model)
       model.stream = async function* mockStream(messages, options?: StreamOptions) {
-        seen.push(options?.perCallTrailingBlocks ?? 0)
+        seen.push(options?.dynamicTrailingBlocks ?? 0)
         yield* original(messages, options)
       } as typeof model.stream
       return seen

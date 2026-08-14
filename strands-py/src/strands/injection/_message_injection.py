@@ -92,7 +92,7 @@ def _create_injection_middleware(
 
         folded, appended = _fold_into_last_user_message(context.messages, text)
 
-        return replace(context, messages=folded, per_call_trailing_blocks=context.per_call_trailing_blocks + appended)
+        return replace(context, messages=folded, dynamic_trailing_blocks=context.dynamic_trailing_blocks + appended)
 
     return handler
 

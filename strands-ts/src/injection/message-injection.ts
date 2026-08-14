@@ -48,7 +48,7 @@ export function createInjectionMiddleware(
 
     const { messages: folded, appended } = foldIntoLastUserMessage([...context.messages], text)
     // Accumulate: several producers may append on one call, and the cache point precedes all of it.
-    return { ...context, messages: folded, perCallTrailingBlocks: (context.perCallTrailingBlocks ?? 0) + appended }
+    return { ...context, messages: folded, dynamicTrailingBlocks: (context.dynamicTrailingBlocks ?? 0) + appended }
   }
 }
 

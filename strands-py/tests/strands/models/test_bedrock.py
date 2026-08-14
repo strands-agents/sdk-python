@@ -3997,85 +3997,85 @@ def _document_block(fmt: str = "csv") -> dict:
     return {"document": {"format": fmt, "name": "d", "source": {"bytes": b"a,b"}}}
 
 
-def test_per_call_trailing_blocks_keeps_the_cache_point_ahead_of_per_call_content(bedrock_client):
+def test_dynamic_trailing_blocks_keeps_the_cache_point_ahead_of_per_call_content(bedrock_client):
     model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
     messages = [{"role": "user", "content": [{"text": "durable ask"}, {"text": "PER-CALL"}]}]
 
-    formatted = model._format_bedrock_messages(messages, per_call_trailing_blocks=1)
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=1)
 
     assert _content_keys(formatted[0]["content"]) == ["text", "cachePoint", "text"]
 
 
-def test_per_call_trailing_blocks_covers_every_block_of_a_multi_block_tail(bedrock_client):
+def test_dynamic_trailing_blocks_covers_every_block_of_a_multi_block_tail(bedrock_client):
     model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
     messages = [{"role": "user", "content": [{"text": "durable"}, {"text": "STATUS"}, {"text": "INJECTED"}]}]
 
-    formatted = model._format_bedrock_messages(messages, per_call_trailing_blocks=2)
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=2)
 
     assert _content_keys(formatted[0]["content"]) == ["text", "cachePoint", "text", "text"]
 
 
-def test_no_per_call_trailing_blocks_appends_the_cache_point_at_the_end(bedrock_client):
+def test_no_dynamic_trailing_blocks_appends_the_cache_point_at_the_end(bedrock_client):
     model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
     messages = [{"role": "user", "content": [{"text": "durable ask"}]}]
 
-    formatted = model._format_bedrock_messages(messages, per_call_trailing_blocks=0)
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=0)
 
     assert _content_keys(formatted[0]["content"]) == ["text", "cachePoint"]
 
 
-def test_per_call_trailing_blocks_skips_the_cache_point_when_every_block_is_per_call(bedrock_client):
+def test_dynamic_trailing_blocks_skips_the_cache_point_when_every_block_is_per_call(bedrock_client):
     # Nothing durable ahead of the boundary, so there is no prefix worth caching.
     model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
     messages = [{"role": "user", "content": [{"text": "PER-CALL"}]}]
 
-    formatted = model._format_bedrock_messages(messages, per_call_trailing_blocks=1)
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=1)
 
     assert _content_keys(formatted[0]["content"]) == ["text"]
 
 
-def test_per_call_trailing_blocks_steps_back_over_a_non_pdf_document(bedrock_client):
+def test_dynamic_trailing_blocks_steps_back_over_a_non_pdf_document(bedrock_client):
     # Bedrock rejects a point directly after a non-PDF document.
     model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
     messages = [{"role": "user", "content": [{"text": "a"}, _document_block(), {"text": "PER-CALL"}]}]
 
-    formatted = model._format_bedrock_messages(messages, per_call_trailing_blocks=1)
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=1)
 
     assert _content_keys(formatted[0]["content"]) == ["text", "cachePoint", "document", "text"]
 
 
-def test_per_call_trailing_blocks_are_dropped_when_a_document_leads_the_message(bedrock_client):
+def test_dynamic_trailing_blocks_are_dropped_when_a_document_leads_the_message(bedrock_client):
     model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
     messages = [{"role": "user", "content": [_document_block(), {"text": "PER-CALL"}]}]
 
-    formatted = model._format_bedrock_messages(messages, per_call_trailing_blocks=1)
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=1)
 
     assert "cachePoint" not in _content_keys(formatted[0]["content"])
 
 
-def test_per_call_trailing_blocks_keeps_a_pdf_document_in_the_cached_prefix(bedrock_client):
+def test_dynamic_trailing_blocks_keeps_a_pdf_document_in_the_cached_prefix(bedrock_client):
     model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
     messages = [{"role": "user", "content": [{"text": "a"}, _document_block("pdf"), {"text": "PER-CALL"}]}]
 
-    formatted = model._format_bedrock_messages(messages, per_call_trailing_blocks=1)
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=1)
 
     assert _content_keys(formatted[0]["content"]) == ["text", "document", "cachePoint", "text"]
 
 
-def test_per_call_trailing_blocks_carries_the_configured_ttl(bedrock_client):
+def test_dynamic_trailing_blocks_carries_the_configured_ttl(bedrock_client):
     model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"))
     messages = [{"role": "user", "content": [{"text": "durable"}, {"text": "PER-CALL"}]}]
 
-    formatted = model._format_bedrock_messages(messages, per_call_trailing_blocks=1)
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=1)
 
     assert formatted[0]["content"][1] == {"cachePoint": {"type": "default", "ttl": "1h"}}
 
 
-def test_per_call_trailing_blocks_emits_no_cache_point_without_cache_config(bedrock_client):
+def test_dynamic_trailing_blocks_emits_no_cache_point_without_cache_config(bedrock_client):
     model = BedrockModel()
     messages = [{"role": "user", "content": [{"text": "durable"}, {"text": "PER-CALL"}]}]
 
-    formatted = model._format_bedrock_messages(messages, per_call_trailing_blocks=1)
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=1)
 
     assert "cachePoint" not in _content_keys(formatted[0]["content"])
 

@@ -692,7 +692,7 @@ def _make_invoke_model_terminal(
                     tool_choice=ctx.tool_choice,
                     invocation_state=ctx.invocation_state,
                     model_state=model_state,
-                    per_call_trailing_blocks=ctx.per_call_trailing_blocks,
+                    dynamic_trailing_blocks=ctx.dynamic_trailing_blocks,
                     cancel_signal=agent._cancel_signal,
                 ):
                     yield event

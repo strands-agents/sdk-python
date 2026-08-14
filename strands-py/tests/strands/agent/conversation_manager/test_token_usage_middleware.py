@@ -202,7 +202,7 @@ async def test_status_line_is_reported_as_per_call_content():
 
     result = await middleware(context)
 
-    assert result.per_call_trailing_blocks == 1
+    assert result.dynamic_trailing_blocks == 1
 
 
 @pytest.mark.asyncio
@@ -225,7 +225,7 @@ async def test_reports_nothing_when_the_status_line_lands_in_an_assistant_messag
 
     assert result.messages[-1]["role"] == "assistant"
     assert "<context-status>" in result.messages[-1]["content"][-1]["text"]
-    assert result.per_call_trailing_blocks == 0
+    assert result.dynamic_trailing_blocks == 0
 
 
 @pytest.mark.asyncio
@@ -235,4 +235,4 @@ async def test_reports_nothing_when_projection_is_unavailable():
 
     result = await middleware(context)
 
-    assert result.per_call_trailing_blocks == 0
+    assert result.dynamic_trailing_blocks == 0

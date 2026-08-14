@@ -94,7 +94,7 @@ export interface InvokeModelContext {
    * count, since a prefix that changes every call is never read back. Counted from the end of the
    * message so it survives a provider's content cleaning, which only drops earlier blocks.
    */
-  readonly perCallTrailingBlocks?: number
+  readonly dynamicTrailingBlocks?: number
 }
 
 /**

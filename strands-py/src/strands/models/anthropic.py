@@ -201,7 +201,7 @@ class AnthropicModel(Model):
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
 
     def _format_request_messages(
-        self, messages: Messages, cache_target_idx: int | None = None, per_call_trailing_blocks: int = 0
+        self, messages: Messages, cache_target_idx: int | None = None, dynamic_trailing_blocks: int = 0
     ) -> list[dict[str, Any]]:
         """Format an Anthropic messages array.
 
@@ -210,7 +210,7 @@ class AnthropicModel(Model):
             cache_target_idx: Index of the message that owns the managed cache point while
                 ``cache_config`` is set. Automatic placement applies to that message only when nothing in
                 it already carries the cache point.
-            per_call_trailing_blocks: How many trailing blocks of the cache-target message are rebuilt on
+            dynamic_trailing_blocks: How many trailing blocks of the cache-target message are rebuilt on
                 every call, so the cache point stays ahead of them.
 
         Returns:
@@ -254,7 +254,7 @@ class AnthropicModel(Model):
             # Per-call trailing blocks apply only to the cache-target message, which is where a producer
             # appends content rebuilt every call.
             if message_idx == cache_target_idx and not marked:
-                if self._attach_cache_control(formatted_contents, configured_ttl, per_call_trailing_blocks):
+                if self._attach_cache_control(formatted_contents, configured_ttl, dynamic_trailing_blocks):
                     logger.debug("msg_idx=<%d> | added cache point to last user message", message_idx)
                 else:
                     logger.debug("msg_idx=<%d> | no cacheable content block, skipped cache point", message_idx)
@@ -368,7 +368,7 @@ class AnthropicModel(Model):
         tool_specs: list[ToolSpec] | None = None,
         system_prompt: str | None = None,
         tool_choice: ToolChoice | None = None,
-        per_call_trailing_blocks: int = 0,
+        dynamic_trailing_blocks: int = 0,
     ) -> dict[str, Any]:
         """Format an Anthropic streaming request.
 
@@ -377,7 +377,7 @@ class AnthropicModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
-            per_call_trailing_blocks: How many trailing blocks of the last user message are rebuilt on
+            dynamic_trailing_blocks: How many trailing blocks of the last user message are rebuilt on
                 every call, so the cache point stays ahead of them.
 
         Returns:
@@ -406,7 +406,7 @@ class AnthropicModel(Model):
 
         request = {
             "max_tokens": self.config["max_tokens"],
-            "messages": self._format_request_messages(messages, cache_target_idx, per_call_trailing_blocks),
+            "messages": self._format_request_messages(messages, cache_target_idx, dynamic_trailing_blocks),
             "model": self.config["model_id"],
             "tools": tools,
             **(self._format_tool_choice(tool_choice)),
@@ -635,7 +635,7 @@ class AnthropicModel(Model):
         """
         logger.debug("formatting request")
         request = self.format_request(
-            messages, tool_specs, system_prompt, tool_choice, kwargs.get("per_call_trailing_blocks", 0)
+            messages, tool_specs, system_prompt, tool_choice, kwargs.get("dynamic_trailing_blocks", 0)
         )
         logger.debug("request=<%s>", request)
 
