@@ -150,6 +150,11 @@ export const catalogEntrySchema = z
     // on-site docsPage, the card's primary link prefers this over the bare
     // GitHub repo so users land on usage instructions.
     docsUrl: z.string().url().startsWith('https://', 'docsUrl must be https').optional(),
+    // Who stands behind the integration, shown and filtered on the catalog.
+    // `strands` (SDK built-ins) and `aws` are granted by the Strands team;
+    // `partner` requires a maintainer to verify the entry is vended by the
+    // integrator's official org; submitters leave it unset (community).
+    maintainedBy: z.enum(['strands', 'aws', 'partner', 'community']).default('community'),
     // Editorial fields — maintainer-granted only; submitters leave them unset.
     featured: z.boolean().default(false),
     badges: z.array(z.enum(['verified'])).default([]),
