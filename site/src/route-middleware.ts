@@ -3,7 +3,7 @@ import { getCollection } from 'astro:content'
 import { buildPythonApiSidebar, buildTypeScriptApiSidebar, getPrevNextLinks, type DocInfo } from './dynamic-sidebar'
 import { pathWithBase } from './util/links'
 import { navLinks, type NavLink } from './config/navbar'
-import { isNew } from './util/new-badge'
+import { isNew, NEW_BADGE } from './util/new-badge'
 
 type SidebarEntry = StarlightRouteData['sidebar'][number]
 type SidebarGroup = Extract<SidebarEntry, { type: 'group' }>
@@ -93,7 +93,7 @@ export function applyNewBadges(items: SidebarEntry[], newHrefs: Set<string>): Si
       return { ...item, entries: applyNewBadges(item.entries, newHrefs) }
     }
     if (item.badge === undefined && newHrefs.has(item.href)) {
-      return { ...item, badge: { text: 'New', variant: 'tip' } }
+      return { ...item, badge: NEW_BADGE }
     }
     return item
   })

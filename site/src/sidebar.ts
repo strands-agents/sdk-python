@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import yaml from 'js-yaml'
-import { isNew } from './util/new-badge'
+import { isNew, NEW_BADGE } from './util/new-badge'
 
 // A badge rendered next to a sidebar label. A bare string is shorthand for the default variant.
 type SidebarBadge = string | { text: string; variant?: 'note' | 'tip' | 'caution' | 'danger' | 'success' | 'default' }
@@ -57,7 +57,7 @@ interface ConvertContext {
 function deriveGroupBadge(item: NavConfigItem, buildDate: Date): SidebarBadge | undefined {
   if (item.badge !== undefined) return item.badge
   if (item.addedDate && isNew(new Date(item.addedDate), buildDate)) {
-    return { text: 'New', variant: 'tip' }
+    return NEW_BADGE
   }
   return undefined
 }

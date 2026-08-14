@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { isNew, NEW_BADGE_DAYS } from '../src/util/new-badge'
+import { isNew, NEW_BADGE, NEW_BADGE_DAYS } from '../src/util/new-badge'
 import { applyNewBadges } from '../src/route-middleware'
 import { loadSidebarFromConfig } from '../src/sidebar'
 
@@ -35,7 +35,7 @@ describe('applyNewBadges', () => {
     const sidebar = applyNewBadges([link('/a/'), group([link('/b/')])], new Set(['/b/']))
     expect((sidebar[0] as { badge?: unknown }).badge).toBeUndefined()
     const nested = (sidebar[1] as { entries: { badge?: unknown }[] }).entries[0]
-    expect(nested.badge).toEqual({ text: 'New', variant: 'tip' })
+    expect(nested.badge).toEqual(NEW_BADGE)
   })
 
   it('keeps an explicit badge over the derived one', () => {
@@ -46,28 +46,35 @@ describe('applyNewBadges', () => {
 })
 
 describe('sidebar group addedDate', () => {
-  function loadFixtureSidebar(addedDate: string) {
+  function loadFixtureSidebar(...groupFields: string[]) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nav-'))
     const configPath = path.join(dir, 'navigation.yml')
     fs.writeFileSync(
       configPath,
-      ['sidebar:', '  - label: Fresh', `    addedDate: ${addedDate}`, '    items:', '      - docs/example-page'].join(
-        '\n'
-      )
+      [
+        'sidebar:',
+        '  - label: Fresh',
+        ...groupFields.map((field) => `    ${field}`),
+        '    items:',
+        '      - docs/example-page',
+      ].join('\n')
     )
     return loadSidebarFromConfig(configPath, undefined, BUILD_DATE)
   }
 
-  it('derives a New badge inside the window and none outside it', () => {
-    const fresh = loadFixtureSidebar(daysBefore(1).toISOString().slice(0, 10))
-    expect(fresh[0]).toMatchObject({ badge: { text: 'New', variant: 'tip' } })
+  const added = (days: number) => `addedDate: ${daysBefore(days).toISOString().slice(0, 10)}`
 
-    const stale = loadFixtureSidebar(
-      daysBefore(NEW_BADGE_DAYS + 1)
-        .toISOString()
-        .slice(0, 10)
-    )
-    expect(stale[0]).not.toHaveProperty('badge')
+  it('derives a New badge inside the window and none outside it', () => {
+    expect(loadFixtureSidebar(added(1))[0]).toMatchObject({ badge: NEW_BADGE })
+    expect(loadFixtureSidebar(added(NEW_BADGE_DAYS + 1))[0]).not.toHaveProperty('badge')
+  })
+
+  it('derives no badge for a future addedDate', () => {
+    expect(loadFixtureSidebar(added(-1))[0]).not.toHaveProperty('badge')
+  })
+
+  it('keeps an explicit group badge over the derived one', () => {
+    expect(loadFixtureSidebar('badge: Preview', added(1))[0]).toMatchObject({ badge: 'Preview' })
   })
 })
 
