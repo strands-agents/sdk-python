@@ -18,6 +18,7 @@ describe.skipIf(process.platform === 'win32')('bash tool', () => {
       },
       agent,
       invocationState: {},
+      cancelSignal: agent.cancelSignal,
       interrupt: () => {
         throw new Error('interrupt not available in mock context')
       },
