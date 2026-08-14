@@ -3,8 +3,10 @@ import { Agent } from '../agent.js'
 import { MockMessageModel } from '../../__fixtures__/mock-message-model.js'
 import { SlidingWindowConversationManager } from '../../conversation-manager/sliding-window-conversation-manager.js'
 import { SummarizingConversationManager } from '../../conversation-manager/summarizing-conversation-manager.js'
+import { NullConversationManager } from '../../conversation-manager/null-conversation-manager.js'
 import { ContextOffloader } from '../../vended-plugins/context-offloader/plugin.js'
 import { InMemoryStorage as LegacyInMemoryStorage } from '../../vended-plugins/context-offloader/storage.js'
+import { ContextManager } from '../../context-manager/context-manager.js'
 import { NAMESPACED } from '../../storage/storage.js'
 import type { ConversationManager } from '../../conversation-manager/conversation-manager.js'
 
@@ -110,6 +112,49 @@ describe('Agent contextManager', () => {
       }
       const model = new StatefulModel().addTurn({ type: 'textBlock', text: 'hi' })
       expect(() => new Agent({ model, contextManager: 'auto' })).toThrow('stateful model')
+    })
+  })
+
+  describe('when false', () => {
+    it('uses NullConversationManager when no conversationManager provided', () => {
+      const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'hi' })
+      const agent = new Agent({ model, contextManager: false })
+      expect(getConversationManager(agent)).toBeInstanceOf(NullConversationManager)
+    })
+
+    it('uses user-provided conversationManager', () => {
+      const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'hi' })
+      const userCm = new SlidingWindowConversationManager({ windowSize: 20 })
+      const agent = new Agent({ model, contextManager: false, conversationManager: userCm })
+      expect(getConversationManager(agent)).toBe(userCm)
+    })
+  })
+
+  describe('when ContextManager instance', () => {
+    it('uses NullConversationManager', () => {
+      const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'hi' })
+      const cm = new ContextManager({ strategies: [{ name: 'noop', apply: async () => false }] })
+      const agent = new Agent({ model, contextManager: cm })
+      expect(getConversationManager(agent)).toBeInstanceOf(NullConversationManager)
+    })
+
+    it('registers ContextManager as a plugin', async () => {
+      const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'hi' })
+      const cm = new ContextManager({ strategies: [{ name: 'noop', apply: async () => false }] })
+      const agent = new Agent({ model, contextManager: cm })
+      await agent.invoke('hi')
+      const plugins = internals(agent)._pluginRegistry._plugins
+      expect(plugins.get('strands:context-manager')).toBe(cm)
+    })
+
+    it('does not add duplicate ContextManager if already in plugins', async () => {
+      const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'hi' })
+      const cm = new ContextManager({ strategies: [{ name: 'noop', apply: async () => false }] })
+      const agent = new Agent({ model, contextManager: cm, plugins: [cm] })
+      await agent.invoke('hi')
+      const plugins = internals(agent)._pluginRegistry._plugins
+      const cmEntries = [...plugins.entries()].filter(([key]: [string, unknown]) => key === 'strands:context-manager')
+      expect(cmEntries).toHaveLength(1)
     })
   })
 

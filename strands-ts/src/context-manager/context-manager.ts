@@ -7,6 +7,7 @@
 import type { Plugin } from '../plugins/plugin.js'
 import type { LocalAgent } from '../types/agent.js'
 import type { Message } from '../types/messages.js'
+import { ToolResultBlock, ToolUseBlock } from '../types/messages.js'
 import { AfterModelCallEvent, BeforeModelCallEvent } from '../hooks/events.js'
 import { ContextWindowOverflowError } from '../errors.js'
 import { logger } from '../logging/logger.js'
@@ -150,16 +151,16 @@ export class ContextManager implements Plugin {
     const message = messages[index]!
     const toolResultIds = new Set<string>()
     for (const block of message.content) {
-      if (block.type === 'toolResultBlock' && 'toolUseId' in block) {
-        toolResultIds.add((block as { toolUseId: string }).toolUseId)
+      if (block instanceof ToolResultBlock) {
+        toolResultIds.add(block.toolUseId)
       }
     }
     if (toolResultIds.size === 0) return false
 
     for (let preceding = 0; preceding < index; preceding++) {
       for (const block of messages[preceding]!.content) {
-        if ('toolUseId' in block && 'name' in block) {
-          if (toolResultIds.has((block as { toolUseId: string }).toolUseId)) return true
+        if (block instanceof ToolUseBlock) {
+          if (toolResultIds.has(block.toolUseId)) return true
         }
       }
     }
@@ -178,16 +179,16 @@ export class ContextManager implements Plugin {
         continue
       }
 
-      const hasToolResult = message.content.some((block) => block.type === 'toolResultBlock')
+      const hasToolResult = message.content.some((block) => block instanceof ToolResultBlock)
       if (hasToolResult) {
         trimIndex++
         continue
       }
 
-      const hasToolUse = message.content.some((block) => block.type === 'toolUseBlock')
+      const hasToolUse = message.content.some((block) => block instanceof ToolUseBlock)
       if (hasToolUse) {
         const nextMessage = messages[trimIndex + 1]
-        const nextHasToolResult = nextMessage?.content.some((block) => block.type === 'toolResultBlock')
+        const nextHasToolResult = nextMessage?.content.some((block) => block instanceof ToolResultBlock)
         if (!nextHasToolResult) {
           trimIndex++
           continue
