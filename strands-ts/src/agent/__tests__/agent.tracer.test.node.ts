@@ -22,7 +22,7 @@ interface MockTracerInstance {
 vi.mock('../../telemetry/tracer.js', () => ({
   Tracer: vi.fn(function () {
     return {
-      startAgentSpan: vi.fn().mockReturnValue({ mock: 'agentSpan' }),
+      startAgentSpan: vi.fn().mockReturnValue({ mock: 'agentSpan', isRecording: () => false }),
       endAgentSpan: vi.fn(),
       startAgentLoopSpan: vi.fn().mockReturnValue({ mock: 'loopSpan' }),
       endAgentLoopSpan: vi.fn(),
@@ -103,7 +103,7 @@ describe('Agent tracer integration', () => {
       )
       expect(tracer.endAgentSpan).toHaveBeenCalledTimes(1)
       expect(tracer.endAgentSpan).toHaveBeenCalledWith(
-        { mock: 'agentSpan' },
+        { mock: 'agentSpan', isRecording: expect.any(Function) },
         expect.objectContaining({
           response: expect.objectContaining({ role: 'assistant' }),
           stopReason: 'endTurn',
@@ -121,7 +121,7 @@ describe('Agent tracer integration', () => {
       expect(tracer.startAgentSpan).toHaveBeenCalledTimes(1)
       expect(tracer.endAgentSpan).toHaveBeenCalledTimes(1)
       expect(tracer.endAgentSpan).toHaveBeenCalledWith(
-        { mock: 'agentSpan' },
+        { mock: 'agentSpan', isRecording: expect.any(Function) },
         expect.objectContaining({
           error: expect.any(MaxTokensError),
         })
@@ -515,7 +515,7 @@ describe('Agent tracer integration', () => {
       await agent.invoke('Hi')
 
       expect(tracer.endAgentSpan).toHaveBeenCalledWith(
-        { mock: 'agentSpan' },
+        { mock: 'agentSpan', isRecording: expect.any(Function) },
         expect.objectContaining({
           accumulatedUsage: expect.objectContaining({
             inputTokens: expect.any(Number),
@@ -641,7 +641,7 @@ describe('Agent tracer integration', () => {
       await expect(agent.invoke('Test')).rejects.toThrow(StructuredOutputError)
 
       expect(tracer.endAgentSpan).toHaveBeenCalledWith(
-        { mock: 'agentSpan' },
+        { mock: 'agentSpan', isRecording: expect.any(Function) },
         expect.objectContaining({ error: expect.any(StructuredOutputError) })
       )
     })
@@ -685,7 +685,7 @@ describe('Agent tracer integration', () => {
       await agent.invoke('Test')
 
       expect(tracer.endAgentSpan).toHaveBeenCalledWith(
-        { mock: 'agentSpan' },
+        { mock: 'agentSpan', isRecording: expect.any(Function) },
         expect.objectContaining({
           response: expect.objectContaining({ role: 'assistant' }),
           stopReason: 'toolUse',
@@ -772,7 +772,7 @@ describe('Agent tracer integration', () => {
       await expect(agent.invoke('Test')).rejects.toThrow(MaxTokensError)
 
       expect(tracer.endAgentSpan).toHaveBeenCalledWith(
-        { mock: 'agentSpan' },
+        { mock: 'agentSpan', isRecording: expect.any(Function) },
         expect.objectContaining({ error: expect.any(MaxTokensError) })
       )
       expect(tracer.endAgentLoopSpan).toHaveBeenCalledWith(

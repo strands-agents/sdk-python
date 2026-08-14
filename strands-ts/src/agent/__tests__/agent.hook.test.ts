@@ -21,7 +21,7 @@ import { MockPlugin } from '../../__fixtures__/mock-plugin.js'
 import { collectIterator } from '../../__fixtures__/model-test-helpers.js'
 import { createMockTool } from '../../__fixtures__/tool-helpers.js'
 import { expectAgentResult } from '../../__fixtures__/agent-helpers.js'
-import { Message, TextBlock, ToolResultBlock } from '../../types/messages.js'
+import { Message, TextBlock, ToolResultBlock, ToolUseBlock } from '../../types/messages.js'
 import type { Plugin } from '../../plugins/plugin.js'
 import type { LocalAgent } from '../../types/agent.js'
 import type { Tool } from '../../tools/tool.js'
@@ -558,6 +558,51 @@ describe('Agent Hooks Integration', () => {
 
       expect(result.stopReason).toBe('cancelled')
       expect(toolCallCount).toBe(0)
+      expect(hookCallCount).toBe(1)
+    })
+
+    it('does not retry a detached tool after task-local cancellation', async () => {
+      let toolCallCount = 0
+      const tool = createMockTool('detachedTool', () => {
+        toolCallCount++
+        return new ToolResultBlock({
+          toolUseId: 'tool-1',
+          status: 'success',
+          content: [new TextBlock('Success')],
+        })
+      })
+      const taskController = new AbortController()
+      const agent = new Agent({
+        model: new MockMessageModel().addTurn({ type: 'textBlock', text: 'unused' }),
+        tools: [tool],
+        printer: false,
+      })
+      let hookCallCount = 0
+      agent.addHook(AfterToolCallEvent, (event: AfterToolCallEvent) => {
+        hookCallCount++
+        if (hookCallCount === 1) {
+          taskController.abort()
+          event.retry = true
+        }
+      })
+
+      await agent.executeDetachedTool({
+        toolUseBlock: new ToolUseBlock({
+          name: 'detachedTool',
+          toolUseId: 'tool-1',
+          input: {},
+        }),
+        invocationState: {},
+        cancelSignal: taskController.signal,
+        background: {
+          taskId: 'task-1',
+          attempt: 1,
+          attemptId: 'attempt-1',
+          executionId: 'execution-1',
+        },
+      })
+
+      expect(toolCallCount).toBe(1)
       expect(hookCallCount).toBe(1)
     })
 
@@ -1602,6 +1647,46 @@ describe('Agent Hooks Integration', () => {
           cycleCount: 2,
         })
       )
+    })
+
+    it('shares invocation limits and metrics across resumed passes', async () => {
+      const model = new MockMessageModel()
+      for (let turnNumber = 1; turnNumber <= 6; turnNumber++) {
+        model.addTurn({
+          type: 'toolUseBlock',
+          name: 'loop',
+          toolUseId: `tool-${turnNumber}`,
+          input: {},
+        })
+      }
+      const agent = new Agent({
+        model,
+        tools: [createMockTool('loop', () => 'ok')],
+        printer: false,
+      })
+      let afterInvocationCount = 0
+      agent.addHook(AfterInvocationEvent, (event) => {
+        afterInvocationCount += 1
+        if (afterInvocationCount === 1) {
+          event.resume = 'continue'
+        }
+      })
+
+      const result = await agent.invoke('initial', { limits: { turns: 3 } })
+
+      expect({
+        afterInvocationCount,
+        modelCallCount: model.callCount,
+        stopReason: result.stopReason,
+        cycleCount: result.metrics?.cycleCount,
+        invocationCycleCounts: result.metrics?.agentInvocations.map((invocation) => invocation.cycles.length),
+      }).toEqual({
+        afterInvocationCount: 2,
+        modelCallCount: 3,
+        stopReason: 'limitTurns',
+        cycleCount: 3,
+        invocationCycleCounts: [3],
+      })
     })
 
     it('chains multiple resumes', async () => {

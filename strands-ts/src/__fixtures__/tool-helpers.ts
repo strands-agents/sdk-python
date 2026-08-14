@@ -34,6 +34,7 @@ export function createMockContext(
       addHook: () => () => {},
     } as unknown as LocalAgent,
     invocationState: invocationState ?? {},
+    cancelSignal: new AbortController().signal,
     interrupt: (): never => {
       throw new Error('interrupt not available in mock context')
     },

@@ -15,6 +15,8 @@ import { TestModelProvider } from '../../__fixtures__/model-test-helpers.js'
 import { MockMessageModel } from '../../__fixtures__/mock-message-model.js'
 import { createMockTool } from '../../__fixtures__/tool-helpers.js'
 import { anyTrackingId } from '../../__fixtures__/message-helpers.js'
+import { MockSnapshotStorage } from '../../__fixtures__/mock-storage-provider.js'
+import { SessionManager } from '../../session/session-manager.js'
 
 // Fixed timestamp for testing
 const MOCK_TIMESTAMP = '2026-01-15T12:00:00.000Z'
@@ -569,6 +571,60 @@ describe('Agent.takeSnapshot / Agent.loadSnapshot (public API)', () => {
     const finalResult = await restored.invoke([
       { interruptResponse: { interruptId: result.interrupts![0]!.id, response: 'go ahead' } },
     ])
+
+    expect(finalResult.stopReason).toBe('endTurn')
+  })
+
+  it('keeps session-restored interrupt state when the first stream closes early', async () => {
+    const interruptedModel = new MockMessageModel()
+      .addTurn({
+        type: 'toolUseBlock',
+        name: 'askUser',
+        toolUseId: 'tool-1',
+        input: { question: 'proceed?' },
+      })
+      .addTurn({ type: 'textBlock', text: 'Completed' })
+    const interruptedTool = createMockTool('askUser', (context) => {
+      const answer = context.interrupt<string>({ name: 'ask', reason: 'Need confirmation' })
+      return `User said: ${answer}`
+    })
+    const interruptedAgent = new Agent({
+      id: 'session-agent',
+      model: interruptedModel,
+      tools: [interruptedTool],
+      printer: false,
+    })
+    const interrupted = await interruptedAgent.invoke('Do something')
+    const storage = new MockSnapshotStorage()
+    await storage.saveSnapshot({
+      location: { sessionId: 'interrupt-session', scope: 'agent', scopeId: interruptedAgent.id },
+      snapshotId: 'latest',
+      isLatest: true,
+      snapshot: interruptedAgent.takeSnapshot({ preset: 'session' }),
+    })
+
+    const restoredModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Completed' })
+    const restoredTool = createMockTool('askUser', (context) => {
+      const answer = context.interrupt<string>({ name: 'ask', reason: 'Need confirmation' })
+      return `User said: ${answer}`
+    })
+    const restoredAgent = new Agent({
+      id: interruptedAgent.id,
+      model: restoredModel,
+      tools: [restoredTool],
+      sessionManager: new SessionManager({
+        sessionId: 'interrupt-session',
+        storage: { snapshot: storage },
+        saveLatestOn: 'trigger',
+      }),
+      printer: false,
+    })
+    const response = [{ interruptResponse: { interruptId: interrupted.interrupts![0]!.id, response: 'go ahead' } }]
+    const firstStream = restoredAgent.stream(response)
+    await firstStream.next()
+    await firstStream.return(undefined as never)
+
+    const finalResult = await restoredAgent.invoke(response)
 
     expect(finalResult.stopReason).toBe('endTurn')
   })

@@ -33,6 +33,9 @@ export interface ToolContext extends Interruptible {
    * deep-copied on read/write.
    */
   invocationState: InvocationState
+
+  /** Cancellation signal for this tool execution. */
+  cancelSignal: AbortSignal
 }
 
 /**

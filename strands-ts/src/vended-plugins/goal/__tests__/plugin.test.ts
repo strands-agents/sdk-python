@@ -3,7 +3,7 @@ import { GoalLoop } from '../plugin.js'
 import type { GoalAttempt, GoalResult, ValidationOutcome } from '../plugin.js'
 import { buildJudgePrompt, JUDGE_OUTCOME_SCHEMA } from '../judge.js'
 import { Agent } from '../../../agent/agent.js'
-import { AfterInvocationEvent } from '../../../hooks/events.js'
+import { AfterInvocationEvent, BeforeInvocationEvent } from '../../../hooks/events.js'
 import { MockMessageModel } from '../../../__fixtures__/mock-message-model.js'
 import { JsonBlock, Message, TextBlock, ToolResultBlock, ToolUseBlock } from '../../../types/messages.js'
 import type { SystemPrompt } from '../../../types/messages.js'
@@ -429,9 +429,8 @@ describe('GoalLoop', () => {
     })
 
     it('throws when two GoalLoops are attached to the same agent', async () => {
-      // Two GoalLoops both write `event.resume` in AfterInvocationEvent — last
-      // writer wins, silently dropping one's feedback. Compose constraints in a
-      // single validator function instead.
+      // One GoalLoop owns the per-agent validation and continuation state.
+      // Compose multiple constraints in a single validator function instead.
       const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'x' })
       const a = new GoalLoop({ goal: () => true, maxAttempts: 1, name: 'first' })
       const b = new GoalLoop({ goal: () => true, maxAttempts: 1, name: 'second' })
@@ -499,6 +498,37 @@ describe('GoalLoop', () => {
           { role: 'user', text: 'do the thing' },
           { role: 'user', text: expect.stringContaining('fb2') },
         ],
+      ])
+    })
+
+    it('restores the pre-rewind transcript when the continued pass is cancelled', async () => {
+      const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'attempt-1' })
+      const plugin = new GoalLoop({
+        name: 'fresh-context-cancelled-retry',
+        goal: () => ({ passed: false, feedback: 'retry' }),
+        maxAttempts: 3,
+        preserveContext: false,
+      })
+      const agent = new Agent({ model, plugins: [plugin], printer: false })
+      let invocationCount = 0
+      agent.addHook(BeforeInvocationEvent, (event) => {
+        invocationCount += 1
+        if (invocationCount === 2) {
+          event.cancel = 'retry cancelled'
+        }
+      })
+
+      const result = await agent.invoke('go')
+
+      expect(result.lastMessage.content).toEqual([new TextBlock('retry cancelled')])
+      expect(
+        agent.messages.map((message) => ({
+          role: message.role,
+          text: message.content.flatMap((block) => (block.type === 'textBlock' ? [block.text] : [])).join(''),
+        }))
+      ).toEqual([
+        { role: 'user', text: 'go' },
+        { role: 'assistant', text: 'attempt-1' },
       ])
     })
 

@@ -921,7 +921,10 @@ describe('Agent', () => {
 
         const streamSpy = vi.spyOn(firstModel, 'stream')
 
-        const agent = new Agent({ model: firstModel, systemPrompt: [new TextBlock('You are a helpful assistant')] })
+        const agent = new Agent({
+          model: firstModel,
+          systemPrompt: [new TextBlock('You are a helpful assistant')],
+        })
 
         // First invocation with initial system prompt
         await agent.invoke('First prompt')

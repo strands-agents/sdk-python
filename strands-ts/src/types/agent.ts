@@ -324,7 +324,7 @@ export interface LocalAgent {
    * callback: async ({ items }, context) => {
    *   const results = []
    *   for (const item of items) {
-   *     if (context.agent.cancelSignal.aborted) return results
+   *     if (context.cancelSignal.aborted) return results
    *     results.push(await process(item))
    *   }
    *   return results
@@ -334,7 +334,7 @@ export interface LocalAgent {
    * **Signal forwarding** — pass to APIs that accept `AbortSignal`:
    * ```ts
    * callback: async ({ url }, context) => {
-   *   const res = await fetch(url, { signal: context.agent.cancelSignal })
+   *   const res = await fetch(url, { signal: context.cancelSignal })
    *   return res.text()
    * }
    * ```

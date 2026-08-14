@@ -27,7 +27,7 @@ interface MockTracerInstance {
 vi.mock('../../telemetry/tracer.js', () => ({
   Tracer: vi.fn(function () {
     return {
-      startAgentSpan: vi.fn().mockReturnValue({ mock: 'agentSpan' }),
+      startAgentSpan: vi.fn().mockReturnValue({ mock: 'agentSpan', isRecording: () => false }),
       endAgentSpan: vi.fn(),
       startAgentLoopSpan: vi.fn().mockReturnValue({ mock: 'loopSpan' }),
       endAgentLoopSpan: vi.fn(),

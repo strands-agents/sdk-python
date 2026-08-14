@@ -195,7 +195,10 @@ export class AgentAsTool extends Tool {
       // Stream the sub-agent, forwarding the outer invocation's state so
       // mutations in the inner agent's hooks/tools are visible to the outer
       // agent's downstream callbacks and final AgentResult.
-      const gen = this._agent.stream(input, { invocationState: toolContext.invocationState })
+      const gen = this._agent.stream(input, {
+        invocationState: toolContext.invocationState,
+        cancelSignal: toolContext.cancelSignal,
+      })
       let next = await gen.next()
       while (!next.done) {
         const event = next.value

@@ -4,7 +4,13 @@ import { type Tool, ToolStreamEvent } from '../tools/tool.js'
 import type { JSONValue } from '../types/json.js'
 import type { ModelStreamEvent } from '../models/streaming.js'
 import type { Model } from '../models/model.js'
-import { interruptFromAgent, type Interrupt, type Interruptible } from '../interrupt.js'
+import {
+  interruptFromAgent,
+  interruptFromState,
+  type Interrupt,
+  type Interruptible,
+  type InterruptState,
+} from '../interrupt.js'
 import type { InterruptParams } from '../types/interrupt.js'
 
 /**
@@ -172,6 +178,16 @@ export class AfterInvocationEvent extends HookableEvent {
   readonly type = 'afterInvocationEvent' as const
   readonly agent: LocalAgent
   readonly invocationState: InvocationState
+  #result: AgentResult | undefined
+  #resume: InvokeArgs | undefined
+  #resumeIntent: ContinuationIntent | undefined
+  readonly #continuations: ContinuationIntent[] = []
+  #interruptState: InterruptState | undefined
+
+  /** @internal */
+  _getResult(): AgentResult | undefined {
+    return this.#result
+  }
 
   /**
    * Set by hook callbacks to trigger a follow-up agent invocation with new input.
@@ -182,12 +198,57 @@ export class AfterInvocationEvent extends HookableEvent {
    *
    * If multiple callbacks set `resume`, the last callback to run wins.
    */
-  resume: InvokeArgs | undefined = undefined
+  get resume(): InvokeArgs | undefined {
+    return this.#resume
+  }
+
+  set resume(args: InvokeArgs | undefined) {
+    this.#resume = args
+    const previousIntent = this.#resumeIntent ? this.#continuations.indexOf(this.#resumeIntent) : -1
+    if (previousIntent !== -1) this.#continuations.splice(previousIntent, 1)
+    if (args === undefined) {
+      this.#resumeIntent = undefined
+      return
+    }
+    const intent: ContinuationIntent = Object.freeze({
+      phase: 'guidance',
+      args,
+    })
+    this.#resumeIntent = intent
+    this.#continuations.splice(previousIntent === -1 ? this.#continuations.length : previousIntent, 0, intent)
+  }
 
   constructor(data: { agent: LocalAgent; invocationState: InvocationState }) {
     super()
     this.agent = data.agent
     this.invocationState = data.invocationState
+  }
+
+  /** @internal */
+  _continueWith(intent: ContinuationIntent): void {
+    this.#continuations.push(Object.freeze({ ...intent }))
+  }
+
+  /** @internal */
+  _getContinuations(): readonly ContinuationIntent[] {
+    return [...this.#continuations].sort(
+      (left, right) => (left.phase === 'deferredResult' ? 0 : 1) - (right.phase === 'deferredResult' ? 0 : 1)
+    )
+  }
+
+  /** @internal */
+  _setResult(result: AgentResult): void {
+    this.#result = result
+  }
+
+  /** @internal */
+  _setInterruptState(interruptState: InterruptState): void {
+    this.#interruptState = interruptState
+  }
+
+  /** @internal */
+  _getInterruptState(): InterruptState | undefined {
+    return this.#interruptState
   }
 
   override _shouldReverseCallbacks(): boolean {
@@ -202,6 +263,16 @@ export class AfterInvocationEvent extends HookableEvent {
   toJSON(): Pick<AfterInvocationEvent, 'type'> {
     return { type: this.type }
   }
+}
+
+/** One contribution to a follow-up Agent pass. @internal */
+export interface ContinuationIntent {
+  readonly phase: 'deferredResult' | 'guidance'
+  readonly args: InvokeArgs
+  readonly onAccepted?: () => void | Promise<void>
+  readonly onSelected?: (modelRequestMessages: readonly Message[]) => void | Promise<void>
+  readonly onCommitted?: () => void | Promise<void>
+  readonly onRejected?: (reason: unknown) => void | Promise<void>
 }
 
 /**
@@ -267,6 +338,7 @@ export class BeforeToolCallEvent extends HookableEvent implements Interruptible 
    * callback's value is the one used.
    */
   selectedTool: Tool | undefined = undefined
+  #interruptState: InterruptState | undefined
 
   constructor(data: {
     agent: LocalAgent
@@ -281,6 +353,11 @@ export class BeforeToolCallEvent extends HookableEvent implements Interruptible 
     this.invocationState = data.invocationState
   }
 
+  /** @internal */
+  _setInterruptState(interruptState: InterruptState): void {
+    this.#interruptState = interruptState
+  }
+
   /**
    * Raises an interrupt for human-in-the-loop workflows.
    * If a response is available (from a previous resume), returns it immediately.
@@ -290,6 +367,15 @@ export class BeforeToolCallEvent extends HookableEvent implements Interruptible 
    * @returns The user's response when resuming from an interrupt
    */
   interrupt<T = JSONValue>(params: InterruptParams): T {
+    const interruptState = this.#interruptState
+    if (interruptState) {
+      return interruptFromState<T>(
+        interruptState,
+        `hook:beforeToolCall:${this.toolUse.toolUseId}:${params.name}`,
+        params,
+        'hook'
+      )
+    }
     return interruptFromAgent<T>(
       this.agent,
       `hook:beforeToolCall:${this.toolUse.toolUseId}:${params.name}`,
@@ -399,6 +485,8 @@ export class BeforeModelCallEvent extends HookableEvent {
    * proactive decisions about context management.
    */
   readonly projectedInputTokens?: number
+  readonly #continuations: ContinuationIntent[] = []
+  #interruptState: InterruptState | undefined
 
   constructor(data: {
     agent: LocalAgent
@@ -413,6 +501,28 @@ export class BeforeModelCallEvent extends HookableEvent {
     if (data.projectedInputTokens !== undefined) {
       this.projectedInputTokens = data.projectedInputTokens
     }
+  }
+
+  /** @internal */
+  _continueWith(intent: ContinuationIntent): void {
+    this.#continuations.push(Object.freeze({ ...intent }))
+  }
+
+  /** @internal */
+  _getContinuations(): readonly ContinuationIntent[] {
+    return [...this.#continuations].sort(
+      (left, right) => (left.phase === 'deferredResult' ? 0 : 1) - (right.phase === 'deferredResult' ? 0 : 1)
+    )
+  }
+
+  /** @internal */
+  _setInterruptState(interruptState: InterruptState): void {
+    this.#interruptState = interruptState
+  }
+
+  /** @internal */
+  _getInterruptState(): InterruptState | undefined {
+    return this.#interruptState
   }
 
   /**
@@ -742,12 +852,18 @@ export class BeforeToolsEvent extends HookableEvent implements Interruptible {
    * When set to a string, that string is used as the tool result error message.
    */
   cancel: boolean | string = false
+  #interruptState: InterruptState | undefined
 
   constructor(data: { agent: LocalAgent; message: Message; invocationState: InvocationState }) {
     super()
     this.agent = data.agent
     this.message = data.message
     this.invocationState = data.invocationState
+  }
+
+  /** @internal */
+  _setInterruptState(interruptState: InterruptState): void {
+    this.#interruptState = interruptState
   }
 
   /**
@@ -759,6 +875,10 @@ export class BeforeToolsEvent extends HookableEvent implements Interruptible {
    * @returns The user's response when resuming from an interrupt
    */
   interrupt<T = JSONValue>(params: InterruptParams): T {
+    const interruptState = this.#interruptState
+    if (interruptState) {
+      return interruptFromState<T>(interruptState, `hook:beforeTools:${params.name}`, params, 'hook')
+    }
     return interruptFromAgent<T>(this.agent, `hook:beforeTools:${params.name}`, params, 'hook')
   }
 

@@ -2,7 +2,7 @@
  * Iterative-refinement plugin for Strands agents
  * Validates the agent's response after each invocation; if it doesn't
  * satisfy the goal, feeds validator feedback back as a user message and re-enters the
- * agent loop via `AfterInvocationEvent.resume`. Loops until validation passes,
+ * agent loop via an `AfterInvocationEvent` continuation. Loops until validation passes,
  * `maxAttempts` is reached, or `timeout` elapses.
  *
  * @example
@@ -196,7 +196,7 @@ export interface GoalLoopOptions {
  * - `result` undefined → run is mid-flight; `lastResult` returns undefined.
  * - `result` set → run terminated with that outcome; survives until the next
  *   top-level invoke, when the Before hook clears the run.
- * - `resumed` true between After arming `event.resume` and the next Before
+ * - `resumed` true between After arming a continuation and the next Before
  *   consuming it; lets Before tell a continuation from a fresh invoke.
  */
 interface RunState {
@@ -218,9 +218,9 @@ interface RunState {
 
 /**
  * Tracks which agents already have a GoalLoop attached so a second attachment
- * fails loudly instead of silently overwriting `event.resume` on every After
- * hook (last-writer-wins). Note: this is per-agent, not per-plugin-instance —
- * one GoalLoop instance can be shared across multiple agents.
+ * fails loudly instead of creating competing validation and continuation state.
+ * This is per-agent, not per-plugin-instance: one GoalLoop instance can be
+ * shared across multiple agents.
  */
 const agentsWithGoalLoop = new WeakSet<LocalAgent>()
 
@@ -282,10 +282,9 @@ export class GoalLoop implements Plugin {
   }
 
   initAgent(agent: LocalAgent): void {
-    // Two GoalLoops on the same agent both register an AfterInvocationEvent
-    // hook and both write `event.resume` — last writer wins, so one's feedback
-    // would be silently dropped. Compose constraints in a single validator
-    // function instead.
+    // Multiple GoalLoops would create competing validation and continuation
+    // state, allowing one validator's feedback to be silently dropped. Compose
+    // constraints in a single validator function instead.
     if (agentsWithGoalLoop.has(agent)) {
       throw new Error(
         `${this.name}: another GoalLoop is already attached to this agent; only one GoalLoop is supported per agent`
@@ -327,7 +326,7 @@ export class GoalLoop implements Plugin {
     }
 
     // Validates the assistant's reply, terminates the run on pass / budget
-    // exhausted, or arms `event.resume` with feedback for another attempt.
+    // exhausted, or contributes feedback for another attempt.
     agent.addHook(AfterInvocationEvent, async (event) => {
       const run = this._runs.get(agent)
       // Defensive: BeforeInvocationEvent always creates a run before this hook
@@ -344,7 +343,7 @@ export class GoalLoop implements Plugin {
       }
 
       // Cancelled or model-threw before emitting an assistant message.
-      const response = lastAssistantMessage(agent.messages)
+      const response = event._getResult()?.lastMessage
       if (!response) return
 
       const attemptNumber = run.attempts.length + 1
@@ -375,11 +374,25 @@ export class GoalLoop implements Plugin {
         return
       }
 
-      if (run.initialSnapshot) {
-        agent.loadSnapshot(run.initialSnapshot)
-      }
-      event.resume = this._resumePromptTemplate(outcome.feedback?.trim())
-      run.resumed = true
+      let rollbackSnapshot: Snapshot | undefined
+      event._continueWith({
+        phase: 'guidance',
+        args: this._resumePromptTemplate(outcome.feedback?.trim()),
+        onAccepted: () => {
+          rollbackSnapshot = agent.takeSnapshot({ preset: 'session', exclude: ['state'] })
+          if (run.initialSnapshot) {
+            agent.loadSnapshot(run.initialSnapshot)
+          }
+          run.resumed = true
+        },
+        onRejected: () => {
+          if (rollbackSnapshot) {
+            agent.loadSnapshot(rollbackSnapshot)
+            rollbackSnapshot = undefined
+          }
+          run.resumed = false
+        },
+      })
     })
   }
 
@@ -442,12 +455,4 @@ Feedback on what was wrong:
 ${feedback}
 
 Address every point above and produce a new, corrected response that fully satisfies the goal. Do not restate or lightly edit the previous attempt — fix the specific problems called out.`
-}
-
-/** `undefined` when the invocation was cancelled before the model replied. */
-function lastAssistantMessage(messages: readonly Message[]): Message | undefined {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i]!.role === 'assistant') return messages[i]
-  }
-  return undefined
 }

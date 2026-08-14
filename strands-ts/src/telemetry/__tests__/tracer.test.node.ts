@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { Span, SpanAttributeValue } from '@opentelemetry/api'
-import { SpanStatusCode, trace, context } from '@opentelemetry/api'
+import { ROOT_CONTEXT, SpanStatusCode, trace, context } from '@opentelemetry/api'
 import { Tracer } from '../tracer.js'
 import { Message, TextBlock, ToolResultBlock, ToolUseBlock, CachePointBlock } from '../../types/messages.js'
 import { MockSpan, eventAttr } from '../../__fixtures__/mock-span.js'
@@ -1326,6 +1326,75 @@ describe('Tracer', () => {
       const span = { isRecording: () => true, spanContext: () => valid }
       vi.mocked(trace.getActiveSpan).mockReturnValue(span as unknown as Span)
       expect(new Tracer().currentSpanContext()).toBe(valid)
+    })
+  })
+
+  describe('background task spans', () => {
+    it('starts a detached root linked to the originating invocation', () => {
+      const tracer = new Tracer()
+      const originSpanContext = {
+        traceId: 'abcdef01234567890abcdef012345678',
+        spanId: 'abcdef0123456789',
+        traceFlags: 1,
+      }
+
+      tracer.startBackgroundTaskSpan({
+        taskId: 'task-1',
+        attempt: 2,
+        attemptId: 'attempt-2',
+        executionId: 'execution-2',
+        toolName: 'search',
+        agentId: 'agent',
+        originSpanContext,
+      })
+
+      const [spanName, options] = mockStartSpan.mock.calls[0] as [
+        string,
+        {
+          attributes: Record<string, SpanAttributeValue | undefined>
+          links?: { context: unknown }[]
+        },
+      ]
+      expect(spanName).toBe('background_task.execute')
+      expect(options.links).toEqual([{ context: originSpanContext }])
+      expect(options.attributes).toMatchObject({
+        'gen_ai.operation.name': 'background_task.execute',
+        'background_task.task.id': 'task-1',
+        'background_task.attempt': 2,
+        'background_task.attempt.id': 'attempt-2',
+        'background_task.execution.id': 'execution-2',
+        'background_task.tool.name': 'search',
+        'background_task.agent.id': 'agent',
+        'background_task.origin.trace_id': originSpanContext.traceId,
+        'background_task.origin.span_id': originSpanContext.spanId,
+      })
+      expect(mockStartSpan.mock.calls[0]![2]).toBe(ROOT_CONTEXT)
+    })
+
+    it('ends failed execution with an outcome and error status', () => {
+      const tracer = new Tracer()
+      const span = tracer.startBackgroundTaskSpan({
+        taskId: 'task-1',
+        attempt: 1,
+        attemptId: 'attempt-1',
+        executionId: 'execution-1',
+        toolName: 'search',
+        agentId: 'agent',
+      })
+      const error = new Error('execution failed')
+
+      tracer.endBackgroundTaskSpan(span, { outcome: 'failed', error })
+
+      expect(mockSpan.calls.setAttributes).toContainEqual({
+        attributes: {
+          'background_task.outcome': 'failed',
+          'gen_ai.event.end_time': expect.any(String),
+        },
+      })
+      expect(mockSpan.calls.setStatus).toContainEqual({
+        status: { code: SpanStatusCode.ERROR, message: 'execution failed' },
+      })
+      expect(mockSpan.calls.recordException).toContainEqual({ exception: error, time: undefined })
     })
   })
 })
