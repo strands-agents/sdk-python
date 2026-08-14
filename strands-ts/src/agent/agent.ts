@@ -141,7 +141,7 @@ export type ToolList = (Tool | McpClient | Agent | ToolList)[]
  * - `'sequential'` — runs tool calls one at a time
  *
  * Cancellation works identically in both modes: {@link Agent.cancel} flips
- * {@link Agent.cancelSignal} and tools must observe it cooperatively to stop early.
+ * {@link Agent.cancelSignal}, which SDK-managed tool contexts expose as `context.cancelSignal`.
  * In concurrent mode, prompt batch-wide cancellation requires every in-flight tool
  * to honor the signal.
  */
@@ -972,7 +972,7 @@ export class Agent implements LocalAgent, InvokableAgent {
   /**
    * The cancellation signal for the current invocation.
    *
-   * Tools can pass this to cancellable operations (e.g., `fetch(url, { signal: agent.cancelSignal })`).
+   * SDK-managed tool contexts receive this as `context.cancelSignal` for cancellable operations.
    * Hooks can check `event.agent.cancelSignal.aborted` to detect cancellation.
    */
   get cancelSignal(): AbortSignal {
@@ -989,7 +989,7 @@ export class Agent implements LocalAgent, InvokableAgent {
    * - At the top of each agent loop cycle
    *
    * If a tool is already executing, it will run to completion unless
-   * the tool checks {@link LocalAgent.cancelSignal | cancelSignal} internally.
+   * the tool checks `context.cancelSignal` internally.
    *
    * Hook callbacks can check `event.agent.cancelSignal.aborted` to detect
    * cancellation and adjust their behavior accordingly.
@@ -1726,7 +1726,9 @@ export class Agent implements LocalAgent, InvokableAgent {
           role: 'assistant',
           content: [new TextBlock('Cancelled by user')],
         })
-        yield this._appendMessage(cancelMessage, invocationState)
+        if (this._hasOpenUserTurn()) {
+          yield this._appendMessage(cancelMessage, invocationState)
+        }
 
         result = new AgentResult({
           stopReason: 'cancelled',
@@ -1756,14 +1758,16 @@ export class Agent implements LocalAgent, InvokableAgent {
       throw error
     } finally {
       // If cancelled but the catch block was bypassed (generator terminated
-      // via .return() when the consumer breaks out of for-await), append an
-      // assistant message so the agent can be reinvoked with a new user prompt.
+      // via .return() when the consumer breaks out of for-await), close an
+      // existing user turn so the agent can be reinvoked.
       if (!caughtError && !result && this.isCancelled) {
         const cancelMessage = new Message({
           role: 'assistant',
           content: [new TextBlock('Cancelled by user')],
         })
-        yield this._appendMessage(cancelMessage, invocationState)
+        if (this._hasOpenUserTurn()) {
+          yield this._appendMessage(cancelMessage, invocationState)
+        }
       }
 
       this._tracer.endAgentSpan(agentSpan, {
@@ -2284,6 +2288,7 @@ export class Agent implements LocalAgent, InvokableAgent {
             middlewareRegistry: this._middlewareRegistry,
             tracer: this._tracer,
             meter: this._meter,
+            cancelSignal: this._abortSignal,
           },
           {
             toolUseBlocks,
@@ -2434,6 +2439,11 @@ export class Agent implements LocalAgent, InvokableAgent {
   private _appendMessage(message: Message, invocationState: InvocationState): MessageAddedEvent {
     this.messages.push(message)
     return new MessageAddedEvent({ agent: this, message, invocationState })
+  }
+
+  private _hasOpenUserTurn(): boolean {
+    const lastMessage = this.messages[this.messages.length - 1]
+    return lastMessage?.role === 'user'
   }
 }
 

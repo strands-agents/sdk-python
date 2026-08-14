@@ -22,7 +22,7 @@ const myTool = tool({
   callback: async (input, context) => {
     // Forward the cancel signal to APIs that accept AbortSignal
     const response = await fetch(input.url, {
-      signal: context?.agent.cancelSignal,
+      signal: context?.cancelSignal,
     })
     return response.text()
   },
