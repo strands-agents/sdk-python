@@ -27,3 +27,8 @@ import { z } from 'zod'
 import { Agent } from '@strands-agents/sdk'
 import { OpenAIModel } from '@strands-agents/sdk/models/openai'
 // --8<-- [end:bedrock_mantle_imports]
+
+// --8<-- [start:mantle_config_imports]
+import { Agent } from '@strands-agents/sdk'
+import { OpenAIModel } from '@strands-agents/sdk/models/openai'
+// --8<-- [end:mantle_config_imports]

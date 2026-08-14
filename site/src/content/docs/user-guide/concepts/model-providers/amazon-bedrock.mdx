@@ -999,10 +999,53 @@ const model = new BedrockModel({
 Amazon Bedrock exposes
 [OpenAI-compatible endpoints](https://docs.aws.amazon.com/bedrock/latest/userguide/bedrock-mantle.html),
 powered by Mantle, for select models. You connect through the SDK's
-[OpenAI Responses provider](./openai-responses) rather than `BedrockModel`:
-authenticate with a
+[OpenAI Responses provider](./openai-responses) rather than `BedrockModel`.
+
+Pass <Syntax py="bedrock_mantle_config" ts="bedrockMantleConfig" /> and the provider
+derives the endpoint from your region, routes the model to the correct Mantle base
+path, and mints short-lived bearer tokens from your AWS credentials (via the
+standard credential chain), refreshing them so long-running agents survive token
+expiry:
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.models.openai_responses import OpenAIResponsesModel
+
+model = OpenAIResponsesModel(
+    model_id="openai.gpt-oss-120b",
+    bedrock_mantle_config={"region": "us-east-1"},
+)
+
+agent = Agent(model=model)
+response = agent("What is 2+2?")
+print(response)
+```
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/model-providers/amazon-bedrock_imports.ts:mantle_config_imports"
+
+--8<-- "user-guide/concepts/model-providers/amazon-bedrock.ts:mantle_config"
+```
+
+Requires the optional dependency: `npm install @aws/bedrock-token-generator`
+</Tab>
+</Tabs>
+
+Omit the region to resolve it from your AWS environment. The config also accepts
+explicit credentials and a token-lifetime override; see the
+<Syntax py="BedrockMantleConfig" ts="BedrockMantleConfig" plain /> API reference for
+the accepted fields.
+
+Alternatively, authenticate with a
 [Bedrock API key](https://docs.aws.amazon.com/bedrock/latest/userguide/api-key-management.html)
-and point the client at your region's Mantle endpoint.
+and point the client at your region's Mantle endpoint yourself. Note that some model
+lines are served from `/openai/v1` rather than `/v1`; the config-based approach picks
+the right path for you.
 
 <Tabs>
 <Tab label="Python">

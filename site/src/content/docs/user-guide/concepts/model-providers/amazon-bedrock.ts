@@ -491,3 +491,17 @@ async function bedrockMantle() {
   console.log(response)
   // --8<-- [end:bedrock_mantle]
 }
+
+// Mantle via bedrockMantleConfig
+async function bedrockMantleConfig() {
+  // --8<-- [start:mantle_config]
+  const model = new OpenAIModel({
+    modelId: 'openai.gpt-oss-120b',
+    bedrockMantleConfig: { region: 'us-east-1' },
+  })
+
+  const agent = new Agent({ model })
+  const response = await agent.invoke('What is 2+2?')
+  console.log(response)
+  // --8<-- [end:mantle_config]
+}
