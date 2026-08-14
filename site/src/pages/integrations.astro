@@ -375,9 +375,12 @@ const description = 'Built-in and community tools, model providers, plugins, and
       toggle(state.languages, btn.dataset.catLang || '')
       apply()
     })
+  // Highlights are cross-cutting flags (an entry can be Featured and New), so
+  // they multi-select; Type and Maintained-by hold one value per entry, so
+  // selecting within them replaces the previous choice.
   for (const btn of badgeBtns)
     btn.addEventListener('click', () => {
-      selectOnly(state.badges, btn.dataset.catBadge || '')
+      toggle(state.badges, btn.dataset.catBadge || '')
       apply()
     })
   for (const btn of maintainedBtns)

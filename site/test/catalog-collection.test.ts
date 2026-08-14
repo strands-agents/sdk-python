@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { getCollection } from 'astro:content'
 import { catalogEntrySchema } from '../src/content.config'
@@ -179,6 +181,18 @@ describe('catalog content collection', () => {
     for (const e of byTier.get('strands') ?? []) {
       expect(e.data.github, e.id).toMatch(/^https:\/\/github\.com\/strands-agents\/harness-sdk\//)
       expect(e.data.docsPage, e.id).toBeDefined()
+    }
+  })
+
+  it('built-in github links resolve to real monorepo paths', async () => {
+    // Built-ins deep-link their source (blob/tree under main); unlike docsPage
+    // nothing else validates them, so a repo restructure would rot the links
+    // silently without this.
+    const entries = await getCollection('catalog')
+    for (const e of entries.filter((x) => x.data.maintainedBy === 'strands')) {
+      const m = /^https:\/\/github\.com\/strands-agents\/harness-sdk\/(?:blob|tree)\/main\/(.+)$/.exec(e.data.github)
+      expect(m, `${e.id}: ${e.data.github}`).not.toBeNull()
+      expect(existsSync(join('..', m![1])), `${e.id}: ${m![1]} missing from the repo`).toBe(true)
     }
   })
 
