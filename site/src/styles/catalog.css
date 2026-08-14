@@ -333,6 +333,8 @@
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
+  /* Breathing room from the title; the head's gap alone reads cramped. */
+  margin-left: 0.2rem;
   font-family: var(--sl-font-system-mono);
   font-size: var(--sl-text-xs);
   line-height: 1;
@@ -386,6 +388,11 @@
   color: var(--sl-badge-note-text);
   background: color-mix(in srgb, var(--sl-badge-note-bg) 35%, transparent);
   border-color: color-mix(in srgb, var(--sl-badge-note-border) 55%, transparent);
+}
+/* Inline svg baseline-aligns and rides high; block lets the flag's flex
+   centering align marks with the neighbor chips' text. */
+.cat-flag svg {
+  display: block;
 }
 /* The AWS flag is the bare mark, no chip box; --sl-color-white flips with
    the theme so the logo stays full-contrast in light and dark. */
