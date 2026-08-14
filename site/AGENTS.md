@@ -62,11 +62,15 @@ When authoring or reviewing documentation pages, follow the voice guide and the 
 ├── SITE-ARCHITECTURE.md          # Detailed Astro/Starlight customizations
 ├── src/                          # Astro source files
 │   ├── components/               # Custom Astro components
+│   │   ├── community/            # Sections of the /community/ hub page (hero, courses, events, blog)
 │   │   ├── overrides/            # Starlight component overrides
 │   │   └── ...
-│   ├── config/                   # Site configuration
+│   ├── config/                   # Site configuration (incl. learn.ts — deep-dive and
+│   │                             #   suggest-a-topic config for the /community/ page)
 │   ├── content/                  # Content collections
 │   │   ├── catalog/              # Community catalog entries (one YAML per integration, zod-validated)
+│   │   ├── courses/              # Course metadata (one YAML per course, zod-validated)
+│   │   ├── events/               # Community event entries (one YAML per event, zod-validated)
 │   │   └── docs/                 # Documentation content (Markdown/MDX)
 │   │       ├── api/
 │   │       │   ├── python/
@@ -78,14 +82,16 @@ When authoring or reviewing documentation pages, follow the voice guide and the 
 │   │       ├── examples/
 │   │       ├── integrations/
 │   │       ├── labs/
+│   │       ├── learning/         # Course lesson pages (lessonN-<slug>.mdx)
 │   │       └── user-guide/
 │   ├── data/                     # Bot-maintained data (catalog-stats.json — updated by the
 │   │                             #   catalog-stats workflow; do not hand-edit)
 │   ├── layouts/                  # Custom layouts
-│   ├── pages/                    # Astro pages (incl. integrations.astro — the /integrations page)
+│   ├── pages/                    # Astro pages (incl. integrations.astro — the /integrations page,
+│   │                             #   and community.astro — the /community/ hub)
 │   ├── plugins/                  # Remark/Rehype plugins
 │   ├── styles/                   # Global styles
-│   └── util/                     # Utility functions
+│   └── util/                     # Utility functions (incl. learn.ts — course/event selection helpers)
 ├── astro.config.mjs              # Astro configuration
 ├── package.json                  # Node.js dependencies and scripts
 ├── tsconfig.json                 # TypeScript configuration

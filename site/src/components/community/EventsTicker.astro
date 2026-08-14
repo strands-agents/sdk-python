@@ -1,0 +1,129 @@
+---
+import type { LearnEvent } from '../../content.config'
+import { formatEventDate, toIsoDate } from '../../util/learn'
+import { pathWithBase } from '../../util/links'
+
+interface Props {
+  events: LearnEvent[]
+}
+
+const { events } = Astro.props
+---
+
+{
+  events.length > 0 && (
+    <div class="ticker">
+      <div class="inner">
+        <b class="lbl">UPCOMING</b>
+        {events.map((event) => {
+          const expires = toIsoDate(event.endDate ?? event.startDate)
+          const label = (
+            <>
+              <span class="date">{formatEventDate(event)}</span> {event.title} · {event.location}
+            </>
+          )
+          return event.href ? (
+            <a href={event.href.startsWith('http') ? event.href : pathWithBase(event.href)} data-expires={expires}>{label}</a>
+          ) : (
+            <span data-expires={expires}>{label}</span>
+          )
+        })}
+        <a class="all" href="#events">
+          All events →
+        </a>
+      </div>
+    </div>
+  )
+}
+
+<style>
+  .ticker {
+    border-top: 1px solid rgba(29, 53, 39, 0.6);
+    border-bottom: 1px solid rgba(29, 53, 39, 0.35);
+    background: rgba(12, 26, 17, 0.55);
+    backdrop-filter: blur(6px);
+    font-family: 'Figtree', sans-serif;
+    font-size: 0.85rem;
+    color: #a9c4b3;
+    position: relative;
+  }
+
+  :global([data-theme='light']) .ticker {
+    border-top-color: rgba(0, 0, 0, 0.08);
+    border-bottom-color: rgba(0, 0, 0, 0.06);
+    background: rgba(0, 0, 0, 0.03);
+    color: var(--sl-color-gray-2);
+  }
+
+  .inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0.75rem 3rem;
+    display: flex;
+    gap: 1.75rem;
+    align-items: baseline;
+    white-space: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .inner::-webkit-scrollbar {
+    display: none;
+  }
+
+  .lbl {
+    color: #00cc5f;
+    letter-spacing: 0.15em;
+    font-size: 0.7rem;
+    flex-shrink: 0;
+  }
+
+  :global([data-theme='light']) .lbl {
+    color: #008542;
+  }
+
+  .date {
+    color: #d8b25e;
+    font-weight: 700;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  a:hover {
+    color: #00ff77;
+  }
+
+  :global([data-theme='light']) a:hover {
+    color: #008542;
+  }
+
+  .all {
+    margin-left: auto;
+    color: #00cc5f;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  :global([data-theme='light']) .all {
+    color: #008542;
+  }
+
+  @media (min-width: 901px) {
+    .inner > a:not(.all),
+    .inner > span {
+      flex: 0 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  }
+
+  @media (max-width: 900px) {
+    .inner {
+      padding: 0.75rem 1.5rem;
+    }
+  }
+</style>
