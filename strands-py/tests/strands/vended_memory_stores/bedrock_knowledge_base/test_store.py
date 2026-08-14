@@ -173,8 +173,8 @@ class TestConstructor:
         assert store.writable is False
         assert store.description is None
         assert store.max_search_results is None
-        assert store.score_threshold is None
-        assert store.score_metric == "similarity"
+        assert store.min_score is None
+        assert store.max_score is None
 
     def test_keeps_name_and_scope_as_independent_fields(self, make_store):
         store, _runtime, _agent = make_store({"name": "explicit", "scope": "user-abc"})
@@ -200,14 +200,19 @@ class TestConstructor:
         with pytest.raises(ValueError, match="max_search_results must be at least 1"):
             make_store({"max_search_results": -5})
 
-    def test_carries_through_score_threshold_and_metric(self, make_store):
-        store, _runtime, _agent = make_store({"score_threshold": 0.4, "score_metric": "distance"})
-        assert store.score_threshold == 0.4
-        assert store.score_metric == "distance"
+    def test_carries_through_min_score(self, make_store):
+        store, _runtime, _agent = make_store({"min_score": 0.4})
+        assert store.min_score == 0.4
+        assert store.max_score is None
 
-    def test_throws_when_score_metric_is_not_a_known_metric(self, make_store):
-        with pytest.raises(ValueError, match="score_metric must be 'similarity' or 'distance'"):
-            make_store({"score_metric": "cosine"})
+    def test_carries_through_max_score(self, make_store):
+        store, _runtime, _agent = make_store({"max_score": 0.4})
+        assert store.max_score == 0.4
+        assert store.min_score is None
+
+    def test_throws_when_min_score_and_max_score_are_both_set(self, make_store):
+        with pytest.raises(ValueError, match="min_score and max_score are mutually exclusive"):
+            make_store({"min_score": 0.5, "max_score": 0.4})
 
     def test_allows_writable_with_custom_data_source(self, make_custom_store):
         store, _agent = make_custom_store()
@@ -418,7 +423,7 @@ class TestSearch:
 
 
 # --------------------------------------------------------------------------- #
-# search -- score threshold
+# search -- score bounds
 # --------------------------------------------------------------------------- #
 
 
@@ -438,42 +443,49 @@ def _contents(entries: list[Any]) -> list[str]:
     return [entry.content for entry in entries]
 
 
-class TestScoreThreshold:
+class TestScoreBounds:
     @pytest.mark.asyncio
-    async def test_keeps_every_result_when_no_threshold_is_set(self, make_store):
+    async def test_keeps_every_result_when_no_bound_is_set(self, make_store):
         store, runtime, _agent = make_store()
         runtime.retrieve.return_value = _scored(0.9, 0.5, 0.1)
         assert _contents(await store.search("q")) == ["0.9", "0.5", "0.1"]
 
     @pytest.mark.asyncio
-    async def test_similarity_keeps_results_at_or_above_the_threshold(self, make_store):
-        store, runtime, _agent = make_store({"score_threshold": 0.5})
+    async def test_min_score_keeps_results_at_or_above_the_floor(self, make_store):
+        store, runtime, _agent = make_store({"min_score": 0.5})
         runtime.retrieve.return_value = _scored(0.9, 0.5, 0.49, 0.1)
         assert _contents(await store.search("q")) == ["0.9", "0.5"]
 
     @pytest.mark.asyncio
-    async def test_an_explicit_similarity_metric_matches_the_default(self, make_store):
-        store, runtime, _agent = make_store({"score_threshold": 0.5, "score_metric": "similarity"})
-        runtime.retrieve.return_value = _scored(0.9, 0.1)
-        assert _contents(await store.search("q")) == ["0.9"]
-
-    @pytest.mark.asyncio
-    async def test_distance_keeps_results_at_or_below_the_threshold(self, make_store):
-        # The tools#417 case: pgvector's `<=>` returns cosine distance, where 0 is the exact match.
-        # Read as a similarity these results come back exactly inverted.
-        store, runtime, _agent = make_store({"score_threshold": 0.4, "score_metric": "distance"})
+    async def test_max_score_keeps_results_at_or_below_the_ceiling(self, make_store):
+        # pgvector's `<=>` returns cosine distance, where 0 is the exact match.
+        store, runtime, _agent = make_store({"max_score": 0.4})
         runtime.retrieve.return_value = _scored(0.02, 0.4, 0.41, 0.95)
         assert _contents(await store.search("q")) == ["0.02", "0.4"]
 
     @pytest.mark.asyncio
+    async def test_a_zero_max_score_is_not_treated_as_unset(self, make_store):
+        store, runtime, _agent = make_store({"max_score": 0.0})
+        runtime.retrieve.return_value = _scored(0.0, 0.1)
+        assert _contents(await store.search("q")) == ["0.0"]
+
+    @pytest.mark.asyncio
+    async def test_keeps_a_later_result_after_dropping_an_earlier_one(self, make_store):
+        store, runtime, _agent = make_store({"min_score": 0.5})
+        runtime.retrieve.return_value = _scored(0.9, 0.1, 0.8)
+        assert _contents(await store.search("q")) == ["0.9", "0.8"]
+
+    @pytest.mark.asyncio
     async def test_keeps_a_result_the_knowledge_base_did_not_score(self, make_store):
-        store, runtime, _agent = make_store({"score_threshold": 0.5})
+        store, runtime, _agent = make_store({"min_score": 0.5})
         runtime.retrieve.return_value = _scored(0.9, None, 0.1)
-        assert _contents(await store.search("q")) == ["0.9", "None"]
+        results = await store.search("q")
+        assert _contents(results) == ["0.9", "None"]
+        assert "_relevance_score" not in results[1].metadata
 
     @pytest.mark.asyncio
     async def test_returns_fewer_entries_than_max_search_results(self, make_store):
-        store, runtime, _agent = make_store({"score_threshold": 0.5, "max_search_results": 3})
+        store, runtime, _agent = make_store({"min_score": 0.5, "max_search_results": 3})
         runtime.retrieve.return_value = _scored(0.9, 0.2, 0.1)
         results = await store.search("q")
         assert runtime.retrieve.call_args.kwargs["retrievalConfiguration"]["vectorSearchConfiguration"] == {
@@ -482,17 +494,25 @@ class TestScoreThreshold:
         assert _contents(results) == ["0.9"]
 
     @pytest.mark.asyncio
-    async def test_returns_nothing_when_no_result_clears_the_threshold(self, make_store):
-        store, runtime, _agent = make_store({"score_threshold": 0.8})
+    async def test_returns_nothing_when_no_result_clears_the_bound(self, make_store):
+        store, runtime, _agent = make_store({"min_score": 0.8})
         runtime.retrieve.return_value = _scored(0.3, 0.1)
         assert await store.search("q") == []
 
     @pytest.mark.asyncio
     async def test_a_kept_result_still_carries_its_score_as_metadata(self, make_store):
-        store, runtime, _agent = make_store({"score_threshold": 0.5})
+        store, runtime, _agent = make_store({"min_score": 0.5})
         runtime.retrieve.return_value = _scored(0.9)
         results = await store.search("q")
         assert results[0].metadata == {"_relevance_score": 0.9}
+
+    @pytest.mark.asyncio
+    async def test_logs_when_a_result_is_dropped(self, make_store, caplog):
+        store, runtime, _agent = make_store({"min_score": 0.5})
+        runtime.retrieve.return_value = _scored(0.1)
+        with caplog.at_level(logging.DEBUG, logger="strands.vended_memory_stores.bedrock_knowledge_base.store"):
+            await store.search("q")
+        assert "dropping retrieval result outside score bound" in caplog.text
 
 
 # --------------------------------------------------------------------------- #
