@@ -173,8 +173,8 @@ describe('catalog content collection', () => {
     // The content layer silently drops entries whose YAML fails to parse;
     // pinned counts catch that. Update them when granting or removing tiers.
     const byTier = Map.groupBy(entries, (e) => e.data.maintainedBy)
-    expect(byTier.get('strands')?.length).toBe(28)
-    expect(byTier.get('aws')?.length).toBe(7)
+    expect(byTier.get('strands')?.length).toBe(33)
+    expect(byTier.get('aws')?.length).toBe(8)
     expect(byTier.get('partner')?.length).toBe(21)
     // Built-ins point at their source path in the SDK monorepo and always
     // have on-site docs.
