@@ -125,13 +125,12 @@ class BedrockKnowledgeBaseStoreConfig(MemoryStoreConfig, total=False):
             it). The same entries apply to ``CUSTOM`` (inline) and ``S3`` (sidecar) writes. Affects
             writes only; ACL filtering at search time is supplied separately as retrieval
             ``userContext``.
-        min_score: Floor a result must meet (``score >= min_score``). For similarity-scored knowledge
-            bases, where a higher score is a better match; on a distance-scored knowledge base a
-            floor keeps the worst matches -- use ``max_score`` there. Mutually exclusive with
-            ``max_score``. Omitted means no floor. A result the knowledge base did not score is kept.
-        max_score: Ceiling a result must not exceed (``score <= max_score``). For distance-scored
-            knowledge bases, where a lower score is a better match (e.g. Aurora PostgreSQL with
-            pgvector's ``<=>``). Mutually exclusive with ``min_score``. Omitted means no ceiling.
+        min_score: Floor a result must meet (``score >= min_score``). Use for similarity-scored
+            knowledge bases, where a higher score is a better match. Mutually exclusive with
+            ``max_score``. Omitted means no floor.
+        max_score: Ceiling a result must not exceed (``score <= max_score``). Use for distance-scored
+            knowledge bases, where a lower score is a better match. Mutually exclusive with
+            ``min_score``. Omitted means no ceiling.
     """
 
     config: Required[BedrockKnowledgeBaseConfig]

@@ -217,10 +217,10 @@ class BedrockKnowledgeBaseStore(MemoryStore):
             user-provided attributes plus two reserved synthetic keys: ``_relevance_score`` (number)
             and ``_source_location`` (Bedrock retrieval location object).
 
-            When the store sets ``min_score`` or ``max_score``, results outside that bound are
-            dropped here rather than at the knowledge base -- ``Retrieve`` has no score-bound
-            parameter -- so fewer than ``max_search_results`` entries may come back, and a query the
-            knowledge base has no good answer for can legitimately return none.
+            When the store sets ``min_score`` or ``max_score``, results are filtered on that bound
+            after the knowledge base retrieval, so fewer than ``max_search_results`` entries may come
+            back, and a query the knowledge base has no good answer for can legitimately return none.
+            A result the knowledge base did not score is kept.
 
         Raises:
             ValueError: If ``options.max_search_results`` is less than 1.
