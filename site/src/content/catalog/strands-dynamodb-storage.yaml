@@ -8,4 +8,5 @@ languages:
   typescript:
     package: strands-dynamodb-storage
 github: https://github.com/aws/strands-dynamodb-storage
+featured: true
 addedDate: 2026-08-14
