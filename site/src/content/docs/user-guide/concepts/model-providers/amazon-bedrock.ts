@@ -12,6 +12,7 @@ import {
   CachePointBlock,
   Message,
 } from '@strands-agents/sdk'
+import { OpenAIModel } from '@strands-agents/sdk/models/openai'
 import { z } from 'zod'
 
 // Basic usage examples
@@ -472,3 +473,21 @@ async function structuredOutputExample() {
 }
 
 void structuredOutputExample
+
+// OpenAI-compatible endpoints (Mantle)
+async function bedrockMantle() {
+  // --8<-- [start:bedrock_mantle]
+  const region = 'us-east-1'
+  const model = new OpenAIModel({
+    modelId: 'openai.gpt-oss-120b',
+    apiKey: '<BEDROCK_API_KEY>',
+    clientConfig: {
+      baseURL: `https://bedrock-mantle.${region}.api.aws/v1`,
+    },
+  })
+
+  const agent = new Agent({ model })
+  const response = await agent.invoke('What is 2+2?')
+  console.log(response)
+  // --8<-- [end:bedrock_mantle]
+}

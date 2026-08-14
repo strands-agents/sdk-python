@@ -994,6 +994,47 @@ const model = new BedrockModel({
 </Tab>
 </Tabs>
 
+### OpenAI-Compatible Endpoints (Mantle)
+
+Amazon Bedrock exposes
+[OpenAI-compatible endpoints](https://docs.aws.amazon.com/bedrock/latest/userguide/bedrock-mantle.html),
+powered by Mantle, for select models. You connect through the SDK's
+[OpenAI Responses provider](./openai-responses) rather than `BedrockModel`:
+authenticate with a
+[Bedrock API key](https://docs.aws.amazon.com/bedrock/latest/userguide/api-key-management.html)
+and point the client at your region's Mantle endpoint.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.models.openai_responses import OpenAIResponsesModel
+
+region = "us-east-1"
+model = OpenAIResponsesModel(
+    model_id="openai.gpt-oss-120b",
+    client_args={
+        "api_key": "<BEDROCK_API_KEY>",
+        "base_url": f"https://bedrock-mantle.{region}.api.aws/v1",
+    },
+)
+
+agent = Agent(model=model)
+response = agent("What is 2+2?")
+print(response)
+```
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/model-providers/amazon-bedrock_imports.ts:bedrock_mantle_imports"
+
+--8<-- "user-guide/concepts/model-providers/amazon-bedrock.ts:bedrock_mantle"
+```
+</Tab>
+</Tabs>
+
 ## Troubleshooting
 
 ### On-demand throughput isn’t supported
