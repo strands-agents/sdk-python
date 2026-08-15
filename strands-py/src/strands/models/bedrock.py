@@ -261,6 +261,7 @@ class BedrockModel(Model):
         tool_specs: list[ToolSpec] | None = None,
         system_prompt_content: list[SystemContentBlock] | None = None,
         tool_choice: ToolChoice | None = None,
+        dynamic_trailing_blocks: int = 0,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Format a Bedrock converse stream request.
@@ -270,6 +271,8 @@ class BedrockModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             tool_choice: Selection strategy for tool invocation.
             system_prompt_content: System prompt content blocks to provide context to the model.
+            dynamic_trailing_blocks: How many trailing blocks of the last user message are rebuilt on every
+                call, so the cache point goes ahead of them.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
@@ -295,7 +298,7 @@ class BedrockModel(Model):
         # Built ahead of the request so the tools cache point is known to the system cache point behind it.
         tools_cache_point = self._build_tools_cache_point() if tool_specs else []
 
-        formatted_messages = self._format_bedrock_messages(messages)
+        formatted_messages = self._format_bedrock_messages(messages, dynamic_trailing_blocks)
         if self._tool_result_turn_separation_model_id == self.config["model_id"]:
             formatted_messages = self._separate_tool_result_turns(formatted_messages)
 
@@ -535,7 +538,7 @@ class BedrockModel(Model):
         logger.debug("msg_idx=<%s>, block_idx=<%s> | honored caller-placed cache point", msg_idx, placed_idx)
         return True
 
-    def _inject_cache_point(self, messages: list[dict[str, Any]]) -> None:
+    def _inject_cache_point(self, messages: list[dict[str, Any]], dynamic_trailing_blocks: int = 0) -> None:
         """Ensure the last user message carries exactly one cache point.
 
         A cache point already present in the last user message is honored where it sits rather than
@@ -548,6 +551,8 @@ class BedrockModel(Model):
 
         Args:
             messages: List of messages to inject cache point into (modified in place).
+            dynamic_trailing_blocks: How many trailing blocks of the last user message are rebuilt on every call.
+                The point goes ahead of them, for the same reason a caller-placed one is honored.
         """
         if not messages:
             return
@@ -580,7 +585,7 @@ class BedrockModel(Model):
 
             placed_idxs = [idx for idx, block in enumerate(content) if "cachePoint" in block]
             if placed_idxs:
-                # One boundary per message, so this PR's budget footprint matches the strip it replaces.
+                # One boundary per message, so this message contributes a single cache point to the budget.
                 # Extras are not worthless - a second point ahead of the per-call tail doubles the cached
                 # prefix - but Bedrock allows only four cache points per request and the budget is shared
                 # across toolConfig, system and messages. The SDK already spends up to two of them via
@@ -602,6 +607,18 @@ class BedrockModel(Model):
                     logger.debug("msg_idx=<%s> | no content left to cache", last_user_idx)
                     return
                 # The point could not legally stay, so fall through to automatic placement below.
+
+            if dynamic_trailing_blocks:
+                # Routed through the honor path so the document rule and configured TTL still apply.
+                boundary_idx = max(0, len(content) - dynamic_trailing_blocks)
+                if boundary_idx == 0:
+                    logger.debug("msg_idx=<%s> | skipped cache point, no durable prefix", last_user_idx)
+                    return
+                content.insert(boundary_idx, {"cachePoint": cache_point})
+                # A False here means a leading document left no prefix to cache; automatic placement
+                # declines for the same reason, so there is nothing to fall back to.
+                self._honor_placed_cache_point(content, boundary_idx, last_user_idx, cache_config)
+                return
 
             # Insert before non-PDF document blocks to avoid Bedrock ValidationException
             first_non_pdf_doc_idx: int | None = None
@@ -640,7 +657,7 @@ class BedrockModel(Model):
                 return idx
         return None
 
-    def _format_bedrock_messages(self, messages: Messages) -> list[dict[str, Any]]:
+    def _format_bedrock_messages(self, messages: Messages, dynamic_trailing_blocks: int = 0) -> list[dict[str, Any]]:
         """Format messages for Bedrock API compatibility.
 
         This function ensures messages conform to Bedrock's expected format by:
@@ -652,6 +669,8 @@ class BedrockModel(Model):
 
         Args:
             messages: List of messages to format
+            dynamic_trailing_blocks: How many trailing blocks of the last user message are rebuilt on every
+                call, so the cache point goes ahead of them.
 
         Returns:
             Messages formatted for Bedrock API compatibility
@@ -747,7 +766,7 @@ class BedrockModel(Model):
                         self.config.get("model_id"),
                     )
             if strategy == "anthropic":
-                self._inject_cache_point(cleaned_messages)
+                self._inject_cache_point(cleaned_messages, dynamic_trailing_blocks)
 
         return cleaned_messages
 
@@ -1197,7 +1216,15 @@ class BedrockModel(Model):
         if system_prompt and system_prompt_content is None:
             system_prompt_content = [{"text": system_prompt}]
 
-        thread = asyncio.to_thread(self._stream, callback, messages, tool_specs, system_prompt_content, tool_choice)
+        thread = asyncio.to_thread(
+            self._stream,
+            callback,
+            messages,
+            tool_specs,
+            system_prompt_content,
+            tool_choice,
+            kwargs.get("dynamic_trailing_blocks", 0),
+        )
         task = asyncio.create_task(thread)
 
         try:
@@ -1219,6 +1246,7 @@ class BedrockModel(Model):
         tool_specs: list[ToolSpec] | None = None,
         system_prompt_content: list[SystemContentBlock] | None = None,
         tool_choice: ToolChoice | None = None,
+        dynamic_trailing_blocks: int = 0,
     ) -> None:
         """Stream conversation with the Bedrock model.
 
@@ -1231,6 +1259,8 @@ class BedrockModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt_content: System prompt content blocks to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
+            dynamic_trailing_blocks: How many trailing blocks of the last user message are rebuilt on every
+                call, so the cache point goes ahead of them.
 
         Raises:
             ContextWindowOverflowException: If the input exceeds the model's context window.
@@ -1238,7 +1268,9 @@ class BedrockModel(Model):
         """
         try:
             logger.debug("formatting request")
-            request = self.format_request(messages, tool_specs, system_prompt_content, tool_choice)
+            request = self.format_request(
+                messages, tool_specs, system_prompt_content, tool_choice, dynamic_trailing_blocks
+            )
             model_id = request["modelId"]
             logger.debug("request=<%s>", request)
 

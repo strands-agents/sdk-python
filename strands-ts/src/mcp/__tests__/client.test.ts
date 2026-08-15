@@ -911,12 +911,13 @@ describe('MCP Integration', () => {
       toolUse: { toolUseId: 'id-123', name: 'weather', input: { city: 'NYC' } },
       agent: { cancelSignal: new AbortController().signal } as LocalAgent,
       invocationState: {},
+      cancelSignal: new AbortController().signal,
       interrupt: () => {
         throw new Error('interrupt not available in mock context')
       },
     }
 
-    it('forwards agent cancelSignal to callTool', async () => {
+    it('forwards the tool execution cancelSignal to callTool', async () => {
       vi.mocked(mockClientWrapper.callTool).mockResolvedValue({
         content: [{ type: 'text', text: 'ok' }],
       })
@@ -927,7 +928,7 @@ describe('MCP Integration', () => {
         tool,
         { city: 'NYC' },
         {
-          signal: toolContext.agent.cancelSignal,
+          signal: toolContext.cancelSignal,
         }
       )
     })
