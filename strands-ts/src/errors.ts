@@ -113,6 +113,45 @@ export class ConcurrentInvocationError extends Error {
 }
 
 /**
+ * Error thrown when a call is rejected because the agent's invocation queue is full.
+ *
+ * Only thrown under `concurrentInvocationMode: 'enqueue'` with a `maxDepth` configured.
+ * The rejection happens at submit time — a call that would overflow the queue never waits.
+ */
+export class InvocationQueueFullError extends Error {
+  /**
+   * Creates a new InvocationQueueFullError.
+   *
+   * @param message - Error message describing the full queue
+   */
+  constructor(message: string) {
+    super(message)
+    this.name = 'InvocationQueueFullError'
+  }
+}
+
+/**
+ * Error a queued invoke() or stream() call rejects with when it is removed from the
+ * agent's invocation queue before running — via `agent.cancelPending(id)` or the
+ * caller's own `cancelSignal` aborting while queued.
+ */
+export class PendingInvocationCancelledError extends Error {
+  /** The queue id of the cancelled invocation. */
+  readonly pendingInvocationId: string
+
+  /**
+   * Creates a new PendingInvocationCancelledError.
+   *
+   * @param pendingInvocationId - The queue id of the cancelled invocation
+   */
+  constructor(pendingInvocationId: string) {
+    super(`Queued invocation ${pendingInvocationId} was cancelled before it ran`)
+    this.name = 'PendingInvocationCancelledError'
+    this.pendingInvocationId = pendingInvocationId
+  }
+}
+
+/**
  * Error thrown when a model provider returns a throttling or rate limit error.
  *
  * This error indicates that the model API has rate limited the request. Users can

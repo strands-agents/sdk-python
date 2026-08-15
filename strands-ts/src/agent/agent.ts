@@ -47,6 +47,14 @@ import { SummarizingConversationManager } from '../conversation-manager/summariz
 import { NullConversationManager } from '../conversation-manager/null-conversation-manager.js'
 import { ConversationManager } from '../conversation-manager/conversation-manager.js'
 import { ContextOffloader } from '../vended-plugins/context-offloader/plugin.js'
+import { PendingInvocations } from '../vended-plugins/pending-invocations/plugin.js'
+import {
+  CONCURRENT_INVOCATION_MODES,
+  InvocationQueue,
+  type ConcurrentInvocationMode,
+  type ConcurrentInvocationModeConfig,
+  type PendingInvocation,
+} from './invocation-queue.js'
 import { AgentDelegation } from './agent-delegation.js'
 import type { Storage } from '../storage/storage.js'
 import { HookRegistryImplementation } from '../hooks/registry.js'
@@ -332,6 +340,37 @@ export type AgentConfig = {
    * takes precedence over this agent-level default.
    */
   storage?: Storage
+
+  /**
+   * Behavior when `invoke()` or `stream()` is called while an invocation is already
+   * in progress.
+   *
+   * - `'throw'` (default): reject the new call with {@link ConcurrentInvocationError}.
+   * - `'enqueue'`: queue the new call FIFO. Each queued call runs as its own
+   *   invocation — with its own result, hook events, and cancellation signal — when
+   *   the current one finishes. The queue is observable via
+   *   {@link Agent.pendingInvocations} and, by default, rendered ephemerally into the
+   *   running invocation's model input so the model can wrap up early when a queued
+   *   request supersedes its work (see {@link ConcurrentInvocationModeConfig.visibleToModel}).
+   *
+   * The object form carries queue options:
+   *
+   * ```typescript
+   * const agent = new Agent({
+   *   model,
+   *   concurrentInvocationMode: { mode: 'enqueue', maxDepth: 10, visibleToModel: true },
+   * })
+   * ```
+   *
+   * Callers can override per call via {@link InvokeOptions.ifBusy}, including
+   * `'interrupt'` (cancel the running invocation and run next).
+   *
+   * Under `'enqueue'`, a tool or hook of the running invocation must not `await` its
+   * own agent's `invoke()`/`stream()` — the inner call would queue behind the
+   * invocation it is part of and deadlock. (Under `'throw'` the same call rejects
+   * immediately.) Direct tool calls via `agent.tool.*` are unaffected.
+   */
+  concurrentInvocationMode?: ConcurrentInvocationMode | ConcurrentInvocationModeConfig
 }
 
 /**
@@ -369,6 +408,41 @@ function resolveConversationManager(
     )
   }
   return conversationManager ?? new SlidingWindowConversationManager({ windowSize: 40 })
+}
+
+/** Resolved concurrency settings from the `concurrentInvocationMode` parameter. */
+interface ResolvedConcurrency {
+  mode: ConcurrentInvocationMode
+  maxDepth?: number
+  visibleToModel: boolean
+}
+
+/**
+ * Resolves the `concurrentInvocationMode` facade into concrete concurrency settings.
+ *
+ * Model visibility defaults to on for `'enqueue'` — it costs tokens only while the
+ * queue is non-empty, and an invisible queue reproduces the problem queueing solves.
+ */
+function resolveConcurrentInvocationMode(
+  value: ConcurrentInvocationMode | ConcurrentInvocationModeConfig | undefined
+): ResolvedConcurrency {
+  if (value === undefined || value === 'throw') {
+    return { mode: 'throw', visibleToModel: false }
+  }
+  const config = value === 'enqueue' ? { mode: 'enqueue' as const } : value
+  if (config.mode !== 'enqueue') {
+    throw new Error(
+      `Unsupported concurrentInvocationMode value: "${String(value)}". Supported values: ${CONCURRENT_INVOCATION_MODES.map((m) => `"${m}"`).join(', ')}`
+    )
+  }
+  if (config.maxDepth !== undefined && (!Number.isInteger(config.maxDepth) || config.maxDepth <= 0)) {
+    throw new Error(`concurrentInvocationMode.maxDepth must be a positive integer, got: ${config.maxDepth}`)
+  }
+  return {
+    mode: 'enqueue',
+    ...(config.maxDepth !== undefined && { maxDepth: config.maxDepth }),
+    visibleToModel: config.visibleToModel ?? true,
+  }
 }
 
 /**
@@ -485,6 +559,10 @@ export class Agent implements LocalAgent, InvokableAgent {
   private _mcpClients: McpClient[]
   private _initialized: boolean
   private _isInvoking: boolean = false
+  /** Concurrency mode resolved from `concurrentInvocationMode` (per-call `ifBusy` overrides it). */
+  private readonly _concurrentInvocationMode: ConcurrentInvocationMode
+  /** Invocations waiting for the lock. Only populated under 'enqueue'/'interrupt' concurrency. */
+  private readonly _invocationQueue: InvocationQueue
   private _abortController = new AbortController()
   private _abortSignal: AbortSignal = this._abortController.signal
   private _printer?: Printer
@@ -587,11 +665,21 @@ export class Agent implements LocalAgent, InvokableAgent {
     // The plugin is a no-op when no delegation tools fire.
     const hasAgentDelegation = (config?.plugins ?? []).some((p) => p.name === 'strands:agent-delegation')
 
+    // 'enqueue' agents get queue visibility by default (visibleToModel), unless the
+    // user already registered their own PendingInvocations instance.
+    const concurrencyConfig = resolveConcurrentInvocationMode(config?.concurrentInvocationMode)
+    this._concurrentInvocationMode = concurrencyConfig.mode
+    this._invocationQueue = new InvocationQueue(concurrencyConfig.maxDepth)
+    const hasPendingInvocations = (config?.plugins ?? []).some((p) => p.name === 'strands:pending-invocations')
+
     this._pluginRegistry = new PluginRegistry([
       this._conversationManager,
       ...retryStrategies,
       ...(config?.plugins ?? []),
       ...(!hasAgentDelegation ? [new AgentDelegation()] : []),
+      ...(concurrencyConfig.mode === 'enqueue' && concurrencyConfig.visibleToModel && !hasPendingInvocations
+        ? [new PendingInvocations()]
+        : []),
       ...((config?.contextManager === 'auto' || config?.contextManager === 'agentic') && !hasOffloader
         ? [
             new ContextOffloader({
@@ -823,16 +911,49 @@ export class Agent implements LocalAgent, InvokableAgent {
   }
 
   /**
-   * Acquires the invocation lock. Throws if an invocation is already in progress.
-   * Callers must release via try/finally with `this._isInvoking = false`.
+   * Acquires the invocation turn. When the agent is idle, takes the lock and returns
+   * immediately. When busy, the behavior follows `options.ifBusy`, falling back to the
+   * agent's `concurrentInvocationMode`:
+   *
+   * - `'throw'`: throws {@link ConcurrentInvocationError}.
+   * - `'enqueue'`: waits FIFO in the invocation queue until {@link _releaseTurn} hands
+   *   the lock over.
+   * - `'interrupt'`: enters the queue at the front, then cancels the running invocation.
+   *
+   * Callers must release via try/finally with {@link _releaseTurn}.
    */
-  private acquireLock(): void {
-    if (this._isInvoking) {
+  private async _acquireTurn(args: InvokeArgs, options?: InvokeOptions): Promise<void> {
+    if (!this._isInvoking) {
+      this._isInvoking = true
+      return
+    }
+    const strategy = options?.ifBusy ?? this._concurrentInvocationMode
+    if (strategy === 'throw') {
       throw new ConcurrentInvocationError(
         'Agent is already processing an invocation. Wait for the current invoke() or stream() call to complete before invoking again.'
       )
     }
-    this._isInvoking = true
+    const turn = this._invocationQueue.wait(args, {
+      front: strategy === 'interrupt',
+      ...(options?.cancelSignal !== undefined && { cancelSignal: options.cancelSignal }),
+    })
+    if (strategy === 'interrupt') {
+      this.cancel()
+    }
+    await turn
+  }
+
+  /**
+   * Releases the invocation turn: hands the lock to the next queued invocation, or
+   * clears the busy flag when the queue is empty. Both the queue mutation and the
+   * flag flip are synchronous, so a call arriving in between either takes the lock
+   * or lands in the queue before this handoff pops it — there is no window in which
+   * a waiter can be stranded.
+   */
+  private _releaseTurn(): void {
+    if (!this._invocationQueue.handoff()) {
+      this._isInvoking = false
+    }
   }
 
   /**
@@ -949,6 +1070,44 @@ export class Agent implements LocalAgent, InvokableAgent {
   }
 
   /**
+   * The agent-level concurrency mode, as configured via
+   * {@link AgentConfig.concurrentInvocationMode}. Per-call `ifBusy` options override
+   * it for individual calls.
+   */
+  get concurrentInvocationMode(): ConcurrentInvocationMode {
+    return this._concurrentInvocationMode
+  }
+
+  /**
+   * Invocations waiting in the agent's queue, in run order.
+   *
+   * Always empty unless the agent is configured with
+   * `concurrentInvocationMode: 'enqueue'` or a caller used `ifBusy: 'enqueue'` /
+   * `'interrupt'`. Returns a point-in-time snapshot; entries are not live objects.
+   *
+   * @example
+   * ```typescript
+   * app.get('/status', (_req, res) => res.json({ pending: agent.pendingInvocations }))
+   * ```
+   */
+  get pendingInvocations(): readonly PendingInvocation[] {
+    return this._invocationQueue.snapshot()
+  }
+
+  /**
+   * Removes a queued invocation before it runs. The dequeued caller's `invoke()` or
+   * `stream()` call rejects with {@link PendingInvocationCancelledError}; no other
+   * invocation is disturbed. To cancel the currently *running* invocation, use
+   * {@link cancel} instead.
+   *
+   * @param id - The queue id from {@link pendingInvocations}
+   * @returns `true` when the entry was found and removed, `false` otherwise
+   */
+  public cancelPending(id: string): boolean {
+    return this._invocationQueue.cancel(id)
+  }
+
+  /**
    * Direct tool calling accessor.
    *
    * Returns a proxy where each property is a {@link ToolHandle} with
@@ -996,6 +1155,11 @@ export class Agent implements LocalAgent, InvokableAgent {
    *
    * The stream/invoke call will return an AgentResult with `stopReason: 'cancelled'`.
    * If the agent is not currently invoking, this is a no-op.
+   *
+   * Only the *running* invocation is cancelled: queued invocations (under
+   * `concurrentInvocationMode: 'enqueue'`) are not affected — the next one starts,
+   * with a fresh cancellation signal, when the cancelled invocation ends. Use
+   * {@link cancelPending} to remove a queued invocation.
    *
    * @example
    * ```typescript
@@ -1064,6 +1228,10 @@ export class Agent implements LocalAgent, InvokableAgent {
    * assistant messages containing tool uses are only added after tool execution succeeds
    * with valid toolResponses
    *
+   * Generators are lazy: the invocation (including its concurrency handling — the
+   * `'throw'` rejection or the `'enqueue'` queue entry) starts at the first `next()`
+   * call, not when `stream()` returns. An unconsumed stream never enters the queue.
+   *
    * @param args - Arguments for invoking the agent
    * @param options - Optional per-invocation options
    * @returns Async generator that yields AgentStreamEvent objects and returns AgentResult
@@ -1082,7 +1250,7 @@ export class Agent implements LocalAgent, InvokableAgent {
     args: InvokeArgs,
     options?: InvokeOptions
   ): AsyncGenerator<AgentStreamEvent, AgentResult, undefined> {
-    this.acquireLock()
+    await this._acquireTurn(args, options)
     try {
       await this.initialize()
 
@@ -1170,7 +1338,7 @@ export class Agent implements LocalAgent, InvokableAgent {
         return result!
       }
     } finally {
-      this._isInvoking = false
+      this._releaseTurn()
     }
   }
 

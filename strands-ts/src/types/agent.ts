@@ -8,6 +8,7 @@ import type { Checkpoint, CheckpointResumeContent } from '../experimental/checkp
 import type { AgentTrace } from '../telemetry/tracer.js'
 import type { Snapshot } from './snapshot.js'
 import type { TakeSnapshotOptions } from '../agent/snapshot.js'
+import type { IfBusy, PendingInvocation } from '../agent/invocation-queue.js'
 import type {
   BeforeInvocationEvent,
   AfterInvocationEvent,
@@ -134,6 +135,22 @@ export interface InvokeOptions {
    * ```
    */
   cancelSignal?: AbortSignal
+
+  /**
+   * Behavior when the agent is already processing an invocation, overriding the
+   * constructor-level `concurrentInvocationMode` for this call only.
+   *
+   * - `'throw'`: reject with `ConcurrentInvocationError` (the constructor default).
+   * - `'enqueue'`: wait in the agent's FIFO invocation queue; this call runs as its own
+   *   invocation — with its own result, hook events, and cancellation signal — when the
+   *   current one finishes.
+   * - `'interrupt'`: cancel the running invocation via `agent.cancel()` and run this
+   *   call next, ahead of any queued invocations. The interrupted caller receives its
+   *   own result with `stopReason: 'cancelled'`.
+   *
+   * When omitted, the agent's `concurrentInvocationMode` applies.
+   */
+  ifBusy?: IfBusy
 
   /**
    * Per-invocation budget caps. Each cap, when set, bounds the agent loop
@@ -310,6 +327,12 @@ export interface LocalAgent {
    * The system prompt to pass to the model provider.
    */
   systemPrompt?: SystemPrompt
+
+  /**
+   * Invocations waiting in the agent's queue, in run order. Always empty unless the
+   * agent (or a caller, via `ifBusy`) uses `'enqueue'` or `'interrupt'` concurrency.
+   */
+  readonly pendingInvocations: readonly PendingInvocation[]
 
   /**
    * The cancellation signal for the current invocation.
