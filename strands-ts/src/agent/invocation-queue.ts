@@ -47,6 +47,11 @@ export interface ConcurrentInvocationModeConfig {
 }
 
 /**
+ * Supported values for the per-call `ifBusy` option.
+ */
+export const IF_BUSY_BEHAVIORS = [...CONCURRENT_INVOCATION_MODES, 'interrupt'] as const
+
+/**
  * Per-call behavior when the agent is already processing an invocation.
  * Extends {@link ConcurrentInvocationMode} with `'interrupt'`:
  *
@@ -55,7 +60,7 @@ export interface ConcurrentInvocationModeConfig {
  *   result with `stopReason: 'cancelled'`; this call runs as a fresh invocation with a
  *   fresh cancellation signal.
  */
-export type IfBusy = ConcurrentInvocationMode | 'interrupt'
+export type IfBusy = (typeof IF_BUSY_BEHAVIORS)[number]
 
 /**
  * A queued invocation, as surfaced by `agent.pendingInvocations`.

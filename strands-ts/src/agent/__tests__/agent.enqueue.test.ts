@@ -65,6 +65,29 @@ describe('concurrentInvocationMode', () => {
       )
     })
 
+    it('rejects an unsupported per-call ifBusy value instead of silently queueing', async () => {
+      const gate = createGate()
+      const model = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'gate', toolUseId: 't1', input: {} })
+        .addTurn({ type: 'textBlock', text: 'A' })
+      const agent = new Agent({ model, tools: [gate.tool], printer: false })
+
+      const first = agent.invoke('a')
+      await gate.started
+      // A typo'd ifBusy must fail loudly, not silently override 'throw' with enqueue semantics.
+      await expect(agent.invoke('b', { ifBusy: 'enque' as never })).rejects.toThrow(/Unsupported ifBusy/)
+      expect(agent.pendingInvocations).toHaveLength(0)
+
+      gate.release()
+      await first
+    })
+
+    it('rejects an unsupported ifBusy value even when the agent is idle (fail fast)', async () => {
+      const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'A' })
+      const agent = new Agent({ model, printer: false })
+      await expect(agent.invoke('a', { ifBusy: 'reject' as never })).rejects.toThrow(/Unsupported ifBusy/)
+    })
+
     it('exposes the resolved mode and defaults to throw', () => {
       expect(new Agent({ model: new MockMessageModel() }).concurrentInvocationMode).toBe('throw')
       expect(

@@ -50,6 +50,7 @@ import { ContextOffloader } from '../vended-plugins/context-offloader/plugin.js'
 import { PendingInvocations } from '../vended-plugins/pending-invocations/plugin.js'
 import {
   CONCURRENT_INVOCATION_MODES,
+  IF_BUSY_BEHAVIORS,
   InvocationQueue,
   type ConcurrentInvocationMode,
   type ConcurrentInvocationModeConfig,
@@ -432,7 +433,7 @@ function resolveConcurrentInvocationMode(
   const config = value === 'enqueue' ? { mode: 'enqueue' as const } : value
   if (config.mode !== 'enqueue') {
     throw new Error(
-      `Unsupported concurrentInvocationMode value: "${String(value)}". Supported values: ${CONCURRENT_INVOCATION_MODES.map((m) => `"${m}"`).join(', ')}`
+      `Unsupported concurrentInvocationMode value: ${JSON.stringify(value)}. Supported values: ${CONCURRENT_INVOCATION_MODES.map((m) => `"${m}"`).join(', ')}`
     )
   }
   if (config.maxDepth !== undefined && (!Number.isInteger(config.maxDepth) || config.maxDepth <= 0)) {
@@ -923,6 +924,13 @@ export class Agent implements LocalAgent, InvokableAgent {
    * Callers must release via try/finally with {@link _releaseTurn}.
    */
   private async _acquireTurn(args: InvokeArgs, options?: InvokeOptions): Promise<void> {
+    // Validate up front (even when idle): an unrecognized value must fail loudly rather
+    // than silently fall through to enqueue semantics for untyped (JS) callers.
+    if (options?.ifBusy !== undefined && !IF_BUSY_BEHAVIORS.includes(options.ifBusy)) {
+      throw new Error(
+        `Unsupported ifBusy value: ${JSON.stringify(options.ifBusy)}. Supported values: ${IF_BUSY_BEHAVIORS.map((v) => `"${v}"`).join(', ')}`
+      )
+    }
     if (!this._isInvoking) {
       this._isInvoking = true
       return
@@ -1231,6 +1239,11 @@ export class Agent implements LocalAgent, InvokableAgent {
    * Generators are lazy: the invocation (including its concurrency handling — the
    * `'throw'` rejection or the `'enqueue'` queue entry) starts at the first `next()`
    * call, not when `stream()` returns. An unconsumed stream never enters the queue.
+   * Conversely, calling `stream.return()` on a stream that is already *waiting in the
+   * queue* cannot dequeue it early (the return is processed once the generator resumes):
+   * the entry waits its turn, briefly starts, and immediately finishes. To remove a
+   * queued call promptly, pass a `cancelSignal` and abort it, or use
+   * {@link cancelPending}.
    *
    * @param args - Arguments for invoking the agent
    * @param options - Optional per-invocation options
