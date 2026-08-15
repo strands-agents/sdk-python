@@ -19,9 +19,23 @@ import { OpenAIModel } from '@strands-agents/sdk/models/openai'
   // --8<-- [end:basic_usage]
 }
 
-// Amazon Bedrock (Mantle)
+// Amazon Bedrock (Mantle) with AWS credentials
 {
   // --8<-- [start:bedrock_mantle]
+  const model = new OpenAIModel({
+    modelId: 'openai.gpt-5.6-terra',
+    bedrockMantleConfig: { region: 'us-east-1' },
+  })
+
+  const agent = new Agent({ model })
+  const response = await agent.invoke('What is 2+2?')
+  console.log(response)
+  // --8<-- [end:bedrock_mantle]
+}
+
+// Amazon Bedrock (Mantle) with a Bedrock API key
+{
+  // --8<-- [start:bedrock_mantle_api_key]
   const region = 'us-east-1'
   const model = new OpenAIModel({
     modelId: 'openai.gpt-oss-120b',
@@ -34,7 +48,7 @@ import { OpenAIModel } from '@strands-agents/sdk/models/openai'
   const agent = new Agent({ model })
   const response = await agent.invoke('What is 2+2?')
   console.log(response)
-  // --8<-- [end:bedrock_mantle]
+  // --8<-- [end:bedrock_mantle_api_key]
 }
 
 // Web search
