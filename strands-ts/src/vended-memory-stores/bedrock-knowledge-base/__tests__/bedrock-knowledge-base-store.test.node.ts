@@ -461,6 +461,20 @@ describe('BedrockKnowledgeBaseStore', () => {
       expect(contents(await store.search('q'))).toStrictEqual(['0.9', '0.5'])
     })
 
+    // The bound filters the same result list the metadata unwrap maps over, so a kept result still
+    // reads back as the number that was stored.
+    it('unwraps NumericValue metadata on a result the bound keeps', async () => {
+      const { store, runtime } = makeStore({ minScore: 0.5 })
+      runtime.send.mockResolvedValue({
+        retrievalResults: [
+          { content: { text: 'fact' }, score: 0.9, metadata: { version: { string: '3.0', type: 'bigDecimal' } } },
+        ],
+      })
+
+      const [entry] = await store.search('q')
+      expect(entry?.metadata?.version).toBe(3)
+    })
+
     it('keeps results at or below maxScore', async () => {
       // pgvector's `<=>` returns cosine distance, where 0 is the exact match.
       const { store, runtime } = makeStore({ maxScore: 0.4 })
