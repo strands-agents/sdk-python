@@ -88,7 +88,7 @@ def _invoke_context(invocation_state, model, agent=None):
 def test_routing_surface_is_re_exported_from_strands_models():
     import strands.models as models
 
-    for symbol in ("ModelRouter", "RoutingCandidate", "RoutingContext", "RoutingStrategy"):
+    for symbol in ("ModelCatalog", "ModelRouter", "RoutingCandidate", "RoutingContext", "RoutingStrategy"):
         assert getattr(models, symbol) is getattr(models.routing, symbol)
         assert symbol in models.__all__
 
