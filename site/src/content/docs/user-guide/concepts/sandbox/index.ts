@@ -52,7 +52,7 @@ class FirecrackerSandbox extends PosixShellSandbox {
     )
     yield { type: 'executionResult', exitCode, stdout, stderr, outputFiles: [] }
   }
-// --8<-- [end:custom_sandbox]
+  // --8<-- [end:custom_sandbox]
 
   // --8<-- [start:vend_tools]
   override getTools(): Tool[] {

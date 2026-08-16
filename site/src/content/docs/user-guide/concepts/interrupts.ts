@@ -81,9 +81,7 @@ async function hooksBeforeToolCallExample() {
 async function hooksBeforeToolsExample() {
   // --8<-- [start:hooks_before_tools]
   const agent = new Agent({
-    tools: [
-      /* ... */
-    ],
+    tools: [/* ... */],
   })
 
   agent.addHook(BeforeToolsEvent, (event) => {

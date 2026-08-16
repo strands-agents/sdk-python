@@ -31,9 +31,7 @@ import { fileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
 {
   // --8<-- [start:getting_started]
   const agent = new Agent({
-    plugins: [
-      new ContextOffloader({ storage: new InMemoryStorage() }),
-    ],
+    plugins: [new ContextOffloader({ storage: new InMemoryStorage() })],
   })
   // --8<-- [end:getting_started]
 
@@ -67,9 +65,7 @@ import { fileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
 {
   // --8<-- [start:in_memory_storage]
   const agent = new Agent({
-    plugins: [
-      new ContextOffloader({ storage: new InMemoryStorage() }),
-    ],
+    plugins: [new ContextOffloader({ storage: new InMemoryStorage() })],
   })
 
   // Custom eviction window

@@ -8,20 +8,17 @@ import sdkSetupPlugin from './src/plugins/vite-plugin-sdk-setup.ts'
 import remarkReadingTime from './src/plugins/remark-reading-time.ts'
 import watchNavigationPlugin from './src/plugins/vite-plugin-watch-navigation.ts'
 
-import { loadSidebarFromConfig } from "./src/sidebar.ts"
-import { buildStaticRedirects } from "./src/util/redirect.static.ts"
-import { sitemapWithLastmod } from "./src/plugins/sitemap-lastmod.ts"
+import { loadSidebarFromConfig } from './src/sidebar.ts'
+import { buildStaticRedirects } from './src/util/redirect.static.ts'
+import { sitemapWithLastmod } from './src/plugins/sitemap-lastmod.ts'
 import AutoImport from './src/plugins/astro-auto-import.ts'
-import astroExpressiveCode from "astro-expressive-code"
-import mdx from '@astrojs/mdx';
-import astroBrokenLinksChecker from './scripts/astro-broken-links-checker-index.js';
+import astroExpressiveCode from 'astro-expressive-code'
+import mdx from '@astrojs/mdx'
+import astroBrokenLinksChecker from './scripts/astro-broken-links-checker-index.js'
 
 // Generate sidebar from navigation.yml config (validates against existing content files)
 // Top-level groups will be rendered as tabs by the custom Sidebar component
-const sidebar = loadSidebarFromConfig(
-  path.resolve('./src/config/navigation.yml'),
-  path.resolve('./src/content')
-)
+const sidebar = loadSidebarFromConfig(path.resolve('./src/config/navigation.yml'), path.resolve('./src/content'))
 
 const base = process.env.ASTRO_BASE_PATH || '/'
 
@@ -40,10 +37,10 @@ export default defineConfig({
     plugins: [sdkSetupPlugin(), watchNavigationPlugin()],
     // TODO once we separate out CMS build from TS verification, fix this
     // https://github.com/withastro/astro/issues/14117
-		ssr: {
-			noExternal: ['zod'],
-		},
-	},
+    ssr: {
+      noExternal: ['zod'],
+    },
+  },
   markdown: {
     processor: unified(),
     remarkPlugins: [remarkMkdocsSnippets, remarkReadingTime],
@@ -82,9 +79,7 @@ export default defineConfig({
       description: 'The open source toolkit for building production agents.',
       sidebar: sidebar,
       routeMiddleware: './src/route-middleware.ts',
-      customCss: [
-        './src/styles/custom.css',
-      ],
+      customCss: ['./src/styles/custom.css'],
       logo: {
         light: './src/assets/logo-light.svg',
         dark: './src/assets/logo-dark.svg',
@@ -101,31 +96,25 @@ export default defineConfig({
         Sidebar: './src/components/overrides/Sidebar.astro',
         PageFrame: './src/components/overrides/PageFrame.astro',
       },
-  }),
-   astroBrokenLinksChecker({
-      checkExternalLinks: false,      // Optional: check external links (default: false)
-      cacheExternalLinks: false,      // Optional: cache verified external links to disk (default: true)
-      throwError: true,               // Optional: fail the build if broken links are found (default: false)
-      linkCheckerDir: '.link-checker' // Optional: directory for cache and log files (default: '.link-checker')
     }),
-   AutoImport({
+    astroBrokenLinksChecker({
+      checkExternalLinks: false, // Optional: check external links (default: false)
+      cacheExternalLinks: false, // Optional: cache verified external links to disk (default: true)
+      throwError: true, // Optional: fail the build if broken links are found (default: false)
+      linkCheckerDir: '.link-checker', // Optional: directory for cache and log files (default: '.link-checker')
+    }),
+    AutoImport({
       imports: [
         {
-          '@astrojs/starlight/components': [
-            ['TabItem', 'Tab']
-          ],
-          './src/components/AutoSyncTabs.astro': [
-            ['default', "Tabs"]
-          ],
-          './src/components/Syntax.astro': [
-            ['default', 'Syntax']
-          ]
+          '@astrojs/starlight/components': [['TabItem', 'Tab']],
+          './src/components/AutoSyncTabs.astro': [['default', 'Tabs']],
+          './src/components/Syntax.astro': [['default', 'Syntax']],
         },
       ],
       defaultComponents: {
         // override 'a' links so that we can use relative urls
-        a: './src/components/PageLink.astro'
-      }
+        a: './src/components/PageLink.astro',
+      },
     }),
   ],
 })

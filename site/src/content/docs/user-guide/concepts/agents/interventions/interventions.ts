@@ -1,4 +1,9 @@
-import { Agent, FunctionTool, InterventionHandler, InterventionActions } from '@strands-agents/sdk'
+import {
+  Agent,
+  FunctionTool,
+  InterventionHandler,
+  InterventionActions,
+} from '@strands-agents/sdk'
 import type { OnError } from '@strands-agents/sdk'
 import {
   BeforeInvocationEvent,
@@ -114,9 +119,7 @@ async function actionTypesExample() {
     override beforeToolCall(event: BeforeToolCallEvent) {
       if (event.toolUse.name === 'delete_file') {
         const input = event.toolUse.input as Record<string, string>
-        return InterventionActions.confirm(
-          `Approve deleting "${input.path}"?`
-        )
+        return InterventionActions.confirm(`Approve deleting "${input.path}"?`)
       }
       return InterventionActions.proceed()
     }
@@ -173,7 +176,7 @@ async function shortCircuitingExample() {
   const agent = new Agent({
     tools: [searchTool],
     interventions: [
-      new RateLimiter(),         // Evaluates first
+      new RateLimiter(), // Evaluates first
       new ToneSteeringHandler(), // Skipped if RateLimiter denies
     ],
   })
@@ -242,9 +245,7 @@ async function confirmExample() {
     override beforeToolCall(event: BeforeToolCallEvent) {
       if (event.toolUse.name === 'delete_file') {
         const input = event.toolUse.input as Record<string, string>
-        return InterventionActions.confirm(
-          `Approve deleting "${input.path}"?`
-        )
+        return InterventionActions.confirm(`Approve deleting "${input.path}"?`)
       }
       return InterventionActions.proceed()
     }

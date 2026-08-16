@@ -12,7 +12,9 @@ export const GET: APIRoute = async () => {
 
   lines.push('# Strands Agents')
   lines.push('')
-  lines.push('> Strands Agents is a simple yet powerful SDK that takes a model-driven approach to building and running AI agents. From simple conversational assistants to complex autonomous workflows, from local development to production deployment, Strands Agents scales with your needs.')
+  lines.push(
+    '> Strands Agents is a simple yet powerful SDK that takes a model-driven approach to building and running AI agents. From simple conversational assistants to complex autonomous workflows, from local development to production deployment, Strands Agents scales with your needs.'
+  )
   lines.push('')
 
   // Render each doc's full content

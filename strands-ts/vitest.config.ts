@@ -7,7 +7,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // Conditionally exclude bash tool from coverage on Windows
 // since tests are skipped on Windows (bash not available)
-const coverageExclude = ['src/**/__tests__/**', 'src/**/__fixtures__/**', 'src/vended-tools/**/__tests__/**', 'src/vended-plugins/**/__tests__/**']
+const coverageExclude = [
+  'src/**/__tests__/**',
+  'src/**/__fixtures__/**',
+  'src/vended-tools/**/__tests__/**',
+  'src/vended-plugins/**/__tests__/**',
+]
 if (process.platform === 'win32') {
   coverageExclude.push('src/vended-tools/bash/**')
 }

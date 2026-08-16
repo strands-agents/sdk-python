@@ -89,7 +89,6 @@ class TestS3Storage:
         with pytest.raises(StorageError, match="Cannot specify both"):
             S3Storage("bucket", region_name="us-east-1", boto_session=boto3.Session())
 
-
     @pytest.mark.asyncio
     async def test_write_error_raises_storage_error(self, s3_bucket):
         storage = S3Storage("nonexistent-bucket-xyz", boto_session=s3_bucket)
