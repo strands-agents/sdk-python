@@ -62,50 +62,22 @@ def test_from_file_rejects_duplicate_keys(tmp_path, suffix):
         ModelCatalog.from_file(path)
 
 
-def test_from_litellm_config_extracts_only_safe_objective_metadata(tmp_path):
-    path = tmp_path / "litellm.yaml"
+def test_from_file_rejects_litellm_proxy_configuration_shape(tmp_path):
+    path = tmp_path / "catalog.yaml"
     path.write_text(
         """
 model_list:
-  - model_name: unpriced
-    litellm_params:
-      model: ignored/model
-      api_key: os.environ/IGNORED_KEY
   - model_name: customer-facing-name
     litellm_params:
       model: azure/gpt-5.5-deployment
       api_key: os.environ/AZURE_API_KEY
-      api_base: os.environ/AZURE_API_BASE
-      extra_headers:
-        authorization: secret
       input_cost_per_token: 0.0000055
-      output_cost_per_token_above_272k_tokens: 0.0000495
-      cache_read_input_token_cost: 0.00000055
-    model_info:
-      max_input_tokens: 400000
-      supports_tool_calling: true
 """.strip(),
         encoding="utf-8",
     )
 
-    catalog = ModelCatalog.from_litellm_config(path)
-    expected = {
-        "input_cost_per_token": 0.0000055,
-        "output_cost_per_token_above_272k_tokens": 0.0000495,
-        "cache_read_input_token_cost": 0.00000055,
-        "max_input_tokens": 400_000,
-        "supports_tool_calling": True,
-    }
-
-    assert catalog["customer-facing-name"] == expected
-    assert catalog["litellm_proxy/customer-facing-name"] == expected
-    assert catalog["azure/gpt-5.5-deployment"] == expected
-    assert "unpriced" not in catalog
-    assert all(
-        forbidden not in profile
-        for profile in catalog.values()
-        for forbidden in ("api_key", "api_base", "extra_headers", "model")
-    )
+    with pytest.raises(ValueError, match="only version and models"):
+        ModelCatalog.from_file(path)
 
 
 @pytest.mark.parametrize("field", ["api_key", "api_base", "extra_headers", "description"])

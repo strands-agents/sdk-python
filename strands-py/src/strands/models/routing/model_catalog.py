@@ -40,9 +40,9 @@ _SUPPORT_FIELD = re.compile(r"^supports_[a-z][a-z0-9_]{0,99}$")
 class ModelCatalog(Mapping[str, Mapping[str, object]]):
     """An immutable snapshot of objective model metadata used for routing.
 
-    Catalog keys are exact model identifiers. Metadata uses LiteLLM-compatible names and
-    contains only bounded scalar values; provider credentials and connection settings are
-    never accepted as native catalog metadata.
+    Catalog keys are exact model identifiers. The SDK owns the catalog schema while its
+    objective metadata names and units intentionally align with common LiteLLM conventions.
+    Provider credentials and connection settings are never accepted as catalog metadata.
     """
 
     def __init__(self, models: Mapping[str, Mapping[str, object]] | None = None) -> None:
@@ -85,39 +85,6 @@ class ModelCatalog(Mapping[str, Mapping[str, object]]):
         models = document["models"]
         if not isinstance(models, Mapping):
             raise TypeError("model catalog models must be a mapping")
-        return cls(models)
-
-    @classmethod
-    def from_litellm_config(cls, path: str | PathLike[str]) -> ModelCatalog:
-        """Extract safe routing metadata from a LiteLLM proxy JSON or YAML config.
-
-        Provider credentials, endpoints, headers, and unsupported parameters are ignored.
-        Extracted profiles are addressable by the LiteLLM alias, proxy-prefixed alias, and
-        configured provider model identifier. Entries without objective metadata are skipped.
-
-        Args:
-            path: Path to a LiteLLM proxy JSON or YAML configuration.
-
-        Returns:
-            A validated immutable catalog snapshot.
-
-        Raises:
-            OSError: If the configuration cannot be read.
-            TypeError: If required LiteLLM configuration values have the wrong type.
-            ValueError: If the configuration does not provide usable model metadata.
-        """
-        document = _read_document(path)
-        if not isinstance(document, Mapping):
-            raise TypeError("LiteLLM config root must be a mapping")
-        model_list = document.get("model_list")
-        if not isinstance(model_list, list):
-            raise TypeError("LiteLLM config model_list must be a list")
-
-        models: dict[str, dict[str, object]] = {}
-        for model_index, model_entry in enumerate(model_list):
-            _add_litellm_model(models, model_entry, model_index)
-        if not models:
-            raise ValueError("LiteLLM config contains no supported model metadata")
         return cls(models)
 
     def with_overrides(self, overrides: Mapping[str, Mapping[str, object]]) -> ModelCatalog:
@@ -285,50 +252,3 @@ def _validate_metadata_value(model_id: str, field_name: str, value: object) -> o
             raise TypeError(f"metadata field {field_name!r} for model {model_id!r} must be boolean")
         return value
     raise ValueError(f"unsupported metadata field {field_name!r} for model {model_id!r}")
-
-
-def _add_litellm_model(models: dict[str, dict[str, object]], model_entry: object, model_index: int) -> None:
-    """Extract one safe profile and its exact identifiers from a LiteLLM config entry."""
-    if not isinstance(model_entry, Mapping):
-        raise TypeError(f"LiteLLM model_list[{model_index}] must be a mapping")
-    model_name = model_entry.get("model_name")
-    if not isinstance(model_name, str) or not model_name:
-        raise TypeError(f"LiteLLM model_list[{model_index}].model_name must be a non-empty string")
-    litellm_params = model_entry.get("litellm_params")
-    if not isinstance(litellm_params, Mapping):
-        raise TypeError(f"LiteLLM model_list[{model_index}].litellm_params must be a mapping")
-    model_info = model_entry.get("model_info", {})
-    if not isinstance(model_info, Mapping):
-        raise TypeError(f"LiteLLM model_list[{model_index}].model_info must be a mapping")
-
-    profile = _extract_supported_metadata(model_info)
-    profile.update(_extract_supported_metadata(litellm_params))
-    if not profile:
-        return
-
-    identifiers = [model_name, f"litellm_proxy/{model_name}"]
-    provider_model = litellm_params.get("model")
-    if isinstance(provider_model, str) and provider_model:
-        identifiers.append(provider_model)
-    for model_id in dict.fromkeys(identifiers):
-        existing = models.get(model_id)
-        if existing is not None and existing != profile:
-            raise ValueError(f"LiteLLM config defines conflicting metadata for model {model_id!r}")
-        models[model_id] = dict(profile)
-
-
-def _extract_supported_metadata(source: Mapping[object, object]) -> dict[str, object]:
-    """Copy only supported objective metadata from a provider configuration mapping."""
-    result: dict[str, object] = {}
-    for field_name, value in source.items():
-        if not isinstance(field_name, str):
-            continue
-        if (
-            field_name in _STRING_FIELDS
-            or field_name in _TOKEN_LIMIT_FIELDS
-            or field_name in _COST_FIELDS
-            or _TIERED_COST_FIELD.fullmatch(field_name)
-            or _SUPPORT_FIELD.fullmatch(field_name)
-        ):
-            result[field_name] = value
-    return result
