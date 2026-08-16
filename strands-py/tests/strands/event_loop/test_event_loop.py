@@ -16,6 +16,7 @@ from strands import Agent
 from strands.event_loop._retry import ModelRetryStrategy
 from strands.experimental.checkpoint import Checkpoint
 from strands.hooks import (
+    SUPPRESS_MESSAGE,
     AfterModelCallEvent,
     AfterToolCallEvent,
     AfterToolsEvent,
@@ -1192,6 +1193,50 @@ async def test_event_loop_cycle_after_tools_end_turn_halts_loop(
     tru_last_message = agent.messages[-1]
     assert tru_last_message["role"] == "assistant"
     assert tru_last_message["content"] == [{"text": expected_text}]
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_after_tools_suppress_message_does_not_append(
+    agent, model, tool_stream, agenerator, alist
+):
+    """SUPPRESS_MESSAGE halts the loop without appending or persisting any message."""
+    added_events = []
+
+    def on_message_added(event):
+        added_events.append(event.message)
+
+    agent.hooks.add_callback(MessageAddedEvent, on_message_added)
+
+    def set_suppress(event):
+        event.end_turn = SUPPRESS_MESSAGE
+
+    agent.hooks.add_callback(AfterToolsEvent, set_suppress)
+    # Only one model call should happen — the loop must not recurse.
+    model.stream.side_effect = [agenerator(tool_stream)]
+
+    events = await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
+
+    tru_stop_reason = events[-1]["stop"][0]
+    assert tru_stop_reason == "end_turn"
+    assert model.stream.call_count == 1
+
+    # The stop event still carries a Message payload (the pre-replacement value
+    # that delegation middleware substitutes with the real content).
+    assert events[-1]["stop"][1]["role"] == "assistant"
+
+    # No placeholder assistant message was appended; the last message is the
+    # tool result (user role), and no placeholder text exists anywhere.
+    tru_last_message = agent.messages[-1]
+    assert tru_last_message["role"] == "user"
+    assert not any(
+        "Turn ended early" in str(b.get("text", ""))
+        for m in agent.messages
+        for b in m.get("content", [])
+        if isinstance(b, dict)
+    )
+
+    # No MessageAddedEvent fired for a placeholder (only the tool result message).
+    assert not any("Turn ended early" in str(b.get("text", "")) for m in added_events for b in m.get("content", []))
 
 
 @pytest.mark.asyncio

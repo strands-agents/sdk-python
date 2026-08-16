@@ -30,6 +30,7 @@ type-safe system that supports multiple subscribers per event type.
 """
 
 from .events import (
+    SUPPRESS_MESSAGE,
     AfterInvocationEvent,
     AfterModelCallEvent,
     # Multiagent hook events
@@ -50,6 +51,7 @@ from .events import (
 from .registry import BaseHookEvent, HookCallback, HookEvent, HookOrder, HookProvider, HookRegistry
 
 __all__ = [
+    "SUPPRESS_MESSAGE",
     "AgentInitializedEvent",
     "BeforeInvocationEvent",
     "BeforeToolCallEvent",

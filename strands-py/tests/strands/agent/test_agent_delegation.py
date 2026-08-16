@@ -12,6 +12,7 @@ from strands.agent._agent_delegation import AgentDelegation, _DelegationState, _
 from strands.agent.agent import Agent
 from strands.agent.agent_result import AgentResult
 from strands.hooks import (
+    SUPPRESS_MESSAGE,
     AfterToolCallEvent,
     AfterToolsEvent,
     BeforeToolsEvent,
@@ -246,7 +247,8 @@ def test_on_after_tools_sets_end_turn_on_success():
     plugin._state[parent] = _DelegationState(tool_use_id="t1", tool_use_count=1)
 
     tru_event = _fire_after_tools(parent, plugin)
-    assert tru_event.end_turn is True
+    assert tru_event.end_turn is SUPPRESS_MESSAGE
+    assert bool(tru_event.end_turn)  # truthy — the event loop end_turn branch is entered
 
 
 def test_on_after_tools_skips_when_result_is_error():
@@ -345,8 +347,12 @@ async def test_handle_stream_non_delegation_multiple_stops_preserved():
 
 
 @pytest.mark.asyncio
-async def test_handle_stream_delegation_replaces_stop_with_trailing():
-    """Delegation replaces stop; trailing events keep position; exactly one terminal."""
+async def test_handle_stream_delegation_appends_and_fires_once():
+    """Delegation appends the real message and fires MessageAddedEvent exactly once.
+
+    No placeholder was ever appended (end_turn was set to SUPPRESS_MESSAGE), so
+    the middleware is the sole appender on every path.
+    """
     tool = _make_delegation_tool()
     parent = Agent(name="p", tools=[tool], callback_handler=None)
     plugin = _get_plugin(parent)
@@ -358,13 +364,21 @@ async def test_handle_stream_delegation_replaces_stop_with_trailing():
                 "role": "user",
                 "content": [{"toolResult": {"toolUseId": "t1", "status": "success", "content": [{"text": "answer"}]}}],
             },
-            {"role": "assistant", "content": [{"text": "placeholder"}]},
         ]
     )
 
+    added_events = []
+
+    async def on_added(event):
+        added_events.append(event)
+
+    parent.add_hook(on_added, MessageAddedEvent)
+
     ctx = AgentStreamContext(agent=parent, messages=[], invocation_state={"request_state": {}}, _interrupts={})
     pre = TypedEvent({"pre": 1})
-    stop = EventLoopStopEvent("end_turn", parent.messages[-1], parent.event_loop_metrics, {})
+    stop = EventLoopStopEvent(
+        "end_turn", {"role": "assistant", "content": [{"text": "placeholder"}]}, parent.event_loop_metrics, {}
+    )
     trail = TypedEvent({"trail": 1})
 
     async def inner(c):
@@ -380,6 +394,11 @@ async def test_handle_stream_delegation_replaces_stop_with_trailing():
     assert len(tru_stops) == 1
     assert tru_stops[0]["stop"][1]["content"][0]["text"] == "answer"
     assert tru_events[-1] is trail
+
+    # The real delegation message is appended and fired exactly once.
+    assert len(added_events) == 1
+    assert added_events[0].message["content"][0]["text"] == "answer"
+    assert parent.messages[-1] is added_events[0].message
     assert "tracking_id" in parent.messages[-1]
 
 
@@ -748,8 +767,8 @@ async def test_ordering_guard_late_hook_flipping_result_prevents_end_turn():
 
 
 @pytest.mark.asyncio
-async def test_message_added_event_fires_for_delegation_message():
-    """MessageAddedEvent fires for the placeholder and then the real delegation content."""
+async def test_message_added_event_fires_once_for_delegation_message():
+    """MessageAddedEvent fires exactly once with the real delegation content (no placeholder)."""
     sub = Agent(
         model=MockedModelProvider([{"role": "assistant", "content": [{"text": "Balance: $42"}]}]),
         name="billing",
@@ -778,15 +797,15 @@ async def test_message_added_event_fires_for_delegation_message():
     orch.add_hook(on_message_added, MessageAddedEvent)
     await orch.invoke_async("Check balance")
 
-    # Expected: user prompt, assistant tool_use, tool_result, end_turn placeholder, delegation content
-    assert len(received_messages) == 5
+    # Expected: user prompt, assistant tool_use, tool_result, delegation content
+    assert len(received_messages) == 4
 
     tru_placeholders = [
         m
         for m in received_messages
         if m["role"] == "assistant" and any("Turn ended early" in str(b.get("text", "")) for b in m.get("content", []))
     ]
-    assert len(tru_placeholders) == 1
+    assert len(tru_placeholders) == 0
 
     tru_delegation = [
         m
@@ -794,14 +813,12 @@ async def test_message_added_event_fires_for_delegation_message():
         if m["role"] == "assistant" and any("$42" in str(b.get("text", "")) for b in m.get("content", []))
     ]
     assert len(tru_delegation) == 1
-
-    # Placeholder comes before delegation content
-    assert received_messages.index(tru_placeholders[0]) < received_messages.index(tru_delegation[0])
+    assert tru_delegation[0]["content"][0]["text"] == "Balance: $42"
 
 
 @pytest.mark.asyncio
-async def test_session_manager_suppresses_delegation_message_added_event():
-    """With a session manager, subscribers see the placeholder but not the delegation content event."""
+async def test_session_manager_receives_delegation_message_added_event_once():
+    """With a session manager, subscribers see exactly one real delegation content event."""
     from strands.session.repository_session_manager import RepositorySessionManager
     from tests.fixtures.mock_session_repository import MockedSessionRepository
 
@@ -837,15 +854,31 @@ async def test_session_manager_suppresses_delegation_message_added_event():
     orch.add_hook(on_message_added, MessageAddedEvent)
     await orch.invoke_async("Check balance")
 
+    # Exactly one real delegation event reaches subscribers, no placeholder.
     tru_delegation = [
         m
         for m in received_messages
         if m["role"] == "assistant" and any("$42" in str(b.get("text", "")) for b in m.get("content", []))
     ]
-    assert len(tru_delegation) == 0
+    assert len(tru_delegation) == 1
+    tru_placeholders = [
+        m
+        for m in received_messages
+        if m["role"] == "assistant" and any("Turn ended early" in str(b.get("text", "")) for b in m.get("content", []))
+    ]
+    assert len(tru_placeholders) == 0
 
-    # But agent.messages still reflects the delegation content
+    # agent.messages reflects the delegation content and nothing was persisted twice.
     assert any("$42" in str(b.get("text", "")) for b in orch.messages[-1].get("content", []))
+
+    persisted = repo.list_messages("s1", orch.agent_id)
+    persisted_texts = [
+        b.get("text", "")
+        for m in persisted
+        for b in (m.message.get("content", []) if isinstance(m.message, dict) else [])
+    ]
+    assert sum("$42" in t for t in persisted_texts) == 1
+    assert not any("Turn ended early" in t for t in persisted_texts)
 
 
 # --- Middleware single-call guard ---

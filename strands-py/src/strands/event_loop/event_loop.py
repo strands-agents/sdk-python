@@ -18,7 +18,13 @@ from opentelemetry import trace as trace_api
 
 from .._middleware.stages import InvokeModelContext, InvokeModelStage
 from ..experimental.checkpoint import Checkpoint, CheckpointPosition
-from ..hooks import AfterModelCallEvent, AfterToolsEvent, BeforeModelCallEvent, BeforeToolsEvent
+from ..hooks import (
+    SUPPRESS_MESSAGE,
+    AfterModelCallEvent,
+    AfterToolsEvent,
+    BeforeModelCallEvent,
+    BeforeToolsEvent,
+)
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import Tracer, get_tracer
 from ..tools._validator import validate_and_prepare_tools
@@ -913,7 +919,10 @@ async def _handle_tool_execution(
             else "Turn ended early by hook after tool execution"
         )
         end_turn_message: Message = {"role": "assistant", "content": [{"text": end_turn_text}]}
-        await agent._append_messages(end_turn_message)
+        # SUPPRESS_MESSAGE: halt without appending or persisting any message.
+        # The component that set the sentinel produces the final message itself.
+        if after_tools_event.end_turn is not SUPPRESS_MESSAGE:
+            await agent._append_messages(end_turn_message)
         yield EventLoopStopEvent(
             "end_turn",
             end_turn_message,

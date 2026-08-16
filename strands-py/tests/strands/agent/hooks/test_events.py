@@ -4,6 +4,7 @@ import pytest
 
 from strands.agent.agent_result import AgentResult
 from strands.hooks import (
+    SUPPRESS_MESSAGE,
     AfterInvocationEvent,
     AfterModelCallEvent,
     AfterToolCallEvent,
@@ -185,6 +186,9 @@ def test_after_tools_event_fields_default_and_writability(after_tools_event, age
     assert tru_event.end_turn is True
     tru_event.end_turn = "enough gathered"
     assert tru_event.end_turn == "enough gathered"
+    tru_event.end_turn = SUPPRESS_MESSAGE
+    assert tru_event.end_turn is SUPPRESS_MESSAGE
+    assert bool(tru_event.end_turn)  # truthy — the event loop end_turn branch is entered
 
     with pytest.raises(AttributeError, match="Property agent is not writable"):
         tru_event.agent = Mock()

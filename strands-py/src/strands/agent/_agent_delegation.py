@@ -7,10 +7,10 @@ When a tool is configured with ``delegate=True``, this plugin ensures:
 3. The AgentResult is transformed with the delegation tool's content as the last message
 4. Streaming events from the delegate agent are surfaced natively in the parent stream
 
-The final delegation message is produced in middleware after the core loop exits.
-``MessageAddedEvent`` subscribers will see the end_turn placeholder followed by a second
-event with the real delegation content (no session manager), or no event for the real
-content at all (session manager attached).
+The delegation plugin sets ``AfterToolsEvent.end_turn`` to ``SUPPRESS_MESSAGE`` so the
+event loop stops without appending or persisting a placeholder. The final delegation
+message is produced in middleware after the core loop exits, and ``MessageAddedEvent``
+fires exactly once with the real delegated content, regardless of session manager presence.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 from .._middleware.stages import AgentStreamContext, AgentStreamStage, ExecuteToolContext, ExecuteToolStage
 from .._middleware.types import MiddlewareNext
 from ..hooks import (
+    SUPPRESS_MESSAGE,
     AfterToolCallEvent,
     AfterToolsEvent,
     BeforeModelCallEvent,
@@ -240,7 +241,7 @@ class AgentDelegation(Plugin):
             )
             return
 
-        event.end_turn = True
+        event.end_turn = SUPPRESS_MESSAGE
         state.end_turn_via_delegation = True
 
     # --- Middleware ---
@@ -354,21 +355,13 @@ class AgentDelegation(Plugin):
         delegation_message: MessageType = {"role": "assistant", "content": delegation_content}
         _ensure_tracking_id(delegation_message)
 
-        # Replace the placeholder message the event loop persisted.
-        session_manager = getattr(context.agent, "_session_manager", None)
-        if messages and messages[-1].get("role") == "assistant":
-            messages[-1] = delegation_message
-            if session_manager is not None:
-                session_manager.redact_latest_message(delegation_message, context.agent)
-            else:
-                await context.agent.hooks.invoke_callbacks_async(
-                    MessageAddedEvent(agent=context.agent, message=delegation_message)
-                )
-        else:
-            messages.append(delegation_message)
-            await context.agent.hooks.invoke_callbacks_async(
-                MessageAddedEvent(agent=context.agent, message=delegation_message)
-            )
+        # No placeholder was ever appended (end_turn was set to SUPPRESS_MESSAGE),
+        # so append the real delegation message and fire MessageAddedEvent exactly
+        # once, regardless of session manager presence.
+        messages.append(delegation_message)
+        await context.agent.hooks.invoke_callbacks_async(
+            MessageAddedEvent(agent=context.agent, message=delegation_message)
+        )
 
         # Replay tail with stop replaced by delegation terminal.
         for event in tail_buffer:
