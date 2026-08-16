@@ -8,7 +8,7 @@ import pytest
 from typing_extensions import override
 
 from strands import Agent
-from strands.models import BedrockModel, InputComplexityStrategy, ModelCatalog, ModelRouter
+from strands.models import BedrockModel, InputComplexityStrategy, ModelRouter
 from strands.types.content import Messages, SystemContentBlock
 from strands.types.streaming import StreamEvent
 from strands.types.tools import ToolChoice, ToolSpec
@@ -75,23 +75,9 @@ def test_agent_routes_to_expected_model_for_request_complexity(caplog, user_prom
     candidate_models = {
         model_id: _InvocationTrackingBedrockModel(model_id) for model_id in (_HAIKU_MODEL_ID, _SONNET_MODEL_ID)
     }
-    model_catalog = ModelCatalog(
-        {
-            model_id: {
-                "litellm_provider": "bedrock",
-                "mode": "chat",
-                "max_input_tokens": 200_000,
-                "supports_tool_calling": True,
-            }
-            for model_id in candidate_models
-        }
-    )
     router = ModelRouter(
         models=list(candidate_models.values()),
-        strategy=InputComplexityStrategy(
-            classifier_model=classifier_model,
-            model_catalog=model_catalog,
-        ),
+        strategy=InputComplexityStrategy(classifier_model=classifier_model),
     )
     agent = Agent(model=router, load_tools_from_directory=False)
 
