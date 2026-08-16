@@ -178,8 +178,8 @@
     "test:package": "npm run build && cd test/packages/esm-module && npm install && node esm.js && cd ../cjs-module && npm install && node cjs.js && cd ../../.. && npm pack --dry-run --ignore-scripts --json | node test/packages/assert-package-contents.js",
     "lint": "eslint src test/integ",
     "lint:fix": "eslint src test/integ --fix",
-    "format": "prettier --write src test/integ",
-    "format:check": "prettier --check src test/integ",
+    "format": "prettier --write src test/integ eslint.config.js vitest.config.ts",
+    "format:check": "prettier --check src test/integ eslint.config.js vitest.config.ts",
     "type-check": "tsc --noEmit --project src/tsconfig.json && tsc --noEmit --project test/integ/tsconfig.json",
     "type-check:watch": "tsc --noEmit --watch"
   },

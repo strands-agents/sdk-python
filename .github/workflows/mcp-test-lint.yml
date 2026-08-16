@@ -35,7 +35,7 @@ jobs:
 
       - name: Run lint
         id: lint
-        run: hatch run lint
+        run: hatch fmt --check
         continue-on-error: false
 
       - name: Run tests
