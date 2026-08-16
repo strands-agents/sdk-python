@@ -22,7 +22,7 @@ import type { ToolExecutionInput, ToolExecutorOptions } from './executor.js'
  */
 export class SequentialToolExecutor extends ToolExecutor {
   /**
-   * Executes tool calls in source order, honoring `agent.cancelSignal` between
+   * Executes tool calls in source order, honoring the execution cancellation signal between
    * calls to short-circuit tools that have not started.
    *
    * @param options - Agent dependencies used to execute tools
@@ -48,7 +48,7 @@ export class SequentialToolExecutor extends ToolExecutor {
         continue
       }
 
-      if (options.agent.cancelSignal.aborted) {
+      if (options.cancelSignal.aborted) {
         const cancelBlock = new ToolResultBlock({
           toolUseId: toolUseBlock.toolUseId,
           status: 'error',

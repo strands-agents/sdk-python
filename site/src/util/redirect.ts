@@ -8,7 +8,7 @@
  * The path-normalization fallback never returns an external URL (prevents open redirects).
  */
 
-import { exactly, startsWith } from '../utils/regex'
+import { exactly, startsWith } from './regex'
 
 // ── Slug-level rename rules ───────────────────────────────────────────────────
 
@@ -39,6 +39,11 @@ export const STATIC_SLUG_REDIRECTS: Record<string, string> = {
 
   // cli-reference-agent was archived (strands-agents/agent-builder)
   'docs/examples/python/cli-reference-agent': 'docs/examples',
+
+  // robots-sim was archived (strands-labs/robots-sim); its capabilities are
+  // now covered by Strands Robots' built-in simulation. Point the old page
+  // straight at Strands Robots so backlinks land on the successor project.
+  'docs/labs/robots-sim': 'docs/labs/robots',
 
   // community-packages content lives on the interactive integrations page
   // (an Astro page — buildStaticRedirects validates those targets against
@@ -108,9 +113,7 @@ export const STATIC_SLUG_REDIRECTS: Record<string, string> = {
     'https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/typescript/deploy_to_bedrock_agentcore/README.md',
 }
 
-type SlugRule =
-  | { match: RegExp; to: string }
-  | { match: RegExp; to: (m: RegExpMatchArray) => string }
+type SlugRule = { match: RegExp; to: string } | { match: RegExp; to: (m: RegExpMatchArray) => string }
 
 // Exact-match rules generated from STATIC_SLUG_REDIRECTS, plus any dynamic
 // (regex-based) rules. Dynamic rules can't be enumerated into static stubs,
@@ -168,10 +171,7 @@ export function resolveRedirect(slug: string, redirectFromMap?: Record<string, s
  * @param path - The URL path to resolve (e.g. "/docs/user-guide/...")
  * @param redirectFromMap - Optional map of source slugs to target slugs (from frontmatter redirectFrom)
  */
-export function resolveRedirectFromUrl(
-  path: string,
-  redirectFromMap?: Record<string, string>
-): string | null {
+export function resolveRedirectFromUrl(path: string, redirectFromMap?: Record<string, string>): string | null {
   // Strip leading version segment: /latest/, /1.x/, /1.5.x/, etc.
   path = path.replace(/^\/?(latest|[\d]+(?:\.[\dx]+)*)\//, '/')
 

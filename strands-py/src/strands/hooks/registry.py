@@ -33,6 +33,7 @@ class HookOrder:
     SDK_FIRST: int = -100
     INTERVENTION_OUTPUT: int = -90
     DEFAULT: int = 0
+    MODEL_ROUTING: int = 50
     INTERVENTION_INPUT: int = 90
     SDK_LAST: int = 100
 

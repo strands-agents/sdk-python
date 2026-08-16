@@ -5,7 +5,6 @@ on:
     branches: [main]
     paths:
       - 'strands-ts/**'
-      - 'strandly/**'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/typescript-*'
@@ -164,7 +163,7 @@ jobs:
 
       - name: Upload test artifacts
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: test-artifacts-integ
           path: ./strands-ts/test/.artifacts/
@@ -209,7 +208,7 @@ jobs:
       # publish step below skips gracefully when the report is absent.
       - name: Download test artifacts
         id: download
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v8.0.1
         continue-on-error: true
         with:
           name: test-artifacts-integ

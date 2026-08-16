@@ -4,11 +4,10 @@ tags: [interventions, tool-execution]
 description: "Gate agent tool execution behind human approval. Configurable modes for CLI, web, and custom UIs with optional session trust."
 sourceLinks:
   - path: strands-py/src/strands/vended_interventions/hitl/hitl.py
+  - path: strands-py/src/strands/vended_interventions/hitl/classifier.py
   - path: strands-ts/src/vended-interventions/hitl/hitl.ts
-sidebar:
-  badge:
-    text: New
-    variant: tip
+  - path: strands-ts/src/vended-interventions/hitl/classifier.ts
+addedDate: 2026-06-03
 ---
 
 The `HumanInTheLoop` intervention handler pauses agent execution before tool calls to request human approval. It provides a configurable, drop-in way to add human oversight without writing custom interrupt logic. Pass it to `interventions` and choose how you want to collect the human's response.
@@ -23,7 +22,9 @@ flowchart LR
     B -->|Yes| C[Execute]
     B -->|No| D{Trusted?}
     D -->|Yes| C
-    D -->|No| E{Human approves?}
+    D -->|No| G{Classifier?}
+    G -->|Safe| C
+    G -->|Risky/None| E{Human approves?}
     E -->|Yes| C
     E -->|No| F[Cancel]
 ```
@@ -93,11 +94,55 @@ For web UIs, Slack bots, or other custom interfaces, pass a function to `ask`. T
 </Tab>
 </Tabs>
 
+### Risk Classifier
+
+Use the `classifier` option to let an LLM decide per-call
+whether a tool needs approval. Tools in `allowed_tools` bypass
+the classifier entirely (fast path for known-safe tools).
+
+<Tabs>
+<Tab label="Python">
+
+```python
+--8<-- "user-guide/concepts/agents/interventions/human-in-the-loop.py:classifier"
+```
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/agents/interventions/human-in-the-loop_imports.ts:classifier_imports"
+
+--8<-- "user-guide/concepts/agents/interventions/human-in-the-loop.ts:classifier"
+```
+</Tab>
+</Tabs>
+
+You can customize the classifier's system prompt or model, or
+provide your own classification function:
+
+<Tabs>
+<Tab label="Python">
+
+```python
+--8<-- "user-guide/concepts/agents/interventions/human-in-the-loop.py:classifier_custom"
+```
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/agents/interventions/human-in-the-loop_imports.ts:classifier_custom_imports"
+
+--8<-- "user-guide/concepts/agents/interventions/human-in-the-loop.ts:classifier_custom"
+```
+</Tab>
+</Tabs>
+
 ## Configuration
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | <Syntax py="allowed_tools" ts="allowedTools" /> | <Syntax py="list[str]" ts="string[]" /> | <Syntax py="None" ts="undefined" /> | Tools that bypass approval. Supports `"*"` (all) and `"!tool_name"` (negation). |
+| `classifier` | <Syntax py="bool, LLMClassifierConfig, or callable" ts="boolean, LlmClassifierConfig, or function" /> | <Syntax py="None" ts="undefined" /> | LLM risk classifier. `True` for built-in defaults, config object for custom prompt/model, or a custom function. |
 | <Syntax py="enable_trust" ts="enableTrust" /> | <Syntax py="bool" ts="boolean" /> | <Syntax py="False" ts="false" /> | When enabled, trust responses are remembered for the session. |
 | <Syntax py="evaluate_trust" ts="evaluateTrust" /> | Function | Accepts `"t"` or `"trust"` | Custom validator for trust responses. Only evaluated when trust is enabled. |
 | `evaluate` | Function | Accepts <Syntax py='True, "y", or "yes"' ts="true, 'y', or 'yes'" /> | Custom validator for approval responses. |

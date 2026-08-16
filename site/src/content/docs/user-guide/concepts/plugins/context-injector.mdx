@@ -5,10 +5,7 @@ tags: [token-management]
 sourceLinks:
   - path: strands-py/src/strands/vended_plugins/context_injector/plugin.py
   - path: strands-ts/src/vended-plugins/context-injector/plugin.ts
-sidebar:
-  badge:
-    text: New
-    variant: tip
+addedDate: 2026-06-17
 ---
 
 The `ContextInjector` plugin folds real-time text into the model input before each call. The text is added to that single call's input only: it is never written to the conversation history, so it is not persisted or replayed on later turns. Use it for context the agent should always have but that does not belong in the stored history: the current time, a sandbox descriptor, environment facts, or a retrieval lookup.

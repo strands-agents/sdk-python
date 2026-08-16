@@ -23,7 +23,7 @@ from ....agent.conversation_manager.compression.context_compression import (
     matches_message_type,
 )
 from ....agent.conversation_manager.compression.pin_message import is_pinned, pin_message, unpin_message
-from ....agent.conversation_manager.conversation_manager import DEFAULT_CONTEXT_WINDOW_LIMIT
+from ....models._defaults import DEFAULT_CONTEXT_WINDOW_LIMIT
 from ....tools.decorator import tool
 from ....types.content import Message, _ensure_tracking_id
 from ....types.exceptions import ContextWindowOverflowException
@@ -327,6 +327,9 @@ def create_token_usage_middleware() -> MiddlewareInputHandler:
             new_message["metadata"] = last_message["metadata"]
         messages[-1] = new_message
 
-        return replace(context, messages=messages)
+        # The live token count makes this block per-call, so a cache point must stay ahead of it.
+        # Only counted for a user message: elsewhere it would move the cache point off an unrelated message.
+        appended = 1 if last_message["role"] == "user" else 0
+        return replace(context, messages=messages, dynamic_trailing_blocks=context.dynamic_trailing_blocks + appended)
 
     return middleware

@@ -1,6 +1,7 @@
 name: AgentCore Memory Store
 description: Amazon Bedrock AgentCore Memory as a Strands MemoryStore, with long-term recall and server-side memory extraction from conversation turns.
 integrationType: memory-store
+maintainedBy: aws
 languages:
   typescript:
     package: bedrock-agentcore

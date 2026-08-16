@@ -79,6 +79,10 @@ class BedrockKnowledgeBaseConfig(TypedDict, total=False):
         agent_client: Pre-constructed agent client for ``IngestKnowledgeBaseDocuments`` calls. When
             omitted, a default boto3 client is constructed lazily on first write. To target a specific
             region/credentials/endpoint, build the client yourself and inject it here.
+        region_name: AWS region hint for the default ``bedrock-agent-runtime`` / ``bedrock-agent`` / ``s3``
+            clients constructed by the store. When omitted, ``None`` is passed and boto3 resolves the
+            region itself. Ignored for any client the caller injects explicitly
+            (``runtime_client`` / ``agent_client`` / ``s3.client``).
     """
 
     knowledge_base_id: Required[str]
@@ -89,6 +93,7 @@ class BedrockKnowledgeBaseConfig(TypedDict, total=False):
     scope_metadata_key: str
     runtime_client: AgentsforBedrockRuntimeClient
     agent_client: AgentsforBedrockClient
+    region_name: str
 
 
 class BedrockKnowledgeBaseAccessControlEntry(TypedDict):

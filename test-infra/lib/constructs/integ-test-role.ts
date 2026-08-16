@@ -161,6 +161,9 @@ export class IntegTestRole extends Construct {
           'bedrock:RetrieveAndGenerate',
           'bedrock-mantle:CreateInference',
           'bedrock-mantle:CallWithBearerToken',
+          // Lets the Mantle routing drift tests enumerate GET /v1/models; without it
+          // they skip rather than run. See #3654.
+          'bedrock-mantle:ListModels',
           'bedrock:CountTokens',
         ],
         resources: ['*'],
