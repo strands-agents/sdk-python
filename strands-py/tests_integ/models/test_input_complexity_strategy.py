@@ -10,8 +10,10 @@ from typing_extensions import override
 from strands import Agent
 from strands.models import BedrockModel, InputComplexityStrategy, ModelRouter
 from strands.types.content import Messages, SystemContentBlock
+from strands.types.exceptions import ModelThrottledException
 from strands.types.streaming import StreamEvent
 from strands.types.tools import ToolChoice, ToolSpec
+from tests_integ.conftest import retry_on_flaky
 
 _CLASSIFIER_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 _HAIKU_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
@@ -48,6 +50,11 @@ class _InvocationTrackingBedrockModel(BedrockModel):
             yield event
 
 
+@retry_on_flaky(
+    "Bedrock throttling and classifier output can be transient",
+    max_attempts=2,
+    retry_on=[ModelThrottledException, "Live model routing was inconclusive"],
+)
 @pytest.mark.parametrize(
     ("user_prompt", "expected_model_id"),
     [
@@ -86,8 +93,12 @@ def test_agent_routes_to_expected_model_for_request_complexity(caplog, user_prom
 
     assert result.stop_reason == "end_turn"
     assert str(result).strip()
-    assert candidate_models[expected_model_id].invocation_count > 0
+    assert candidate_models[expected_model_id].invocation_count == 1, (
+        "Live model routing was inconclusive: expected candidate was not invoked exactly once"
+    )
     assert all(
         model.invocation_count == 0 for model_id, model in candidate_models.items() if model_id != expected_model_id
+    ), "Live model routing was inconclusive: an unexpected candidate was invoked"
+    assert not any("classification failed" in record.getMessage() for record in caplog.records), (
+        "Live model routing was inconclusive: classification degraded"
     )
-    assert not any("classification failed" in record.getMessage() for record in caplog.records)
