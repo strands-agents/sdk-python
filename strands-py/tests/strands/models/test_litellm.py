@@ -1,9 +1,12 @@
+import contextlib
+import io
 import unittest.mock
 from unittest.mock import call
 
 import pydantic
 import pytest
 from litellm.exceptions import ContextWindowExceededError
+from litellm.types.utils import PromptTokensDetailsWrapper
 
 import strands
 from strands.models.litellm import LiteLLMModel
@@ -716,6 +719,51 @@ def test_format_chunk_metadata_without_cost_when_unpriceable():
         result = model.format_chunk(event)
 
     assert "totalCost" not in result["metadata"]["usage"]
+
+
+def test_compute_cost_forwards_cache_tokens():
+    """_compute_cost forwards cache token details so pricing reflects the cache split.
+
+    Guards https://github.com/strands-agents/harness-sdk/pull/3212 review: rebuilding usage from only
+    the three plain token counts drops the cache split, over/understating cost by up to ~7x.
+    """
+    model = LiteLLMModel(model_id="anthropic/claude-sonnet-4-20250514")
+
+    usage = unittest.mock.Mock()
+    usage.prompt_tokens = 10000
+    usage.completion_tokens = 100
+    usage.total_tokens = 10100
+    usage.prompt_tokens_details = PromptTokensDetailsWrapper(cached_tokens=9500)
+    usage.cache_creation_input_tokens = None
+
+    with unittest.mock.patch.object(strands.models.litellm.litellm, "completion_cost") as mock_cost:
+        model._compute_cost(usage)
+
+    forwarded = mock_cost.call_args.kwargs["completion_response"].usage
+    assert forwarded.prompt_tokens_details.cached_tokens == 9500
+
+
+def test_compute_cost_unpriceable_model_prints_nothing_to_stdout():
+    """_compute_cost stays silent when LiteLLM cannot price the model.
+
+    Guards https://github.com/strands-agents/harness-sdk/pull/3212 review: completion_cost prints a red
+    "Provider List" banner to stdout for unpriceable models, which callers cannot silence.
+    """
+    model = LiteLLMModel(model_id="some/unpriceable-model-xyz")
+
+    usage = unittest.mock.Mock()
+    usage.prompt_tokens = 10
+    usage.completion_tokens = 5
+    usage.total_tokens = 15
+    usage.prompt_tokens_details = None
+    usage.cache_creation_input_tokens = None
+
+    captured = io.StringIO()
+    with contextlib.redirect_stdout(captured):
+        cost = model._compute_cost(usage)
+
+    assert cost is None
+    assert captured.getvalue() == ""
 
 
 def test_stream_switch_content_same_type():

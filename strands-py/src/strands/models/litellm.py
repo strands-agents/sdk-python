@@ -3,6 +3,8 @@
 - Docs: https://docs.litellm.ai/
 """
 
+import contextlib
+import io
 import json
 import logging
 import uuid
@@ -196,9 +198,12 @@ class LiteLLMModel(OpenAIModel):
                     prompt_tokens=usage.prompt_tokens,
                     completion_tokens=usage.completion_tokens,
                     total_tokens=usage.total_tokens,
+                    prompt_tokens_details=getattr(usage, "prompt_tokens_details", None),
+                    cache_creation_input_tokens=getattr(usage, "cache_creation_input_tokens", None),
                 ),
             )
-            return litellm.completion_cost(completion_response=response, model=self.get_config()["model_id"])
+            with contextlib.redirect_stdout(io.StringIO()):
+                return litellm.completion_cost(completion_response=response, model=self.get_config()["model_id"])
         except Exception as error:
             logger.debug("model_id=<%s>, error=<%s> | could not estimate cost", self.get_config()["model_id"], error)
             return None

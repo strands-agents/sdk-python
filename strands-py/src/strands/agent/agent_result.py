@@ -41,8 +41,8 @@ class AgentResult:
     checkpoint: Checkpoint | None = None
 
     @property
-    def cost(self) -> float | None:
-        """Best-effort estimated total cost in USD for this invocation.
+    def total_cost(self) -> float | None:
+        """Best-effort estimated total cost in USD accumulated across all model calls.
 
         Returns:
             The accumulated cost across all model calls, or None when the model provider does not
