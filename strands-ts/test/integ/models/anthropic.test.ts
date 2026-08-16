@@ -90,6 +90,47 @@ describe.skipIf(anthropic.skip)('AnthropicModel Integration Tests', () => {
         expect(readTokens).toBeGreaterThanOrEqual(0)
       }
     })
+
+    it('cacheConfig auto placement earns a read on the second turn', async () => {
+      const provider = anthropic.createModel({ maxTokens: 100, cacheConfig: { strategy: 'auto' } })
+      const prefix = `Dossier ${Date.now()}-${Math.random()}. ${'The subject prefers concise answers. '.repeat(400)}`
+      const messages = [new Message({ role: 'user', content: [new TextBlock(prefix)] })]
+
+      const first = await collectIterator(provider.stream(messages))
+      const usage1 = first.find((event) => event.type === 'modelMetadataEvent')?.usage
+      expect(usage1?.cacheWriteInputTokens).toBeGreaterThan(0)
+
+      const second = await collectIterator(provider.stream(messages))
+      const usage2 = second.find((event) => event.type === 'modelMetadataEvent')?.usage
+      expect(usage2?.cacheReadInputTokens).toBeGreaterThan(0)
+    })
+
+    it('cacheConfig toolsTTL earns a read on the second turn', async () => {
+      const provider = anthropic.createModel({
+        maxTokens: 100,
+        cacheConfig: { strategy: 'auto', toolsTTL: '5m', messagesTTL: false },
+      })
+      const toolSpecs = [
+        {
+          name: 'lookupReference',
+          description: `Look up a reference entry ${Date.now()}-${Math.random()}. ${'The catalog is stable across requests. '.repeat(400)}`,
+          inputSchema: { type: 'object' as const, properties: { topic: { type: 'string' as const } } },
+        },
+      ]
+      const messages = (text: string): Message[] => [new Message({ role: 'user', content: [new TextBlock(text)] })]
+
+      const first = await collectIterator(
+        provider.stream(messages('Reply ALPHA. Do not call any tool.'), { toolSpecs })
+      )
+      const usage1 = first.find((event) => event.type === 'modelMetadataEvent')?.usage
+      expect(usage1?.cacheWriteInputTokens).toBeGreaterThan(0)
+
+      const second = await collectIterator(
+        provider.stream(messages('Reply BETA. Do not call any tool.'), { toolSpecs })
+      )
+      const usage2 = second.find((event) => event.type === 'modelMetadataEvent')?.usage
+      expect(usage2?.cacheReadInputTokens).toBeGreaterThan(0)
+    })
   })
 
   describe('Media Support', () => {

@@ -12,6 +12,7 @@ import { ContextWindowOverflowError } from '../../errors.js'
 import { createMockAgent, invokeTrackedHook } from '../../__fixtures__/agent-helpers.js'
 import { MockMessageModel } from '../../__fixtures__/mock-message-model.js'
 import type { BaseModelConfig } from '../../models/model.js'
+import { Model } from '../../models/model.js'
 import { warnOnce } from '../../logging/warn-once.js'
 
 vi.mock('../../logging/warn-once.js', () => ({
@@ -159,7 +160,10 @@ describe('ConversationManager', () => {
   })
 
   describe('proactiveCompression', () => {
-    const mockModel = { getConfig: () => ({ contextWindowLimit: 1000 }) as BaseModelConfig } as any
+    const mockModel = {
+      getConfig: () => ({ contextWindowLimit: 1000 }) as BaseModelConfig,
+      estimateUtilization: Model.prototype.estimateUtilization,
+    } as any
 
     it('always registers a BeforeModelCallEvent hook regardless of proactiveCompression setting', () => {
       const manager = new TestConversationManager()
@@ -291,7 +295,10 @@ describe('ConversationManager', () => {
       const mockAgent = createMockAgent({ messages })
       manager.initAgent(mockAgent)
 
-      const modelWithoutLimit = { getConfig: () => ({}) as BaseModelConfig } as any
+      const modelWithoutLimit = {
+        getConfig: () => ({}) as BaseModelConfig,
+        estimateUtilization: Model.prototype.estimateUtilization,
+      } as any
       // 150000/200000 = 0.75 >= 0.7 — should trigger with the 200k default
       const event = new BeforeModelCallEvent({
         agent: mockAgent,
@@ -313,7 +320,10 @@ describe('ConversationManager', () => {
       const mockAgent = createMockAgent()
       manager.initAgent(mockAgent)
 
-      const modelWithoutLimit = { getConfig: () => ({}) as BaseModelConfig } as any
+      const modelWithoutLimit = {
+        getConfig: () => ({}) as BaseModelConfig,
+        estimateUtilization: Model.prototype.estimateUtilization,
+      } as any
       // 100000/200000 = 0.5 < 0.7 — should NOT trigger
       const event = new BeforeModelCallEvent({
         agent: mockAgent,

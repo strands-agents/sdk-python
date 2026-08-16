@@ -74,7 +74,7 @@ class TestRegisteredHandler:
         )
         assert result.messages == [
             {"role": "assistant", "content": [{"text": "prior"}]},
-            {"role": "user", "content": [{"text": "INJECTED"}, {"text": "ask"}]},
+            {"role": "user", "content": [{"text": "ask"}, {"text": "\n\nINJECTED"}]},
         ]
 
     async def test_skips_on_non_user_turn_by_default(self):
@@ -94,7 +94,7 @@ class TestRegisteredHandler:
         )
         # No later user message than index 0, so the fold targets it.
         assert result.messages == [
-            {"role": "user", "content": [{"text": "INJECTED"}, {"text": "ask"}]},
+            {"role": "user", "content": [{"text": "ask"}, {"text": "\n\nINJECTED"}]},
             {"role": "assistant", "content": [{"text": "reply"}]},
         ]
 

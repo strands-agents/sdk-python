@@ -724,7 +724,7 @@ Edit `SLUG_RULES` in `src/util/redirect.ts` for structural renames affecting man
 { match: startsWith('docs/old-prefix'), to: (m) => `docs/new-prefix/${m[1]}` },
 ```
 
-Helper builders from `src/utils/regex.ts`:
+Helper builders from `src/util/regex.ts`:
 - `startsWith(prefix)` — matches slugs starting with `prefix/`, captures the rest in `m[1]`
 - `exactly(s)` — matches the slug exactly
 

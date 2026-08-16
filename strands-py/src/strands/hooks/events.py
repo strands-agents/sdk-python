@@ -274,6 +274,10 @@ class AfterToolCallEvent(HookEvent):
         result: The result of the tool invocation. Either a ToolResult on success
             or an Exception if the tool execution failed.
         cancel_message: The cancellation message if the user cancelled the tool call.
+        duration: Elapsed time in seconds spent executing the tool. Starts after
+            BeforeToolCallEvent returns and stops before AfterToolCallEvent is constructed.
+            None when the tool call was cancelled by a BeforeToolCallEvent hook
+            before execution.
         retry: Whether to retry the tool invocation. Can be set by hook callbacks
             to trigger a retry. When True, the current result is discarded and the
             tool is called again. Defaults to False.
@@ -285,6 +289,7 @@ class AfterToolCallEvent(HookEvent):
     result: ToolResult
     exception: Exception | None = None
     cancel_message: str | None = None
+    duration: float | None = None
     retry: bool = False
 
     def _can_write(self, name: str) -> bool:
