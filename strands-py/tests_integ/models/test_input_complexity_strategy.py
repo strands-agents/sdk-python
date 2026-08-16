@@ -5,6 +5,7 @@ import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
+import pytest
 from typing_extensions import override
 
 from strands import Agent
@@ -15,14 +16,14 @@ from strands.types.tools import ToolChoice, ToolSpec
 
 _CLASSIFIER_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 _ROUTINE_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
-_COMPLEX_MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+_COMPLEX_MODEL_ID = "global.anthropic.claude-sonnet-4-6"
 
 
 class _InvocationTrackingBedrockModel(BedrockModel):
     """Bedrock model that records whether the router invoked it."""
 
     def __init__(self, model_id: str) -> None:
-        super().__init__(model_id=model_id, max_tokens=64, streaming=False)
+        super().__init__(model_id=model_id, max_tokens=256, streaming=False)
         self.invocation_count = 0
 
     @override
@@ -48,8 +49,29 @@ class _InvocationTrackingBedrockModel(BedrockModel):
             yield event
 
 
-def test_agent_routes_with_real_classifier_and_catalog(tmp_path, caplog):
-    """A real classifier selects one real candidate through the public Agent API."""
+@pytest.mark.parametrize(
+    ("user_prompt", "expected_candidate_name"),
+    [
+        (
+            "What is the capital of France? Reply with only the city name.",
+            "routine",
+        ),
+        (
+            "Design a backward-compatible migration from region-local to globally unique idempotency keys for an "
+            "active-active payment service. Account for concurrent requests, mixed-version deployments, rollback, "
+            "data reconciliation, and monitoring. Return exactly five numbered steps, each under twelve words.",
+            "complex",
+        ),
+    ],
+    ids=["routine-factual-request", "complex-distributed-systems-request"],
+)
+def test_agent_routes_to_expected_model_for_request_complexity(
+    tmp_path,
+    caplog,
+    user_prompt,
+    expected_candidate_name,
+):
+    """A real classifier routes routine and complex requests to their expected real models."""
     catalog_path = tmp_path / "model-routing.json"
     catalog_path.write_text(
         json.dumps(
@@ -57,14 +79,15 @@ def test_agent_routes_with_real_classifier_and_catalog(tmp_path, caplog):
                 "version": 1,
                 "models": {
                     "routine": {
-                        "description": "Best for short factual questions and simple arithmetic.",
+                        "description": "Use for direct factual requests that need no tradeoff analysis or planning.",
                         "relative_latency": "low",
                         "capabilities": ["short_factual_answers"],
+                        "limitations": ["systems_architecture", "multi_constraint_planning"],
                     },
                     "complex": {
-                        "description": "Best for ambiguous requests requiring multi-step reasoning.",
+                        "description": "Use for systems architecture and multi-constraint planning with tradeoffs.",
                         "relative_latency": "high",
-                        "capabilities": ["complex_reasoning"],
+                        "capabilities": ["systems_architecture", "multi_constraint_planning"],
                     },
                 },
             }
@@ -77,12 +100,14 @@ def test_agent_routes_with_real_classifier_and_catalog(tmp_path, caplog):
         max_tokens=64,
         streaming=False,
     )
-    routine_model = _InvocationTrackingBedrockModel(_ROUTINE_MODEL_ID)
-    complex_model = _InvocationTrackingBedrockModel(_COMPLEX_MODEL_ID)
+    candidate_models = {
+        "routine": _InvocationTrackingBedrockModel(_ROUTINE_MODEL_ID),
+        "complex": _InvocationTrackingBedrockModel(_COMPLEX_MODEL_ID),
+    }
     router = ModelRouter(
         models=[
-            RoutingCandidate(model=routine_model, name="routine"),
-            RoutingCandidate(model=complex_model, name="complex"),
+            RoutingCandidate(model=candidate_models["routine"], name="routine"),
+            RoutingCandidate(model=candidate_models["complex"], name="complex"),
         ],
         strategy=InputComplexityStrategy(
             classifier_model=classifier_model,
@@ -92,9 +117,14 @@ def test_agent_routes_with_real_classifier_and_catalog(tmp_path, caplog):
     agent = Agent(model=router, load_tools_from_directory=False)
 
     with caplog.at_level(logging.WARNING, logger="strands.models.routing.input_complexity_strategy"):
-        result = agent("What is 2 + 2? Reply with one short sentence.")
+        result = agent(user_prompt)
 
     assert result.stop_reason == "end_turn"
     assert str(result).strip()
-    assert sum(model.invocation_count > 0 for model in (routine_model, complex_model)) == 1
+    assert candidate_models[expected_candidate_name].invocation_count > 0
+    assert all(
+        model.invocation_count == 0
+        for candidate_name, model in candidate_models.items()
+        if candidate_name != expected_candidate_name
+    )
     assert not any("classification failed" in record.getMessage() for record in caplog.records)
