@@ -113,7 +113,7 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
   protected readonly _threshold: number | undefined
   protected readonly _utilization: number | undefined
   protected readonly _preserveRecent: number
-  protected readonly _removalRatio = 0.3
+  protected readonly _removalRatio: number = 0.3
   protected readonly _includeFilter: Set<string> | undefined
   protected readonly _excludeFilter: Set<string> | undefined
 
@@ -273,7 +273,8 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
     } else {
       candidates = messages.filter(
         (message, index) =>
-          index > 0 && messageMatchesTarget(message, this._target, toolNameMap, this._includeFilter, this._excludeFilter)
+          index > 0 &&
+          messageMatchesTarget(message, this._target, toolNameMap, this._includeFilter, this._excludeFilter)
       )
     }
 
@@ -740,6 +741,42 @@ export const Offload: OffloadNamespace = {
   summarize(target: OffloadTarget, config?: SummarizeConfig): OffloadStrategyBuilder {
     return wrapAsBuilder(new SummarizeStrategy(target, config), (c) => new SummarizeStrategy(target, config, c))
   },
+}
+
+// --- Emergency truncation strategy ---
+
+/**
+ * Last-resort strategy that recomputes utilization and drops the oldest 20% of messages
+ * when the context window is still overflowing after all user-configured strategies have run.
+ * Appended internally by ContextManager — not part of the public builder API.
+ *
+ * TODO: add a ContextManagerConfig flag to disable this for users who want full control.
+ *
+ * @internal
+ */
+export class EmergencyTruncateStrategy extends BaseOffloadStrategy {
+  readonly name = 'offload:emergency-truncate'
+  protected override readonly _removalRatio = 0.2
+
+  constructor() {
+    super('*')
+  }
+
+  override init(): void {
+    // No eager hooks — this only fires on overflow
+  }
+
+  override async apply(context: ContextState): Promise<boolean> {
+    if (context.messages.length <= 3) return false
+    const tokens = await context.agent.model.countTokens(context.messages)
+    const utilization = context.agent.model.estimateUtilization(tokens)
+    if (utilization < 1.0) return false
+    return this._applyPerMessage({ ...context, utilization })
+  }
+
+  protected async _replaceBlock(): Promise<ContentBlock | null> {
+    return null
+  }
 }
 
 // --- Role alternation repair ---

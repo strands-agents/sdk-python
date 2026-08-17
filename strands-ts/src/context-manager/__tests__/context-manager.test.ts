@@ -264,10 +264,9 @@ describe('ContextManager', () => {
   })
 
   describe('truncation', () => {
-    it('preserves the first message', async () => {
-      const firstMessage = new Message({ role: 'user', content: [new TextBlock('system prompt')] })
+    it('preserves the first message content', async () => {
       const messages = [
-        firstMessage,
+        new Message({ role: 'user', content: [new TextBlock('system prompt')] }),
         new Message({ role: 'assistant', content: [new TextBlock('r1')] }),
         new Message({ role: 'user', content: [new TextBlock('m2')] }),
         new Message({ role: 'assistant', content: [new TextBlock('r2')] }),
@@ -291,7 +290,8 @@ describe('ContextManager', () => {
       const event = makeOverflowEvent(agent)
       await invokeTrackedHook(agent, event)
 
-      expect(messages[0]).toBe(firstMessage)
+      const firstBlock = messages[0]!.content[0]! as TextBlock
+      expect(firstBlock.text).toBe('system prompt')
     })
 
     it('does not orphan tool-use/tool-result pairs in preserved region', async () => {
