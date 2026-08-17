@@ -10,7 +10,7 @@ import { AfterModelCallEvent, BeforeModelCallEvent } from '../hooks/events.js'
 import { ContextWindowOverflowError } from '../errors.js'
 import { logger } from '../logging/logger.js'
 import type { ContextManagerConfig, ContextStrategy, ContextState } from './types.js'
-import { EmergencyTruncateStrategy, Offload } from './strategies/offload.js'
+import { EmergencyTruncateStrategy, Offload } from './strategies/offload/index.js'
 
 /**
  * Manages context reduction for an agent's conversation.

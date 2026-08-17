@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { Offload } from '../offload.js'
+import { Offload } from '../offload/index.js'
 import { Message, TextBlock, ToolResultBlock, ToolUseBlock } from '../../../types/messages.js'
 import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
 import type { Agent } from '../../../agent/agent.js'
