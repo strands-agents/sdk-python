@@ -509,8 +509,8 @@ class TestRetrievalTool:
 
     @pytest.mark.asyncio
     async def test_retrieve_missing_reference(self, plugin, tool_context):
-        result = await plugin.retrieve_offloaded_content(reference="nonexistent", tool_context=tool_context)
-        assert "Error: reference not found" in result
+        with pytest.raises(ValueError, match="reference not found: nonexistent"):
+            await plugin.retrieve_offloaded_content(reference="nonexistent", tool_context=tool_context)
 
     @pytest.mark.asyncio
     async def test_retrieve_image_content(self, plugin, storage, tool_context):
@@ -612,14 +612,11 @@ class TestRetrievalToolSearch:
         assert "line 11" not in result
 
     @pytest.mark.asyncio
-    async def test_returns_error_for_binary_content(self, plugin, storage, tool_context):
+    async def test_raises_for_binary_content(self, plugin, storage, tool_context):
         ref = await storage.store("k1", b"\x89PNG", "image/png")
 
-        result = await plugin.retrieve_offloaded_content(
-            reference=ref, pattern="test", tool_context=tool_context
-        )
-
-        assert "Error: cannot search binary content (image/png)" in result
+        with pytest.raises(ValueError, match=r"cannot search binary content \(image/png\)"):
+            await plugin.retrieve_offloaded_content(reference=ref, pattern="test", tool_context=tool_context)
 
     @pytest.mark.asyncio
     async def test_falls_back_to_literal_on_invalid_regex(self, plugin, storage, tool_context):
@@ -635,12 +632,11 @@ class TestRetrievalToolSearch:
         assert "> 3| foo (bar again" in result
 
     @pytest.mark.asyncio
-    async def test_returns_error_for_missing_reference(self, plugin, tool_context):
-        result = await plugin.retrieve_offloaded_content(
-            reference="nonexistent", pattern="test", tool_context=tool_context
-        )
-
-        assert "Error: reference not found" in result
+    async def test_raises_for_missing_reference(self, plugin, tool_context):
+        with pytest.raises(ValueError, match="reference not found: nonexistent"):
+            await plugin.retrieve_offloaded_content(
+                reference="nonexistent", pattern="test", tool_context=tool_context
+            )
 
     @pytest.mark.asyncio
     async def test_searches_json_content(self, plugin, storage, tool_context):
@@ -700,11 +696,10 @@ class TestRetrievalToolSearch:
         content = "line 1\nline 2\nline 3"
         ref = await storage.store("k1", content.encode("utf-8"), "text/plain")
 
-        result = await plugin.retrieve_offloaded_content(
-            reference=ref, line_range={"start": 100, "end": 200}, tool_context=tool_context
-        )
-
-        assert "beyond content length (3 lines)" in result
+        with pytest.raises(ValueError, match=r"beyond content length \(3 lines\)"):
+            await plugin.retrieve_offloaded_content(
+                reference=ref, line_range={"start": 100, "end": 200}, tool_context=tool_context
+            )
 
     @pytest.mark.asyncio
     async def test_clamps_line_range_end(self, plugin, storage, tool_context):
@@ -744,6 +739,98 @@ class TestRetrievalToolSearch:
         result = await plugin.retrieve_offloaded_content(reference=ref, tool_context=tool_context)
 
         assert result == "hello world"
+
+
+class TestRetrievalToolErrorStatus:
+    """Retrieval failures surface as tool results with status "error" (#3493).
+
+    A failure reported as status "success" is indistinguishable to the model from
+    content that was retrieved successfully.
+    """
+
+    @pytest.fixture
+    def storage(self):
+        return InMemoryStorage()
+
+    @pytest.fixture
+    def plugin(self, storage):
+        return ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10, include_retrieval_tool=True)
+
+    @pytest.fixture
+    def mock_agent(self):
+        return MagicMock()
+
+    @staticmethod
+    async def _tool_result(plugin, mock_agent, alist, tool_input):
+        """Invoke the tool the way the event loop does and return the tool result the model sees."""
+        tool_use = ToolUse(toolUseId="retrieve_1", name="retrieve_offloaded_content", input=tool_input)
+        events = await alist(plugin.retrieve_offloaded_content.stream(tool_use, {"agent": mock_agent}))
+        return events[-1].tool_result
+
+    @pytest.mark.asyncio
+    async def test_missing_reference_reports_error_status(self, plugin, mock_agent, alist):
+        tru_result = await self._tool_result(plugin, mock_agent, alist, {"reference": "nope"})
+
+        exp_result = {
+            "toolUseId": "retrieve_1",
+            "status": "error",
+            "content": [{"text": "Error: reference not found: nope"}],
+        }
+        assert tru_result == exp_result
+
+    @pytest.mark.asyncio
+    async def test_binary_content_search_reports_error_status(self, plugin, storage, mock_agent, alist):
+        ref = await storage.store("k1", b"\x89PNG", "image/png")
+
+        tru_result = await self._tool_result(plugin, mock_agent, alist, {"reference": ref, "pattern": "test"})
+
+        exp_result = {
+            "toolUseId": "retrieve_1",
+            "status": "error",
+            "content": [
+                {
+                    "text": (
+                        "Error: cannot search binary content (image/png). "
+                        "Omit pattern/line_range/context_lines to retrieve the full content."
+                    )
+                }
+            ],
+        }
+        assert tru_result == exp_result
+
+    @pytest.mark.asyncio
+    async def test_out_of_range_line_range_reports_error_status(self, plugin, storage, mock_agent, alist):
+        ref = await storage.store("k1", b"line 1\nline 2", "text/plain")
+
+        tru_result = await self._tool_result(
+            plugin, mock_agent, alist, {"reference": ref, "line_range": {"start": 100, "end": 200}}
+        )
+
+        exp_result = {
+            "toolUseId": "retrieve_1",
+            "status": "error",
+            "content": [{"text": "Error: line_range.start (100) is beyond content length (2 lines)."}],
+        }
+        assert tru_result == exp_result
+
+    @pytest.mark.asyncio
+    async def test_successful_retrieval_reports_success_status(self, plugin, storage, mock_agent, alist):
+        ref = await storage.store("k1", b"hello world", "text/plain")
+
+        tru_result = await self._tool_result(plugin, mock_agent, alist, {"reference": ref})
+
+        exp_result = {"toolUseId": "retrieve_1", "status": "success", "content": [{"text": "hello world"}]}
+        assert tru_result == exp_result
+
+    @pytest.mark.asyncio
+    async def test_search_without_matches_reports_success_status(self, plugin, storage, mock_agent, alist):
+        """A search that finds nothing has succeeded — only genuine failures report an error."""
+        ref = await storage.store("k1", b"hello\nworld", "text/plain")
+
+        tru_result = await self._tool_result(plugin, mock_agent, alist, {"reference": ref, "pattern": "absent"})
+
+        assert tru_result["status"] == "success"
+        assert "No matches found for pattern 'absent'" in tru_result["content"][0]["text"]
 
 
 class TestInlineGuidance:

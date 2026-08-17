@@ -5,19 +5,36 @@ This package includes an abstract base Model class along with concrete implement
 
 from typing import Any
 
-from . import bedrock, model
+from . import bedrock, model, routing
 from .bedrock import BedrockModel
 from .model import BaseModelConfig, CacheConfig, CacheToolsConfig, Model
+from .routing import (
+    CandidateInput,
+    FallbackStrategy,
+    ModelRouter,
+    RoutingAttempt,
+    RoutingCandidate,
+    RoutingContext,
+    RoutingStrategy,
+)
 
 __all__ = [
     "bedrock",
     "model",
+    "routing",
     "BaseModelConfig",
     "BedrockModel",
     "BedrockInvokeModel",
     "CacheConfig",
     "CacheToolsConfig",
+    "CandidateInput",
+    "FallbackStrategy",
     "Model",
+    "ModelRouter",
+    "RoutingAttempt",
+    "RoutingCandidate",
+    "RoutingContext",
+    "RoutingStrategy",
 ]
 
 

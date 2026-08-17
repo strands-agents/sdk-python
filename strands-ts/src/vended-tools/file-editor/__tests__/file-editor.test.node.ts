@@ -23,6 +23,7 @@ describe('fileEditor tool', () => {
       },
       agent,
       invocationState: {},
+      cancelSignal: agent.cancelSignal,
       interrupt: () => {
         throw new Error('interrupt not available in mock context')
       },
@@ -523,6 +524,7 @@ describe.skipIf(process.platform === 'win32')('fileEditor tool (sandbox path)', 
       toolUse: { name: 'fileEditor', toolUseId: 'test-id', input: {} },
       agent,
       invocationState: {},
+      cancelSignal: agent.cancelSignal,
       interrupt: () => {
         throw new Error('interrupt not available in mock context')
       },
@@ -576,6 +578,7 @@ describe.skipIf(process.platform === 'win32')('fileEditor tool (sandbox path)', 
       toolUse: { name: 'fileEditor', toolUseId: 'test-id', input: {} },
       agent,
       invocationState: {},
+      cancelSignal: agent.cancelSignal,
       interrupt: () => {
         throw new Error('interrupt not available in mock context')
       },

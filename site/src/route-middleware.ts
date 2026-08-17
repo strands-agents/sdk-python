@@ -3,6 +3,7 @@ import { getCollection } from 'astro:content'
 import { buildPythonApiSidebar, buildTypeScriptApiSidebar, getPrevNextLinks, type DocInfo } from './dynamic-sidebar'
 import { pathWithBase } from './util/links'
 import { navLinks, type NavLink } from './config/navbar'
+import { isNew, NEW_BADGE } from './util/new-badge'
 
 type SidebarEntry = StarlightRouteData['sidebar'][number]
 type SidebarGroup = Extract<SidebarEntry, { type: 'group' }>
@@ -22,9 +23,7 @@ export function findCurrentNavSection(currentPath: string, links: NavLink[]): Na
 
   for (const link of links) {
     if (link.external) continue
-    const basePaths = link.basePath
-      ? (Array.isArray(link.basePath) ? link.basePath : [link.basePath])
-      : [link.href]
+    const basePaths = link.basePath ? (Array.isArray(link.basePath) ? link.basePath : [link.basePath]) : [link.href]
     for (const bp of basePaths) {
       if (currentPath.startsWith(bp) && bp.length > bestMatchLength) {
         bestMatch = link
@@ -81,6 +80,39 @@ export function applyCollapse(items: SidebarEntry[], depth: number = 0): Sidebar
     }
     return item
   })
+}
+
+/**
+ * Add a "New" badge to sidebar links whose page is within the new-badge window.
+ * An explicit badge from frontmatter (e.g. Experimental) wins over the derived one.
+ */
+export function applyNewBadges(items: SidebarEntry[], newHrefs: Set<string>): SidebarEntry[] {
+  if (newHrefs.size === 0) return items
+  return items.map((item) => {
+    if (item.type === 'group') {
+      return { ...item, entries: applyNewBadges(item.entries, newHrefs) }
+    }
+    if (item.badge === undefined && newHrefs.has(item.href)) {
+      return { ...item, badge: NEW_BADGE }
+    }
+    return item
+  })
+}
+
+/**
+ * Collect hrefs of docs pages whose frontmatter addedDate falls within the
+ * new-badge window at build time.
+ */
+async function buildNewPageHrefs(buildDate: Date): Promise<Set<string>> {
+  const docs = await getCollection('docs')
+  const hrefs = new Set<string>()
+  for (const doc of docs) {
+    const addedDate = doc.data.addedDate as Date | undefined
+    if (addedDate && isNew(addedDate, buildDate)) {
+      hrefs.add(pathWithBase(`/${doc.id}/`))
+    }
+  }
+  return hrefs
 }
 
 /**
@@ -162,7 +194,7 @@ export const onRequest = defineRouteMiddleware(async (context) => {
   const currentNav = findCurrentNavSection(currentPath, navLinks)
 
   // If no matching nav section, show empty sidebar
-  if (!currentNav || currentNav.label == "Home") {
+  if (!currentNav || currentNav.label == 'Home') {
     starlightRoute.sidebar = []
     return
   }
@@ -173,7 +205,7 @@ export const onRequest = defineRouteMiddleware(async (context) => {
 
   // Otherwise filter it down to the major section that we're in
   const filteredSidebar = filterSidebarByBasePath(sidebar, allBasePaths)
-  starlightRoute.sidebar = applyCollapse(filteredSidebar)
+  starlightRoute.sidebar = applyNewBadges(applyCollapse(filteredSidebar), await buildNewPageHrefs(new Date()))
 
   // Starlight pre-computes pagination from the full sidebar before our middleware runs.
   // Prune any prev/next links that fall outside the current nav section, then override

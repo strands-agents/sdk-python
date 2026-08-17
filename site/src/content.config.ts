@@ -78,10 +78,18 @@ export const changelogFrontmatterSchema = z
   // and omits the field entirely.
   .superRefine((d, ctx) => {
     if (d.sdk === 'harness' && d.language === undefined) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['language'], message: 'harness releases require a language (python or typescript)' })
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['language'],
+        message: 'harness releases require a language (python or typescript)',
+      })
     }
     if (d.sdk === 'evals' && d.language !== undefined) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['language'], message: 'evals releases must not set a language (evals is python-only)' })
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['language'],
+        message: 'evals releases must not set a language (evals is python-only)',
+      })
     }
   })
 export type ChangelogFrontmatter = z.infer<typeof changelogFrontmatterSchema>
@@ -142,6 +150,11 @@ export const catalogEntrySchema = z
     // on-site docsPage, the card's primary link prefers this over the bare
     // GitHub repo so users land on usage instructions.
     docsUrl: z.string().url().startsWith('https://', 'docsUrl must be https').optional(),
+    // Who stands behind the integration, shown and filtered on the catalog.
+    // `strands` (SDK built-ins) and `aws` are granted by the Strands team;
+    // `partner` requires a maintainer to verify the entry is vended by the
+    // integrator's official org; submitters leave it unset (community).
+    maintainedBy: z.enum(['strands', 'aws', 'partner', 'community']).default('community'),
     // Editorial fields — maintainer-granted only; submitters leave them unset.
     featured: z.boolean().default(false),
     badges: z.array(z.enum(['verified'])).default([]),
@@ -207,31 +220,32 @@ export const collections = {
       base: 'src/content',
       pattern: 'testimonials/**/*.md',
     }),
-    schema: ({ image }: SchemaContext) => z.object({
-      name: z.string(),
-      title: z.string().optional(),
-      logo: image().optional(),
-      dark_logo: image().optional(),
-      link: z.string().url().optional(),
-      order: z.number().default(0),
-    }),
+    schema: ({ image }: SchemaContext) =>
+      z.object({
+        name: z.string(),
+        title: z.string().optional(),
+        logo: image().optional(),
+        dark_logo: image().optional(),
+        link: z.string().url().optional(),
+        order: z.number().default(0),
+      }),
   }),
   docs: defineCollection({
     loader: glob({
-      base: "src/content",
+      base: 'src/content',
       // We explicitly declare the folders we want to include, as otherwise it includes index.md files
       // in examples which are not intended to be rendered on the site.
       // Long-term we'll be moving examples into the sdk-python repository instead, solving this problem.
       pattern: [
-        "404.mdx",
+        '404.mdx',
 
-        "docs/user-guide/**/*.mdx",
-        "docs/integrations/**/*.mdx",
-        "docs/contribute/**/*.mdx",
-        "docs/examples/**/[!index]*.mdx",
-        "docs/labs/**/*.mdx",
-        "docs/api/python/**/*.mdx",
-        "docs/api/typescript/**/*.(md|mdx)",
+        'docs/user-guide/**/*.mdx',
+        'docs/integrations/**/*.mdx',
+        'docs/contribute/**/*.mdx',
+        'docs/examples/**/[!index]*.mdx',
+        'docs/labs/**/*.mdx',
+        'docs/api/python/**/*.mdx',
+        'docs/api/typescript/**/*.(md|mdx)',
       ],
       generateId: generateDocsId,
     }),
@@ -241,10 +255,25 @@ export const collections = {
         languages: docsLanguagesSchema,
         community: z.boolean().default(false),
         experimental: z.boolean().default(false),
+        // Drives the derived "New" sidebar badge for NEW_BADGE_DAYS after this
+        // date (see route-middleware.ts). Never hand-write a literal New badge.
+        addedDate: z.coerce.date().optional(),
         // Category for TypeScript API docs (classes, interfaces, type-aliases, functions)
         category: z.string().optional(),
         // Integration type for filtering (e.g., 'model-provider' for model providers)
-        integrationType: z.enum(['model-provider', 'tool', 'session-manager', 'memory-store', 'storage', 'integration', 'plugin', 'agent-extension', 'intervention']).optional(),
+        integrationType: z
+          .enum([
+            'model-provider',
+            'tool',
+            'session-manager',
+            'memory-store',
+            'storage',
+            'integration',
+            'plugin',
+            'agent-extension',
+            'intervention',
+          ])
+          .optional(),
         // Short description for catalog listings
         description: z.string().optional(),
         // Array of slugs that should redirect to this page (e.g., old URLs)

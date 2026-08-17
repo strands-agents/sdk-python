@@ -1,16 +1,17 @@
 ---
 /**
- * Community integration catalog: searchable, filterable grid of community
- * packages. Entries come from the `catalog` content collection; popularity
- * stats from the bot-maintained src/data/catalog-stats.json. Everything is
- * rendered statically; the inline script only toggles card visibility.
+ * Integration catalog: searchable, filterable grid of SDK built-ins and
+ * community packages. Entries come from the `catalog` content collection;
+ * popularity stats from the bot-maintained src/data/catalog-stats.json.
+ * Everything is rendered statically; the inline script only toggles card
+ * visibility.
  */
 import { getCollection } from 'astro:content'
 import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro'
 import CatalogCard from '../components/catalog/CatalogCard.astro'
 import CatalogFilterBar from '../components/catalog/CatalogFilterBar.astro'
 import CatalogFacets from '../components/catalog/CatalogFacets.astro'
-import { CATALOG_TYPES, TYPE_ICONS } from '../components/catalog/types'
+import { CATALOG_TYPES, AWS_MARK_VIEWBOX, MAINTAINED_BY_ICONS, MAINTAINED_BY_TIERS, TYPE_ICONS } from '../components/catalog/types'
 import { toCardModel, sortEntries, type CatalogStatsFile } from '../util/catalog'
 import { pathWithBase } from '../util/links'
 import statsFile from '../data/catalog-stats.json'
@@ -28,16 +29,22 @@ const hasVerified = cards.some((c) => c.badges.includes('verified'))
 const hasFeatured = cards.some((c) => c.featured)
 const hasNew = cards.some((c) => c.badges.includes('new'))
 
-// Counts span both SDKs while filtering is per-SDK; with no evals entries the
-// two coincide, so if/when evals entries land these need client-side recompute.
+// Build-time counts are the initial paint only; apply() recomputes every
+// chip count client-side against the active filters.
 const typeFacets = CATALOG_TYPES.map(({ value, labelPlural }) => ({
   value,
   label: labelPlural,
   count: cards.filter((c) => c.integrationType === value).length,
 })).filter((t) => t.count > 0)
 
+const maintainedByFacets = MAINTAINED_BY_TIERS.map(({ value, label }) => ({
+  value,
+  label,
+  count: cards.filter((c) => c.maintainedBy === value).length,
+})).filter((t) => t.count > 0)
+
 const title = 'Integrations'
-const description = 'Community-built tools, model providers, plugins, and integrations for Strands Agents.'
+const description = 'Built-in and community tools, model providers, plugins, and integrations for Strands Agents.'
 ---
 
 <StarlightPage frontmatter={{ title, description, template: 'splash', pagefind: false, hero: { actions: [] } }} hasSidebar={false}>
@@ -45,7 +52,7 @@ const description = 'Community-built tools, model providers, plugins, and integr
     <div class="cat-head">
       <div>
         <h1 class="cat-title">Integrations</h1>
-        <p class="cat-subtitle">Tools, model providers, and integrations built by the Strands community</p>
+        <p class="cat-subtitle">Tools, model providers, and integrations, built into the SDK and by the Strands community</p>
       </div>
       <div class="cat-head-actions">
         <a class="cat-cta-btn" href={pathWithBase('/docs/integrations/get-featured/')}>Add your integration</a>
@@ -56,22 +63,6 @@ const description = 'Community-built tools, model providers, plugins, and integr
     <CatalogFilterBar showSdkFacet={showSdkFacet} />
     <div class="cat-body">
       <nav class="cat-rail" aria-label="Filter catalog">
-        <p class="cat-rail-label" id="cat-type-label">Type</p>
-        <ul class="cat-rail-list" aria-labelledby="cat-type-label">
-          {
-            typeFacets.map((t) => (
-              <li class="cat-rail-item">
-                <button class="cat-chip" type="button" data-cat-type={t.value} aria-pressed="false">
-                  <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
-                    <path fill="currentColor" d={TYPE_ICONS[t.value]} />
-                  </svg>
-                  {t.label}
-                  <span class="cat-count">{t.count}</span>
-                </button>
-              </li>
-            ))
-          }
-        </ul>
         {
           (hasFeatured || hasNew || hasVerified) && (
             <>
@@ -105,11 +96,54 @@ const description = 'Community-built tools, model providers, plugins, and integr
             </>
           )
         }
+        <p class="cat-rail-label" id="cat-type-label">Type</p>
+        <ul class="cat-rail-list" aria-labelledby="cat-type-label">
+          {
+            typeFacets.map((t) => (
+              <li class="cat-rail-item">
+                <button class="cat-chip" type="button" data-cat-type={t.value} aria-pressed="false">
+                  <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
+                    <path fill="currentColor" d={TYPE_ICONS[t.value]} />
+                  </svg>
+                  {t.label}
+                  <span class="cat-count">{t.count}</span>
+                </button>
+              </li>
+            ))
+          }
+        </ul>
+        <p class="cat-rail-label" id="cat-maintained-label">Maintained by</p>
+        <ul class="cat-rail-list" aria-labelledby="cat-maintained-label">
+          {
+            maintainedByFacets.map((t) => (
+              <li class="cat-rail-item">
+                <button class="cat-chip" type="button" data-cat-maintained={t.value} aria-label={t.label} aria-pressed="false">
+                  {MAINTAINED_BY_ICONS[t.value] ? (
+                    <svg width="29" height="18" viewBox={AWS_MARK_VIEWBOX} aria-hidden="true">
+                      <path fill="currentColor" d={MAINTAINED_BY_ICONS[t.value]} />
+                    </svg>
+                  ) : (
+                    t.label
+                  )}
+                  <span class="cat-count">{t.count}</span>
+                </button>
+              </li>
+            ))
+          }
+        </ul>
       </nav>
       <div class="cat-grid" data-cat-grid>
         {cards.map((card) => <CatalogCard card={card} />)}
-        {/* Not a .cat-card: the filter script must never hide this tile. */}
-        <div class="cat-cta">
+        <div class="cat-empty" data-cat-empty hidden>
+          <p class="cat-empty-title">No integrations match</p>
+          <p class="cat-empty-body">Try different filters, or build the missing piece and list it here.</p>
+          <div class="cat-empty-actions">
+            <button class="cat-btn-ghost" type="button" data-cat-clear>Clear filters</button>
+            <a class="cat-cta-btn" href={pathWithBase('/docs/integrations/get-featured/')}>Add your integration</a>
+          </div>
+        </div>
+        {/* Not a .cat-card: hidden only when the empty panel takes over. */}
+        <div class="cat-cta" data-cat-cta>
           <h2 class="cat-cta-title">Add your integration</h2>
           <p class="cat-cta-body">Built a tool, model provider, or plugin for Strands? List it here.</p>
           <a class="cat-cta-btn" href={pathWithBase('/docs/integrations/get-featured/')}>Add your integration</a>
@@ -137,6 +171,7 @@ const description = 'Community-built tools, model providers, plugins, and integr
       <div class="cat-dialog-facets">
         <CatalogFacets
           types={typeFacets}
+          maintainedBy={maintainedByFacets}
           showSdkFacet={showSdkFacet}
           hasVerified={hasVerified}
           hasFeatured={hasFeatured}
@@ -150,6 +185,7 @@ const description = 'Community-built tools, model providers, plugins, and integr
             data-type={card.integrationType}
             data-langs={card.languages.join(' ')}
             data-badges={[...card.badges, ...(card.featured ? ['featured'] : [])].join(' ')}
+            data-maintained={card.maintainedBy}
             data-sdk={card.sdk}
             data-search={`${card.name} ${card.description} by ${card.maintainer}`.toLowerCase()}
           >
@@ -179,7 +215,6 @@ const description = 'Community-built tools, model providers, plugins, and integr
       <iframe class="cat-drawer-frame" data-cat-drawer-frame title="Integration documentation" src="about:blank"
       ></iframe>
     </dialog>
-    <p class="cat-empty" data-cat-empty hidden>No integrations match the current filters.</p>
 
     <p class="cat-disclaimer">Community packages are maintained by their authors — review before production use.</p>
   </div>
@@ -189,15 +224,24 @@ const description = 'Community-built tools, model providers, plugins, and integr
   // Client-side faceted filtering over the statically-rendered cards. The
   // matching + URL-state logic lives in util/catalog-filter (unit-tested);
   // this script only reads the DOM and toggles [hidden].
-  import { matchesFilters, stateToQuery, queryToState, type CardFilterData } from '../util/catalog-filter'
+  import {
+    countIfSelected,
+    matchesFilters,
+    selectOnly,
+    stateToQuery,
+    queryToState,
+    type CardFilterData,
+  } from '../util/catalog-filter'
 
   const cards = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-grid] .cat-card'))
   const searchInput = document.querySelector<HTMLInputElement>('[data-cat-search]')
   const typeBtns = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-type]'))
   const langBtns = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-lang]'))
   const badgeBtns = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-badge]'))
+  const maintainedBtns = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-maintained]'))
   const sdkBtns = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-sdk]'))
   const emptyEl = document.querySelector<HTMLElement>('[data-cat-empty]')
+  const ctaEl = document.querySelector<HTMLElement>('[data-cat-cta]')
   const countEl = document.querySelector<HTMLElement>('[data-cat-count]')
   const dialog = document.querySelector<HTMLDialogElement>('[data-cat-dialog]')
   const dialogItems = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-dialog-list] .cat-dialog-item'))
@@ -214,6 +258,8 @@ const description = 'Community-built tools, model providers, plugins, and integr
   for (const badge of state.badges) if (!renderedBadges.has(badge)) state.badges.delete(badge)
   const renderedTypes = new Set(typeBtns.map((btn) => btn.dataset.catType))
   for (const t of state.types) if (!renderedTypes.has(t)) state.types.delete(t)
+  const renderedMaintained = new Set(maintainedBtns.map((btn) => btn.dataset.catMaintained))
+  for (const t of state.maintainedBy) if (!renderedMaintained.has(t)) state.maintainedBy.delete(t)
 
   function cardData(el: HTMLElement): CardFilterData {
     return {
@@ -221,8 +267,20 @@ const description = 'Community-built tools, model providers, plugins, and integr
       type: el.dataset.type || '',
       languages: (el.dataset.langs || '').split(' ').filter(Boolean),
       badges: (el.dataset.badges || '').split(' ').filter(Boolean),
+      maintainedBy: el.dataset.maintained || 'community',
       sdk: el.dataset.sdk || 'agents',
     }
+  }
+
+  // Facet data never changes after render; cache it for the count updates.
+  const facetData = cards.map(cardData)
+
+  function updateChipCount(btn: HTMLElement, facet: 'types' | 'badges' | 'maintainedBy', value: string) {
+    const el = btn.querySelector('.cat-count')
+    if (!el) return
+    const count = countIfSelected(facetData, state, facet, value)
+    el.textContent = String(count)
+    btn.classList.toggle('cat-chip--zero', count === 0)
   }
 
   function apply() {
@@ -233,6 +291,7 @@ const description = 'Community-built tools, model providers, plugins, and integr
       if (show) visible++
     }
     if (emptyEl) emptyEl.hidden = visible > 0
+    if (ctaEl) ctaEl.hidden = visible === 0
     if (countEl) countEl.textContent = String(visible)
     if (searchLabel) searchLabel.textContent = state.search.trim() || 'Search integrations…'
     if (searchOpenBtn) searchOpenBtn.classList.toggle('cat-search-trigger--active', Boolean(state.search.trim()))
@@ -250,6 +309,12 @@ const description = 'Community-built tools, model providers, plugins, and integr
     for (const btn of typeBtns) btn.setAttribute('aria-pressed', String(state.types.has(btn.dataset.catType || '')))
     for (const btn of langBtns) btn.setAttribute('aria-pressed', String(state.languages.has(btn.dataset.catLang || '')))
     for (const btn of badgeBtns) btn.setAttribute('aria-pressed', String(state.badges.has(btn.dataset.catBadge || '')))
+    for (const btn of maintainedBtns)
+      btn.setAttribute('aria-pressed', String(state.maintainedBy.has(btn.dataset.catMaintained || '')))
+
+    for (const btn of typeBtns) updateChipCount(btn, 'types', btn.dataset.catType || '')
+    for (const btn of badgeBtns) updateChipCount(btn, 'badges', btn.dataset.catBadge || '')
+    for (const btn of maintainedBtns) updateChipCount(btn, 'maintainedBy', btn.dataset.catMaintained || '')
     for (const btn of sdkBtns) btn.setAttribute('aria-checked', String(state.sdk === btn.dataset.catSdk))
 
     // `entry` (the open docs drawer) is not filter state; carry the current
@@ -302,7 +367,7 @@ const description = 'Community-built tools, model providers, plugins, and integr
   })
   for (const btn of typeBtns)
     btn.addEventListener('click', () => {
-      toggle(state.types, btn.dataset.catType || '')
+      selectOnly(state.types, btn.dataset.catType || '')
       apply()
     })
   for (const btn of langBtns)
@@ -310,11 +375,29 @@ const description = 'Community-built tools, model providers, plugins, and integr
       toggle(state.languages, btn.dataset.catLang || '')
       apply()
     })
+  // Highlights are cross-cutting flags (an entry can be Featured and New), so
+  // they multi-select; Type and Maintained-by hold one value per entry, so
+  // selecting within them replaces the previous choice.
   for (const btn of badgeBtns)
     btn.addEventListener('click', () => {
       toggle(state.badges, btn.dataset.catBadge || '')
       apply()
     })
+  for (const btn of maintainedBtns)
+    btn.addEventListener('click', () => {
+      selectOnly(state.maintainedBy, btn.dataset.catMaintained || '')
+      apply()
+    })
+  document.querySelector('[data-cat-clear]')?.addEventListener('click', () => {
+    state.search = ''
+    if (searchInput) searchInput.value = ''
+    state.types.clear()
+    state.languages.clear()
+    state.badges.clear()
+    state.maintainedBy.clear()
+    state.sdk = 'agents'
+    apply()
+  })
   for (const btn of sdkBtns)
     btn.addEventListener('click', () => {
       state.sdk = btn.dataset.catSdk || 'agents'

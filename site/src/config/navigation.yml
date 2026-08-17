@@ -8,7 +8,9 @@
 #
 # NOTE: Page (leaf) badges come from page frontmatter, not this file. Group labels
 # have no frontmatter, so a group may declare a `badge` here (text + variant) to
-# surface status on a collapsed section.
+# surface status on a collapsed section. Never hand-write a New badge: set
+# `addedDate` on the group (pages set it in frontmatter) and the badge derives
+# from it for 30 days.
 
 navbar:
   - label: Home
@@ -82,9 +84,7 @@ sidebar:
           - docs/user-guide/concepts/context-management
           - label: Memory
             collapsed: true
-            badge:
-              text: New
-              variant: tip
+            addedDate: 2026-06-17
             items:
               - label: "Overview"
                 slug: docs/user-guide/concepts/memory/overview
@@ -92,9 +92,7 @@ sidebar:
               - docs/user-guide/concepts/memory/bedrock-knowledge-base
           - docs/user-guide/concepts/agents/retry-strategies
           - label: Sandbox
-            badge:
-              text: New
-              variant: tip
+            addedDate: 2026-06-17
             items:
               - label: "Overview"
                 slug: docs/user-guide/concepts/sandbox
@@ -116,9 +114,7 @@ sidebar:
               - docs/user-guide/concepts/plugins/context-injector
               - docs/user-guide/concepts/plugins/goal-loop
           - label: Interventions
-            badge:
-              text: New
-              variant: tip
+            addedDate: 2026-06-03
             items:
               - label: "Overview"
                 slug: docs/user-guide/concepts/agents/interventions
@@ -357,6 +353,7 @@ sidebar:
       - label: Storage
         items:
           - docs/integrations/storage/overview
+          - docs/integrations/storage/github
       - label: Session Managers
         items:
           - docs/integrations/session-managers/agentcore-memory

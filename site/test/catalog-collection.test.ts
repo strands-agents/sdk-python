@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { getCollection } from 'astro:content'
 import { catalogEntrySchema } from '../src/content.config'
@@ -67,6 +69,24 @@ describe('catalog content collection', () => {
         languages: { typescript: { package: 'x', registry: 'https://www.npmjs.com/package/x' } },
       }).success
     ).toBe(false)
+  })
+
+  it('accepts every maintainer tier and defaults to community', () => {
+    const base = {
+      name: 'tiered-entry',
+      description: 'maintainer tier probe',
+      integrationType: 'model-provider',
+      languages: { python: {} },
+      github: 'https://github.com/strands-agents/harness-sdk',
+      addedDate: '2025-12-01',
+    }
+    for (const maintainedBy of ['strands', 'aws', 'partner', 'community']) {
+      expect(catalogEntrySchema.safeParse({ ...base, maintainedBy }).success, maintainedBy).toBe(true)
+    }
+    const parsed = catalogEntrySchema.safeParse(base)
+    expect(parsed.success).toBe(true)
+    if (parsed.success) expect(parsed.data.maintainedBy).toBe('community')
+    expect(catalogEntrySchema.safeParse({ ...base, maintainedBy: 'official' }).success).toBe(false)
   })
 
   it('rejects an unknown language key', () => {
@@ -141,6 +161,38 @@ describe('catalog content collection', () => {
         addedDate: '2026-07-17',
       })
       expect(result.success, `type ${value} is in CATALOG_TYPES but rejected by the schema`).toBe(true)
+    }
+  })
+
+  it('loads built-in SDK entries', async () => {
+    const entries = await getCollection('catalog')
+    const anthropic = entries.find((e) => e.id === 'anthropic')
+    expect(anthropic).toBeDefined()
+    expect(anthropic!.data.maintainedBy).toBe('strands')
+    expect(anthropic!.data.docsPage).toBe('docs/user-guide/concepts/model-providers/anthropic')
+    // The content layer silently drops entries whose YAML fails to parse;
+    // pinned counts catch that. Update them when granting or removing tiers.
+    const byTier = Map.groupBy(entries, (e) => e.data.maintainedBy)
+    expect(byTier.get('strands')?.length).toBe(28)
+    expect(byTier.get('aws')?.length).toBe(7)
+    expect(byTier.get('partner')?.length).toBe(21)
+    // Built-ins point at their source path in the SDK monorepo and always
+    // have on-site docs.
+    for (const e of byTier.get('strands') ?? []) {
+      expect(e.data.github, e.id).toMatch(/^https:\/\/github\.com\/strands-agents\/harness-sdk\//)
+      expect(e.data.docsPage, e.id).toBeDefined()
+    }
+  })
+
+  it('built-in github links resolve to real monorepo paths', async () => {
+    // Built-ins deep-link their source (blob/tree under main); unlike docsPage
+    // nothing else validates them, so a repo restructure would rot the links
+    // silently without this.
+    const entries = await getCollection('catalog')
+    for (const e of entries.filter((x) => x.data.maintainedBy === 'strands')) {
+      const m = /^https:\/\/github\.com\/strands-agents\/harness-sdk\/(?:blob|tree)\/main\/(.+)$/.exec(e.data.github)
+      expect(m, `${e.id}: ${e.data.github}`).not.toBeNull()
+      expect(existsSync(join('..', m![1])), `${e.id}: ${m![1]} missing from the repo`).toBe(true)
     }
   })
 

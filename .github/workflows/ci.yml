@@ -37,7 +37,6 @@ jobs:
               - '.github/workflows/ci.yml'
             typescript:
               - 'strands-ts/**/!(*.md)'
-              - 'strandly/**'
               - 'package.json'
               - 'package-lock.json'
               - '.github/workflows/typescript-*'

@@ -279,7 +279,7 @@ Common configuration parameters include:
 - `temperature` - Controls randomness (higher = more random)
 - `maxTokens` - Maximum number of tokens to generate
 - `stream` - Enable/disable streaming mode
-- `cacheConfig` - Enable prompt caching with `{ strategy: 'auto' }` or `{ strategy: 'anthropic' }`
+- `cacheConfig` - Enable prompt caching with `{ strategy: 'auto' }`, or `{ messagesTTL: false }` to cache tool definitions only
 - `region` - AWS region to use
 - `apiKey` - Bedrock API key for bearer token authentication (alternative to SigV4 signing)
 - `clientConfig` - AWS SDK client configuration
@@ -541,7 +541,7 @@ When `guardLatestUserMessage: true`, only the most recent user message is sent t
 
 Strands supports caching system prompts, tools, and messages to improve performance and reduce costs. Caching allows you to reuse parts of previous requests, which can significantly reduce token usage and latency.
 
-When you enable prompt caching, Amazon Bedrock creates a cache composed of **cache checkpoints**. These are markers that define the contiguous subsection of your prompt that you wish to cache. Cached content must remain unchanged between requests - any alteration invalidates the cache.
+When you enable prompt caching, Amazon Bedrock creates a cache composed of **cache points**. These are markers that define the contiguous subsection of your prompt that you wish to cache. Cached content must remain unchanged between requests - any alteration invalidates the cache.
 
 Prompt caching is supported for Anthropic Claude and Amazon Nova models on Bedrock. Each model has a minimum token requirement (e.g., 1,024 tokens for Claude Sonnet, 4,096 tokens for Claude Haiku), and cached content expires after 5 minutes of inactivity. Cache writes cost more than regular input tokens, but cache reads cost significantly less - see [Amazon Bedrock pricing](https://aws.amazon.com/bedrock/pricing/) for model-specific rates.
 
@@ -550,6 +550,8 @@ For complete details on supported models, token requirements, and cache field su
 #### System Prompt Caching
 
 Cache system prompts that remain static across multiple requests. This is useful when your system prompt contains no variables, timestamps, or dynamic content, exceeds the minimum cacheable token threshold for your model, and you make multiple requests with the same system prompt.
+
+A system prompt cache point you place by hand inherits the TTL you configured, so setting one `ttl` gives every cache point in the request the same duration. Bedrock requires TTLs to be non-increasing across the tool definitions, the system prompt, and the messages, and rejects a request where a longer TTL follows a shorter one.
 
 <Tabs>
 <Tab label="Python">
@@ -625,7 +627,17 @@ print(f"Cache read tokens: {response2.metrics.accumulated_usage.get('cacheReadIn
 </Tab>
 <Tab label="TypeScript">
 
-In TypeScript, tool caching is enabled through `cacheConfig`. When `cacheConfig` is set, the SDK automatically appends a cache point after the tool definitions in each request. There is no separate `cacheTools` option — `cacheConfig` handles both tool and message caching together.
+Setting `cacheConfig` appends a cache point after the tool definitions in each request. The same `cacheConfig` also caches the conversation, and `toolsTTL` and `messagesTTL` control the two independently:
+
+| Configuration | Caches |
+|---------------|--------|
+| `{}` | tool definitions and conversation |
+| `{ messagesTTL: false }` | tool definitions only |
+| `{ toolsTTL: false }` | conversation only |
+| `{ ttl: '1h' }` | both, with a one-hour TTL |
+| `{ ttl: '1h', messagesTTL: '5m' }` | tool definitions at one hour, conversation at five minutes |
+
+Pass a TTL to set that duration, or `false` to turn that part off. A `ttl` on `cacheConfig` applies to both, and either field overrides it for its own part.
 
 ```typescript
 --8<-- "user-guide/concepts/model-providers/amazon-bedrock.ts:tool_caching_full"
@@ -637,7 +649,9 @@ In TypeScript, tool caching is enabled through `cacheConfig`. When `cacheConfig`
 
 Messages caching allows you to reuse cached conversation context across multiple requests. By default, message caching is not enabled. To enable it, choose Option A for automatic cache management in agent workflows, or Option B for manual control over cache placement.
 
-The two compose: with `cache_config` set, a cache point you place yourself in the last user message is kept where you put it, and automatic placement steps aside. That matters when your last user message ends with content rebuilt on every call — retrieved context, a timestamp, injected state — because a cache point after that content puts it inside the cached prefix, so every request writes a new cache entry and none ever reads one. Place the cache point ahead of the per-call content to keep the durable prefix cacheable. Your point has to have something ahead of it to cache: a point placed as the first block of the message, or with only documents ahead of it, is dropped, because Bedrock rejects a cache point with nothing before it; automatic placement then applies its own rules, which for a leading document means no cache point at all. Cache points in earlier messages are still removed, so they cannot accumulate one per turn against the provider's cache-point budget.
+The two compose. With automatic placement enabled, a cache point you place yourself in the last user message is kept where you put it, and automatic placement is suspended for that message. Cache points in earlier messages are removed, so they never accumulate one per turn.
+
+Place your cache point *ahead* of content that changes on every call, such as retrieved context or a timestamp. A cache point after that content puts it inside the cached prefix, so every request writes a new entry and none ever reads one. Bedrock also needs something ahead of the point to cache: a point in the first block of a message is dropped.
 
 **Option A: Automatic Cache Strategy (Claude models only)**
 

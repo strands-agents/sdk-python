@@ -2,10 +2,7 @@
 title: Building a Custom Sandbox
 description: "Target an execution environment the built-in sandboxes do not cover: extend PosixShellSandbox or implement the Sandbox interface directly."
 tags: [sandbox, tool-execution]
-sidebar:
-  badge:
-    text: New
-    variant: tip
+addedDate: 2026-06-17
 ---
 
 Looking for something beyond the built-in implementations? Build a custom sandbox when your execution environment is not a local Docker container or an SSH host: a microVM, a cloud code-execution API, or a managed runtime. The agent loop, model, and vended tools all stay the same; you only implement the methods that run commands and access files in your backend.

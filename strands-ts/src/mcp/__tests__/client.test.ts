@@ -456,6 +456,42 @@ describe('MCP Integration', () => {
       )
     })
 
+    it('surfaces tool annotations in the tool spec', async () => {
+      const annotations = { title: 'Get Weather', readOnlyHint: true }
+      sdkClientMock.listTools.mockResolvedValue({
+        tools: [{ name: 'weather', description: 'Get weather', inputSchema: {}, annotations }],
+      })
+
+      const tools = await client.listTools()
+
+      expect(tools[0]!.toolSpec).toEqual({
+        name: 'weather',
+        description: 'Get weather',
+        inputSchema: {},
+        annotations,
+      })
+    })
+
+    it('omits annotations from the tool spec when the server provides none', async () => {
+      sdkClientMock.listTools.mockResolvedValue({
+        tools: [{ name: 'weather', description: 'Get weather', inputSchema: {} }],
+      })
+
+      const tools = await client.listTools()
+
+      expect(tools[0]!.toolSpec).not.toHaveProperty('annotations')
+    })
+
+    it('omits annotations from the tool spec when the server provides an empty annotations object', async () => {
+      sdkClientMock.listTools.mockResolvedValue({
+        tools: [{ name: 'weather', description: 'Get weather', inputSchema: {}, annotations: {} }],
+      })
+
+      const tools = await client.listTools()
+
+      expect(tools[0]!.toolSpec).not.toHaveProperty('annotations')
+    })
+
     it('generates description fallback when description is missing', async () => {
       sdkClientMock.listTools.mockResolvedValue({
         tools: [{ name: 'my_tool', inputSchema: {} }],
@@ -875,12 +911,13 @@ describe('MCP Integration', () => {
       toolUse: { toolUseId: 'id-123', name: 'weather', input: { city: 'NYC' } },
       agent: { cancelSignal: new AbortController().signal } as LocalAgent,
       invocationState: {},
+      cancelSignal: new AbortController().signal,
       interrupt: () => {
         throw new Error('interrupt not available in mock context')
       },
     }
 
-    it('forwards agent cancelSignal to callTool', async () => {
+    it('forwards the tool execution cancelSignal to callTool', async () => {
       vi.mocked(mockClientWrapper.callTool).mockResolvedValue({
         content: [{ type: 'text', text: 'ok' }],
       })
@@ -891,7 +928,7 @@ describe('MCP Integration', () => {
         tool,
         { city: 'NYC' },
         {
-          signal: toolContext.agent.cancelSignal,
+          signal: toolContext.cancelSignal,
         }
       )
     })

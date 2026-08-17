@@ -47,6 +47,17 @@ function toAttributeValue(value: JSONValue): MetadataAttributeValue | undefined 
   return undefined
 }
 
+/** Unwraps the `NumericValue` wrapper (aws/aws-sdk-js-v3#8246) to the stored number; anything else passes through. */
+function fromAttributeValue(value: JSONValue): JSONValue {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return value
+  const { string: encoded, type } = value as { string?: JSONValue; type?: JSONValue }
+  if (typeof encoded !== 'string' || type !== 'bigDecimal') return value
+  // Number('') and Number('  ') are 0, which would coerce a blank payload instead of preserving it.
+  if (encoded.trim() === '') return value
+  const parsed = Number(encoded)
+  return Number.isFinite(parsed) ? parsed : value
+}
+
 /**
  * S3 ingestion settings for {@link BedrockKnowledgeBaseStore}, required when `dataSourceType` is `'S3'`.
  *
@@ -344,7 +355,7 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
       const metadata: Record<string, JSONValue> = {}
       if (result.metadata) {
         for (const [key, value] of Object.entries(result.metadata)) {
-          metadata[key] = value as JSONValue
+          metadata[key] = fromAttributeValue(value as JSONValue)
         }
       }
       if (result.location) {

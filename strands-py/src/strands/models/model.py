@@ -139,7 +139,13 @@ class CacheConfig:
             - "auto": Automatically detect model support and inject cachePoint to maximize cache coverage
             - "anthropic": Inject cachePoint in Anthropic-compatible format without model support check
         ttl: Optional TTL duration for cache entries (e.g. "5m", "1h").
-            When specified, auto-injected cache points will include this TTL value.
+            When specified, auto-injected cache points will include this TTL value. Bedrock requires
+            checkpoint TTLs to be non-increasing across toolConfig, system and messages, and rejects a
+            longer TTL that follows a shorter one, so this TTL also fills in for a cache point placed by
+            hand in the system prompt that carries none of its own. A TTL written on such a point is
+            left as written, and a differing ``cache_tools`` TTL leaves the point at the Bedrock default
+            rather than landing a longer TTL behind a shorter checkpoint - either way, two TTLs in
+            tension are the caller's to reconcile.
     """
 
     strategy: Literal["auto", "anthropic"] = "auto"
