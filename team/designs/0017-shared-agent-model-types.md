@@ -4,7 +4,7 @@
 
 **Date**: 2026-08-12
 
-**Issue**: [#3764](https://github.com/strands-agents/harness-sdk/issues/3764), parent [#1722](https://github.com/strands-agents/harness-sdk/issues/1722)
+**Issue**: [#3764](https://github.com/strands-agents/harness-sdk/issues/3764)
 
 ## Overview
 
