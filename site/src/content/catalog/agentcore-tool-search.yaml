@@ -7,5 +7,4 @@ languages:
     package: bedrock-agentcore[strands-agents]
 github: https://github.com/aws/bedrock-agentcore-sdk-python
 docsPage: docs/integrations/plugins/agentcore-tool-search
-featured: true
 addedDate: 2026-01-01
