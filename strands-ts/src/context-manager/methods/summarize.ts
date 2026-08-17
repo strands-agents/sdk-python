@@ -8,10 +8,10 @@
  * @internal
  */
 
-import type { Model } from '../../../models/model.js'
-import { JsonBlock, Message, TextBlock, ToolResultBlock } from '../../../types/messages.js'
-import type { ContentBlock, ToolResultContent } from '../../../types/messages.js'
-import { logger } from '../../../logging/logger.js'
+import type { Model } from '../../models/model.js'
+import { JsonBlock, Message, TextBlock, ToolResultBlock } from '../../types/messages.js'
+import type { ContentBlock, ToolResultContent } from '../../types/messages.js'
+import { logger } from '../../logging/logger.js'
 
 export const SUMMARIZED_PREFIX = '[Summarized:'
 

@@ -9,7 +9,7 @@ import { Message, TextBlock, ToolResultBlock } from '../../../types/messages.js'
 import type { ContentBlock } from '../../../types/messages.js'
 import type { LocalAgent } from '../../../types/agent.js'
 import type { ContextStrategy, ContextState } from '../../types.js'
-import { truncateToolResultBlock, truncateTextBlock, type TruncateConfig } from '../methods/truncate.js'
+import { truncateToolResultBlock, truncateTextBlock, type TruncateConfig } from '../../methods/truncate.js'
 import {
   BaseOffloadStrategy,
   spliceWithPairs,

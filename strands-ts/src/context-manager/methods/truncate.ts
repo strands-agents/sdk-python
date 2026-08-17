@@ -6,8 +6,8 @@
  * @internal
  */
 
-import { JsonBlock, TextBlock, ToolResultBlock } from '../../../types/messages.js'
-import type { ToolResultContent } from '../../../types/messages.js'
+import { JsonBlock, TextBlock, ToolResultBlock } from '../../types/messages.js'
+import type { ToolResultContent } from '../../types/messages.js'
 
 export const TRUNCATED_PREFIX = '[Truncated:'
 

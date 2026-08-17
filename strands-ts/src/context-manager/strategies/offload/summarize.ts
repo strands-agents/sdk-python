@@ -16,7 +16,7 @@ import {
   summarizeContent,
   toolResultToContentBlocks,
   type SummarizeConfig,
-} from '../methods/summarize.js'
+} from '../../methods/summarize.js'
 import {
   BaseOffloadStrategy,
   collectRemovableWithPair,

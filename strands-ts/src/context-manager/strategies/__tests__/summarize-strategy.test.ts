@@ -5,7 +5,7 @@ import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
 import type { Agent } from '../../../agent/agent.js'
 import type { ContextState } from '../../types.js'
 
-vi.mock('../methods/summarize.js', async (importOriginal) => {
+vi.mock('../../methods/summarize.js', async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>
   return {
     ...actual,

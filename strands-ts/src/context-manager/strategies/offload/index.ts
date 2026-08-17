@@ -4,8 +4,8 @@
  * @internal
  */
 
-import type { TruncateConfig } from '../methods/truncate.js'
-import type { SummarizeConfig } from '../methods/summarize.js'
+import type { TruncateConfig } from '../../methods/truncate.js'
+import type { SummarizeConfig } from '../../methods/summarize.js'
 import type { OffloadStrategyBuilder, OffloadTarget } from './base.js'
 import { DropStrategy } from './drop.js'
 import { TruncateStrategy } from './truncate.js'
