@@ -9,7 +9,9 @@ import { Message, TextBlock, ToolResultBlock } from '../../../types/messages.js'
 import type { ContentBlock } from '../../../types/messages.js'
 import type { LocalAgent } from '../../../types/agent.js'
 import type { ContextStrategy } from '../../types.js'
-import { BaseOffloadStrategy, DROPPED_MARKER } from './base.js'
+import { BaseOffloadStrategy } from './base.js'
+
+export const DROPPED_MARKER = '[Dropped]'
 import type { OffloadConditions } from './base.js'
 
 export class DropStrategy extends BaseOffloadStrategy {

@@ -11,8 +11,6 @@ import type { ContentBlock } from '../../../types/messages.js'
 import type { LocalAgent } from '../../../types/agent.js'
 import type { ContextStrategy, ContextState } from '../../types.js'
 
-export const DROPPED_MARKER = '[Dropped]'
-
 /**
  * Target for offload operations. This union is intentionally extensible — new
  * string-literal members can be added freely as new content categories emerge.
