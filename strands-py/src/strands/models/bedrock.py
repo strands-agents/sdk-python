@@ -105,8 +105,9 @@ class BedrockModel(Model):
             additional_response_field_paths: Additional response field paths to extract
             cache_prompt: Cache point type for the system prompt (deprecated, use cache_config)
             cache_config: Configuration for prompt caching. Use CacheConfig(strategy="auto") for automatic caching.
-            cache_tools: Cache point type for tools. Pass a string (e.g. "default") for the default 5m TTL,
-                or a CacheToolsConfig instance to set both type and TTL (e.g. "1h").
+            cache_tools: Cache point type for tools. Pass a string (e.g. "default") to cache the tools with
+                no explicit TTL, or a CacheToolsConfig instance to set both type and TTL (e.g. "1h"). Inherits 
+                cache_config.ttl if specified, otherwise it takes the Bedrock default.
             guardrail_id: ID of the guardrail to apply
             guardrail_trace: Guardrail trace mode. Defaults to enabled.
             guardrail_version: Version of the guardrail to apply
@@ -451,6 +452,8 @@ class BedrockModel(Model):
     def _build_tools_cache_point(self) -> list[dict[str, Any]]:
         """Build the cache point block appended to ``toolConfig.tools`` if ``cache_tools`` is configured.
 
+        A ``cache_tools`` that carries no TTL of its own inherits ``cache_config.ttl``
+
         Returns:
             A single-element list containing the cache point block, or an empty list if no cache_tools is set.
         """
@@ -459,11 +462,22 @@ class BedrockModel(Model):
             return []
 
         if isinstance(cache_tools, CacheToolsConfig):
-            cache_point: dict[str, Any] = {"type": cache_tools.type}
-            if cache_tools.ttl:
-                cache_point["ttl"] = cache_tools.ttl
+            cache_type, ttl = cache_tools.type, cache_tools.ttl
         else:
-            cache_point = {"type": cache_tools}
+            cache_type, ttl = cache_tools, None
+
+        if not ttl:
+            cache_config = self.config.get("cache_config")
+            if cache_config and cache_config.ttl:
+                strategy: str | None = cache_config.strategy
+                if strategy == "auto":
+                    strategy = self._cache_strategy
+                if strategy == "anthropic":
+                    ttl = cache_config.ttl
+
+        cache_point: dict[str, Any] = {"type": cache_type}
+        if ttl:
+            cache_point["ttl"] = ttl
 
         return [{"cachePoint": cache_point}]
 
