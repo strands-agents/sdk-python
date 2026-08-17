@@ -6,4 +6,4 @@ languages:
   typescript:
     package: "@respan/instrumentation-strands-agents"
 github: https://github.com/respanai/respan
-addedDate: 2026-07-18
+addedDate: 2026-08-04

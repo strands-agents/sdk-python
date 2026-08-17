@@ -7,4 +7,4 @@ languages:
     package: llm-tracekit-strands
 github: https://github.com/coralogix/llm-tracekit
 docsUrl: https://www.coralogix.com/docs/integrations/ai-observability/strands/
-addedDate: 2026-07-19
+addedDate: 2026-08-04

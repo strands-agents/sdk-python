@@ -7,4 +7,4 @@ languages:
     package: nvidia-nat-strands
 github: https://github.com/NVIDIA/NeMo-Agent-Toolkit
 docsUrl: https://docs.nvidia.com/nemo/agent-toolkit/latest/components/integrations/frameworks.html
-addedDate: 2026-07-19
+addedDate: 2026-08-04
