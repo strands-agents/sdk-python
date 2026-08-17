@@ -3337,18 +3337,22 @@ async def test_format_request_with_guardrail_multiple_tool_results_same_message(
     assert formatted_messages[0]["content"][0]["guardContent"]["text"]["text"] == "Question requiring multiple tools"
 
 
-def test_cache_strategy_anthropic_for_claude(bedrock_client):
-    """Test that _cache_strategy returns 'anthropic' for Claude models."""
-    model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
+def test_cache_strategy_auto_maps_claude_to_anthropic(bedrock_client):
+    """Under strategy="auto", a Claude/Anthropic model id resolves to the anthropic strategy."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
     assert model._cache_strategy == "anthropic"
 
-    model2 = BedrockModel(model_id="anthropic.claude-3-haiku-20240307-v1:0")
+    model2 = BedrockModel(
+        model_id="anthropic.claude-3-haiku-20240307-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
     assert model2._cache_strategy == "anthropic"
 
 
-def test_cache_strategy_none_for_non_claude(bedrock_client):
-    """Test that _cache_strategy returns None for unsupported models."""
-    model = BedrockModel(model_id="amazon.nova-pro-v1:0")
+def test_cache_strategy_auto_is_none_for_non_claude(bedrock_client):
+    """Under strategy="auto", a model without automatic caching support resolves to None."""
+    model = BedrockModel(model_id="amazon.nova-pro-v1:0", cache_config=CacheConfig(strategy="auto"))
     assert model._cache_strategy is None
 
 
