@@ -5,6 +5,7 @@ async function usage() {
   // --8<-- [start:usage]
   const model = new OpenAIModel({
     api: 'chat',
+    // A non-empty API key is required; the keyless free tier is not supported
     apiKey: process.env.OVHCLOUD_API_KEY,
     clientConfig: {
       baseURL: 'https://oai.endpoints.kepler.ai.cloud.ovh.net/v1',
