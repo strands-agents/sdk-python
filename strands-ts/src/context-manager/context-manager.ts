@@ -94,7 +94,9 @@ export class ContextManager implements Plugin {
           logger.debug(`strategy=<${strategy.name}>, agentId=<${agent.id}> | strategy applied`)
         }
       } catch (error) {
-        logger.warn(`strategy=<${strategy.name}>, agentId=<${agent.id}>, error=<${error}> | strategy failed, continuing`)
+        logger.warn(
+          `strategy=<${strategy.name}>, agentId=<${agent.id}>, error=<${error}> | strategy failed, continuing`
+        )
       }
     }
     return anyActed
