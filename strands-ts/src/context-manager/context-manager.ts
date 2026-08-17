@@ -47,11 +47,7 @@ export class ContextManager implements Plugin {
     }
 
     agent.addHook(BeforeModelCallEvent, async (event) => {
-      try {
-        await this._runStrategies(event.agent, event.projectedInputTokens)
-      } catch (error) {
-        logger.warn(`agentId=<${event.agent.id}>, error=<${error}> | proactive strategy pipeline failed`)
-      }
+      await this._runStrategies(event.agent, event.projectedInputTokens)
     })
 
     let overflowRetries = 0
@@ -67,10 +63,9 @@ export class ContextManager implements Plugin {
         return
       }
 
-      try {
-        await this._runStrategies(event.agent)
-      } catch (strategyError) {
-        logger.warn(`agentId=<${event.agent.id}>, error=<${strategyError}> | strategy pipeline failed`)
+      const acted = await this._runStrategies(event.agent)
+      if (!acted) {
+        logger.warn(`agentId=<${event.agent.id}> | no strategy made progress, skipping retry`)
         return
       }
 
@@ -79,7 +74,7 @@ export class ContextManager implements Plugin {
     })
   }
 
-  private async _runStrategies(agent: LocalAgent, precomputedInputTokens?: number): Promise<void> {
+  private async _runStrategies(agent: LocalAgent, precomputedInputTokens?: number): Promise<boolean> {
     const messages = agent.messages
     const inputTokens = precomputedInputTokens ?? (await agent.model.countTokens(messages))
     const utilization = agent.model.estimateUtilization(inputTokens)
@@ -90,11 +85,18 @@ export class ContextManager implements Plugin {
       utilization,
     }
 
+    let anyActed = false
     for (const strategy of this._strategies) {
-      const acted = await strategy.apply(strategyContext)
-      if (acted) {
-        logger.debug(`strategy=<${strategy.name}>, agentId=<${agent.id}> | strategy applied`)
+      try {
+        const acted = await strategy.apply(strategyContext)
+        if (acted) {
+          anyActed = true
+          logger.debug(`strategy=<${strategy.name}>, agentId=<${agent.id}> | strategy applied`)
+        }
+      } catch (error) {
+        logger.warn(`strategy=<${strategy.name}>, agentId=<${agent.id}>, error=<${error}> | strategy failed, continuing`)
       }
     }
+    return anyActed
   }
 }

@@ -99,10 +99,6 @@ function buildToolNameMap(messages: Message[]): Map<string, string> {
   return map
 }
 
-/**
- * Checks whether a ToolResultBlock matches the given offload target.
- * Handles status-based targets (toolResults/toolResultErrors) and name-based targets (string[]).
- */
 // --- Base strategy class ---
 
 /** Shared offload logic: target routing, eager hooks, preserveRecent. */
