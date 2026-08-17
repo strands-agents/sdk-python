@@ -3356,6 +3356,12 @@ def test_cache_strategy_auto_is_none_for_non_claude(bedrock_client):
     assert model._cache_strategy is None
 
 
+def test_cache_strategy_is_none_without_cache_config(bedrock_client):
+    """A caching-capable model still resolves to no strategy until cache_config turns caching on."""
+    model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
+    assert model._cache_strategy is None
+
+
 def test_inject_cache_point_keeps_only_the_first_of_several_placed_points(bedrock_client):
     """One boundary per message: extras would spend the provider's cache-point budget for nothing."""
     _ = bedrock_client
