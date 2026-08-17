@@ -320,6 +320,10 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
 class DropStrategy extends BaseOffloadStrategy {
   readonly name = 'offload:drop'
 
+  when(conditions: OffloadConditions): ContextStrategy {
+    return new DropStrategy(this._target, conditions)
+  }
+
   protected override _makeRemovalMarker(count: number): string {
     return `[Dropped: ${count} ${count === 1 ? 'message' : 'messages'}]`
   }
@@ -367,6 +371,10 @@ class TruncateStrategy extends BaseOffloadStrategy {
         `threshold (${conditions.threshold}) must be greater than previewTokens (${previewTokens}) to ensure truncation converges`
       )
     }
+  }
+
+  when(conditions: OffloadConditions): ContextStrategy {
+    return new TruncateStrategy(this._target, this._truncateConfig, conditions)
   }
 
   protected override _makeRemovalMarker(count: number): string {
@@ -435,6 +443,10 @@ class SummarizeStrategy extends BaseOffloadStrategy {
   constructor(target?: OffloadTarget, config?: SummarizeConfig, conditions?: OffloadConditions) {
     super(target, conditions)
     this._config = config ?? {}
+  }
+
+  when(conditions: OffloadConditions): ContextStrategy {
+    return new SummarizeStrategy(this._target, this._config, conditions)
   }
 
   override init(agent: LocalAgent): void {
@@ -622,7 +634,7 @@ function collectRemovableWithPair(messages: Message[], index: number): Message[]
   const result: Message[] = [message]
 
   const hasToolResult = message.content.some((block) => block.type === 'toolResultBlock')
-  if (hasToolResult && index > 0) {
+  if (hasToolResult) {
     const prev = messages[index - 1]
     if (prev && prev.content.some((block) => block.type === 'toolUseBlock')) {
       if (index - 1 > 0) result.push(prev)
@@ -667,23 +679,6 @@ function spliceWithPairs(messages: Message[], toRemove: Message[]): number {
 
 // --- Builder ---
 
-/** Wraps a strategy instance as an OffloadStrategyBuilder with a `.when()` chain. */
-function wrapAsBuilder(
-  strategy: BaseOffloadStrategy,
-  createWithConditions: (conditions: OffloadConditions) => BaseOffloadStrategy
-): OffloadStrategyBuilder {
-  return {
-    get name(): string {
-      return strategy.name
-    },
-    init: strategy.init.bind(strategy),
-    apply: strategy.apply.bind(strategy),
-    when(conditions: OffloadConditions): ContextStrategy {
-      return createWithConditions(conditions)
-    },
-  }
-}
-
 /**
  * Offload strategy builder namespace.
  *
@@ -719,15 +714,15 @@ interface OffloadNamespace {
  */
 export const Offload: OffloadNamespace = {
   drop(target: OffloadTarget): OffloadStrategyBuilder {
-    return wrapAsBuilder(new DropStrategy(target), (c) => new DropStrategy(target, c))
+    return new DropStrategy(target)
   },
 
   truncate(target: OffloadTarget, config?: TruncateConfig): OffloadStrategyBuilder {
-    return wrapAsBuilder(new TruncateStrategy(target, config), (c) => new TruncateStrategy(target, config, c))
+    return new TruncateStrategy(target, config)
   },
 
   summarize(target: OffloadTarget, config?: SummarizeConfig): OffloadStrategyBuilder {
-    return wrapAsBuilder(new SummarizeStrategy(target, config), (c) => new SummarizeStrategy(target, config, c))
+    return new SummarizeStrategy(target, config)
   },
 }
 
