@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { getCollection } from 'astro:content'
@@ -171,11 +171,13 @@ describe('catalog content collection', () => {
     expect(anthropic!.data.maintainedBy).toBe('strands')
     expect(anthropic!.data.docsPage).toBe('docs/user-guide/concepts/model-providers/anthropic')
     // The content layer silently drops entries whose YAML fails to parse;
-    // pinned counts catch that. Update them when granting or removing tiers.
+    // matching the on-disk file count catches that for every entry.
+    const yamlFiles = readdirSync(join('src', 'content', 'catalog')).filter((f) => f.endsWith('.yaml'))
+    expect(entries.length).toBe(yamlFiles.length)
     const byTier = Map.groupBy(entries, (e) => e.data.maintainedBy)
-    expect(byTier.get('strands')?.length).toBe(33)
-    expect(byTier.get('aws')?.length).toBe(8)
-    expect(byTier.get('partner')?.length).toBe(21)
+    expect(byTier.get('strands')?.length ?? 0).toBeGreaterThan(0)
+    expect(byTier.get('aws')?.length ?? 0).toBeGreaterThan(0)
+    expect(byTier.get('partner')?.length ?? 0).toBeGreaterThan(0)
     // Built-ins point at their source path in the SDK monorepo and always
     // have on-site docs.
     for (const e of byTier.get('strands') ?? []) {
