@@ -13,7 +13,6 @@ from strands.types.exceptions import ModelThrottledException
 from strands.types.streaming import StreamEvent
 from tests_integ.conftest import retry_on_flaky
 
-_CLASSIFIER_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 _HAIKU_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 _SONNET_MODEL_ID = "global.anthropic.claude-sonnet-4-6"
 
@@ -55,21 +54,15 @@ class _InvocationTrackingBedrockModel(BedrockModel):
     ids=["factual-request-selects-haiku", "distributed-systems-request-selects-sonnet"],
 )
 def test_agent_invokes_only_expected_model_for_request_complexity(caplog, user_prompt, expected_model_id):
-    """A real classifier invokes exactly the expected candidate model for each request."""
-    classifier_model = BedrockModel(
-        model_id=_CLASSIFIER_MODEL_ID,
-        max_tokens=64,
-        streaming=False,
-        temperature=0,
-    )
+    """The default classifier invokes exactly the appropriate candidate, independent of declaration order."""
     invoked_candidate_model_ids: list[str] = []
     candidate_models = [
-        _InvocationTrackingBedrockModel(_HAIKU_MODEL_ID, invoked_candidate_model_ids),
         _InvocationTrackingBedrockModel(_SONNET_MODEL_ID, invoked_candidate_model_ids),
+        _InvocationTrackingBedrockModel(_HAIKU_MODEL_ID, invoked_candidate_model_ids),
     ]
     router = ModelRouter(
         models=candidate_models,
-        strategy=InputComplexityStrategy(classifier_model=classifier_model),
+        strategy=InputComplexityStrategy(),
     )
     agent = Agent(model=router, load_tools_from_directory=False)
 
