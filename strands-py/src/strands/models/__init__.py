@@ -11,6 +11,7 @@ from .model import BaseModelConfig, CacheConfig, CacheToolsConfig, Model
 from .routing import (
     CandidateInput,
     FallbackStrategy,
+    InputComplexityStrategy,
     ModelRouter,
     RoutingAttempt,
     RoutingCandidate,
@@ -28,6 +29,7 @@ __all__ = [
     "CacheToolsConfig",
     "CandidateInput",
     "FallbackStrategy",
+    "InputComplexityStrategy",
     "Model",
     "ModelRouter",
     "RoutingAttempt",
