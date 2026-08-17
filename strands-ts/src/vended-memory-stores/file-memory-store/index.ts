@@ -1,2 +1,2 @@
-export { FileMemoryStore } from './file-memory-store.js'
-export type { FileMemoryStoreConfig } from './types.js'
+export { FileMemoryStore } from './store.js'
+export type { FileMemoryStoreConfig } from './store.js'

@@ -5,12 +5,13 @@ import { LocalFileStorage } from '../../storage/local-file-storage.js'
 import type { MemoryEntry, MemoryStore, MemoryStoreConfig, SearchOptions } from '../../memory/types.js'
 import type { ExtractionConfig } from '../../memory/extraction/types.js'
 import type { JSONValue } from '../../types/json.js'
-import { DEFAULT_MAX_SEARCH_RESULTS, tokenize, tokenOverlapScore } from '../../memory/search/keyword.js'
 import type { Storage } from '../../storage/storage.js'
+import { tokenize, tokenOverlapScore } from '../../storage/storage.js'
 
 /**
  * Metadata key holding the token-overlap relevance score on a search result.
  */
+const DEFAULT_MAX_SEARCH_RESULTS = 10
 const RELEVANCE_SCORE_KEY = '_relevanceScore'
 
 /**
