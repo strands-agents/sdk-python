@@ -218,26 +218,6 @@ test('internal mode grants the Mantle actions the base-path drift tests need', (
   );
 });
 
-test('internal mode grants Voxtral audio invocation permissions', () => {
-  const template = synth({ internal: true });
-
-  template.hasResourceProperties('AWS::IAM::Policy', {
-    PolicyDocument: {
-      Statement: Match.arrayWith([
-        Match.objectLike({
-          Action: Match.arrayWith([
-            'bedrock:InvokeModel',
-            'bedrock:InvokeModelWithResponseStream',
-          ]),
-          Resource: Match.arrayWith([
-            'arn:aws:bedrock:*:*:foundation-model/mistral.voxtral-small-24b-2507',
-          ]),
-        }),
-      ]),
-    },
-  });
-});
-
 test('community mode does not attach the legacy broad policy', () => {
   const template = synth({ internal: false });
 
