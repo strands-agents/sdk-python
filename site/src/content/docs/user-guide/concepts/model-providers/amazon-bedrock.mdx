@@ -996,10 +996,21 @@ const model = new BedrockModel({
 
 ### OpenAI-Compatible Endpoints (Mantle)
 
-Amazon Bedrock exposes
-[OpenAI-compatible endpoints](https://docs.aws.amazon.com/bedrock/latest/userguide/bedrock-mantle.html),
-powered by Mantle, for select models. You connect through the SDK's
-[OpenAI Responses provider](./openai-responses) rather than `BedrockModel`.
+Mantle is not a separate service or model catalog: it is Amazon Bedrock's second
+endpoint family,
+[`bedrock-mantle`](https://docs.aws.amazon.com/bedrock/latest/userguide/bedrock-mantle.html),
+which serves Bedrock-hosted models through OpenAI-compatible APIs. The two families
+serve different, overlapping model sets: many models are only on the standard
+`bedrock-runtime` endpoint that `BedrockModel` uses, some model lines are only on
+`bedrock-mantle`, and some are on both. AWS lists which endpoint serves each model in
+[endpoint availability by model](https://docs.aws.amazon.com/bedrock/latest/userguide/models-endpoint-availability.html).
+
+Pick your provider by where the model is served. When it is on `bedrock-runtime`, use
+`BedrockModel` as described on the rest of this page (AWS recommends that endpoint
+when a model is on both). When it is served through Mantle, connect with the SDK's
+[OpenAI Responses provider](./openai-responses) instead, in one of the two ways below.
+
+#### Connecting with AWS Credentials
 
 Pass <Syntax py="bedrock_mantle_config" ts="bedrockMantleConfig" /> and the provider
 derives the endpoint from your region, routes the model to the correct Mantle base
@@ -1036,16 +1047,20 @@ Requires the optional dependency: `npm install @aws/bedrock-token-generator`
 </Tab>
 </Tabs>
 
-Omit the region to resolve it from your AWS environment. The config also accepts
-explicit credentials and a token-lifetime override; see the
-<Syntax py="BedrockMantleConfig" ts="BedrockMantleConfig" plain /> API reference for
-the accepted fields.
+Omit the region to resolve it from your AWS environment. The config also accepts AWS
+credentials to forward to the token generator
+(<Syntax py="credentials_provider" ts="credentials" />, a
+<Syntax py="botocore CredentialProvider" ts="static identity or provider function" plain />)
+and a token-lifetime override (<Syntax py="expiry" ts="expiresInSeconds" />). In
+Python, `boto_session` can also supply the region from a configured profile.
 
-Alternatively, authenticate with a
+#### Connecting with a Bedrock API Key
+
+Authenticate with a
 [Bedrock API key](https://docs.aws.amazon.com/bedrock/latest/userguide/api-key-management.html)
 and point the client at your region's Mantle endpoint yourself. Note that some model
-lines are served from `/openai/v1` rather than `/v1`; the config-based approach picks
-the right path for you.
+lines are served from `/openai/v1` rather than `/v1`; the config-based approach above
+picks the right path for you.
 
 <Tabs>
 <Tab label="Python">
