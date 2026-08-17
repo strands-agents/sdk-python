@@ -6,7 +6,7 @@
 
 import { logger } from '../../../logging/logger.js'
 import { MessageAddedEvent } from '../../../hooks/events.js'
-import { Message, TextBlock, ToolResultBlock } from '../../../types/messages.js'
+import { Message, TextBlock, ToolResultBlock, ToolUseBlock } from '../../../types/messages.js'
 import type { ContentBlock } from '../../../types/messages.js'
 import type { LocalAgent } from '../../../types/agent.js'
 import type { ContextStrategy, ContextState } from '../../types.js'
@@ -71,8 +71,8 @@ export function buildToolNameMap(messages: Message[]): Map<string, string> {
   for (const message of messages) {
     if (message.role !== 'assistant') continue
     for (const block of message.content) {
-      if ('toolUseId' in block && 'name' in block) {
-        map.set((block as { toolUseId: string }).toolUseId, (block as { name: string }).name)
+      if (block instanceof ToolUseBlock) {
+        map.set(block.toolUseId, block.name)
       }
     }
   }
@@ -403,6 +403,8 @@ export abstract class BaseOffloadStrategy implements ContextStrategy {
 
       const replacement = await this._replaceBlock(block, tokens, message, agent)
       if (replacement && replacement !== block) {
+        // Intentional in-place mutation: per-block replacement shrinks existing message content
+        // rather than constructing a new Message (unlike message-level removal which uses new objects).
         ;(message.content as unknown[])[blockIndex] = replacement
         acted = true
       }
