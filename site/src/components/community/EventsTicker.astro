@@ -19,7 +19,7 @@ const { events } = Astro.props
           const expires = toIsoDate(event.endDate ?? event.startDate)
           const label = (
             <>
-              <span class="date">{formatEventDate(event)}</span> {event.title} · {event.location}
+              <span class="date">{formatEventDate(event)}</span> {event.title}
             </>
           )
           return event.href ? (
@@ -37,28 +37,19 @@ const { events } = Astro.props
 }
 
 <style>
+  /* Renders inside the hero composition — no band chrome of its own. */
   .ticker {
-    border-top: 1px solid rgba(29, 53, 39, 0.6);
-    border-bottom: 1px solid rgba(29, 53, 39, 0.35);
-    background: rgba(12, 26, 17, 0.55);
-    backdrop-filter: blur(6px);
+    margin-top: 2.5rem;
     font-family: 'Figtree', sans-serif;
-    font-size: 0.85rem;
+    font-size: 0.9rem;
     color: #a9c4b3;
-    position: relative;
   }
 
   :global([data-theme='light']) .ticker {
-    border-top-color: rgba(0, 0, 0, 0.08);
-    border-bottom-color: rgba(0, 0, 0, 0.06);
-    background: rgba(0, 0, 0, 0.03);
     color: var(--sl-color-gray-2);
   }
 
   .inner {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 0.75rem 3rem;
     display: flex;
     gap: 1.75rem;
     align-items: baseline;
@@ -87,6 +78,10 @@ const { events } = Astro.props
     font-weight: 700;
   }
 
+  :global([data-theme='light']) .date {
+    color: #8a6d1f;
+  }
+
   a {
     color: inherit;
     text-decoration: none;
@@ -101,7 +96,6 @@ const { events } = Astro.props
   }
 
   .all {
-    margin-left: auto;
     color: #00cc5f;
     font-weight: 600;
     flex-shrink: 0;
@@ -118,12 +112,6 @@ const { events } = Astro.props
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
-    }
-  }
-
-  @media (max-width: 900px) {
-    .inner {
-      padding: 0.75rem 1.5rem;
     }
   }
 </style>

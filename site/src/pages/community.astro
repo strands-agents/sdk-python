@@ -47,7 +47,7 @@ const enrichedFeatured = featured
     }
   : undefined
 
-const ticker = tickerEvents(events, today)
+const ticker = tickerEvents(events, today, 2)
 const headliner = posterEvent(events, today)
 const otherEvents = upcomingEvents(events, today).filter((e) => e !== headliner)
 ---
