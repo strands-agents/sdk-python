@@ -5,7 +5,9 @@ tags: [mcp, state]
 integrationType: model-provider
 sourceLinks:
   - path: strands-py/src/strands/models/openai_responses.py
+  - path: strands-py/src/strands/models/_openai_bedrock.py
   - path: strands-ts/src/models/openai/responses-adapter.ts
+  - path: strands-ts/src/models/openai/mantle.ts
 ---
 
 The [Responses API](https://platform.openai.com/docs/api-reference/responses) is OpenAI's interface for generating model responses and building agents. It is a superset of the [Chat Completions](./openai) API, with additional support for [built-in tools](#built-in-tools), server-side conversation state management, and multi-modal inputs.
@@ -64,7 +66,73 @@ In TypeScript, both the Responses API and Chat Completions API are available thr
 
 ### Amazon Bedrock (Mantle)
 
-The Responses provider can connect to [Amazon Bedrock's OpenAI-compatible endpoints](https://docs.aws.amazon.com/bedrock/latest/userguide/bedrock-mantle.html) powered by Mantle. Authenticate with a [Bedrock API key](https://docs.aws.amazon.com/bedrock/latest/userguide/api-key-management.html) and point the client at your region's Mantle endpoint.
+The Responses provider also runs against
+[Amazon Bedrock's OpenAI-compatible endpoint](https://docs.aws.amazon.com/bedrock/latest/userguide/bedrock-mantle.html)
+powered by Mantle, which bills through your AWS account instead of an OpenAI API key.
+Model IDs on Mantle differ from the direct API: the endpoint serves
+`openai.gpt-5.6-terra` and `openai.gpt-oss-120b`, among others.
+
+Two ways in. Pass <Syntax py="bedrock_mantle_config" ts="bedrockMantleConfig" /> to
+authenticate from your AWS credentials, or configure the client yourself with a
+[Bedrock API key](https://docs.aws.amazon.com/bedrock/latest/userguide/api-key-management.html).
+Start with the config: it resolves the endpoint URL for you, and it reaches credentials a
+static key cannot, including instance roles, SSO sessions, and assumed roles.
+
+#### AWS credentials
+
+Give the provider a region and it derives the Mantle endpoint from your model ID, then
+mints a fresh bearer token from the standard AWS credential chain on every request.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.models.openai_responses import OpenAIResponsesModel
+
+model = OpenAIResponsesModel(
+    model_id="openai.gpt-5.6-terra",
+    bedrock_mantle_config={"region": "us-east-1"},
+)
+
+agent = Agent(model=model)
+response = agent("What is 2+2?")
+print(response)
+```
+
+Omit `region` and it resolves through boto3: the `AWS_REGION` and `AWS_DEFAULT_REGION`
+environment variables, the active profile, then EC2 instance metadata. Pass `boto_session`
+to resolve it from a session you already built, `credentials_provider` to hand the token
+generator a specific botocore credential provider, and `expiry` to set the token
+lifetime.
+</Tab>
+<Tab label="TypeScript">
+
+Mantle needs one more package alongside the provider:
+
+```bash
+npm install @aws/bedrock-token-generator
+```
+
+```typescript
+--8<-- "user-guide/concepts/model-providers/openai-responses_imports.ts:bedrock_mantle_imports"
+
+--8<-- "user-guide/concepts/model-providers/openai-responses.ts:bedrock_mantle"
+```
+
+Omit `region` and it resolves from the `AWS_REGION` or `AWS_DEFAULT_REGION` environment
+variable. Pass `credentials` to hand the token generator a credential identity or provider
+(for example the result of `fromNodeProviderChain()`), and `expiresInSeconds` to set the
+token lifetime.
+</Tab>
+</Tabs>
+
+#### Bedrock API key
+
+To authenticate with a [Bedrock API key](https://docs.aws.amazon.com/bedrock/latest/userguide/api-key-management.html)
+instead, point the client at the endpoint directly. You pick the base path yourself here:
+most Mantle models are served from `/v1`, while the `openai.gpt-5.` line is served from
+`/openai/v1`, and the wrong path fails with HTTP 400.
 
 <Tabs>
 <Tab label="Python">
@@ -90,9 +158,9 @@ print(response)
 <Tab label="TypeScript">
 
 ```typescript
---8<-- "user-guide/concepts/model-providers/openai-responses_imports.ts:bedrock_mantle_imports"
+--8<-- "user-guide/concepts/model-providers/openai-responses_imports.ts:bedrock_mantle_api_key_imports"
 
---8<-- "user-guide/concepts/model-providers/openai-responses.ts:bedrock_mantle"
+--8<-- "user-guide/concepts/model-providers/openai-responses.ts:bedrock_mantle_api_key"
 ```
 </Tab>
 </Tabs>
