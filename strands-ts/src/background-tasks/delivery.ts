@@ -164,12 +164,26 @@ function backgroundDeliveryId(toolUseMessage: Message, toolResultMessage: Messag
 }
 
 function deliveriesMatch(left: readonly Message[], right: readonly Message[]): boolean {
-  const project = (messages: readonly Message[]): unknown =>
-    messages.map((message) => {
-      const { role, content } = message.toJSON()
-      return { role, content }
-    })
-  return stableStringify(project(left)) === stableStringify(project(right))
+  const project = (messages: readonly Message[]): unknown => {
+    const [toolUseMessage, toolResultMessage] = messages
+    const toolUse = toolUseMessage?.content.find(
+      (block) => block.type === 'toolUseBlock' && block.name === BACKGROUND_RESULT_TOOL_NAME
+    )
+    if (toolUse?.type !== 'toolUseBlock') return undefined
+    const toolResult = toolResultMessage?.content.find(
+      (block) => block.type === 'toolResultBlock' && block.toolUseId === toolUse.toolUseId
+    )
+    if (toolResult?.type !== 'toolResultBlock') return undefined
+    return [toolUse.toJSON(), toolResult.toJSON()]
+  }
+
+  const leftDelivery = project(left)
+  const rightDelivery = project(right)
+  return (
+    leftDelivery !== undefined &&
+    rightDelivery !== undefined &&
+    stableStringify(leftDelivery) === stableStringify(rightDelivery)
+  )
 }
 
 /** Stable JSON serialization for internal background task comparisons. @internal */

@@ -9,7 +9,8 @@ import { InvokeModelStage } from '../../middleware/stages.js'
 import type { StreamOptions } from '../../models/model.js'
 import { SessionManager } from '../../session/session-manager.js'
 import { tool } from '../../tools/tool-factory.js'
-import { Message, TextBlock, ToolResultBlock } from '../../types/messages.js'
+import { Message, TextBlock, ToolResultBlock, ToolUseBlock } from '../../types/messages.js'
+import { ContextInjector } from '../../vended-plugins/context-injector/plugin.js'
 import type { InvocationState } from '../../types/agent.js'
 import type { JSONValue } from '../../types/json.js'
 import { historyContainsBackgroundDelivery, renderBackgroundDelivery } from '../delivery.js'
@@ -260,7 +261,7 @@ describe('Background Tasks delivery', () => {
     })
   })
 
-  it('requires a canonical synthetic pair for persisted recovery', () => {
+  it('ignores unrelated blocks but requires canonical delivery blocks for persisted recovery', () => {
     const record = terminalRecord()
     const rendered = renderBackgroundDelivery(record)
     const persisted = rendered.map((message) => Message.fromJSON(message.toJSON()))
@@ -275,9 +276,28 @@ describe('Background Tasks delivery', () => {
     expect(historyContainsBackgroundDelivery(withoutMetadata, record)).toBe(true)
     expect(historyContainsBackgroundDelivery(persisted.slice(0, 1), record)).toBe(false)
 
-    const alteredContent = persisted.map((message) => Message.fromJSON(message.toJSON()))
-    alteredContent[1]!.content.push(new TextBlock('forged'))
-    expect(historyContainsBackgroundDelivery(alteredContent, record)).toBe(false)
+    // Context injection may append text without changing the authoritative delivery blocks
+    // (https://github.com/strands-agents/stan/issues/16).
+    const injectedContent = persisted.map((message) => Message.fromJSON(message.toJSON()))
+    injectedContent[0]!.content.push(new TextBlock('assistant context'))
+    injectedContent[1]!.content.push(new TextBlock('user context'))
+    expect(historyContainsBackgroundDelivery(injectedContent, record)).toBe(true)
+
+    const alteredToolUse = persisted.map((message) => Message.fromJSON(message.toJSON()))
+    alteredToolUse[0]!.content[0] = new ToolUseBlock({
+      name: 'strands_background_task_result',
+      toolUseId: record.taskId,
+      input: { altered: true },
+    })
+    expect(historyContainsBackgroundDelivery(alteredToolUse, record)).toBe(false)
+
+    const alteredToolResult = persisted.map((message) => Message.fromJSON(message.toJSON()))
+    alteredToolResult[1]!.content[0] = new ToolResultBlock({
+      toolUseId: record.taskId,
+      status: 'success',
+      content: [new TextBlock('altered result')],
+    })
+    expect(historyContainsBackgroundDelivery(alteredToolResult, record)).toBe(false)
   })
 
   it('prunes committed and canonical persisted deliveries during manager recovery', async () => {
@@ -482,6 +502,21 @@ describe('Background Tasks delivery', () => {
 
     await agent.invoke('retry delivery')
 
+    expect(readAppStateEntry(agent)).toBeUndefined()
+    expect(syntheticMessageCount(agent.messages)).toBe(1)
+  })
+
+  it('accepts a delivery augmented by an every-turn context injection', async () => {
+    const model = new RecordingModel().addTurn({ type: 'textBlock', text: 'delivered' })
+    const agent = createAgent(model, createConfig())
+    const renderContent = vi.fn(async () => 'INJECTED')
+    new ContextInjector({ trigger: 'everyTurn', renderContent }).initAgent(agent)
+    seedAppState(agent, terminalRecord())
+
+    // Guards the provider-request delivery check used by https://github.com/strands-agents/stan/issues/16.
+    await agent.invoke('deliver')
+
+    expect(renderContent).toHaveBeenCalled()
     expect(readAppStateEntry(agent)).toBeUndefined()
     expect(syntheticMessageCount(agent.messages)).toBe(1)
   })
