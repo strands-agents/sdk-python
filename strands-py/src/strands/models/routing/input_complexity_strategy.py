@@ -195,21 +195,15 @@ def _create_default_classifier_model() -> Model:
 class InputComplexityStrategy:
     """Choose the concrete candidate model best suited to each opening request.
 
-    Multiple candidates add one classifier call. With no explicit ``classifier_model``, the strategy lazily uses a
-    low-cost Bedrock Anthropic model through a global inference profile; callers need usable AWS credentials, model
-    access, and a supported Bedrock region. That default is subject to change. Known availability or configuration
-    failures from the SDK-provided classifier raise with remediation instead of silently pretending candidate zero was
-    classified. Transient failure or invalid output selects candidate zero, so declare first the candidate that should
-    serve when classification degrades.
+    Multiple candidates add one classifier call. The default classifier requires AWS credentials, Bedrock model access,
+    and a supported region. Its availability or configuration errors raise ``DefaultClassifierUnavailableError``;
+    other classification failures select candidate zero. Candidate order has no other meaning.
 
-    Unsupported candidate metadata raises before classification when multiple candidates are configured. Nested
-    ``ModelRouter`` candidates are unsupported even alone; flatten their candidates first. Candidate order carries no
-    capability meaning beyond candidate zero's recovery role. Runtime failover is disabled unless ``fallback`` is
-    supplied, and that strategy selects from attempt history rather than preserving the classifier's original verdict.
+    Nested routers are unsupported. Custom or opaque candidates require descriptions. Runtime failover requires an
+    explicit ``fallback``.
 
-    The classifier receives bounded request text, agent instructions, media type/format, and allowlisted model facts.
-    Configured ``model_id`` and ``endpoint_name`` strings are sent verbatim and may cross provider boundaries, as may
-    candidate descriptions. Raw configuration fields, guarded text, and opaque content are not transmitted.
+    The classifier receives bounded request context and allowlisted model metadata. Model IDs, endpoint names, and
+    candidate descriptions may cross provider boundaries; raw configuration and guarded or opaque content do not.
     """
 
     def __init__(
@@ -246,7 +240,6 @@ class InputComplexityStrategy:
         self._classifier_model = classifier_model
         self._uses_default_classifier = classifier_model is None
         self._default_classifier_initialization_error: DefaultClassifierUnavailableError | None = None
-        self._default_classifier_failure_logged = False
         self._classifier_lock = asyncio.Lock()
         self._fallback = fallback
         self._classifier_timeout = normalized_timeout
@@ -289,8 +282,7 @@ class InputComplexityStrategy:
                 self._classify(context, profiles),
                 timeout=self._classifier_timeout,
             )
-        except DefaultClassifierUnavailableError as error:
-            self._log_default_classifier_unavailable(error)
+        except DefaultClassifierUnavailableError:
             raise
         except Exception as error:
             return self._recover_from_classification_failure(context, error)
@@ -304,12 +296,10 @@ class InputComplexityStrategy:
     ) -> RoutingCandidate:
         """Recover from a transient or invalid classification result."""
         if self._uses_default_classifier and _is_default_classifier_unavailable_error(error):
-            unavailable = DefaultClassifierUnavailableError(
-                "SDK default classifier is unavailable; configure AWS credentials and model access, or pass "
-                "classifier_model explicitly"
-            )
-            self._log_default_classifier_unavailable(unavailable)
-            raise unavailable from error
+            raise DefaultClassifierUnavailableError(
+                f"SDK default classifier <{_DEFAULT_CLASSIFIER_MODEL_ID}> is unavailable; configure AWS credentials "
+                "and model access, or pass classifier_model explicitly"
+            ) from error
 
         if isinstance(error, asyncio.TimeoutError):
             reason = "classifier_timeout"
@@ -324,19 +314,6 @@ class InputComplexityStrategy:
             reason,
         )
         return context.candidates[0]
-
-    def _log_default_classifier_unavailable(self, error: DefaultClassifierUnavailableError) -> None:
-        """Log one actionable message for the SDK-selected classifier."""
-        if self._default_classifier_failure_logged:
-            return
-        logger.error(
-            "strategy=<%s>, default_classifier_model_id=<%s>, error_type=<%s> | default classifier unavailable "
-            "| configure AWS credentials and model access or pass classifier_model explicitly",
-            type(self).__name__,
-            _DEFAULT_CLASSIFIER_MODEL_ID,
-            type(error).__name__,
-        )
-        self._default_classifier_failure_logged = True
 
     async def _get_classifier_model(self) -> Model:
         """Return the configured classifier, constructing the SDK default once off-loop."""
@@ -353,8 +330,8 @@ class InputComplexityStrategy:
                     self._classifier_model = await asyncio.to_thread(_create_default_classifier_model)
                 except Exception as error:
                     unavailable = DefaultClassifierUnavailableError(
-                        "SDK default classifier could not be initialized; configure AWS credentials and model access, "
-                        "or pass classifier_model explicitly"
+                        f"SDK default classifier <{_DEFAULT_CLASSIFIER_MODEL_ID}> could not be initialized; "
+                        "configure AWS credentials and model access, or pass classifier_model explicitly"
                     )
                     self._default_classifier_initialization_error = unavailable
                     raise unavailable from error

@@ -179,7 +179,7 @@ async def test_concurrent_default_classifier_construction_occurs_once(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_unavailable_default_classifier_raises_once_and_caches_initialization_failure(monkeypatch, caplog):
+async def test_unavailable_default_classifier_raises_and_caches_initialization_failure(monkeypatch):
     created = 0
 
     def fail_creation():
@@ -194,15 +194,12 @@ async def test_unavailable_default_classifier_raises_once_and_caches_initializat
     strategy = InputComplexityStrategy()
     router = ModelRouter(models=[_response_model("first"), _response_model("second")], strategy=strategy)
 
-    with caplog.at_level("ERROR", logger="strands.models.routing.input_complexity_strategy"):
-        for _ in range(3):
-            with pytest.raises(DefaultClassifierUnavailableError, match="configure AWS credentials"):
-                await strategy.select(_context(router))
+    for _ in range(3):
+        with pytest.raises(DefaultClassifierUnavailableError, match="configure AWS credentials") as error_info:
+            await strategy.select(_context(router))
 
     assert created == 1
-    assert caplog.text.count("default classifier unavailable") == 1
-    assert _DEFAULT_CLASSIFIER_MODEL_ID in caplog.text
-    assert "NoCredentialsError" not in caplog.text
+    assert _DEFAULT_CLASSIFIER_MODEL_ID in str(error_info.value)
 
 
 @pytest.mark.asyncio
@@ -254,7 +251,7 @@ async def test_default_classifier_transient_failure_degrades_after_success(monke
     ],
     ids=["missing-credentials", "expired-credentials"],
 )
-async def test_default_classifier_unavailable_failure_is_retried_after_success(monkeypatch, caplog, error):
+async def test_default_classifier_unavailable_failure_is_retried_after_success(monkeypatch, error):
     classifier = _ClassifierModel(selected_index=1)
     monkeypatch.setattr(
         "strands.models.routing.input_complexity_strategy._create_default_classifier_model",
@@ -265,13 +262,12 @@ async def test_default_classifier_unavailable_failure_is_retried_after_success(m
 
     assert await strategy.select(_context(router)) is router.candidates[1]
     classifier.error = error
-    with caplog.at_level("ERROR", logger="strands.models.routing.input_complexity_strategy"):
-        for _ in range(2):
-            with pytest.raises(DefaultClassifierUnavailableError, match="configure AWS credentials"):
-                await strategy.select(_context(router))
+    for _ in range(2):
+        with pytest.raises(DefaultClassifierUnavailableError, match="configure AWS credentials") as error_info:
+            await strategy.select(_context(router))
 
     assert classifier.calls == 3
-    assert caplog.text.count("default classifier unavailable") == 1
+    assert _DEFAULT_CLASSIFIER_MODEL_ID in str(error_info.value)
 
 
 @pytest.mark.asyncio
