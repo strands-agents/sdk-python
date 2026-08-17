@@ -16,17 +16,17 @@ from strands.models import (
     RoutingAttempt,
     RoutingCandidate,
 )
+from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID
 from strands.models.routing.input_complexity_strategy import (
     _CLASSIFICATION_HISTORY_MESSAGE_LIMIT,
     _CLASSIFICATION_MESSAGE_CHARACTER_LIMIT,
     _CLASSIFICATION_OMISSION_MARKER,
-    _DEFAULT_CLASSIFIER_MODEL_ID,
     _build_classification_messages,
     _convert_message_to_bounded_text,
     _create_default_classifier_model,
-    _DefaultClassifierUnavailable,
 )
 from strands.models.routing.strategy import RoutingContext
+from strands.types.exceptions import DefaultClassifierUnavailableError
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 
@@ -196,12 +196,11 @@ async def test_unavailable_default_classifier_raises_once_and_caches_initializat
 
     with caplog.at_level("ERROR", logger="strands.models.routing.input_complexity_strategy"):
         for _ in range(3):
-            with pytest.raises(_DefaultClassifierUnavailable, match="configure AWS credentials"):
+            with pytest.raises(DefaultClassifierUnavailableError, match="configure AWS credentials"):
                 await strategy.select(_context(router))
 
     assert created == 1
     assert caplog.text.count("default classifier unavailable") == 1
-    assert _DEFAULT_CLASSIFIER_MODEL_ID in caplog.text
     assert "NoCredentialsError" not in caplog.text
 
 
@@ -256,7 +255,7 @@ async def test_default_classifier_unavailable_failure_is_retried_after_success(m
     classifier.error = NoCredentialsError()
     with caplog.at_level("ERROR", logger="strands.models.routing.input_complexity_strategy"):
         for _ in range(2):
-            with pytest.raises(_DefaultClassifierUnavailable, match="configure AWS credentials"):
+            with pytest.raises(DefaultClassifierUnavailableError, match="configure AWS credentials"):
                 await strategy.select(_context(router))
 
     assert classifier.calls == 3
@@ -278,7 +277,7 @@ async def test_default_classifier_is_not_created_for_one_candidate(monkeypatch):
     assert await strategy.select(_context(router)) is router.candidates[0]
 
 
-def test_default_classifier_uses_global_low_cost_bedrock_profile(monkeypatch):
+def test_default_classifier_uses_central_bedrock_default(monkeypatch):
     captured = {}
     classifier = object()
 
@@ -290,12 +289,12 @@ def test_default_classifier_uses_global_low_cost_bedrock_profile(monkeypatch):
 
     assert _create_default_classifier_model() is classifier
     assert captured == {
-        "model_id": _DEFAULT_CLASSIFIER_MODEL_ID,
+        "model_id": DEFAULT_BEDROCK_MODEL_ID,
         "max_tokens": 64,
         "streaming": False,
         "temperature": 0,
     }
-    assert _DEFAULT_CLASSIFIER_MODEL_ID.startswith("global.")
+    assert DEFAULT_BEDROCK_MODEL_ID.startswith("global.")
 
 
 @pytest.mark.asyncio
@@ -340,6 +339,8 @@ async def test_classifier_receives_exact_allowlisted_sdk_profiles_independent_of
         ],
     }
     assert "declaration order does not indicate capability" in system_prompt
+    assert "If you do not recognize a model_id, treat that candidate as opaque" in system_prompt
+    assert "null means unknown and is not evidence of a small limit" in system_prompt
     assert "must-not-reach-classifier" not in system_prompt
     assert "api-key-secret" not in system_prompt
     assert "aws-secret" not in system_prompt
@@ -447,14 +448,10 @@ async def test_instrumented_sdk_subclass_uses_nearest_sdk_provider():
 
 
 @pytest.mark.asyncio
-async def test_custom_context_window_property_is_used_without_reading_config():
+async def test_custom_context_window_from_inherited_property_is_used():
     class CustomContextModel(MockedModelProvider):
-        @property
-        def context_window_limit(self):
-            return 123_456
-
         def get_config(self):
-            raise AssertionError("custom get_config must not be called")
+            return {"context_window_limit": 123_456}
 
     classifier = _ClassifierModel()
     strategy = InputComplexityStrategy(classifier_model=classifier)
