@@ -5,7 +5,7 @@ import json
 from typing import Any
 
 import pytest
-from botocore.exceptions import NoCredentialsError
+from botocore.exceptions import ClientError, NoCredentialsError
 
 from strands import Agent
 from strands.models import (
@@ -16,11 +16,11 @@ from strands.models import (
     RoutingAttempt,
     RoutingCandidate,
 )
-from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID
 from strands.models.routing.input_complexity_strategy import (
     _CLASSIFICATION_HISTORY_MESSAGE_LIMIT,
     _CLASSIFICATION_MESSAGE_CHARACTER_LIMIT,
     _CLASSIFICATION_OMISSION_MARKER,
+    _DEFAULT_CLASSIFIER_MODEL_ID,
     _build_classification_messages,
     _convert_message_to_bounded_text,
     _create_default_classifier_model,
@@ -201,6 +201,7 @@ async def test_unavailable_default_classifier_raises_once_and_caches_initializat
 
     assert created == 1
     assert caplog.text.count("default classifier unavailable") == 1
+    assert _DEFAULT_CLASSIFIER_MODEL_ID in caplog.text
     assert "NoCredentialsError" not in caplog.text
 
 
@@ -242,7 +243,18 @@ async def test_default_classifier_transient_failure_degrades_after_success(monke
 
 
 @pytest.mark.asyncio
-async def test_default_classifier_unavailable_failure_is_retried_after_success(monkeypatch, caplog):
+@pytest.mark.parametrize(
+    "error",
+    [
+        NoCredentialsError(),
+        ClientError(
+            {"Error": {"Code": "ExpiredTokenException", "Message": "security token expired"}},
+            "Converse",
+        ),
+    ],
+    ids=["missing-credentials", "expired-credentials"],
+)
+async def test_default_classifier_unavailable_failure_is_retried_after_success(monkeypatch, caplog, error):
     classifier = _ClassifierModel(selected_index=1)
     monkeypatch.setattr(
         "strands.models.routing.input_complexity_strategy._create_default_classifier_model",
@@ -252,7 +264,7 @@ async def test_default_classifier_unavailable_failure_is_retried_after_success(m
     router = ModelRouter(models=[_response_model("first"), _response_model("second")], strategy=strategy)
 
     assert await strategy.select(_context(router)) is router.candidates[1]
-    classifier.error = NoCredentialsError()
+    classifier.error = error
     with caplog.at_level("ERROR", logger="strands.models.routing.input_complexity_strategy"):
         for _ in range(2):
             with pytest.raises(DefaultClassifierUnavailableError, match="configure AWS credentials"):
@@ -277,7 +289,7 @@ async def test_default_classifier_is_not_created_for_one_candidate(monkeypatch):
     assert await strategy.select(_context(router)) is router.candidates[0]
 
 
-def test_default_classifier_uses_central_bedrock_default(monkeypatch):
+def test_default_classifier_uses_global_low_cost_bedrock_profile(monkeypatch):
     captured = {}
     classifier = object()
 
@@ -289,12 +301,12 @@ def test_default_classifier_uses_central_bedrock_default(monkeypatch):
 
     assert _create_default_classifier_model() is classifier
     assert captured == {
-        "model_id": DEFAULT_BEDROCK_MODEL_ID,
+        "model_id": _DEFAULT_CLASSIFIER_MODEL_ID,
         "max_tokens": 64,
         "streaming": False,
         "temperature": 0,
     }
-    assert DEFAULT_BEDROCK_MODEL_ID.startswith("global.")
+    assert _DEFAULT_CLASSIFIER_MODEL_ID.startswith("global.")
 
 
 @pytest.mark.asyncio

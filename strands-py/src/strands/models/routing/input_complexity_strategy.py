@@ -28,9 +28,11 @@ _CLASSIFICATION_SYSTEM_PROMPT_CHARACTER_LIMIT = 4_000
 _CLASSIFICATION_CANDIDATE_TEXT_CHARACTER_LIMIT = 1_000
 _CLASSIFICATION_OMISSION_MARKER = "\n...[content omitted for routing]...\n"
 _NO_REQUEST_TEXT = "[No request-bearing user message provided]"
+_DEFAULT_CLASSIFIER_MODEL_ID = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
 _MODEL_IDENTIFIER_FIELDS = ("model_id", "endpoint_name")
 _DEFAULT_CLASSIFIER_UNAVAILABLE_ERROR_CODES = {
     "AccessDeniedException",
+    "ExpiredTokenException",
     "InvalidSignatureException",
     "ResourceNotFoundException",
     "UnrecognizedClientException",
@@ -180,10 +182,10 @@ def _candidate_profile(candidate: RoutingCandidate, candidate_index: int) -> _Ca
 
 def _create_default_classifier_model() -> Model:
     """Create the default classifier lazily on first use."""
-    from ..bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
+    from ..bedrock import BedrockModel
 
     return BedrockModel(
-        model_id=DEFAULT_BEDROCK_MODEL_ID,
+        model_id=_DEFAULT_CLASSIFIER_MODEL_ID,
         max_tokens=64,
         streaming=False,
         temperature=0,
@@ -193,10 +195,10 @@ def _create_default_classifier_model() -> Model:
 class InputComplexityStrategy:
     """Choose the concrete candidate model best suited to each opening request.
 
-    Multiple candidates add one classifier call. With no explicit ``classifier_model``, the strategy lazily uses the
-    SDK's default Bedrock model through a global inference profile; callers need usable AWS credentials, model access,
-    and a supported Bedrock region. That default is subject to change. Known availability or configuration failures
-    from the SDK-provided classifier raise with remediation instead of silently pretending candidate zero was
+    Multiple candidates add one classifier call. With no explicit ``classifier_model``, the strategy lazily uses a
+    low-cost Bedrock Anthropic model through a global inference profile; callers need usable AWS credentials, model
+    access, and a supported Bedrock region. That default is subject to change. Known availability or configuration
+    failures from the SDK-provided classifier raise with remediation instead of silently pretending candidate zero was
     classified. Transient failure or invalid output selects candidate zero, so declare first the candidate that should
     serve when classification degrades.
 
@@ -328,9 +330,10 @@ class InputComplexityStrategy:
         if self._default_classifier_failure_logged:
             return
         logger.error(
-            "strategy=<%s>, error_type=<%s> | default classifier unavailable "
+            "strategy=<%s>, default_classifier_model_id=<%s>, error_type=<%s> | default classifier unavailable "
             "| configure AWS credentials and model access or pass classifier_model explicitly",
             type(self).__name__,
+            _DEFAULT_CLASSIFIER_MODEL_ID,
             type(error).__name__,
         )
         self._default_classifier_failure_logged = True
