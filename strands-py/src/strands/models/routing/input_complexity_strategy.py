@@ -12,10 +12,9 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from botocore.exceptions import ClientError, NoCredentialsError, NoRegionError, PartialCredentialsError, ProfileNotFound
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from ...types.content import ContentBlock, Message, Messages, SystemPrompt
-from ...types.exceptions import ModelThrottledException
 from ..model import Model
 from .router import ModelRouter, RoutingCandidate
 from .strategy import RoutingContext, RoutingStrategy
@@ -30,12 +29,11 @@ _CLASSIFICATION_OMISSION_MARKER = "\n...[content omitted for routing]...\n"
 _NO_REQUEST_TEXT = "[No request-bearing user message provided]"
 _DEFAULT_CLASSIFIER_MODEL_ID = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
 _MODEL_IDENTIFIER_FIELDS = ("model_id", "endpoint_name")
-_PERMANENT_CLASSIFIER_ERROR_CODES = {
+_DEFAULT_CLASSIFIER_UNAVAILABLE_ERROR_CODES = {
     "AccessDeniedException",
     "InvalidSignatureException",
     "ResourceNotFoundException",
     "UnrecognizedClientException",
-    "ValidationException",
 }
 
 _STATIC_CONTENT_MARKERS = {
@@ -72,15 +70,18 @@ class _DefaultClassifierUnavailable(RuntimeError):
     """The SDK-provided classifier cannot serve routing requests."""
 
 
-def _is_permanent_default_classifier_error(error: Exception) -> bool:
-    """Return whether retrying with the same default classifier configuration cannot help."""
+def _is_default_classifier_unavailable_error(error: Exception) -> bool:
+    """Return whether an exception chain identifies an unavailable SDK default."""
     current: BaseException | None = error
-    while current is not None:
+    visited: set[int] = set()
+    while current is not None and id(current) not in visited:
+        visited.add(id(current))
         if isinstance(current, (NoCredentialsError, NoRegionError, PartialCredentialsError, ProfileNotFound)):
             return True
         if isinstance(current, ClientError):
             code = current.response.get("Error", {}).get("Code")
-            return code in _PERMANENT_CLASSIFIER_ERROR_CODES
+            if code in _DEFAULT_CLASSIFIER_UNAVAILABLE_ERROR_CODES:
+                return True
         current = current.__cause__ or current.__context__
     return False
 
@@ -199,10 +200,10 @@ class InputComplexityStrategy:
 
     Multiple candidates add one classifier call. With no explicit ``classifier_model``, the strategy lazily uses a
     low-cost Bedrock Anthropic model through a global inference profile; callers need usable AWS credentials, model
-    access, and a supported Bedrock region. That default is subject to change. If the SDK-provided classifier cannot
-    make its first successful call because it is unavailable or misconfigured, selection raises with remediation
-    instead of silently pretending candidate zero was classified. Transient failure or invalid output selects
-    candidate zero, so declare first the candidate that should serve when classification degrades.
+    access, and a supported Bedrock region. That default is subject to change. Known availability or configuration
+    failures from the SDK-provided classifier raise with remediation instead of silently pretending candidate zero was
+    classified. Transient failure or invalid output selects candidate zero, so declare first the candidate that should
+    serve when classification degrades.
 
     Unsupported candidate metadata raises before classification when multiple candidates are configured. Nested
     ``ModelRouter`` candidates are unsupported even alone; flatten their candidates first. Candidate order carries no
@@ -247,8 +248,7 @@ class InputComplexityStrategy:
 
         self._classifier_model = classifier_model
         self._uses_default_classifier = classifier_model is None
-        self._default_classifier_succeeded = False
-        self._default_classifier_unavailable: _DefaultClassifierUnavailable | None = None
+        self._default_classifier_initialization_error: _DefaultClassifierUnavailable | None = None
         self._default_classifier_failure_logged = False
         self._classifier_lock = asyncio.Lock()
         self._fallback = fallback
@@ -293,17 +293,13 @@ class InputComplexityStrategy:
         error: Exception,
     ) -> RoutingCandidate:
         """Recover from a transient or invalid classification result."""
-        if self._uses_default_classifier and not isinstance(error, (_ClassificationError, ModelThrottledException)):
-            permanent_error = _is_permanent_default_classifier_error(error)
-            if not self._default_classifier_succeeded or permanent_error:
-                unavailable = _DefaultClassifierUnavailable(
-                    "SDK default classifier is unavailable; configure AWS credentials and model access, or pass "
-                    "classifier_model explicitly"
-                )
-                if permanent_error:
-                    self._default_classifier_unavailable = unavailable
-                self._log_default_classifier_unavailable(unavailable)
-                raise unavailable from error
+        if self._uses_default_classifier and _is_default_classifier_unavailable_error(error):
+            unavailable = _DefaultClassifierUnavailable(
+                "SDK default classifier is unavailable; configure AWS credentials and model access, or pass "
+                "classifier_model explicitly"
+            )
+            self._log_default_classifier_unavailable(unavailable)
+            raise unavailable from error
 
         if isinstance(error, asyncio.TimeoutError):
             reason = "classifier_timeout"
@@ -334,14 +330,14 @@ class InputComplexityStrategy:
 
     async def _get_classifier_model(self) -> Model:
         """Return the configured classifier, constructing the SDK default once off-loop."""
-        if self._default_classifier_unavailable is not None:
-            raise self._default_classifier_unavailable
+        if self._default_classifier_initialization_error is not None:
+            raise self._default_classifier_initialization_error
         if self._classifier_model is not None:
             return self._classifier_model
 
         async with self._classifier_lock:
-            if self._default_classifier_unavailable is not None:
-                raise self._default_classifier_unavailable
+            if self._default_classifier_initialization_error is not None:
+                raise self._default_classifier_initialization_error
             if self._classifier_model is None:
                 try:
                     self._classifier_model = await asyncio.to_thread(_create_default_classifier_model)
@@ -350,7 +346,7 @@ class InputComplexityStrategy:
                         "SDK default classifier could not be initialized; configure AWS credentials and model access, "
                         "or pass classifier_model explicitly"
                     )
-                    self._default_classifier_unavailable = unavailable
+                    self._default_classifier_initialization_error = unavailable
                     raise unavailable from error
         return self._classifier_model
 
@@ -359,24 +355,24 @@ class InputComplexityStrategy:
         classifier_model = await self._get_classifier_model()
 
         output: object | None = None
-        events = classifier_model.structured_output(
-            _InputComplexityClassification,
-            _build_classification_messages(context.messages),
-            system_prompt=_build_classifier_system_prompt(profiles, context.system_prompt),
-        )
         try:
+            events = classifier_model.structured_output(
+                _InputComplexityClassification,
+                _build_classification_messages(context.messages),
+                system_prompt=_build_classifier_system_prompt(profiles, context.system_prompt),
+            )
             async for event in events:
                 if isinstance(event, dict) and "output" in event:
                     output = event["output"]
         except TimeoutError as error:
             raise _ClassificationError("classifier_provider_timeout") from error
+        except ValidationError as error:
+            raise _ClassificationError("invalid_classifier_output") from error
 
         if not isinstance(output, _InputComplexityClassification):
             raise _ClassificationError("invalid_classifier_output")
         if not 0 <= output.selected_candidate_index < len(context.candidates):
             raise _ClassificationError("candidate_index_out_of_range")
-        if self._uses_default_classifier:
-            self._default_classifier_succeeded = True
         return output.selected_candidate_index
 
 
