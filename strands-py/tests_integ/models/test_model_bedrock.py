@@ -231,6 +231,25 @@ def test_invoke_multi_modal_input(streaming_agent, yellow_img):
     assert "yellow" in text
 
 
+def test_invoke_audio_input(pineapple_audio):
+    model = BedrockModel(
+        model_id="mistral.voxtral-small-24b-2507",
+        region_name="us-east-1",
+        temperature=0,
+        max_tokens=20,
+    )
+    agent = Agent(model=model, load_tools_from_directory=False)
+    content = [
+        {"text": "Transcribe the final word spoken in the audio. Output only that word."},
+        {"audio": {"format": "mp3", "source": {"bytes": pineapple_audio}}},
+    ]
+
+    result = agent(content)
+    text = result.message["content"][0]["text"].lower()
+
+    assert "pineapple" in text
+
+
 def test_document_citations(non_streaming_agent, letter_pdf):
     content: list[ContentBlock] = [
         {
