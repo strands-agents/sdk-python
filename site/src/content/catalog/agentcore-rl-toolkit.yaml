@@ -6,4 +6,4 @@ languages:
   python:
     package: agentcore-rl-toolkit
 github: https://github.com/awslabs/agentcore-rl-toolkit
-addedDate: 2026-08-04
+addedDate: 2026-01-08

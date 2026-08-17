@@ -6,4 +6,4 @@ languages:
   typescript:
     package: "@traceai/strands"
 github: https://github.com/future-agi/traceAI
-addedDate: 2026-08-04
+addedDate: 2026-03-10

@@ -7,4 +7,4 @@ languages:
     package: valyu-agentcore
 github: https://github.com/valyu-network/valyu-agentcore
 docsUrl: https://docs.valyu.ai/integrations/aws-agentcore
-addedDate: 2026-08-04
+addedDate: 2025-12-04
