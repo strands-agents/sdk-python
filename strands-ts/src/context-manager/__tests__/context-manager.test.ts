@@ -198,6 +198,12 @@ describe('ContextManager', () => {
           new Message({ role: 'assistant', content: [new TextBlock('a')] }),
           new Message({ role: 'user', content: [new TextBlock('b')] }),
           new Message({ role: 'assistant', content: [new TextBlock('c')] }),
+          new Message({ role: 'user', content: [new TextBlock('d')] }),
+          new Message({ role: 'assistant', content: [new TextBlock('e')] }),
+          new Message({ role: 'user', content: [new TextBlock('f')] }),
+          new Message({ role: 'assistant', content: [new TextBlock('g')] }),
+          new Message({ role: 'user', content: [new TextBlock('h')] }),
+          new Message({ role: 'assistant', content: [new TextBlock('i')] }),
         ],
         countTokens: async () => 10000,
         estimateUtilization: () => 1.5,
@@ -220,13 +226,13 @@ describe('ContextManager', () => {
     it('resets retry counter on successful (non-overflow) model call', async () => {
       const strategy = { name: 'noop', apply: async () => false }
       const cm = new ContextManager({ strategies: [strategy] })
+      const messages: Message[] = [new Message({ role: 'user', content: [new TextBlock('system')] })]
+      for (let idx = 0; idx < 20; idx++) {
+        messages.push(new Message({ role: 'assistant', content: [new TextBlock(`r${idx}`)] }))
+        messages.push(new Message({ role: 'user', content: [new TextBlock(`m${idx}`)] }))
+      }
       const agent = makeMockAgent({
-        messages: [
-          new Message({ role: 'user', content: [new TextBlock('system')] }),
-          new Message({ role: 'assistant', content: [new TextBlock('a')] }),
-          new Message({ role: 'user', content: [new TextBlock('b')] }),
-          new Message({ role: 'assistant', content: [new TextBlock('c')] }),
-        ],
+        messages,
         countTokens: async () => 10000,
         estimateUtilization: () => 1.5,
       })

@@ -103,25 +103,6 @@ function buildToolNameMap(messages: Message[]): Map<string, string> {
  * Checks whether a ToolResultBlock matches the given offload target.
  * Handles status-based targets (toolResults/toolResultErrors) and name-based targets (string[]).
  */
-function matchesToolTarget(
-  block: ToolResultBlock,
-  target: OffloadTarget,
-  toolNameMap: Map<string, string>,
-  toolFilter: Set<string> | undefined,
-  excludeFilter: Set<string> | undefined
-): boolean {
-  if (target === 'toolResults') return block.status === 'success'
-  if (target === 'toolResultErrors') return block.status === 'error'
-
-  const toolName = toolNameMap.get(block.toolUseId)
-  if (!toolName) return toolFilter === undefined && excludeFilter === undefined
-
-  if (excludeFilter) return !excludeFilter.has(toolName)
-  if (toolFilter) return toolFilter.has(toolName)
-
-  return true
-}
-
 // --- Base strategy class ---
 
 /** Shared offload logic: target routing, eager hooks, preserveRecent. */
@@ -132,12 +113,13 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
   protected readonly _threshold: number | undefined
   protected readonly _utilization: number | undefined
   protected readonly _preserveRecent: number
-  protected readonly _toolFilter: Set<string> | undefined
+  protected readonly _removalRatio = 0.3
+  protected readonly _includeFilter: Set<string> | undefined
   protected readonly _excludeFilter: Set<string> | undefined
 
   constructor(target?: OffloadTarget, conditions?: OffloadConditions) {
     if (Array.isArray(target) && target.length === 0) {
-      throw new Error('Empty array target matches nothing — use "*" to target all content, or specify tool names')
+      throw new Error('Empty array target matches nothing — provide at least one target')
     }
 
     this._target = target
@@ -146,7 +128,7 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
     this._preserveRecent = Math.floor(finiteOrUndefined(conditions?.preserveRecent) ?? 0)
 
     const resolved = resolveToolFilter(target)
-    this._toolFilter = resolved.include
+    this._includeFilter = resolved.include
     this._excludeFilter = resolved.exclude
   }
 
@@ -166,9 +148,8 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
   }
 
   async apply(context: ContextState): Promise<boolean> {
-    if (this._utilization !== undefined && context.utilization < this._utilization) return false
-
     if (this._isMessageLevel) {
+      if (context.utilization < this._utilization!) return false
       return this._applyPerMessage(context)
     }
 
@@ -178,7 +159,6 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
   /** Per-block execution: walk each message, transform individual blocks above threshold. */
   private async _applyPerBlock(context: ContextState): Promise<boolean> {
     const { messages, agent } = context
-    const threshold = this._threshold ?? 0
     const toolNameMap = buildToolNameMap(messages)
     const eligible =
       this._preserveRecent > 0
@@ -187,14 +167,14 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
             this._target,
             this._preserveRecent,
             toolNameMap,
-            this._toolFilter,
+            this._includeFilter,
             this._excludeFilter
           )
         : messages
     let acted = false
 
     for (const message of eligible) {
-      if (await this._transformBlocks(message, messages, toolNameMap, agent, threshold)) {
+      if (await this._transformBlocks(message, messages, toolNameMap, agent)) {
         acted = true
       }
     }
@@ -210,7 +190,7 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
     const eligible = await this._getEligibleMessages(context)
     if (eligible.length === 0) return false
 
-    const targetRemoval = Math.max(1, Math.floor(eligible.length * 0.3))
+    const targetRemoval = Math.max(1, Math.floor(eligible.length * this._removalRatio))
     const toRemove = eligible.slice(0, targetRemoval)
 
     const insertIndex = Math.max(1, messages.indexOf(toRemove[0]!))
@@ -240,28 +220,26 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
     message: Message,
     messages: Message[],
     toolNameMap: Map<string, string>,
-    agent: LocalAgent,
-    threshold?: number
+    agent: LocalAgent
   ): Promise<boolean> {
-    const effectiveThreshold = threshold ?? this._threshold ?? 0
+    const effectiveThreshold = this._threshold ?? 0
     let acted = false
     for (let blockIndex = 0; blockIndex < message.content.length; blockIndex++) {
       const block = message.content[blockIndex]!
 
       if (block instanceof TextBlock) {
-        if (!this._targetIncludesText(message)) continue
+        if (!this._targetMatchesMessage(message)) continue
       } else if (block instanceof ToolResultBlock) {
         if (
           this._target !== undefined &&
-          !matchesToolTarget(block, this._target, toolNameMap, this._toolFilter, this._excludeFilter)
+          !toolMatchesTarget(block, this._target, toolNameMap, this._includeFilter, this._excludeFilter)
         )
           continue
       } else {
         continue
       }
 
-      const role = block instanceof ToolResultBlock ? 'user' : message.role
-      const tokens = await agent.model.countTokens([new Message({ role, content: [block] })])
+      const tokens = await agent.model.countTokens([new Message({ role: message.role, content: [block] })])
       if (tokens <= effectiveThreshold) continue
 
       const replacement = await this._replaceBlock(block, tokens, message, agent)
@@ -273,11 +251,8 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
     return acted
   }
 
-  private _targetIncludesText(message: Message): boolean {
-    if (this._target === '*' || this._target === undefined) return true
-    if (this._target === 'assistantText') return message.role === 'assistant'
-    if (this._target === 'userText') return message.role === 'user'
-    return false
+  private _targetMatchesMessage(message: Message): boolean {
+    return targetMatchesMessage(this._target, message)
   }
 
   /** Collect eligible messages for message-level operations, respecting preserveRecent, head-pin, and threshold. */
@@ -292,13 +267,13 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
         this._target,
         this._preserveRecent,
         toolNameMap,
-        this._toolFilter,
+        this._includeFilter,
         this._excludeFilter
       ).filter((message) => messages.indexOf(message) > 0)
     } else {
       candidates = messages.filter(
         (message, index) =>
-          index > 0 && messageMatchesTarget(message, this._target, toolNameMap, this._toolFilter, this._excludeFilter)
+          index > 0 && messageMatchesTarget(message, this._target, toolNameMap, this._includeFilter, this._excludeFilter)
       )
     }
 
@@ -321,19 +296,18 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
   ): Promise<boolean> {
     for (const block of message.content) {
       if (block instanceof TextBlock) {
-        if (!this._targetIncludesText(message)) continue
+        if (!this._targetMatchesMessage(message)) continue
       } else if (block instanceof ToolResultBlock) {
         if (
           this._target !== undefined &&
-          !matchesToolTarget(block, this._target, toolNameMap, this._toolFilter, this._excludeFilter)
+          !toolMatchesTarget(block, this._target, toolNameMap, this._includeFilter, this._excludeFilter)
         )
           continue
       } else {
         continue
       }
 
-      const role = block instanceof ToolResultBlock ? 'user' : message.role
-      const tokens = await agent.model.countTokens([new Message({ role, content: [block] })])
+      const tokens = await agent.model.countTokens([new Message({ role: message.role, content: [block] })])
       if (tokens > this._threshold!) return true
     }
     return false
@@ -416,7 +390,7 @@ class TruncateStrategy extends BaseOffloadStrategy {
     // Determine head/tail split based on config (default: favor tail — 30% head, 70% tail)
     const previewMode = this._truncateConfig.preview ?? 'headTail'
     const headShare = { head: 1, tail: 0, headTail: 0.3 }[previewMode]
-    const targetRemoval = Math.max(1, Math.floor(eligible.length * 0.3))
+    const targetRemoval = Math.max(1, Math.floor(eligible.length * this._removalRatio))
     const keepCount = eligible.length - targetRemoval
 
     const headKeep = Math.floor(keepCount * headShare)
@@ -494,7 +468,7 @@ class SummarizeStrategy extends BaseOffloadStrategy {
     const eligible = await this._getEligibleMessages(context)
     if (eligible.length === 0) return false
 
-    const summarizeCount = Math.max(1, Math.floor(eligible.length * 0.3))
+    const summarizeCount = Math.max(1, Math.floor(eligible.length * this._removalRatio))
     const toSummarize = eligible.slice(0, summarizeCount)
 
     // Expand to include paired messages so we don't orphan tool pairs
@@ -599,6 +573,32 @@ function getOldestMatches(
  * Checks whether a message matches the given target for preserveRecent counting.
  * A message matches if it contains content that the target would select.
  */
+function toolMatchesTarget(
+  block: ToolResultBlock,
+  target: OffloadTarget,
+  toolNameMap: Map<string, string>,
+  toolFilter: Set<string> | undefined,
+  excludeFilter: Set<string> | undefined
+): boolean {
+  if (target === 'toolResults') return block.status === 'success'
+  if (target === 'toolResultErrors') return block.status === 'error'
+
+  const toolName = toolNameMap.get(block.toolUseId)
+  if (!toolName) return toolFilter === undefined && excludeFilter === undefined
+
+  if (excludeFilter) return !excludeFilter.has(toolName)
+  if (toolFilter) return toolFilter.has(toolName)
+
+  return true
+}
+
+function targetMatchesMessage(target: OffloadTarget | undefined, message: Message): boolean {
+  if (target === undefined || target === '*') return true
+  if (target === 'assistantText') return message.role === 'assistant'
+  if (target === 'userText') return message.role === 'user'
+  return false
+}
+
 function messageMatchesTarget(
   message: Message,
   target: OffloadTarget | undefined,
@@ -606,16 +606,15 @@ function messageMatchesTarget(
   toolFilter: Set<string> | undefined,
   excludeFilter: Set<string> | undefined
 ): boolean {
-  if (target === undefined || target === '*') return true
-
-  if (target === 'assistantText') return message.role === 'assistant'
-  if (target === 'userText') return message.role === 'user'
+  if (targetMatchesMessage(target, message)) return true
+  if (!target) return false
+  if (target === 'assistantText' || target === 'userText') return false
 
   // Tool result targets — must be a user message with a matching tool result
   if (message.role !== 'user') return false
   for (const block of message.content) {
     if (block instanceof ToolResultBlock) {
-      if (matchesToolTarget(block, target, toolNameMap, toolFilter, excludeFilter)) return true
+      if (toolMatchesTarget(block, target, toolNameMap, toolFilter, excludeFilter)) return true
     }
   }
   return false

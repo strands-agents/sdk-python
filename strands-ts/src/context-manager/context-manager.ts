@@ -76,11 +76,14 @@ export class ContextManager implements Plugin {
       const postTokens = await event.agent.model.countTokens(event.agent.messages)
       const postUtilization = event.agent.model.estimateUtilization(postTokens)
       if (postUtilization >= 1.0) {
+        let truncated = false
         try {
-          this._truncate(event.agent)
+          truncated = this._truncate(event.agent)
         } catch (truncateError) {
           logger.warn(`agentId=<${event.agent.id}>, error=<${truncateError}> | truncation failed`)
+          return
         }
+        if (!truncated) return
       }
 
       overflowRetries++
@@ -111,24 +114,25 @@ export class ContextManager implements Plugin {
    * Unconditional truncation: drop the oldest messages (preserving the first message
    * and respecting tool-use/tool-result pair boundaries).
    */
-  private _truncate(agent: LocalAgent): void {
+  private _truncate(agent: LocalAgent): boolean {
     const messages = agent.messages
-    if (messages.length <= 3) return
+    if (messages.length <= 3) return false
 
     const startIndex = this._findSafeStartIndex(messages)
-    if (startIndex >= messages.length - 1) return
+    if (startIndex >= messages.length - 1) return false
 
     const targetRemoval = Math.max(2, Math.floor(messages.length * 0.2))
-    const targetSplitIndex = Math.min(startIndex + targetRemoval, messages.length - 1)
+    const targetEndIndex = Math.min(startIndex + targetRemoval, messages.length - 1)
 
-    const validSplitIndex = this._findValidTrimPoint(messages, targetSplitIndex)
-    const splitIndex = validSplitIndex < messages.length ? validSplitIndex : targetSplitIndex
+    const endIndex = this._findValidEndIndex(messages, targetEndIndex)
+    if (endIndex >= messages.length) return false
 
-    const removeCount = splitIndex - startIndex
-    if (removeCount <= 0) return
+    const removeCount = endIndex - startIndex
+    if (removeCount <= 0) return false
 
     messages.splice(startIndex, removeCount)
     logger.debug(`agentId=<${agent.id}>, removed=<${removeCount}> | truncated oldest messages on overflow`)
+    return true
   }
 
   /**
@@ -167,37 +171,27 @@ export class ContextManager implements Plugin {
     return false
   }
 
-  private _findValidTrimPoint(messages: Message[], startIndex: number): number {
-    let trimIndex = startIndex
+  private _findValidEndIndex(messages: Message[], startIndex: number): number {
+    let endIndex = startIndex
 
-    while (trimIndex < messages.length) {
-      const message = messages[trimIndex]
+    while (endIndex < messages.length) {
+      const message = messages[endIndex]
       if (!message) break
 
       if (message.role !== 'user') {
-        trimIndex++
+        endIndex++
         continue
       }
 
       const hasToolResult = message.content.some((block) => block instanceof ToolResultBlock)
       if (hasToolResult) {
-        trimIndex++
+        endIndex++
         continue
-      }
-
-      const hasToolUse = message.content.some((block) => block instanceof ToolUseBlock)
-      if (hasToolUse) {
-        const nextMessage = messages[trimIndex + 1]
-        const nextHasToolResult = nextMessage?.content.some((block) => block instanceof ToolResultBlock)
-        if (!nextHasToolResult) {
-          trimIndex++
-          continue
-        }
       }
 
       break
     }
 
-    return trimIndex
+    return endIndex
   }
 }
