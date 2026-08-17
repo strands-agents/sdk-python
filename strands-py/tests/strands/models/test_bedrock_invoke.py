@@ -2,7 +2,9 @@
 
 import asyncio
 import json
+import sys
 import time
+import traceback
 import unittest.mock
 
 import pydantic
@@ -10,6 +12,7 @@ import pytest
 from botocore.exceptions import ClientError
 
 import strands
+from strands import _exception_notes
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID
 from strands.models.bedrock_invoke import BedrockInvokeModel
 from strands.models.model import Model
@@ -620,6 +623,7 @@ async def test_stream_context_window_overflow(bedrock_client):
         await _collect(BedrockInvokeModel(model_id=CLAUDE_ID), [{"role": "user", "content": [{"text": "x"}]}])
 
 
+@pytest.mark.skipif(sys.version_info < (3, 11), reason="This test requires Python 3.11 or higher (need add_note)")
 @pytest.mark.asyncio
 async def test_stream_access_denied_adds_note(bedrock_client):
     bedrock_client.invoke_model_with_response_stream.side_effect = ClientError(
@@ -631,6 +635,22 @@ async def test_stream_access_denied_adds_note(bedrock_client):
     notes = getattr(err.value, "__notes__", [])
     assert any("required-iam-permissions" in note for note in notes)
     assert any(f"Model id: {CLAUDE_ID}" in note for note in notes)
+
+
+@pytest.mark.asyncio
+async def test_stream_access_denied_adds_note_without_add_notes(bedrock_client):
+    """When add_note is not available, the note text is still included in the error output."""
+    with unittest.mock.patch.object(_exception_notes, "supports_add_note", False):
+        bedrock_client.invoke_model_with_response_stream.side_effect = ClientError(
+            {"Error": {"Code": "AccessDeniedException", "Message": "You don't have access to the model"}},
+            "InvokeModelWithResponseStream",
+        )
+        with pytest.raises(ClientError) as err:
+            await _collect(BedrockInvokeModel(model_id=CLAUDE_ID), [{"role": "user", "content": [{"text": "x"}]}])
+
+    error_str = "".join(traceback.format_exception(err.value))
+    assert "required-iam-permissions" in error_str
+    assert f"└ Model id: {CLAUDE_ID}" in error_str
 
 
 # ---- cancellation
