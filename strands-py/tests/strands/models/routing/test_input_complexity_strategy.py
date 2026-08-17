@@ -206,8 +206,8 @@ async def test_unavailable_default_classifier_raises_once_and_caches_initializat
 
 
 @pytest.mark.asyncio
-async def test_default_classifier_provider_failure_raises_before_first_success(monkeypatch):
-    classifier = _ClassifierModel(error=RuntimeError("provider unavailable"))
+async def test_default_classifier_invalid_output_degrades_before_first_success(monkeypatch, caplog):
+    classifier = _ClassifierModel(selected_index=True)
     monkeypatch.setattr(
         "strands.models.routing.input_complexity_strategy._create_default_classifier_model",
         lambda: classifier,
@@ -215,10 +215,12 @@ async def test_default_classifier_provider_failure_raises_before_first_success(m
     strategy = InputComplexityStrategy()
     router = ModelRouter(models=[_response_model("first"), _response_model("second")], strategy=strategy)
 
-    with pytest.raises(_DefaultClassifierUnavailable, match="pass classifier_model explicitly"):
-        await strategy.select(_context(router))
+    with caplog.at_level("WARNING", logger="strands.models.routing.input_complexity_strategy"):
+        selected = await strategy.select(_context(router))
 
+    assert selected is router.candidates[0]
     assert classifier.calls == 1
+    assert "reason=<invalid_classifier_output>" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -241,7 +243,7 @@ async def test_default_classifier_transient_failure_degrades_after_success(monke
 
 
 @pytest.mark.asyncio
-async def test_default_classifier_permanent_failure_is_cached_after_success(monkeypatch, caplog):
+async def test_default_classifier_unavailable_failure_is_retried_after_success(monkeypatch, caplog):
     classifier = _ClassifierModel(selected_index=1)
     monkeypatch.setattr(
         "strands.models.routing.input_complexity_strategy._create_default_classifier_model",
@@ -257,7 +259,7 @@ async def test_default_classifier_permanent_failure_is_cached_after_success(monk
             with pytest.raises(_DefaultClassifierUnavailable, match="configure AWS credentials"):
                 await strategy.select(_context(router))
 
-    assert classifier.calls == 2
+    assert classifier.calls == 3
     assert caplog.text.count("default classifier unavailable") == 1
 
 
@@ -773,7 +775,7 @@ async def test_prompt_frames_candidate_and_agent_text_as_untrusted_data():
         (_ClassifierModel(emit_output=False), "invalid_classifier_output"),
         (_ClassifierModel(error=TimeoutError("provider timeout user-secret")), "classifier_provider_timeout"),
         (_ClassifierModel(error=RuntimeError("provider included user-secret")), "classifier_error"),
-        (_ClassifierModel(selected_index=True), "classifier_error"),
+        (_ClassifierModel(selected_index=True), "invalid_classifier_output"),
     ],
     ids=["exact-upper-bound", "wrong-output-type", "empty-output", "provider-timeout", "provider-error", "strict-bool"],
 )
@@ -812,9 +814,13 @@ async def test_classifier_input_construction_failure_degrades_safely(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_classifier_timeout_degrades_safely(caplog):
+async def test_classifier_timeout_degrades_safely(monkeypatch, caplog):
     classifier = _ClassifierModel(delay=1)
-    strategy = InputComplexityStrategy(classifier_model=classifier, classifier_timeout=0.001)
+    monkeypatch.setattr(
+        "strands.models.routing.input_complexity_strategy._create_default_classifier_model",
+        lambda: classifier,
+    )
+    strategy = InputComplexityStrategy(classifier_timeout=0.001)
     router = ModelRouter(models=[_response_model("first"), _response_model("second")], strategy=strategy)
 
     with caplog.at_level("WARNING", logger="strands.models.routing.input_complexity_strategy"):
