@@ -9,10 +9,8 @@ from typing_extensions import override
 
 from strands import Agent
 from strands.models import BedrockModel, InputComplexityStrategy, ModelRouter
-from strands.types.content import Messages, SystemContentBlock
 from strands.types.exceptions import ModelThrottledException
 from strands.types.streaming import StreamEvent
-from strands.types.tools import ToolChoice, ToolSpec
 from tests_integ.conftest import retry_on_flaky
 
 _CLASSIFIER_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
@@ -21,32 +19,17 @@ _SONNET_MODEL_ID = "global.anthropic.claude-sonnet-4-6"
 
 
 class _InvocationTrackingBedrockModel(BedrockModel):
-    """Bedrock model that records whether the router invoked it."""
+    """Bedrock model that appends its model ID whenever it is invoked."""
 
-    def __init__(self, model_id: str) -> None:
+    def __init__(self, model_id: str, invoked_model_ids: list[str]) -> None:
         super().__init__(model_id=model_id, max_tokens=256, streaming=False)
-        self.invocation_count = 0
+        self._tracked_model_id = model_id
+        self._invoked_model_ids = invoked_model_ids
 
     @override
-    async def stream(
-        self,
-        messages: Messages,
-        tool_specs: list[ToolSpec] | None = None,
-        system_prompt: str | None = None,
-        *,
-        tool_choice: ToolChoice | None = None,
-        system_prompt_content: list[SystemContentBlock] | None = None,
-        **kwargs: Any,
-    ) -> AsyncGenerator[StreamEvent, None]:
-        self.invocation_count += 1
-        async for event in super().stream(
-            messages,
-            tool_specs,
-            system_prompt,
-            tool_choice=tool_choice,
-            system_prompt_content=system_prompt_content,
-            **kwargs,
-        ):
+    async def stream(self, *args: Any, **kwargs: Any) -> AsyncGenerator[StreamEvent, None]:
+        self._invoked_model_ids.append(self._tracked_model_id)
+        async for event in super().stream(*args, **kwargs):
             yield event
 
 
@@ -71,19 +54,21 @@ class _InvocationTrackingBedrockModel(BedrockModel):
     ],
     ids=["factual-request-selects-haiku", "distributed-systems-request-selects-sonnet"],
 )
-def test_agent_routes_to_expected_model_for_request_complexity(caplog, user_prompt, expected_model_id):
-    """A real classifier routes distinct request complexities to the expected real models."""
+def test_agent_invokes_only_expected_model_for_request_complexity(caplog, user_prompt, expected_model_id):
+    """A real classifier invokes exactly the expected candidate model for each request."""
     classifier_model = BedrockModel(
         model_id=_CLASSIFIER_MODEL_ID,
         max_tokens=64,
         streaming=False,
         temperature=0,
     )
-    candidate_models = {
-        model_id: _InvocationTrackingBedrockModel(model_id) for model_id in (_HAIKU_MODEL_ID, _SONNET_MODEL_ID)
-    }
+    invoked_candidate_model_ids: list[str] = []
+    candidate_models = [
+        _InvocationTrackingBedrockModel(_HAIKU_MODEL_ID, invoked_candidate_model_ids),
+        _InvocationTrackingBedrockModel(_SONNET_MODEL_ID, invoked_candidate_model_ids),
+    ]
     router = ModelRouter(
-        models=list(candidate_models.values()),
+        models=candidate_models,
         strategy=InputComplexityStrategy(classifier_model=classifier_model),
     )
     agent = Agent(model=router, load_tools_from_directory=False)
@@ -93,12 +78,9 @@ def test_agent_routes_to_expected_model_for_request_complexity(caplog, user_prom
 
     assert result.stop_reason == "end_turn"
     assert str(result).strip()
-    assert candidate_models[expected_model_id].invocation_count == 1, (
-        "Live model routing was inconclusive: expected candidate was not invoked exactly once"
+    assert invoked_candidate_model_ids == [expected_model_id], (
+        "Live model routing was inconclusive: expected exactly one invocation of the selected candidate"
     )
-    assert all(
-        model.invocation_count == 0 for model_id, model in candidate_models.items() if model_id != expected_model_id
-    ), "Live model routing was inconclusive: an unexpected candidate was invoked"
     assert not any("classification failed" in record.getMessage() for record in caplog.records), (
         "Live model routing was inconclusive: classification degraded"
     )
