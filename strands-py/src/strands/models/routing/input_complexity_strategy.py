@@ -15,6 +15,7 @@ from botocore.exceptions import ClientError, NoCredentialsError, NoRegionError, 
 from pydantic import BaseModel, Field, ValidationError
 
 from ...types.content import ContentBlock, Message, Messages, SystemPrompt
+from ...types.exceptions import DefaultClassifierUnavailableError
 from ..model import Model
 from .router import ModelRouter, RoutingCandidate
 from .strategy import RoutingContext, RoutingStrategy
@@ -27,7 +28,6 @@ _CLASSIFICATION_SYSTEM_PROMPT_CHARACTER_LIMIT = 4_000
 _CLASSIFICATION_CANDIDATE_TEXT_CHARACTER_LIMIT = 1_000
 _CLASSIFICATION_OMISSION_MARKER = "\n...[content omitted for routing]...\n"
 _NO_REQUEST_TEXT = "[No request-bearing user message provided]"
-_DEFAULT_CLASSIFIER_MODEL_ID = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
 _MODEL_IDENTIFIER_FIELDS = ("model_id", "endpoint_name")
 _DEFAULT_CLASSIFIER_UNAVAILABLE_ERROR_CODES = {
     "AccessDeniedException",
@@ -64,10 +64,6 @@ class _ClassificationError(ValueError):
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
-
-
-class _DefaultClassifierUnavailable(RuntimeError):
-    """The SDK-provided classifier cannot serve routing requests."""
 
 
 def _is_default_classifier_unavailable_error(error: Exception) -> bool:
@@ -160,11 +156,10 @@ def _candidate_profile(candidate: RoutingCandidate, candidate_index: int) -> _Ca
         )
 
     context_window_limit: object = None
-    if sdk_type is not None or type(model).context_window_limit is not Model.context_window_limit:
-        try:
-            context_window_limit = model.context_window_limit
-        except Exception:
-            context_window_limit = None
+    try:
+        context_window_limit = model.context_window_limit
+    except Exception:
+        context_window_limit = None
     if isinstance(context_window_limit, bool) or not isinstance(context_window_limit, int) or context_window_limit <= 0:
         context_window_limit = None
 
@@ -184,11 +179,11 @@ def _candidate_profile(candidate: RoutingCandidate, candidate_index: int) -> _Ca
 
 
 def _create_default_classifier_model() -> Model:
-    """Create the inexpensive default classifier lazily on first use."""
-    from ..bedrock import BedrockModel
+    """Create the default classifier lazily on first use."""
+    from ..bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 
     return BedrockModel(
-        model_id=_DEFAULT_CLASSIFIER_MODEL_ID,
+        model_id=DEFAULT_BEDROCK_MODEL_ID,
         max_tokens=64,
         streaming=False,
         temperature=0,
@@ -198,10 +193,10 @@ def _create_default_classifier_model() -> Model:
 class InputComplexityStrategy:
     """Choose the concrete candidate model best suited to each opening request.
 
-    Multiple candidates add one classifier call. With no explicit ``classifier_model``, the strategy lazily uses a
-    low-cost Bedrock Anthropic model through a global inference profile; callers need usable AWS credentials, model
-    access, and a supported Bedrock region. That default is subject to change. Known availability or configuration
-    failures from the SDK-provided classifier raise with remediation instead of silently pretending candidate zero was
+    Multiple candidates add one classifier call. With no explicit ``classifier_model``, the strategy lazily uses the
+    SDK's default Bedrock model through a global inference profile; callers need usable AWS credentials, model access,
+    and a supported Bedrock region. That default is subject to change. Known availability or configuration failures
+    from the SDK-provided classifier raise with remediation instead of silently pretending candidate zero was
     classified. Transient failure or invalid output selects candidate zero, so declare first the candidate that should
     serve when classification degrades.
 
@@ -248,14 +243,27 @@ class InputComplexityStrategy:
 
         self._classifier_model = classifier_model
         self._uses_default_classifier = classifier_model is None
-        self._default_classifier_initialization_error: _DefaultClassifierUnavailable | None = None
+        self._default_classifier_initialization_error: DefaultClassifierUnavailableError | None = None
         self._default_classifier_failure_logged = False
         self._classifier_lock = asyncio.Lock()
         self._fallback = fallback
         self._classifier_timeout = normalized_timeout
 
     async def select(self, context: RoutingContext, **kwargs: Any) -> RoutingCandidate | None:
-        """Classify the opening request, or delegate model failure to the configured fallback."""
+        """Classify the opening request, or delegate model failure to the configured fallback.
+
+        Args:
+            context: Routing candidates and invocation state.
+            **kwargs: Additional arguments forwarded to the fallback strategy.
+
+        Returns:
+            The selected candidate, or ``None`` when a prior attempt failed and no fallback is configured.
+
+        Raises:
+            ValueError: If a candidate is nested, cannot be inspected, or lacks required descriptive metadata.
+            DefaultClassifierUnavailableError: If the SDK-provided classifier cannot be initialized or called because
+                its credentials, region, model access, or model configuration are unavailable.
+        """
         if context.attempts:
             if self._fallback is None:
                 return None
@@ -279,7 +287,7 @@ class InputComplexityStrategy:
                 self._classify(context, profiles),
                 timeout=self._classifier_timeout,
             )
-        except _DefaultClassifierUnavailable as error:
+        except DefaultClassifierUnavailableError as error:
             self._log_default_classifier_unavailable(error)
             raise
         except Exception as error:
@@ -294,7 +302,7 @@ class InputComplexityStrategy:
     ) -> RoutingCandidate:
         """Recover from a transient or invalid classification result."""
         if self._uses_default_classifier and _is_default_classifier_unavailable_error(error):
-            unavailable = _DefaultClassifierUnavailable(
+            unavailable = DefaultClassifierUnavailableError(
                 "SDK default classifier is unavailable; configure AWS credentials and model access, or pass "
                 "classifier_model explicitly"
             )
@@ -315,15 +323,14 @@ class InputComplexityStrategy:
         )
         return context.candidates[0]
 
-    def _log_default_classifier_unavailable(self, error: _DefaultClassifierUnavailable) -> None:
+    def _log_default_classifier_unavailable(self, error: DefaultClassifierUnavailableError) -> None:
         """Log one actionable message for the SDK-selected classifier."""
         if self._default_classifier_failure_logged:
             return
         logger.error(
-            "strategy=<%s>, default_classifier_model_id=<%s>, error_type=<%s> | default classifier unavailable "
+            "strategy=<%s>, error_type=<%s> | default classifier unavailable "
             "| configure AWS credentials and model access or pass classifier_model explicitly",
             type(self).__name__,
-            _DEFAULT_CLASSIFIER_MODEL_ID,
             type(error).__name__,
         )
         self._default_classifier_failure_logged = True
@@ -342,7 +349,7 @@ class InputComplexityStrategy:
                 try:
                     self._classifier_model = await asyncio.to_thread(_create_default_classifier_model)
                 except Exception as error:
-                    unavailable = _DefaultClassifierUnavailable(
+                    unavailable = DefaultClassifierUnavailableError(
                         "SDK default classifier could not be initialized; configure AWS credentials and model access, "
                         "or pass classifier_model explicitly"
                     )
@@ -503,10 +510,11 @@ def _build_classifier_system_prompt(
         "agent_instructions.\n"
         "2. Use only the supplied candidate profiles and your existing model knowledge. Never invent capabilities.\n"
         "3. Profile fields: candidate_index is an opaque output handle; provider is an SDK class; identifier_type "
-        "names model_identifier; context_window_limit is an optional token limit; name and description are optional "
-        "operator context.\n"
-        "4. A model_id may identify a known model. An endpoint_name or candidate_name is opaque; use only its "
-        "description as capability evidence.\n"
+        "names model_identifier; context_window_limit is an optional token limit where null means unknown and is not "
+        "evidence of a small limit; name and description are optional operator context.\n"
+        "4. A model_id may identify a known model. If you do not recognize a model_id, treat that candidate as opaque "
+        "and judge it only from name, description, and context_window_limit. An endpoint_name or candidate_name is "
+        "opaque; use only its description as capability evidence.\n"
         "5. Choose a lighter model only when it is clearly sufficient. Otherwise choose the stronger suitable model.\n"
         "6. Candidate declaration order does not indicate capability, quality, cost, or preference.\n"
         "7. If no candidate is clearly sufficient, choose the candidate most likely to complete the request reliably "
