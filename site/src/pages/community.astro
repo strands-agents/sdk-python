@@ -3,7 +3,7 @@ import { getCollection } from 'astro:content'
 import LandingLayout from '../layouts/LandingLayout.astro'
 import Copyright from '../components/Copyright.astro'
 import CommunityHero from '../components/community/CommunityHero.astro'
-import EventsTicker from '../components/community/EventsTicker.astro'
+import CommunityBulletin, { type BulletinItem } from '../components/community/CommunityBulletin.astro'
 import CoursesSection, { type EnrichedLesson } from '../components/community/CoursesSection.astro'
 import DeepDivesSection from '../components/community/DeepDivesSection.astro'
 import EventsPoster from '../components/community/EventsPoster.astro'
@@ -11,7 +11,8 @@ import BlogSection from '../components/community/BlogSection.astro'
 import KeepGoingStrip from '../components/community/KeepGoingStrip.astro'
 import { deepDives, suggestTopicHref } from '../config/learn'
 import { getPublishedPosts } from '../util/blog'
-import { featuredCourse, shelfCourses, posterEvent, tickerEvents, upcomingEvents } from '../util/learn'
+import { featuredCourse, formatEventDate, posterEvent, shelfCourses, tickerEvents, toIsoDate, upcomingEvents } from '../util/learn'
+import { pathWithBase } from '../util/links'
 import curvePrimary from '../assets/curve-primary.svg'
 import curveSecondary from '../assets/curve-secondary.svg'
 
@@ -47,9 +48,47 @@ const enrichedFeatured = featured
     }
   : undefined
 
-const ticker = tickerEvents(events, today, 2)
 const headliner = posterEvent(events, today)
 const otherEvents = upcomingEvents(events, today).filter((e) => e !== headliner)
+
+// Hero bulletin: one item per category — next event, freshest post, and a static
+// pointer to the catalog's new-integrations view (featuring individual
+// integrations is an editorial call; the catalog churns too fast to automate).
+const nextEvent = tickerEvents(events, today, 1)[0]
+const newestPost = posts[0]
+
+const bulletin: BulletinItem[] = [
+  ...(nextEvent
+    ? [
+        {
+          type: 'event' as const,
+          kicker: `Meet us in person · ${formatEventDate(nextEvent)}`,
+          title: nextEvent.title,
+          href:
+            nextEvent.href && nextEvent.href.startsWith('http')
+              ? nextEvent.href
+              : nextEvent.href && pathWithBase(nextEvent.href),
+          expires: toIsoDate(nextEvent.endDate ?? nextEvent.startDate),
+        },
+      ]
+    : []),
+  ...(newestPost
+    ? [
+        {
+          type: 'post' as const,
+          kicker: 'Just dropped on the blog',
+          title: newestPost.data.title,
+          href: pathWithBase(`/blog/${newestPost.id}/`),
+        },
+      ]
+    : []),
+  {
+    type: 'integration' as const,
+    kicker: 'In the catalog',
+    title: 'Check out the newest integrations',
+    href: pathWithBase('/integrations/?badge=new'),
+  },
+]
 ---
 
 <LandingLayout
@@ -63,7 +102,7 @@ const otherEvents = upcomingEvents(events, today).filter((e) => e !== headliner)
 
   <div class="community-page">
     <CommunityHero>
-      <EventsTicker slot="ticker" events={ticker} />
+      <CommunityBulletin slot="ticker" items={bulletin} />
     </CommunityHero>
 
     <div class="wrap">

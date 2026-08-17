@@ -1,13 +1,14 @@
 // Build-time filtering is the primary gate; this is the client-side freshness backstop.
 
-/** Remove expired `[data-expires]` elements, then hide/adjust ticker and poster. */
+/** Remove expired `[data-expires]` elements, then hide/adjust bulletin and poster. */
 export function expireEvents(root: Document | Element, todayIso: string): void {
   root.querySelectorAll<HTMLElement>('[data-expires]').forEach((el) => {
     if (el.dataset.expires! < todayIso) el.remove()
   })
 
-  const ticker = root.querySelector<HTMLElement>('.ticker')
-  if (ticker && !ticker.querySelector('[data-expires]')) ticker.hidden = true
+  // Non-event rows (no data-expires) keep the bulletin alive; hide it only when rowless.
+  const bulletin = root.querySelector<HTMLElement>('.bulletin')
+  if (bulletin && !bulletin.querySelector('.row')) bulletin.hidden = true
 
   const poster = root.querySelector<HTMLElement>('.poster')
   if (poster) {

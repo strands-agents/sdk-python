@@ -21,10 +21,10 @@ function buildDOM({
   includeTickerEvent?: boolean
 }): Document {
   const dom = new JSDOM(`
-    <div class="ticker">
+    <div class="bulletin">
       ${
         includeTickerEvent
-          ? `<span data-expires="${headlinerExpires ?? FUTURE}">Event A</span>`
+          ? `<span class="row" data-expires="${headlinerExpires ?? FUTURE}">Event A</span>`
           : ''
       }
     </div>
@@ -98,19 +98,36 @@ describe('expireEvents: nothing expired → no DOM changes', () => {
   })
 })
 
-describe('expireEvents: ticker empties → ticker hidden', () => {
-  it('hides the ticker when its only event expires', () => {
+describe('expireEvents: bulletin rows', () => {
+  it('hides the bulletin when its only row expires', () => {
     const doc = buildDOM({ headlinerExpires: FUTURE, rowExpires: FUTURE, includeTickerEvent: false })
-    // Manually add a past ticker event so the ticker exists but empties.
-    const ticker = doc.querySelector('.ticker')!
+    const bulletin = doc.querySelector('.bulletin')!
     const span = doc.createElement('span')
+    span.className = 'row'
     span.dataset.expires = PAST
-    span.textContent = 'Past ticker event'
-    ticker.appendChild(span)
+    span.textContent = 'Past event'
+    bulletin.appendChild(span)
 
     expireEvents(doc, TODAY)
 
-    const tickerEl = doc.querySelector<HTMLElement>('.ticker')
-    expect(tickerEl?.hidden).toBe(true)
+    expect(doc.querySelector<HTMLElement>('.bulletin')?.hidden).toBe(true)
+  })
+
+  it('keeps the bulletin visible when a dateless row remains after events expire', () => {
+    const doc = buildDOM({ headlinerExpires: FUTURE, rowExpires: FUTURE, includeTickerEvent: false })
+    const bulletin = doc.querySelector('.bulletin')!
+    const expired = doc.createElement('span')
+    expired.className = 'row'
+    expired.dataset.expires = PAST
+    bulletin.appendChild(expired)
+    const post = doc.createElement('a')
+    post.className = 'row'
+    post.textContent = 'New post'
+    bulletin.appendChild(post)
+
+    expireEvents(doc, TODAY)
+
+    expect(doc.querySelector<HTMLElement>('.bulletin')?.hidden).toBe(false)
+    expect(doc.querySelectorAll('.bulletin .row')).toHaveLength(1)
   })
 })

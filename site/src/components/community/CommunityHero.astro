@@ -3,19 +3,23 @@
 
 <header class="community-hero">
   <div class="hero-inner">
-    <span class="kicker">Strands Academy</span>
-    <h1>Community<span class="dot">.</span></h1>
-    <p class="dek">
-      Courses, deep dives, and events from the team building the SDK. Everything you need to go from your first agent
-      loop to production.
-    </p>
-    <nav class="paths" aria-label="Page sections">
-      <a href="#courses">↓ Courses</a>
-      <a href="#deep-dives">↓ Deep dives</a>
-      <a href="#events">↓ Events</a>
-      <a href="#blog">↓ From the blog</a>
-    </nav>
-    <slot name="ticker" />
+    <div class="hero-text">
+      <span class="kicker">Strands Academy</span>
+      <h1>Community<span class="dot">.</span></h1>
+      <p class="dek">
+        Courses, deep dives, and events from the team building the SDK. Everything you need to go from your first
+        agent loop to production.
+      </p>
+      <nav class="paths" aria-label="Page sections">
+        <a href="#courses">↓ Courses</a>
+        <a href="#deep-dives">↓ Deep dives</a>
+        <a href="#events">↓ Events</a>
+        <a href="#blog">↓ From the blog</a>
+      </nav>
+    </div>
+    <aside class="hero-aside">
+      <slot name="ticker" />
+    </aside>
   </div>
 </header>
 
@@ -46,6 +50,15 @@
     margin: 0 auto;
     padding: 5.5rem 3rem 4.5rem;
     position: relative;
+    display: grid;
+    grid-template-columns: 1.5fr 1fr;
+    gap: 4rem;
+    align-items: center;
+  }
+
+  .hero-aside {
+    display: flex;
+    justify-content: flex-end;
   }
 
   .kicker {
@@ -125,6 +138,12 @@
   @media (max-width: 900px) {
     .hero-inner {
       padding: 3.5rem 1.5rem 3rem;
+      grid-template-columns: 1fr;
+      gap: 2.5rem;
+    }
+
+    .hero-aside {
+      justify-content: stretch;
     }
   }
 </style>
