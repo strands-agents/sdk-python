@@ -33,32 +33,35 @@ class _InvocationTrackingBedrockModel(BedrockModel):
 
 
 @retry_on_flaky(
-    "Bedrock throttling and classifier output can be transient",
+    "Bedrock throttling can be transient",
     max_attempts=2,
-    retry_on=[ModelThrottledException, "Live model routing was inconclusive"],
+    retry_on=[ModelThrottledException],
 )
 @pytest.mark.parametrize(
-    ("user_prompt", "expected_model_id"),
+    ("user_prompt", "expected_model_id", "candidate_model_ids"),
     [
         (
             "What is the capital of France? Reply with only the city name.",
             _HAIKU_MODEL_ID,
+            (_SONNET_MODEL_ID, _HAIKU_MODEL_ID),
         ),
         (
             "Design a backward-compatible migration from region-local to globally unique idempotency keys for an "
             "active-active payment service. Account for concurrent requests, mixed-version deployments, rollback, "
             "data reconciliation, and monitoring. Return exactly five numbered steps, each under twelve words.",
             _SONNET_MODEL_ID,
+            (_HAIKU_MODEL_ID, _SONNET_MODEL_ID),
         ),
     ],
     ids=["factual-request-selects-haiku", "distributed-systems-request-selects-sonnet"],
 )
-def test_agent_invokes_only_expected_model_for_request_complexity(caplog, user_prompt, expected_model_id):
+def test_agent_invokes_only_expected_model_for_request_complexity(
+    caplog, user_prompt, expected_model_id, candidate_model_ids
+):
     """The default classifier invokes exactly the appropriate candidate, independent of declaration order."""
     invoked_candidate_model_ids: list[str] = []
     candidate_models = [
-        _InvocationTrackingBedrockModel(_SONNET_MODEL_ID, invoked_candidate_model_ids),
-        _InvocationTrackingBedrockModel(_HAIKU_MODEL_ID, invoked_candidate_model_ids),
+        _InvocationTrackingBedrockModel(model_id, invoked_candidate_model_ids) for model_id in candidate_model_ids
     ]
     router = ModelRouter(
         models=candidate_models,
