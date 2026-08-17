@@ -224,7 +224,7 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
       const block = message.content[blockIndex]!
 
       if (block instanceof TextBlock) {
-        if (!this._targetMatchesMessage(message)) continue
+        if (!targetMatchesMessage(this._target, message)) continue
       } else if (block instanceof ToolResultBlock) {
         if (
           this._target !== undefined &&
@@ -245,10 +245,6 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
       }
     }
     return acted
-  }
-
-  private _targetMatchesMessage(message: Message): boolean {
-    return targetMatchesMessage(this._target, message)
   }
 
   /** Collect eligible messages for message-level operations, respecting preserveRecent, head-pin, and threshold. */
@@ -293,7 +289,7 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
   ): Promise<boolean> {
     for (const block of message.content) {
       if (block instanceof TextBlock) {
-        if (!this._targetMatchesMessage(message)) continue
+        if (!targetMatchesMessage(this._target, message)) continue
       } else if (block instanceof ToolResultBlock) {
         if (
           this._target !== undefined &&
@@ -566,10 +562,6 @@ function getOldestMatches(
   return matching.slice(0, -count)
 }
 
-/**
- * Checks whether a message matches the given target for preserveRecent counting.
- * A message matches if it contains content that the target would select.
- */
 function toolMatchesTarget(
   block: ToolResultBlock,
   target: OffloadTarget,
