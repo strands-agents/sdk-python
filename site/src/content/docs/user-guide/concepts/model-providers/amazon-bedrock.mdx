@@ -376,7 +376,7 @@ See the Amazon Bedrock documentation for [Supported models and model features](h
 
 ### Multimodal Support
 
-Some Bedrock models support multimodal inputs (Documents, Images, etc.). Here's how to use them:
+Some Bedrock models support multimodal inputs (documents, images, audio, etc.). Here's how to use them:
 
 <Tabs>
 <Tab label="Python">
@@ -422,7 +422,7 @@ For a complete list of input types, please refer to the [API Reference](@api/pyt
 
 #### S3 Location Support
 
-As an alternative to providing media content as bytes, Amazon Bedrock supports referencing documents, images, and videos stored in Amazon S3 directly. This is useful when working with large files or when your content is already stored in S3.
+As an alternative to providing media content as bytes, Amazon Bedrock supports referencing documents, images, videos, and audio stored in Amazon S3 directly. This is useful when working with large files or when your content is already stored in S3.
 
 :::note[IAM Permissions Required]
 
@@ -470,7 +470,7 @@ response = agent(
 
 :::tip[Supported Media Types]
 
-The same `location` pattern also works for images and videos.
+The same `location` pattern also works for images, videos, and audio.
 :::
 
 ### Guardrails
