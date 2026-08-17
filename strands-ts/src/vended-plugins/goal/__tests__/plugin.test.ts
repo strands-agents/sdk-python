@@ -487,11 +487,18 @@ describe('GoalLoop', () => {
         ],
       })
 
-      // Each attempt contains only the clean input and current feedback.
+      // Each attempt's transcript: clean input + accumulated feedback only.
+      // The model must never see prior `attempt-N` assistant turns.
       expect(messageSnapshots).toEqual([
         [{ role: 'user', text: 'do the thing' }],
-        [{ role: 'user', text: expect.stringMatching(/^do the thing[\s\S]*fb1/) }],
-        [{ role: 'user', text: expect.stringMatching(/^do the thing[\s\S]*fb2/) }],
+        [
+          { role: 'user', text: 'do the thing' },
+          { role: 'user', text: expect.stringContaining('fb1') },
+        ],
+        [
+          { role: 'user', text: 'do the thing' },
+          { role: 'user', text: expect.stringContaining('fb2') },
+        ],
       ])
     })
 
