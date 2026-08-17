@@ -5,6 +5,7 @@ import json
 from typing import Any
 
 import pytest
+from botocore.exceptions import NoCredentialsError
 
 from strands import Agent
 from strands.models import (
@@ -16,10 +17,14 @@ from strands.models import (
     RoutingCandidate,
 )
 from strands.models.routing.input_complexity_strategy import (
+    _CLASSIFICATION_HISTORY_MESSAGE_LIMIT,
     _CLASSIFICATION_MESSAGE_CHARACTER_LIMIT,
     _CLASSIFICATION_OMISSION_MARKER,
+    _DEFAULT_CLASSIFIER_MODEL_ID,
     _build_classification_messages,
     _convert_message_to_bounded_text,
+    _create_default_classifier_model,
+    _DefaultClassifierUnavailable,
 )
 from strands.models.routing.strategy import RoutingContext
 from tests.fixtures.mocked_model_provider import MockedModelProvider
@@ -150,6 +155,113 @@ async def test_default_classifier_is_created_lazily_and_reused(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_concurrent_default_classifier_construction_occurs_once(monkeypatch):
+    classifier = _ClassifierModel(selected_index=1)
+    created = 0
+
+    def create_classifier():
+        nonlocal created
+        created += 1
+        return classifier
+
+    monkeypatch.setattr(
+        "strands.models.routing.input_complexity_strategy._create_default_classifier_model",
+        create_classifier,
+    )
+    strategy = InputComplexityStrategy()
+    router = ModelRouter(models=[_response_model("first"), _response_model("second")], strategy=strategy)
+
+    selections = await asyncio.gather(*(strategy.select(_context(router)) for _ in range(8)))
+
+    assert selections == [router.candidates[1]] * 8
+    assert created == 1
+    assert classifier.calls == 8
+
+
+@pytest.mark.asyncio
+async def test_unavailable_default_classifier_raises_once_and_caches_initialization_failure(monkeypatch, caplog):
+    created = 0
+
+    def fail_creation():
+        nonlocal created
+        created += 1
+        raise NoCredentialsError()
+
+    monkeypatch.setattr(
+        "strands.models.routing.input_complexity_strategy._create_default_classifier_model",
+        fail_creation,
+    )
+    strategy = InputComplexityStrategy()
+    router = ModelRouter(models=[_response_model("first"), _response_model("second")], strategy=strategy)
+
+    with caplog.at_level("ERROR", logger="strands.models.routing.input_complexity_strategy"):
+        for _ in range(3):
+            with pytest.raises(_DefaultClassifierUnavailable, match="configure AWS credentials"):
+                await strategy.select(_context(router))
+
+    assert created == 1
+    assert caplog.text.count("default classifier unavailable") == 1
+    assert _DEFAULT_CLASSIFIER_MODEL_ID in caplog.text
+    assert "NoCredentialsError" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_default_classifier_provider_failure_raises_before_first_success(monkeypatch):
+    classifier = _ClassifierModel(error=RuntimeError("provider unavailable"))
+    monkeypatch.setattr(
+        "strands.models.routing.input_complexity_strategy._create_default_classifier_model",
+        lambda: classifier,
+    )
+    strategy = InputComplexityStrategy()
+    router = ModelRouter(models=[_response_model("first"), _response_model("second")], strategy=strategy)
+
+    with pytest.raises(_DefaultClassifierUnavailable, match="pass classifier_model explicitly"):
+        await strategy.select(_context(router))
+
+    assert classifier.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_default_classifier_transient_failure_degrades_after_success(monkeypatch, caplog):
+    classifier = _ClassifierModel(selected_index=1)
+    monkeypatch.setattr(
+        "strands.models.routing.input_complexity_strategy._create_default_classifier_model",
+        lambda: classifier,
+    )
+    strategy = InputComplexityStrategy()
+    router = ModelRouter(models=[_response_model("first"), _response_model("second")], strategy=strategy)
+
+    assert await strategy.select(_context(router)) is router.candidates[1]
+    classifier.error = RuntimeError("transient user-secret")
+    with caplog.at_level("WARNING", logger="strands.models.routing.input_complexity_strategy"):
+        assert await strategy.select(_context(router)) is router.candidates[0]
+
+    assert "reason=<classifier_error>" in caplog.text
+    assert "user-secret" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_default_classifier_permanent_failure_is_cached_after_success(monkeypatch, caplog):
+    classifier = _ClassifierModel(selected_index=1)
+    monkeypatch.setattr(
+        "strands.models.routing.input_complexity_strategy._create_default_classifier_model",
+        lambda: classifier,
+    )
+    strategy = InputComplexityStrategy()
+    router = ModelRouter(models=[_response_model("first"), _response_model("second")], strategy=strategy)
+
+    assert await strategy.select(_context(router)) is router.candidates[1]
+    classifier.error = NoCredentialsError()
+    with caplog.at_level("ERROR", logger="strands.models.routing.input_complexity_strategy"):
+        for _ in range(2):
+            with pytest.raises(_DefaultClassifierUnavailable, match="configure AWS credentials"):
+                await strategy.select(_context(router))
+
+    assert classifier.calls == 2
+    assert caplog.text.count("default classifier unavailable") == 1
+
+
+@pytest.mark.asyncio
 async def test_default_classifier_is_not_created_for_one_candidate(monkeypatch):
     def fail_creation():
         raise AssertionError("default classifier should not be created")
@@ -164,11 +276,33 @@ async def test_default_classifier_is_not_created_for_one_candidate(monkeypatch):
     assert await strategy.select(_context(router)) is router.candidates[0]
 
 
+def test_default_classifier_uses_global_low_cost_bedrock_profile(monkeypatch):
+    captured = {}
+    classifier = object()
+
+    def bedrock_model(**kwargs):
+        captured.update(kwargs)
+        return classifier
+
+    monkeypatch.setattr("strands.models.bedrock.BedrockModel", bedrock_model)
+
+    assert _create_default_classifier_model() is classifier
+    assert captured == {
+        "model_id": _DEFAULT_CLASSIFIER_MODEL_ID,
+        "max_tokens": 64,
+        "streaming": False,
+        "temperature": 0,
+    }
+    assert _DEFAULT_CLASSIFIER_MODEL_ID.startswith("global.")
+
+
 @pytest.mark.asyncio
-async def test_classifier_researches_sdk_models_independently_of_declaration_order():
+async def test_classifier_receives_exact_allowlisted_sdk_profiles_independent_of_order():
     classifier = _ClassifierModel(selected_index=1)
     sonnet = _bedrock_model("global.anthropic.claude-sonnet-4-6")
     sonnet.config["credential"] = "must-not-reach-classifier"  # type: ignore[typeddict-unknown-key]
+    sonnet.config["api_key"] = "api-key-secret"  # type: ignore[typeddict-unknown-key]
+    sonnet.config["aws_secret_access_key"] = "aws-secret"  # type: ignore[typeddict-unknown-key]
     haiku = _bedrock_model("us.anthropic.claude-haiku-4-5-20251001-v1:0")
     strategy = InputComplexityStrategy(classifier_model=classifier)
     router = ModelRouter(models=[sonnet, haiku], strategy=strategy)
@@ -177,13 +311,36 @@ async def test_classifier_researches_sdk_models_independently_of_declaration_ord
 
     assert selected is router.candidates[1]
     system_prompt = classifier.system_prompts[0]
-    assert "BedrockModel" in system_prompt
-    assert "global.anthropic.claude-sonnet-4-6" in system_prompt
-    assert "us.anthropic.claude-haiku-4-5-20251001-v1:0" in system_prompt
-    assert '"context_window_limit":1000000' in system_prompt
-    assert '"context_window_limit":200000' in system_prompt
+    serialized_context = system_prompt.split("<untrusted_classification_context>\n", 1)[1].split(
+        "\n</untrusted_classification_context>", 1
+    )[0]
+    assert json.loads(serialized_context) == {
+        "agent_instructions": "Be precise",
+        "candidates": [
+            {
+                "candidate_index": 0,
+                "provider": "BedrockModel",
+                "identifier_type": "model_id",
+                "model_identifier": "global.anthropic.claude-sonnet-4-6",
+                "context_window_limit": 1_000_000,
+                "name": None,
+                "description": None,
+            },
+            {
+                "candidate_index": 1,
+                "provider": "BedrockModel",
+                "identifier_type": "model_id",
+                "model_identifier": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+                "context_window_limit": 200_000,
+                "name": None,
+                "description": None,
+            },
+        ],
+    }
     assert "declaration order does not indicate capability" in system_prompt
     assert "must-not-reach-classifier" not in system_prompt
+    assert "api-key-secret" not in system_prompt
+    assert "aws-secret" not in system_prompt
 
 
 @pytest.mark.asyncio
@@ -191,8 +348,125 @@ async def test_custom_model_without_explicit_description_is_rejected():
     strategy = InputComplexityStrategy(classifier_model=_ClassifierModel())
     router = ModelRouter(models=[MockedModelProvider([]), MockedModelProvider([])], strategy=strategy)
 
-    with pytest.raises(ValueError, match="custom models require a RoutingCandidate description"):
+    with pytest.raises(ValueError, match=r"custom candidate <0> requires a RoutingCandidate description"):
         await strategy.select(_context(router))
+
+
+@pytest.mark.asyncio
+async def test_nested_router_is_rejected_even_when_it_is_the_only_candidate():
+    strategy = InputComplexityStrategy(classifier_model=_ClassifierModel())
+    nested = ModelRouter(models=[_response_model("nested")])
+    router = ModelRouter(models=[nested], strategy=strategy)
+
+    with pytest.raises(ValueError, match="flatten its candidates"):
+        await strategy.select(_context(router))
+
+
+@pytest.mark.asyncio
+async def test_opaque_endpoint_requires_description():
+    endpoint = object.__new__(BedrockModel)
+    endpoint.config = BedrockModel.BedrockConfig(endpoint_name="prod-inference-endpoint-7")
+    strategy = InputComplexityStrategy(classifier_model=_ClassifierModel())
+    router = ModelRouter(models=[endpoint, _bedrock_model("global.anthropic.claude-sonnet-4-6")], strategy=strategy)
+
+    with pytest.raises(ValueError, match=r"candidate <0> has only an opaque endpoint_name"):
+        await strategy.select(_context(router))
+
+
+@pytest.mark.asyncio
+async def test_sdk_candidate_without_identifier_or_description_is_rejected():
+    unidentified = object.__new__(BedrockModel)
+    unidentified.config = BedrockModel.BedrockConfig()
+    classifier = _ClassifierModel()
+    strategy = InputComplexityStrategy(classifier_model=classifier)
+    router = ModelRouter(models=[unidentified, _bedrock_model("global.anthropic.claude-sonnet-4-6")], strategy=strategy)
+
+    with pytest.raises(ValueError, match=r"candidate <0> has only an opaque candidate_name"):
+        await strategy.select(_context(router))
+    assert classifier.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_opaque_endpoint_description_is_the_only_capability_evidence():
+    endpoint = object.__new__(BedrockModel)
+    endpoint.config = BedrockModel.BedrockConfig(endpoint_name="prod-inference-endpoint-7")
+    classifier = _ClassifierModel(selected_index=0)
+    strategy = InputComplexityStrategy(classifier_model=classifier)
+    router = ModelRouter(
+        models=[
+            RoutingCandidate(endpoint, description="Fine-tuned model for legal document extraction."),
+            _bedrock_model("global.anthropic.claude-sonnet-4-6"),
+        ],
+        strategy=strategy,
+    )
+
+    assert await strategy.select(_context(router)) is router.candidates[0]
+    assert '"identifier_type":"endpoint_name"' in classifier.system_prompts[0]
+    assert "An endpoint_name or candidate_name is opaque" in classifier.system_prompts[0]
+    assert "you cannot perform an external lookup" in classifier.system_prompts[0]
+
+
+@pytest.mark.asyncio
+async def test_sdk_config_failure_identifies_candidate_without_classifying():
+    class InstrumentedBedrock(BedrockModel):
+        def get_config(self):
+            raise RuntimeError("config unavailable")
+
+    model = object.__new__(InstrumentedBedrock)
+    classifier = _ClassifierModel()
+    strategy = InputComplexityStrategy(classifier_model=classifier)
+    router = ModelRouter(
+        models=[RoutingCandidate(model, name="broken"), _bedrock_model("global.anthropic.claude-sonnet-4-6")],
+        strategy=strategy,
+    )
+
+    with pytest.raises(ValueError, match=r"could not inspect candidate <broken> using BedrockModel"):
+        await strategy.select(_context(router))
+    assert classifier.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_instrumented_sdk_subclass_uses_nearest_sdk_provider():
+    class InstrumentedBedrock(BedrockModel):
+        pass
+
+    model = object.__new__(InstrumentedBedrock)
+    model.config = BedrockModel.BedrockConfig(model_id="global.anthropic.claude-sonnet-4-6")
+    classifier = _ClassifierModel()
+    strategy = InputComplexityStrategy(classifier_model=classifier)
+    router = ModelRouter(
+        models=[model, _bedrock_model("us.anthropic.claude-haiku-4-5-20251001-v1:0")], strategy=strategy
+    )
+
+    await strategy.select(_context(router))
+
+    assert '"provider":"BedrockModel"' in classifier.system_prompts[0]
+    assert "InstrumentedBedrock" not in classifier.system_prompts[0]
+
+
+@pytest.mark.asyncio
+async def test_custom_context_window_property_is_used_without_reading_config():
+    class CustomContextModel(MockedModelProvider):
+        @property
+        def context_window_limit(self):
+            return 123_456
+
+        def get_config(self):
+            raise AssertionError("custom get_config must not be called")
+
+    classifier = _ClassifierModel()
+    strategy = InputComplexityStrategy(classifier_model=classifier)
+    router = ModelRouter(
+        models=[
+            RoutingCandidate(CustomContextModel([]), description="Custom long-context model."),
+            _response_model("other"),
+        ],
+        strategy=strategy,
+    )
+
+    await strategy.select(_context(router))
+
+    assert '"context_window_limit":123456' in classifier.system_prompts[0]
 
 
 def test_failed_candidate_surfaces_without_explicit_fallback():
@@ -332,6 +606,25 @@ def test_missing_request_uses_safe_synthetic_anchor(messages):
     assert tru_messages == exp_messages
 
 
+def test_classification_history_is_bounded_to_configured_message_count():
+    messages = [
+        {"role": "user", "content": [{"text": "omitted-user"}]},
+        {"role": "assistant", "content": [{"text": "omitted-assistant"}]},
+        {"role": "user", "content": [{"text": "retained-user"}]},
+        {"role": "assistant", "content": [{"text": "retained-assistant"}]},
+        {"role": "user", "content": [{"text": "latest-request"}]},
+    ]
+
+    bounded = _build_classification_messages(messages)
+
+    assert len(bounded) == _CLASSIFICATION_HISTORY_MESSAGE_LIMIT
+    assert [message["content"][0]["text"] for message in bounded] == [
+        "retained-user",
+        "retained-assistant",
+        "latest-request",
+    ]
+
+
 def test_long_message_preserves_trailing_request_within_bound():
     message = {
         "role": "user",
@@ -394,7 +687,7 @@ def test_content_block_conversion_represents_all_types_without_payload_leakage()
     tru_text = _convert_message_to_bounded_text(message)
     exp_visible_parts = [
         "visible request",
-        "[Guarded text] visible guarded request",
+        "[Guarded content]",
         "[Tool request: calculator]",
         "[Tool result: error]",
         "[Image: png]",
@@ -407,6 +700,7 @@ def test_content_block_conversion_represents_all_types_without_payload_leakage()
     ]
     assert tru_text.splitlines() == exp_visible_parts
     for secret in (
+        "visible guarded request",
         "tool-id-secret",
         "input-secret",
         "result-id-secret",
@@ -480,9 +774,11 @@ async def test_prompt_frames_candidate_and_agent_text_as_untrusted_data():
         (_ClassifierModel(selected_index=2), "candidate_index_out_of_range"),
         (_ClassifierModel(output={"selected_candidate_index": 1}), "invalid_classifier_output"),
         (_ClassifierModel(emit_output=False), "invalid_classifier_output"),
+        (_ClassifierModel(error=TimeoutError("provider timeout user-secret")), "classifier_provider_timeout"),
         (_ClassifierModel(error=RuntimeError("provider included user-secret")), "classifier_error"),
+        (_ClassifierModel(selected_index=True), "classifier_error"),
     ],
-    ids=["exact-upper-bound", "wrong-output-type", "empty-output", "provider-error"],
+    ids=["exact-upper-bound", "wrong-output-type", "empty-output", "provider-timeout", "provider-error", "strict-bool"],
 )
 async def test_classifier_failure_degrades_safely_without_sensitive_logs(classifier, expected_reason, caplog):
     strategy = InputComplexityStrategy(classifier_model=classifier)
