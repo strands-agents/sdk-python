@@ -195,9 +195,11 @@ def _create_default_classifier_model() -> Model:
 class InputComplexityStrategy:
     """Choose the concrete candidate model best suited to each opening request.
 
-    Multiple candidates add one classifier call. The default classifier requires AWS credentials, Bedrock model access,
-    and a supported region. Its availability or configuration errors raise ``DefaultClassifierUnavailableError``;
-    other classification failures select candidate zero. Candidate order has no other meaning.
+    Multiple candidates add one classifier call. By default, the strategy lazily uses Bedrock Claude Haiku 4.5 through
+    a global inference profile; this default may change and requires AWS credentials, Bedrock model access, and a
+    supported region. Its availability or configuration errors raise ``DefaultClassifierUnavailableError``; other
+    classification failures select candidate zero, so declare it as the recovery candidate. Candidate order has no
+    other meaning.
 
     Nested routers are unsupported. Custom or opaque candidates require descriptions. Runtime failover requires an
     explicit ``fallback``.
