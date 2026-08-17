@@ -4,7 +4,6 @@
  * @internal
  */
 
-import type { ContextStrategy } from '../../types.js'
 import type { TruncateConfig } from '../methods/truncate.js'
 import type { SummarizeConfig } from '../methods/summarize.js'
 import type { OffloadStrategyBuilder, OffloadTarget } from './base.js'
