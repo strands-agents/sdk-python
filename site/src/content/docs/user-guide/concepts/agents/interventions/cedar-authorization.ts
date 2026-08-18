@@ -174,7 +174,9 @@ async function namespaceExample() {
       permit(principal, action == Agent::Action::"search", resource);
     `,
     tools: [searchTool],
-    entities: [{ uid: { type: 'Agent::Resource', id: 'default' }, attrs: {}, parents: [] }],
+    entities: [
+      { uid: { type: 'Agent::Resource', id: 'default' }, attrs: {}, parents: [] },
+    ],
     principalResolver: (state) => {
       if (!state.user_id) return undefined
       return { type: 'Agent::User', id: String(state.user_id) }

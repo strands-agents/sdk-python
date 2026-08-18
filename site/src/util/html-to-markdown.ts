@@ -182,7 +182,7 @@ export function createTurndownService(options: HtmlToMarkdownOptions = {}): Turn
       }
       walk(node as Element)
 
-      const code = lines.length > 0 ? lines.join('\n') : (node.textContent || '')
+      const code = lines.length > 0 ? lines.join('\n') : node.textContent || ''
       return `\n\n${fence}${language}\n${code}\n${fence}\n\n`
     },
   })

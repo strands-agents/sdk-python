@@ -19,8 +19,7 @@ const execAsync = promisify(exec)
 {
   // --8<-- [start:getting_started]
   const concise = new GoalLoop({
-    goal: 'At most 3 sentences, accessible to a 10-year-old, '
-      + 'no jargon.',
+    goal: 'At most 3 sentences, accessible to a 10-year-old, ' + 'no jargon.',
     maxAttempts: 3,
   })
 
@@ -49,9 +48,7 @@ const execAsync = promisify(exec)
   // --8<-- [start:inspecting_results]
   const result = plugin.lastResult(agent)
   if (result && !result.passed) {
-    console.log(
-      `Stopped after ${result.attempts.length} attempts`
-    )
+    console.log(`Stopped after ${result.attempts.length} attempts`)
     console.log(`Reason: ${result.stopReason}`)
     for (const attempt of result.attempts) {
       console.log(`  #${attempt.attempt}: ${attempt.feedback}`)
@@ -101,8 +98,7 @@ const execAsync = promisify(exec)
           stdout?: string
           stderr?: string
         }
-        const out =
-          `${e.stdout ?? ''}${e.stderr ?? ''}`.slice(-4000)
+        const out = `${e.stdout ?? ''}${e.stderr ?? ''}`.slice(-4000)
         return {
           passed: false,
           feedback: `Tests failed.\n${out}`,
@@ -165,12 +161,13 @@ const execAsync = promisify(exec)
     maxAttempts: 3,
     resumePromptTemplate: (feedback) => {
       if (!feedback) {
-        return 'That didn\'t pass. Start over from scratch '
-          + 'with a different approach.'
+        return "That didn't pass. Start over from scratch " + 'with a different approach.'
       }
-      return `Validation failed:\n${feedback}\n\n`
-        + 'Do NOT edit your previous response. Start over '
-        + 'from scratch and take a completely different approach.'
+      return (
+        `Validation failed:\n${feedback}\n\n` +
+        'Do NOT edit your previous response. Start over ' +
+        'from scratch and take a completely different approach.'
+      )
     },
   })
   // --8<-- [end:custom_resume_prompt]
@@ -190,11 +187,15 @@ const execAsync = promisify(exec)
         printer: false,
         systemPrompt: JUDGE_SYSTEM_PROMPT,
       })
-      const result = await judge.invoke(
-        buildJudgePrompt('Be concise.', agent.messages),
-        { structuredOutputSchema: JUDGE_OUTCOME_SCHEMA }
+      const result = await judge.invoke(buildJudgePrompt('Be concise.', agent.messages), {
+        structuredOutputSchema: JUDGE_OUTCOME_SCHEMA,
+      })
+      return (
+        (result.structuredOutput as ValidationOutcome) ?? {
+          passed: false,
+          feedback: 'Judge produced no structured outcome.',
+        }
       )
-      return (result.structuredOutput as ValidationOutcome) ?? { passed: false, feedback: 'Judge produced no structured outcome.' }
     },
     maxAttempts: 3,
   })

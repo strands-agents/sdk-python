@@ -1,9 +1,4 @@
-import {
-  Agent,
-  tool,
-  InterventionActions,
-  AfterToolCallEvent,
-} from '@strands-agents/sdk'
+import { Agent, tool, InterventionActions, AfterToolCallEvent } from '@strands-agents/sdk'
 import type {
   BeforeToolCallEvent,
   AfterModelCallEvent,

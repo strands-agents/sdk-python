@@ -410,4 +410,3 @@ async function topologyFeedbackLoop() {
   })
   // --8<-- [end:topology_feedback]
 }
-

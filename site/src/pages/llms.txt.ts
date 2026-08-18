@@ -55,7 +55,12 @@ function extractLinks(
   return lines
 }
 
-function buildLlmsTxt(docs: CollectionEntry<'docs'>[], sidebar: StarlightSidebarItem[], blogPosts: CollectionEntry<'blog'>[], releases: ChangelogRelease[]): string {
+function buildLlmsTxt(
+  docs: CollectionEntry<'docs'>[],
+  sidebar: StarlightSidebarItem[],
+  blogPosts: CollectionEntry<'blog'>[],
+  releases: ChangelogRelease[]
+): string {
   const base = getSiteOrigin() + getBase()
   const lines: string[] = []
 
@@ -67,14 +72,14 @@ function buildLlmsTxt(docs: CollectionEntry<'docs'>[], sidebar: StarlightSidebar
 
   lines.push('# Strands Agents')
   lines.push('')
-  lines.push('> Strands Agents is a simple yet powerful SDK that takes a model-driven approach to building and running AI agents. From simple conversational assistants to complex autonomous workflows, from local development to production deployment, Strands Agents scales with your needs.')
+  lines.push(
+    '> Strands Agents is a simple yet powerful SDK that takes a model-driven approach to building and running AI agents. From simple conversational assistants to complex autonomous workflows, from local development to production deployment, Strands Agents scales with your needs.'
+  )
   lines.push('')
 
   // Process sidebar sections (User Guide, Examples, Community)
   for (const sectionName of SIDEBAR_SECTIONS) {
-    const section = sidebar.find(
-      (item) => 'label' in item && item.label === sectionName
-    )
+    const section = sidebar.find((item) => 'label' in item && item.label === sectionName)
 
     if (section && 'items' in section) {
       lines.push(`## ${sectionName}`)
@@ -137,7 +142,9 @@ function buildLlmsTxt(docs: CollectionEntry<'docs'>[], sidebar: StarlightSidebar
   for (const [label, group] of byStream) {
     lines.push(`- ${label}`)
     for (const r of group) {
-      lines.push(`  - [v${r.data.version}](${base}/changelog/${releaseSlug(r)}/index.md): ${label} v${r.data.version} (${r.data.date.toISOString().slice(0, 10)})`)
+      lines.push(
+        `  - [v${r.data.version}](${base}/changelog/${releaseSlug(r)}/index.md): ${label} v${r.data.version} (${r.data.date.toISOString().slice(0, 10)})`
+      )
     }
   }
   lines.push('')
@@ -147,10 +154,7 @@ function buildLlmsTxt(docs: CollectionEntry<'docs'>[], sidebar: StarlightSidebar
 
 export const GET: APIRoute = async () => {
   const docs = await getCollection('docs')
-  const sidebar = loadSidebarFromConfig(
-    path.resolve('./src/config/navigation.yml'),
-    path.resolve('./src/content')
-  )
+  const sidebar = loadSidebarFromConfig(path.resolve('./src/config/navigation.yml'), path.resolve('./src/content'))
 
   const blogPosts = await getCollection('blog', ({ data }) => !data.draft)
   const releases = await getReleases()

@@ -87,9 +87,7 @@ describe('buildStaticRedirects', () => {
     writeDoc(contentDir, 'docs/user-guide/dupe-a.mdx', 'title: A\nredirectFrom:\n  - docs/old/dupe')
     writeDoc(contentDir, 'docs/user-guide/dupe-b.mdx', 'title: B\nredirectFrom:\n  - docs/old/dupe')
 
-    expect(() => buildStaticRedirects(contentDir, '/', {})).toThrow(
-      /duplicate redirectFrom slug "docs\/old\/dupe"/
-    )
+    expect(() => buildStaticRedirects(contentDir, '/', {})).toThrow(/duplicate redirectFrom slug "docs\/old\/dupe"/)
   })
 
   it('throws when an internal redirect target has no content file', () => {
@@ -125,9 +123,9 @@ describe('buildStaticRedirects', () => {
     writeDoc(contentDir, 'docs/user-guide/state.mdx', 'title: State\nredirectFrom:\n  - docs/old/page')
     writeDoc(contentDir, 'docs/user-guide/other.mdx', 'title: Other')
 
-    expect(() =>
-      buildStaticRedirects(contentDir, '/', { 'docs/old/page': 'docs/user-guide/other' })
-    ).toThrow(/conflicts with a static rename rule/)
+    expect(() => buildStaticRedirects(contentDir, '/', { 'docs/old/page': 'docs/user-guide/other' })).toThrow(
+      /conflicts with a static rename rule/
+    )
   })
 
   it('allows a redirectFrom entry that agrees with a static rename rule', () => {

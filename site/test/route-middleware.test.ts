@@ -1,10 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import path from 'node:path'
-import {
-  findCurrentNavSection,
-  filterSidebarByBasePath,
-  applyCollapse,
-} from '../src/route-middleware'
+import { findCurrentNavSection, filterSidebarByBasePath, applyCollapse } from '../src/route-middleware'
 import { type NavLink } from '../src/config/navbar'
 import { loadSidebarFromConfig, type StarlightSidebarItem } from '../src/sidebar'
 
@@ -101,9 +97,7 @@ describe('findCurrentNavSection', () => {
   })
 
   it('should not match external links', () => {
-    const externalOnlyLinks: NavLink[] = [
-      { label: 'Contribute', href: 'https://github.com/example', external: true },
-    ]
+    const externalOnlyLinks: NavLink[] = [{ label: 'Contribute', href: 'https://github.com/example', external: true }]
     const result = findCurrentNavSection('/anything/', externalOnlyLinks)
     expect(result).toBeUndefined()
   })
@@ -326,9 +320,7 @@ describe('filterSidebarByBasePath unwrapping', () => {
         type: 'group',
         label: 'User Guide',
         collapsed: false,
-        entries: [
-          { type: 'link', label: 'Quickstart', href: '/user-guide/quickstart/', isCurrent: false },
-        ],
+        entries: [{ type: 'link', label: 'Quickstart', href: '/user-guide/quickstart/', isCurrent: false }],
       },
     ]
 
@@ -348,9 +340,7 @@ describe('filterSidebarByBasePath unwrapping', () => {
         type: 'group',
         label: 'Python Examples',
         collapsed: false,
-        entries: [
-          { type: 'link', label: 'Weather', href: '/examples/python/weather/', isCurrent: false },
-        ],
+        entries: [{ type: 'link', label: 'Weather', href: '/examples/python/weather/', isCurrent: false }],
       },
     ]
 
@@ -405,9 +395,7 @@ describe('filterSidebarByBasePath with base path in URLs', () => {
         type: 'group',
         label: 'User Guide',
         collapsed: false,
-        entries: [
-          { type: 'link', label: 'Quickstart', href: '/docs/user-guide/quickstart/', isCurrent: false },
-        ],
+        entries: [{ type: 'link', label: 'Quickstart', href: '/docs/user-guide/quickstart/', isCurrent: false }],
       },
     ]
 

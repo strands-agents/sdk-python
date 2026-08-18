@@ -20,8 +20,7 @@ const API_REFERENCE_URL = /\/docs\/api\/(python|typescript)\//
  * Returns full URLs (e.g. "https://strandsagents.com/1.x/documentation/docs/user-guide/quickstart/").
  */
 async function fetchSitemapUrls(): Promise<string[]> {
-  const cacheValid =
-    fs.existsSync(CACHE_PATH) && Date.now() - fs.statSync(CACHE_PATH).mtimeMs < CACHE_TTL_MS
+  const cacheValid = fs.existsSync(CACHE_PATH) && Date.now() - fs.statSync(CACHE_PATH).mtimeMs < CACHE_TTL_MS
 
   let allUrls: string[]
 

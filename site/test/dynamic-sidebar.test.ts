@@ -1,11 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { getCollection } from 'astro:content'
-import {
-  buildPythonApiSidebar,
-  getDisplayName,
-  type DocInfo,
-  type SidebarEntry,
-} from '../src/dynamic-sidebar'
+import { buildPythonApiSidebar, getDisplayName, type DocInfo, type SidebarEntry } from '../src/dynamic-sidebar'
 
 describe('getDisplayName', () => {
   it('should capitalize single words', () => {
@@ -23,9 +18,7 @@ describe('getDisplayName', () => {
 
 describe('buildPythonApiSidebar', () => {
   it('should create flat links for leaf modules', () => {
-    const docs: DocInfo[] = [
-      { id: 'docs/api/python/strands.interrupt.mdx', title: 'strands.interrupt' },
-    ]
+    const docs: DocInfo[] = [{ id: 'docs/api/python/strands.interrupt.mdx', title: 'strands.interrupt' }]
 
     const sidebar = buildPythonApiSidebar(docs, '')
 
@@ -57,7 +50,10 @@ describe('buildPythonApiSidebar', () => {
 
   it('should create nested groups for deep module paths', () => {
     const docs: DocInfo[] = [
-      { id: 'docs/api/python/strands.experimental.bidi.types.events.mdx', title: 'strands.experimental.bidi.types.events' },
+      {
+        id: 'docs/api/python/strands.experimental.bidi.types.events.mdx',
+        title: 'strands.experimental.bidi.types.events',
+      },
       { id: 'docs/api/python/strands.experimental.bidi.types.io.mdx', title: 'strands.experimental.bidi.types.io' },
     ]
 
@@ -83,9 +79,7 @@ describe('buildPythonApiSidebar', () => {
   })
 
   it('should mark current page as isCurrent', () => {
-    const docs: DocInfo[] = [
-      { id: 'docs/api/python/strands.interrupt.mdx', title: 'strands.interrupt' },
-    ]
+    const docs: DocInfo[] = [{ id: 'docs/api/python/strands.interrupt.mdx', title: 'strands.interrupt' }]
 
     const sidebar = buildPythonApiSidebar(docs, 'docs/api/python/strands.interrupt.mdx')
 

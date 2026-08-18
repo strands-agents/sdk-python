@@ -18,7 +18,11 @@ import { SshSandbox } from '@strands-agents/sdk/sandbox/ssh'
 // --8<-- [start:custom_sandbox_imports]
 import { spawn } from 'node:child_process'
 import { PosixShellSandbox } from '@strands-agents/sdk/sandbox'
-import type { ExecuteOptions, StreamChunk, ExecutionResult } from '@strands-agents/sdk/sandbox'
+import type {
+  ExecuteOptions,
+  StreamChunk,
+  ExecutionResult,
+} from '@strands-agents/sdk/sandbox'
 // --8<-- [end:custom_sandbox_imports]
 
 // --8<-- [start:programmatic_access_imports]
