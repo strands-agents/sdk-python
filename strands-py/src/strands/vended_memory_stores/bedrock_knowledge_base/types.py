@@ -130,12 +130,20 @@ class BedrockKnowledgeBaseStoreConfig(MemoryStoreConfig, total=False):
             it). The same entries apply to ``CUSTOM`` (inline) and ``S3`` (sidecar) writes. Affects
             writes only; ACL filtering at search time is supplied separately as retrieval
             ``userContext``.
+        min_score: Floor a result must meet (``score >= min_score``). Use for similarity-scored
+            knowledge bases, where a higher score is a better match. Mutually exclusive with
+            ``max_score``. Omitted means no floor.
+        max_score: Ceiling a result must not exceed (``score <= max_score``). Use for distance-scored
+            knowledge bases, where a lower score is a better match. Mutually exclusive with
+            ``min_score``. Omitted means no ceiling.
     """
 
     config: Required[BedrockKnowledgeBaseConfig]
     scope: str
     filter: dict[str, Any]
     access_control_list: list[BedrockKnowledgeBaseAccessControlEntry]
+    min_score: float
+    max_score: float
 
 
 @dataclass
