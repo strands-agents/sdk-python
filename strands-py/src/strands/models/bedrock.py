@@ -463,8 +463,9 @@ class BedrockModel(Model):
     def _should_cache_system(self, system_blocks: list[SystemContentBlock]) -> bool:
         """Whether to auto-inject a cache point at the end of the system prompt.
 
-        True only when auto caching is enabled for this model, ``system_blocks`` has cacheable
-        content, and no cachePoint has already been placed at the end of the system prefix.
+        True only when caching resolves to the anthropic strategy, the ``inject_system_cache_point``
+        opt-out is not set, ``system_blocks`` has cacheable content, and no system block already carries
+        a cache point (a hand-placed point anywhere in the system prefix is honored rather than doubled).
 
         Args:
             system_blocks: The system content blocks that will be sent to Bedrock.
@@ -472,37 +473,29 @@ class BedrockModel(Model):
         Returns:
             True if a cache point should be appended.
         """
-        cache_config = self.config.get("cache_config")
-        if not cache_config:
+        if self._cache_strategy != "anthropic":
             return False
 
-        resolved: str | None = cache_config.strategy
-        if resolved == "auto":
-            resolved = self._cache_strategy
-        if resolved != "anthropic":
+        cache_config = self.config.get("cache_config")
+        if not cache_config or not cache_config.inject_system_cache_point:
             return False
 
         if not system_blocks:
             return False
 
-        if "cachePoint" in system_blocks[-1]:
-            return False
-
-        return True
+        return not any("cachePoint" in block for block in system_blocks)
 
     def _build_system_cache_point(self) -> SystemContentBlock:
-        """Build the cache point block appended to the system prompt.
+        """Build the bare cache point block appended to the system prompt.
 
-        Uses ``cache_config.ttl`` when set; falls back to Bedrock's ``default`` (5m).
+        Carries no TTL of its own. ``_apply_system_cache_ttl`` fills ``cache_config.ttl`` in and stands the
+        fill-in down when the tools point's TTL differs, so the system point never lands a longer TTL behind
+        a shorter tools checkpoint.
 
         Returns:
             The cache point block.
         """
-        cache_point: dict[str, Any] = {"type": "default"}
-        cache_config = self.config.get("cache_config")
-        if cache_config and cache_config.ttl:
-            cache_point["ttl"] = cache_config.ttl
-        return cast(SystemContentBlock, {"cachePoint": cache_point})
+        return cast(SystemContentBlock, {"cachePoint": {"type": "default"}})
 
     def _build_tools_cache_point(self) -> list[dict[str, Any]]:
         """Build the cache point block appended to ``toolConfig.tools`` if ``cache_tools`` is configured.

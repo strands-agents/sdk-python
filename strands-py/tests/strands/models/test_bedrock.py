@@ -3344,9 +3344,7 @@ def test_cache_strategy_auto_maps_claude_to_anthropic(bedrock_client):
     )
     assert model._cache_strategy == "anthropic"
 
-    model2 = BedrockModel(
-        model_id="anthropic.claude-3-haiku-20240307-v1:0", cache_config=CacheConfig(strategy="auto")
-    )
+    model2 = BedrockModel(model_id="anthropic.claude-3-haiku-20240307-v1:0", cache_config=CacheConfig(strategy="auto"))
     assert model2._cache_strategy == "anthropic"
 
 
@@ -5023,3 +5021,66 @@ def test_format_request_anthropic_strategy_appends_system_cache_point(bedrock_cl
     tru_request = model.format_request(messages, system_prompt_content=[{"text": "static"}])
 
     assert tru_request["system"][-1] == {"cachePoint": {"type": "default"}}
+
+
+def test_format_request_auto_does_not_inject_system_cache_point_when_opted_out(bedrock_client, messages):
+    """inject_system_cache_point=False disables only the auto-injected system point."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto", inject_system_cache_point=False),
+    )
+
+    tru_request = model.format_request(messages, system_prompt_content=[{"text": "static"}])
+
+    assert tru_request["system"] == [{"text": "static"}]
+
+
+def test_format_request_auto_honors_a_caller_placed_system_cache_point_anywhere(bedrock_client, messages):
+    """A caller point anywhere in the system prefix is honored; no second point is appended."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto"),
+    )
+
+    system_blocks = [{"text": "static"}, {"cachePoint": {"type": "default"}}, {"text": "trailing"}]
+    tru_request = model.format_request(messages, system_prompt_content=system_blocks)
+
+    assert tru_request["system"] == [
+        {"text": "static"},
+        {"cachePoint": {"type": "default"}},
+        {"text": "trailing"},
+    ]
+
+
+def test_format_request_auto_leaves_a_single_point_for_the_deprecated_cache_prompt(bedrock_client, messages):
+    """The deprecated cache_prompt appends a point, so honor-anywhere must not add a second one."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto"),
+        cache_prompt="default",
+    )
+
+    with pytest.warns(UserWarning, match="cache_prompt is deprecated"):
+        tru_request = model.format_request(messages, system_prompt_content=[{"text": "static"}])
+
+    assert tru_request["system"] == [{"text": "static"}, {"cachePoint": {"type": "default"}}]
+
+
+def test_format_request_auto_stands_the_system_cache_point_down_behind_a_shorter_tools_ttl(
+    bedrock_client, messages, tool_spec
+):
+    """The auto-injected system point must not land a longer TTL behind a shorter tools checkpoint.
+
+    Guards the bare-inject path: writing cache_config.ttl onto the point at injection time would leave a
+    longer TTL behind the 5m tools point and trip Bedrock's non-increasing rule.
+    """
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto", ttl="1h"),
+        cache_tools=CacheToolsConfig(ttl="5m"),
+    )
+
+    tru_request = model.format_request(messages, tool_specs=[tool_spec], system_prompt_content=[{"text": "static"}])
+
+    assert tru_request["toolConfig"]["tools"][-1] == {"cachePoint": {"type": "default", "ttl": "5m"}}
+    assert tru_request["system"] == [{"text": "static"}, {"cachePoint": {"type": "default"}}]

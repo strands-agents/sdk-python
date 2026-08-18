@@ -147,10 +147,7 @@ export type BedrockCacheTTL = CacheTTL
 /**
  * Prompt-caching configuration for the Bedrock provider.
  */
-export interface BedrockCacheConfig extends CacheConfig {
-  /** TTL applied to the auto-injected cache point appended to the system prompt. */
-  systemTTL?: BedrockCacheTTL
-}
+export type BedrockCacheConfig = CacheConfig
 
 /**
  * Redaction configuration for Bedrock guardrails.
@@ -495,22 +492,51 @@ export class BedrockModel extends Model<BedrockModelConfig> {
   }
 
   /**
-   * Applies `cacheConfig.ttl` to a caller-placed system cache point that carries no TTL of its own.
+   * Whether to auto-inject a cache point at the end of the system prompt.
    *
-   * Bedrock rejects a TTL that exceeds an earlier cache point's, in the order toolConfig, system,
-   * messages. Filling the system point in keeps it from sitting at the default between two configured
-   * points. A TTL the caller wrote is left as written, and the fill-in stands down when the tools point
-   * carries a different TTL, leaving the caller to reconcile the two.
+   * True only when caching resolves to the anthropic strategy, `systemTTL` is not `false`, the system
+   * prompt has cacheable content, and no system block already carries a cache point (a hand-placed point
+   * anywhere in the system prefix is honored rather than doubled).
+   *
+   * @param system - The system content blocks that will be sent to Bedrock.
+   * @returns True if a cache point should be appended.
+   */
+  private _shouldCacheSystem(system: SystemContentBlock[] | undefined): system is SystemContentBlock[] {
+    if (!this._shouldEnableCaching()) {
+      return false
+    }
+    if (this._config.cacheConfig?.systemTTL === false) {
+      return false
+    }
+    if (!system || system.length === 0) {
+      return false
+    }
+    return !system.some((block) => 'cachePoint' in block)
+  }
+
+  /**
+   * Fills the resolved system-section TTL into a system cache point that carries none of its own,
+   * whether auto-injected or caller-placed.
+   *
+   * An explicit `systemTTL` is emitted as written: the caller owns cross-section ordering, exactly as
+   * `toolsTTL` and `messagesTTL` do. An inherited TTL (from `ttl`) instead stands down to the provider
+   * default rather than sit behind a shorter tools checkpoint, which Bedrock rejects — it processes
+   * cache points in the order toolConfig, system, messages and rejects a longer TTL following a shorter
+   * one. A TTL the caller wrote onto the point is always left as written.
    *
    * @param request - The formatted request, with `system` and `toolConfig` already populated.
    */
   private _applySystemCacheTTL(request: ConverseStreamCommandInput): void {
     const system = request.system
-    if (!system) {
+    if (!system || !this._shouldEnableCaching()) {
       return
     }
-    let ttl = this._shouldEnableCaching() ? this._config.cacheConfig?.ttl || undefined : undefined
-    if (ttl) {
+    const cacheConfig = this._config.cacheConfig
+    const systemSection = resolveCacheSection(cacheConfig?.systemTTL, cacheConfig?.ttl)
+    let ttl = systemSection.enabled ? systemSection.ttl : undefined
+
+    // The stand-down applies only to an inherited TTL; an explicit systemTTL is the caller's to order.
+    if (ttl && typeof cacheConfig?.systemTTL !== 'string') {
       const toolsPoint = request.toolConfig?.tools?.find((tool) => 'cachePoint' in tool)
       if (toolsPoint && 'cachePoint' in toolsPoint && toolsPoint.cachePoint?.ttl !== ttl) {
         ttl = undefined
@@ -718,20 +744,14 @@ export class BedrockModel extends Model<BedrockModelConfig> {
       }
     }
 
-    // Auto-inject a cachePoint at the end of the system prompt so repeated calls with the
-    // same static system prefix hit the cache. Bedrock (Anthropic) documents the prefix
-    // chain as tools → system → messages; caching only messages leaves the (usually largest
-    // and most static) system prefix uncached.
-    if (request.system && request.system.length > 0 && this._shouldEnableCaching()) {
-      const lastBlock = request.system[request.system.length - 1]
-      if (!lastBlock || !('cachePoint' in lastBlock)) {
-        const cachePoint: BedrockCachePointBlock = { type: 'default' }
-        const ttl = this._config.cacheConfig?.systemTTL
-        if (ttl !== undefined) {
-          cachePoint.ttl = ttl as BedrockSdkCacheTTL
-        }
-        request.system.push({ cachePoint })
-      }
+    // Auto-inject a bare cachePoint at the end of the system prompt so repeated calls with the
+    // same static system prefix hit the cache. Bedrock (Anthropic) documents the prefix chain as
+    // tools → system → messages; caching only messages leaves the (usually largest and most static)
+    // system prefix uncached. The point carries no TTL here; `_applySystemCacheTTL` fills the resolved
+    // systemTTL in. A hand-placed point anywhere in the system prefix is honored rather than doubled,
+    // and `systemTTL: false` opts out.
+    if (this._shouldCacheSystem(request.system)) {
+      request.system!.push({ cachePoint: { type: 'default' } })
     }
 
     // Add tool configuration

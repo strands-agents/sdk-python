@@ -3030,7 +3030,43 @@ describe('BedrockModel', () => {
       })
     })
 
-    it('carries systemTTL from cacheConfig into the appended system cache point', async () => {
+    it('carries cacheConfig.ttl into the appended system cache point', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto', ttl: '1h' } })
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+      const options: StreamOptions = { systemPrompt: 'static prompt' }
+
+      collectIterator(provider.stream(messages, options))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.system).toStrictEqual([{ text: 'static prompt' }, { cachePoint: { type: 'default', ttl: '1h' } }])
+    })
+
+    it('does not inject a system cache point when systemTTL is false', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto', systemTTL: false } })
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+      const options: StreamOptions = { systemPrompt: 'static prompt' }
+
+      collectIterator(provider.stream(messages, options))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.system).toStrictEqual([{ text: 'static prompt' }])
+    })
+
+    it('emits an explicit systemTTL as written, above a shorter tools point', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto', systemTTL: '1h', toolsTTL: '5m' } })
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+      const options: StreamOptions = {
+        systemPrompt: 'static prompt',
+        toolSpecs: [{ name: 'calc', description: 'Calculator', inputSchema: { type: 'object', properties: {} } }],
+      }
+
+      collectIterator(provider.stream(messages, options))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.system).toStrictEqual([{ text: 'static prompt' }, { cachePoint: { type: 'default', ttl: '1h' } }])
+    })
+
+    it('carries an explicit systemTTL into the appended cache point without a shared ttl', async () => {
       const provider = new BedrockModel({ cacheConfig: { strategy: 'auto', systemTTL: '1h' } })
       const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
       const options: StreamOptions = { systemPrompt: 'static prompt' }
@@ -3041,17 +3077,39 @@ describe('BedrockModel', () => {
       expect(call?.system).toStrictEqual([{ text: 'static prompt' }, { cachePoint: { type: 'default', ttl: '1h' } }])
     })
 
-    it('does not duplicate the system cache point when caller placed one at the end', async () => {
+    it('honors a caller-placed system cache point anywhere in the prefix', async () => {
       const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
       const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
       const options: StreamOptions = {
-        systemPrompt: [new TextBlock('static prompt'), new CachePointBlock({ cacheType: 'default', ttl: '1h' })],
+        systemPrompt: [
+          new TextBlock('static prompt'),
+          new CachePointBlock({ cacheType: 'default', ttl: '1h' }),
+          new TextBlock('trailing instructions'),
+        ],
       }
 
       collectIterator(provider.stream(messages, options))
 
       const call = mockConverseStreamCommand.mock.lastCall?.[0]
-      expect(call?.system).toStrictEqual([{ text: 'static prompt' }, { cachePoint: { type: 'default', ttl: '1h' } }])
+      expect(call?.system).toStrictEqual([
+        { text: 'static prompt' },
+        { cachePoint: { type: 'default', ttl: '1h' } },
+        { text: 'trailing instructions' },
+      ])
+    })
+
+    it('stands the system cache point TTL down when the tools point carries a different TTL', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto', ttl: '1h', toolsTTL: '5m' } })
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+      const options: StreamOptions = {
+        systemPrompt: 'static prompt',
+        toolSpecs: [{ name: 'calc', description: 'Calculator', inputSchema: { type: 'object', properties: {} } }],
+      }
+
+      collectIterator(provider.stream(messages, options))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.system).toStrictEqual([{ text: 'static prompt' }, { cachePoint: { type: 'default' } }])
     })
 
     it('skips the system cache point when the system prompt is absent', async () => {

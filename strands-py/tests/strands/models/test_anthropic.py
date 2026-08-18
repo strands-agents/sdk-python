@@ -1255,6 +1255,28 @@ class TestCountTokens:
         assert call_kwargs["system"] == "Be helpful."
 
     @pytest.mark.asyncio
+    async def test_native_count_tokens_renders_system_prompt_content(
+        self, model_with_client, anthropic_client, messages
+    ):
+        """The count matches what stream() sends: system_prompt_content is rendered, not the plain string."""
+        model_with_client.update_config(cache_config=CacheConfig(strategy="auto"))
+        mock_response = unittest.mock.MagicMock()
+        mock_response.input_tokens = 42
+        anthropic_client.messages.count_tokens = unittest.mock.AsyncMock(return_value=mock_response)
+
+        result = await model_with_client.count_tokens(
+            messages=messages,
+            system_prompt="Be helpful.",
+            system_prompt_content=[{"text": "Be helpful."}],
+        )
+
+        assert result == 42
+        call_kwargs = anthropic_client.messages.count_tokens.call_args[1]
+        assert call_kwargs["system"] == [
+            {"type": "text", "text": "Be helpful.", "cache_control": {"type": "ephemeral"}}
+        ]
+
+    @pytest.mark.asyncio
     async def test_native_count_tokens_with_tool_specs(self, model_with_client, anthropic_client, messages, tool_specs):
         mock_response = unittest.mock.MagicMock()
         mock_response.input_tokens = 100
@@ -2071,4 +2093,92 @@ class TestPromptCaching:
 
         request = model.format_request(messages, dynamic_trailing_blocks=1)
 
+        assert self._breakpoints(request) == []
+
+    def test_string_system_prompt_is_promoted_to_a_cached_block(self, model, messages):
+        """A plain string carries no cache_control, so it is rendered to a block that can."""
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+
+        request = model.format_request(messages, system_prompt="static prompt")
+
+        assert request["system"] == [{"type": "text", "text": "static prompt", "cache_control": {"type": "ephemeral"}}]
+
+    def test_auto_injects_a_system_cache_point_on_the_last_block(self, model, messages):
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        system_prompt_content = [{"text": "Heavy context"}, {"text": "More context"}]
+
+        request = model.format_request(messages, system_prompt_content=system_prompt_content)
+
+        # The default messages section also caches the last user message, so both points are present.
+        assert self._breakpoints(request) == [
+            ("system", "text", {"type": "ephemeral"}),
+            ("messages", 0, {"type": "ephemeral"}),
+        ]
+        assert "cache_control" not in request["system"][0]
+        assert request["system"][1]["cache_control"] == {"type": "ephemeral"}
+
+    def test_auto_injected_system_cache_point_inherits_cache_config_ttl(self, model, messages):
+        model.update_config(cache_config=CacheConfig(strategy="auto", ttl="1h"))
+
+        request = model.format_request(messages, system_prompt="static prompt")
+
+        assert request["system"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+
+    def test_inject_system_cache_point_false_leaves_the_system_prompt_uncached(self, model, messages):
+        model.update_config(cache_config=CacheConfig(strategy="auto", inject_system_cache_point=False))
+
+        request = model.format_request(messages, system_prompt="static prompt")
+
+        assert request["system"] == "static prompt"
+
+    def test_hand_placed_system_cache_point_is_not_doubled(self, model, messages):
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        system_prompt_content = [
+            {"text": "Heavy context"},
+            {"cachePoint": {"type": "default"}},
+            {"text": "Light context"},
+        ]
+
+        request = model.format_request(messages, system_prompt_content=system_prompt_content)
+
+        # The placed point on the first block is honored; the last block is not also cached.
+        assert self._breakpoints(request) == [
+            ("system", "text", {"type": "ephemeral"}),
+            ("messages", 0, {"type": "ephemeral"}),
+        ]
+        assert request["system"][0]["cache_control"] == {"type": "ephemeral"}
+        assert "cache_control" not in request["system"][1]
+
+    def test_hand_placed_system_cache_point_inherits_cache_config_ttl(self, model, messages):
+        """Parity with the messages path: a placed point with no TTL fills in ``cache_config.ttl``."""
+        model.update_config(cache_config=CacheConfig(strategy="auto", ttl="1h"))
+        system_prompt_content = [{"text": "Heavy context"}, {"cachePoint": {"type": "default"}}]
+
+        request = model.format_request(messages, system_prompt_content=system_prompt_content)
+
+        assert request["system"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+
+    def test_hand_placed_system_cache_point_keeps_its_own_ttl(self, model, messages):
+        """A TTL the caller wrote is more specific than the configured one."""
+        model.update_config(cache_config=CacheConfig(strategy="auto", ttl="1h"))
+        system_prompt_content = [{"text": "Heavy context"}, {"cachePoint": {"type": "default", "ttl": "5m"}}]
+
+        request = model.format_request(messages, system_prompt_content=system_prompt_content)
+
+        assert request["system"][0]["cache_control"] == {"type": "ephemeral", "ttl": "5m"}
+
+    def test_hand_placed_system_cache_point_is_honored_without_cache_config(self, model, messages):
+        """Mirrors the messages path: a placed point is honored even with caching unconfigured."""
+        system_prompt_content = [{"text": "Heavy context"}, {"cachePoint": {"type": "default"}}]
+
+        request = model.format_request(messages, system_prompt_content=system_prompt_content)
+
+        assert self._breakpoints(request) == [("system", "text", {"type": "ephemeral"})]
+
+    def test_system_prompt_content_without_a_placed_point_is_uncached_without_cache_config(self, model, messages):
+        system_prompt_content = [{"text": "Heavy context"}]
+
+        request = model.format_request(messages, system_prompt_content=system_prompt_content)
+
+        assert request["system"] == [{"type": "text", "text": "Heavy context"}]
         assert self._breakpoints(request) == []
