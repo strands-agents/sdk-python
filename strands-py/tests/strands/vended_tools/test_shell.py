@@ -158,6 +158,29 @@ class TestDeprecatedBashAliases:
 
         assert "make_shell" in vended_tools.make_bash.__deprecated__
 
+    def test_make_bash_deprecation_message_is_a_literal(self):
+        """PEP 702 checkers only honor @deprecated when the argument is a string literal.
+
+        An f-string over _RENAME_RATIONALE keeps the runtime warning and __deprecated__
+        attribute working while mypy silently reports nothing, so guard the source.
+        """
+        import ast
+        import inspect
+
+        import strands.vended_tools._bash as _bash
+
+        tree = ast.parse(inspect.getsource(_bash))
+        decorators = [
+            decorator
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "make_bash"
+            for decorator in node.decorator_list
+            if isinstance(decorator, ast.Call) and getattr(decorator.func, "id", None) == "deprecated"
+        ]
+
+        assert len(decorators) == 1
+        assert isinstance(decorators[0].args[0], ast.Constant)
+
     def test_unknown_attribute_still_raises(self):
         import strands.vended_tools as vended_tools
 

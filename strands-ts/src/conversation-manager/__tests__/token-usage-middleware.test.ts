@@ -62,6 +62,46 @@ describe('createTokenUsageMiddleware', () => {
     expect(statusBlock.text).toContain('</context-status>')
   })
 
+  it('reports the status line as one per-call block', async () => {
+    // The live token count makes this per-call, so a cache point must stay ahead of it.
+    const middleware = createTokenUsageMiddleware(createMockModel(200_000))
+    const context = createContext({ projectedInputTokens: 50_000 })
+
+    const result = await middleware(context)
+
+    expect(result.dynamicTrailingBlocks).toBe(1)
+  })
+
+  it('reports no per-call trailing blocks when the status line lands in an assistant message', async () => {
+    // The status text lands in whatever message is last. On an assistant-terminated history it is
+    // already outside the cached prefix, so reporting it would evict durable content. Reachable via invoke()
+    // with no prompt, and restored sessions.
+    const middleware = createTokenUsageMiddleware(createMockModel(200_000))
+    const context = createContext({
+      messages: [
+        new Message({ role: 'user', content: [new TextBlock('durable ask')] }),
+        new Message({ role: 'assistant', content: [new TextBlock('reply')] }),
+      ],
+      projectedInputTokens: 50_000,
+    })
+
+    const result = await middleware(context)
+
+    const lastMessage = result.messages[result.messages.length - 1]!
+    expect(lastMessage.role).toBe('assistant')
+    expect((lastMessage.content[lastMessage.content.length - 1] as TextBlock).text).toContain('<context-status>')
+    expect(result.dynamicTrailingBlocks ?? 0).toBe(0)
+  })
+
+  it('reports no per-call trailing blocks when no status line is appended', async () => {
+    const middleware = createTokenUsageMiddleware(createMockModel(200_000))
+    const context = createContext()
+
+    const result = await middleware(context)
+
+    expect(result.dynamicTrailingBlocks ?? 0).toBe(0)
+  })
+
   it('does not mutate the original messages array', async () => {
     const middleware = createTokenUsageMiddleware(createMockModel(200_000))
     const originalMessage = new Message({ role: 'user', content: [new TextBlock('hello')] })

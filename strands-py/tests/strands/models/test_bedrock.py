@@ -72,6 +72,31 @@ def messages():
 
 
 @pytest.fixture
+def tool_result_turn_messages():
+    return [
+        {"role": "user", "content": [{"text": "Create structured output"}]},
+        {
+            "role": "assistant",
+            "content": [{"toolUse": {"toolUseId": "tool-1", "name": "Result", "input": {"value": 1}}}],
+        },
+        {
+            "role": "user",
+            "content": [{"toolResult": {"toolUseId": "tool-1", "content": [{"text": "Validated"}]}}],
+        },
+        {"role": "user", "content": [{"text": "Create another result"}]},
+    ]
+
+
+@pytest.fixture
+def separated_tool_result_turn_messages(tool_result_turn_messages):
+    return [
+        *tool_result_turn_messages[:3],
+        {"role": "assistant", "content": [{"text": "Tool result received."}]},
+        tool_result_turn_messages[3],
+    ]
+
+
+@pytest.fixture
 def system_prompt():
     return "s1"
 
@@ -892,6 +917,212 @@ async def test_stream_throttling_exception_lowercase_non_streaming(bedrock_clien
     assert error_message in str(excinfo.value)
     bedrock_client.converse.assert_called_once()
     bedrock_client.converse_stream.assert_not_called()
+
+
+@pytest.mark.parametrize("streaming", [True, False])
+@pytest.mark.asyncio
+async def test_stream_retries_with_separated_tool_result_turns(
+    bedrock_client,
+    alist,
+    streaming,
+    tool_result_turn_messages,
+    separated_tool_result_turn_messages,
+):
+    """Tool-result turns are separated when Bedrock reports the incompatibility from issue #1223."""
+    validation_error = ClientError(
+        {
+            "Error": {
+                "Code": "ValidationException",
+                "Message": (
+                    "messages.3.content: "
+                    "Conversation blocks and tool result blocks cannot be provided in the same turn."
+                ),
+            }
+        },
+        "ConverseStream" if streaming else "Converse",
+    )
+    response = (
+        {"stream": []}
+        if streaming
+        else {
+            "output": {"message": {"role": "assistant", "content": [{"text": "Done"}]}},
+            "stopReason": "end_turn",
+        }
+    )
+    converse_method = bedrock_client.converse_stream if streaming else bedrock_client.converse
+    converse_method.side_effect = [validation_error, response]
+    model = BedrockModel(
+        model_id="us.meta.llama4-maverick-17b-instruct-v1:0",
+        streaming=streaming,
+        use_native_token_count=True,
+    )
+
+    await alist(model.stream(tool_result_turn_messages))
+
+    tru_first_messages = converse_method.call_args_list[0].kwargs["messages"]
+    assert tru_first_messages == tool_result_turn_messages
+
+    tru_retry_messages = converse_method.call_args_list[1].kwargs["messages"]
+    assert tru_retry_messages == separated_tool_result_turn_messages
+    assert model._tool_result_turn_separation_model_id == "us.meta.llama4-maverick-17b-instruct-v1:0"
+
+
+def test_format_request_separates_tool_result_turns_for_remembered_model(
+    bedrock_client,
+    tool_result_turn_messages,
+    separated_tool_result_turn_messages,
+):
+    """Remembered model formatting separates incompatible user turns."""
+    _ = bedrock_client
+    model = BedrockModel(model_id="us.meta.llama4-maverick-17b-instruct-v1:0")
+    model._tool_result_turn_separation_model_id = "us.meta.llama4-maverick-17b-instruct-v1:0"
+
+    tru_messages = model.format_request(tool_result_turn_messages)["messages"]
+
+    assert tru_messages == separated_tool_result_turn_messages
+
+
+@pytest.mark.asyncio
+async def test_count_tokens_separates_tool_result_turns_for_remembered_model(
+    bedrock_client,
+    tool_result_turn_messages,
+    separated_tool_result_turn_messages,
+):
+    """Native token counting uses the same separated request as invocation."""
+    bedrock_client.count_tokens.return_value = {"inputTokens": 42}
+    model = BedrockModel(
+        model_id="us.meta.llama4-maverick-17b-instruct-v1:0",
+        use_native_token_count=True,
+    )
+    model._tool_result_turn_separation_model_id = "us.meta.llama4-maverick-17b-instruct-v1:0"
+
+    await model.count_tokens(tool_result_turn_messages)
+
+    tru_messages = bedrock_client.count_tokens.call_args.kwargs["input"]["converse"]["messages"]
+    assert tru_messages == separated_tool_result_turn_messages
+
+
+@pytest.mark.parametrize("streaming", [True, False])
+@pytest.mark.asyncio
+async def test_stream_uses_separated_tool_result_turns_for_remembered_model(
+    bedrock_client,
+    alist,
+    streaming,
+    tool_result_turn_messages,
+    separated_tool_result_turn_messages,
+):
+    """Remembered models skip the failing canonical request."""
+    response = (
+        {"stream": []}
+        if streaming
+        else {
+            "output": {"message": {"role": "assistant", "content": [{"text": "Done"}]}},
+            "stopReason": "end_turn",
+        }
+    )
+    converse_method = bedrock_client.converse_stream if streaming else bedrock_client.converse
+    converse_method.return_value = response
+    model = BedrockModel(
+        model_id="us.meta.llama4-maverick-17b-instruct-v1:0",
+        streaming=streaming,
+    )
+    model._tool_result_turn_separation_model_id = "us.meta.llama4-maverick-17b-instruct-v1:0"
+
+    await alist(model.stream(tool_result_turn_messages))
+
+    converse_method.assert_called_once()
+    tru_messages = converse_method.call_args.kwargs["messages"]
+    assert tru_messages == separated_tool_result_turn_messages
+
+
+@pytest.mark.parametrize("streaming", [True, False])
+@pytest.mark.asyncio
+async def test_stream_does_not_retry_when_tool_result_turns_cannot_be_separated(
+    bedrock_client,
+    alist,
+    streaming,
+    messages,
+):
+    """The targeted validation error is re-raised when no transform applies."""
+    validation_error = ClientError(
+        {
+            "Error": {
+                "Code": "ValidationException",
+                "Message": (
+                    "messages.3.content: "
+                    "Conversation blocks and tool result blocks cannot be provided in the same turn."
+                ),
+            }
+        },
+        "ConverseStream" if streaming else "Converse",
+    )
+    converse_method = bedrock_client.converse_stream if streaming else bedrock_client.converse
+    converse_method.side_effect = validation_error
+    model = BedrockModel(model_id="us.meta.llama4-maverick-17b-instruct-v1:0", streaming=streaming)
+
+    with pytest.raises(ClientError):
+        await alist(model.stream(messages))
+
+    converse_method.assert_called_once()
+
+
+@pytest.mark.parametrize("streaming", [True, False])
+@pytest.mark.asyncio
+async def test_stream_does_not_remember_separation_when_retry_fails(
+    bedrock_client,
+    alist,
+    streaming,
+    tool_result_turn_messages,
+):
+    """Tool-result separation is remembered only after Bedrock accepts the retry."""
+    validation_error = ClientError(
+        {
+            "Error": {
+                "Code": "ValidationException",
+                "Message": (
+                    "messages.3.content: "
+                    "Conversation blocks and tool result blocks cannot be provided in the same turn."
+                ),
+            }
+        },
+        "ConverseStream" if streaming else "Converse",
+    )
+    converse_method = bedrock_client.converse_stream if streaming else bedrock_client.converse
+    converse_method.side_effect = [validation_error, validation_error]
+    model = BedrockModel(
+        model_id="us.meta.llama4-maverick-17b-instruct-v1:0",
+        streaming=streaming,
+    )
+
+    with pytest.raises(ClientError):
+        await alist(model.stream(tool_result_turn_messages))
+
+    assert model._tool_result_turn_separation_model_id is None
+
+    converse_method.reset_mock(side_effect=True)
+    converse_method.return_value = (
+        {"stream": []}
+        if streaming
+        else {
+            "output": {"message": {"role": "assistant", "content": [{"text": "Done"}]}},
+            "stopReason": "end_turn",
+        }
+    )
+
+    await alist(model.stream(tool_result_turn_messages))
+
+    converse_method.assert_called_once()
+    assert converse_method.call_args.kwargs["messages"] == tool_result_turn_messages
+
+
+def test_separate_tool_result_turns_ignores_conversation_only_user_turns():
+    """Adjacent conversation-only user turns do not gain a separator."""
+    messages = [
+        {"role": "user", "content": [{"text": "First"}]},
+        {"role": "user", "content": [{"text": "Second"}]},
+    ]
+
+    assert BedrockModel._separate_tool_result_turns(messages) == messages
 
 
 @pytest.mark.asyncio
@@ -2486,6 +2717,30 @@ def test_format_request_preserves_cache_point_ttl(model, model_id):
     assert cache_point_block["ttl"] == "1h"
 
 
+# https://github.com/strands-agents/harness-sdk/issues/3759
+@pytest.mark.parametrize("ttl", [None, ""])
+def test_format_request_omits_falsy_cache_point_ttl(model, ttl):
+    """Falsy caller TTLs are omitted before Bedrock validates the request."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "cachePoint": {
+                        "type": "default",
+                        "ttl": ttl,
+                    }
+                },
+            ],
+        }
+    ]
+
+    tru_cache_point = model.format_request(messages)["messages"][0]["content"][0]["cachePoint"]
+    exp_cache_point = {"type": "default"}
+
+    assert tru_cache_point == exp_cache_point
+
+
 def test_format_request_cache_point_without_ttl(model, model_id):
     """Test that cache points work without ttl field (backward compatibility)."""
     messages = [
@@ -3082,18 +3337,26 @@ async def test_format_request_with_guardrail_multiple_tool_results_same_message(
     assert formatted_messages[0]["content"][0]["guardContent"]["text"]["text"] == "Question requiring multiple tools"
 
 
-def test_cache_strategy_anthropic_for_claude(bedrock_client):
-    """Test that _cache_strategy returns 'anthropic' for Claude models."""
-    model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
+def test_cache_strategy_auto_maps_claude_to_anthropic(bedrock_client):
+    """Under strategy="auto", a Claude/Anthropic model id resolves to the anthropic strategy."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
     assert model._cache_strategy == "anthropic"
 
-    model2 = BedrockModel(model_id="anthropic.claude-3-haiku-20240307-v1:0")
+    model2 = BedrockModel(model_id="anthropic.claude-3-haiku-20240307-v1:0", cache_config=CacheConfig(strategy="auto"))
     assert model2._cache_strategy == "anthropic"
 
 
-def test_cache_strategy_none_for_non_claude(bedrock_client):
-    """Test that _cache_strategy returns None for unsupported models."""
-    model = BedrockModel(model_id="amazon.nova-pro-v1:0")
+def test_cache_strategy_auto_is_none_for_non_claude(bedrock_client):
+    """Under strategy="auto", a model without automatic caching support resolves to None."""
+    model = BedrockModel(model_id="amazon.nova-pro-v1:0", cache_config=CacheConfig(strategy="auto"))
+    assert model._cache_strategy is None
+
+
+def test_cache_strategy_is_none_without_cache_config(bedrock_client):
+    """A caching-capable model still resolves to no strategy until cache_config turns caching on."""
+    model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
     assert model._cache_strategy is None
 
 
@@ -3753,6 +4016,102 @@ def test_inject_cache_point_auto_strategy_resolves_to_anthropic_for_claude(bedro
     assert len(formatted[1]["content"]) == 1
 
 
+# Cache-point placement ahead of per-call trailing content. A point landing after per-call content
+# writes a new entry every request and never reads one, which total token counts do not reveal, so
+# only these placement assertions catch it.
+
+
+def _content_keys(content: list[dict]) -> list[str]:
+    return [next(iter(block)) for block in content]
+
+
+def _document_block(fmt: str = "csv") -> dict:
+    return {"document": {"format": fmt, "name": "d", "source": {"bytes": b"a,b"}}}
+
+
+def test_dynamic_trailing_blocks_keeps_the_cache_point_ahead_of_per_call_content(bedrock_client):
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    messages = [{"role": "user", "content": [{"text": "durable ask"}, {"text": "PER-CALL"}]}]
+
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=1)
+
+    assert _content_keys(formatted[0]["content"]) == ["text", "cachePoint", "text"]
+
+
+def test_dynamic_trailing_blocks_covers_every_block_of_a_multi_block_tail(bedrock_client):
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    messages = [{"role": "user", "content": [{"text": "durable"}, {"text": "STATUS"}, {"text": "INJECTED"}]}]
+
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=2)
+
+    assert _content_keys(formatted[0]["content"]) == ["text", "cachePoint", "text", "text"]
+
+
+def test_no_dynamic_trailing_blocks_appends_the_cache_point_at_the_end(bedrock_client):
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    messages = [{"role": "user", "content": [{"text": "durable ask"}]}]
+
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=0)
+
+    assert _content_keys(formatted[0]["content"]) == ["text", "cachePoint"]
+
+
+def test_dynamic_trailing_blocks_skips_the_cache_point_when_every_block_is_per_call(bedrock_client):
+    # Nothing durable ahead of the boundary, so there is no prefix worth caching.
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    messages = [{"role": "user", "content": [{"text": "PER-CALL"}]}]
+
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=1)
+
+    assert _content_keys(formatted[0]["content"]) == ["text"]
+
+
+def test_dynamic_trailing_blocks_steps_back_over_a_non_pdf_document(bedrock_client):
+    # Bedrock rejects a point directly after a non-PDF document.
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    messages = [{"role": "user", "content": [{"text": "a"}, _document_block(), {"text": "PER-CALL"}]}]
+
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=1)
+
+    assert _content_keys(formatted[0]["content"]) == ["text", "cachePoint", "document", "text"]
+
+
+def test_dynamic_trailing_blocks_are_dropped_when_a_document_leads_the_message(bedrock_client):
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    messages = [{"role": "user", "content": [_document_block(), {"text": "PER-CALL"}]}]
+
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=1)
+
+    assert "cachePoint" not in _content_keys(formatted[0]["content"])
+
+
+def test_dynamic_trailing_blocks_keeps_a_pdf_document_in_the_cached_prefix(bedrock_client):
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    messages = [{"role": "user", "content": [{"text": "a"}, _document_block("pdf"), {"text": "PER-CALL"}]}]
+
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=1)
+
+    assert _content_keys(formatted[0]["content"]) == ["text", "document", "cachePoint", "text"]
+
+
+def test_dynamic_trailing_blocks_carries_the_configured_ttl(bedrock_client):
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"))
+    messages = [{"role": "user", "content": [{"text": "durable"}, {"text": "PER-CALL"}]}]
+
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=1)
+
+    assert formatted[0]["content"][1] == {"cachePoint": {"type": "default", "ttl": "1h"}}
+
+
+def test_dynamic_trailing_blocks_emits_no_cache_point_without_cache_config(bedrock_client):
+    model = BedrockModel()
+    messages = [{"role": "user", "content": [{"text": "durable"}, {"text": "PER-CALL"}]}]
+
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=1)
+
+    assert "cachePoint" not in _content_keys(formatted[0]["content"])
+
+
 def test_find_last_user_text_message_index_no_user_messages(bedrock_client):
     """Test _find_last_user_text_message_index returns None when no user text messages exist."""
     model = BedrockModel(model_id="test-model")
@@ -4272,3 +4631,302 @@ def test_format_request_cache_tools_string_backward_compat(model, messages, mode
 
     exp_cache_point = {"cachePoint": {"type": cache_type}}
     assert tru_request["toolConfig"]["tools"][-1] == exp_cache_point
+
+
+def test_format_request_applies_the_configured_ttl_to_a_system_cache_point(bedrock_client, messages):
+    """Bedrock rejects a TTL that exceeds an earlier checkpoint's, so a configured ttl that reached the
+    message cache point but not the system point ahead of it would emit an invalid request.
+    """
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"))
+    system_blocks = [{"text": "durable system prompt"}, {"cachePoint": {"type": "default"}}]
+
+    tru_system = model.format_request(messages, system_prompt_content=system_blocks)["system"]
+
+    exp_system = [{"text": "durable system prompt"}, {"cachePoint": {"type": "default", "ttl": "1h"}}]
+    assert tru_system == exp_system
+
+
+def test_format_request_falls_through_an_empty_system_cache_point_ttl_to_the_configured_one(bedrock_client, messages):
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"))
+    system_blocks = [{"text": "s"}, {"cachePoint": {"type": "default", "ttl": ""}}]
+
+    tru_point = model.format_request(messages, system_prompt_content=system_blocks)["system"][1]
+
+    exp_point = {"cachePoint": {"type": "default", "ttl": "1h"}}
+    assert tru_point == exp_point
+
+
+def test_format_request_leaves_a_system_cache_point_ttl_the_caller_wrote(bedrock_client, messages):
+    """Two conflicting TTLs are the caller's to reconcile; only an absent one is filled in."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"))
+    system_blocks = [{"text": "s"}, {"cachePoint": {"type": "default", "ttl": "5m"}}]
+
+    tru_point = model.format_request(messages, system_prompt_content=system_blocks)["system"][1]
+
+    exp_point = {"cachePoint": {"type": "default", "ttl": "5m"}}
+    assert tru_point == exp_point
+
+
+def test_format_request_leaves_a_system_cache_point_alone_when_no_ttl_is_configured(bedrock_client, messages):
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    system_blocks = [{"text": "s"}, {"cachePoint": {"type": "default"}}]
+
+    tru_point = model.format_request(messages, system_prompt_content=system_blocks)["system"][1]
+
+    exp_point = {"cachePoint": {"type": "default"}}
+    assert tru_point == exp_point
+
+
+def test_format_request_leaves_a_system_cache_point_alone_for_a_model_without_caching(bedrock_client, messages):
+    """A config that never reaches the wire must not reach the system point either."""
+    _ = bedrock_client
+    model = BedrockModel(model_id="meta.llama3-70b-instruct-v1:0", cache_config=CacheConfig(ttl="1h"))
+    system_blocks = [{"text": "s"}, {"cachePoint": {"type": "default"}}]
+
+    tru_point = model.format_request(messages, system_prompt_content=system_blocks)["system"][1]
+
+    exp_point = {"cachePoint": {"type": "default"}}
+    assert tru_point == exp_point
+
+
+def test_format_request_does_not_mutate_the_system_blocks_the_caller_owns(bedrock_client, messages):
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"))
+    cache_point = {"type": "default"}
+    system_blocks = [{"text": "s"}, {"cachePoint": cache_point}]
+
+    tru_point = model.format_request(messages, system_prompt_content=system_blocks)["system"][1]
+
+    assert tru_point == {"cachePoint": {"type": "default", "ttl": "1h"}}
+    assert cache_point == {"type": "default"}
+
+
+def test_format_request_leaves_a_system_cache_point_alone_behind_a_shorter_tools_ttl(
+    bedrock_client, messages, tool_spec
+):
+    """Bedrock rejects a TTL longer than an earlier checkpoint's, so filling the configured ttl in behind a
+    shorter tools TTL would trade one rejected request for another.
+    """
+    _ = bedrock_client
+    model = BedrockModel(
+        cache_config=CacheConfig(strategy="anthropic", ttl="1h"), cache_tools=CacheToolsConfig(ttl="5m")
+    )
+    system_blocks = [{"text": "s"}, {"cachePoint": {"type": "default"}}]
+
+    tru_request = model.format_request(messages, tool_specs=[tool_spec], system_prompt_content=system_blocks)
+
+    assert tru_request["toolConfig"]["tools"][-1] == {"cachePoint": {"type": "default", "ttl": "5m"}}
+    assert tru_request["system"][1] == {"cachePoint": {"type": "default"}}
+
+
+def test_format_request_fills_the_configured_ttl_into_an_untimed_tools_cache_point(bedrock_client, messages, tool_spec):
+    """The tools point is first in Bedrock's order, so an untimed one takes the provider default that a
+    configured ttl on a later checkpoint would exceed. Filling it in keeps every checkpoint in step.
+    """
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"), cache_tools="default")
+    system_blocks = [{"text": "s"}, {"cachePoint": {"type": "default"}}]
+
+    tru_request = model.format_request(messages, tool_specs=[tool_spec], system_prompt_content=system_blocks)
+
+    assert tru_request["toolConfig"]["tools"][-1] == {"cachePoint": {"type": "default", "ttl": "1h"}}
+    assert tru_request["system"][1] == {"cachePoint": {"type": "default", "ttl": "1h"}}
+
+
+def test_format_request_fills_the_configured_ttl_into_an_untimed_cache_tools_config(
+    bedrock_client, messages, tool_spec
+):
+    """A CacheToolsConfig without a TTL is untimed just like the bare string, so it inherits the same fill-in."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"), cache_tools=CacheToolsConfig())
+
+    tru_point = model.format_request(messages, tool_specs=[tool_spec])["toolConfig"]["tools"][-1]
+
+    assert tru_point == {"cachePoint": {"type": "default", "ttl": "1h"}}
+
+
+def test_format_request_fills_an_empty_cache_tools_ttl_rather_than_shipping_it(bedrock_client, messages, tool_spec):
+    """A falsy TTL is not a TTL, so an empty one is filled in rather than sent as "", which Bedrock rejects."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"), cache_tools=CacheToolsConfig(ttl=""))
+
+    tru_point = model.format_request(messages, tool_specs=[tool_spec])["toolConfig"]["tools"][-1]
+
+    assert tru_point == {"cachePoint": {"type": "default", "ttl": "1h"}}
+
+
+def test_format_request_leaves_a_tools_cache_point_ttl_the_caller_wrote(bedrock_client, messages, tool_spec):
+    """A TTL the caller wrote on cache_tools is theirs; only an absent one is filled in."""
+    _ = bedrock_client
+    model = BedrockModel(
+        cache_config=CacheConfig(strategy="anthropic", ttl="1h"), cache_tools=CacheToolsConfig(ttl="5m")
+    )
+
+    tru_point = model.format_request(messages, tool_specs=[tool_spec])["toolConfig"]["tools"][-1]
+
+    assert tru_point == {"cachePoint": {"type": "default", "ttl": "5m"}}
+
+
+def test_format_request_leaves_a_tools_cache_point_alone_for_a_model_without_caching(
+    bedrock_client, messages, tool_spec
+):
+    """A config that never reaches the wire must not reach the tools point either."""
+    _ = bedrock_client
+    model = BedrockModel(
+        model_id="meta.llama3-70b-instruct-v1:0", cache_config=CacheConfig(ttl="1h"), cache_tools="default"
+    )
+
+    tru_point = model.format_request(messages, tool_specs=[tool_spec])["toolConfig"]["tools"][-1]
+
+    assert tru_point == {"cachePoint": {"type": "default"}}
+
+
+def test_format_request_leaves_a_tools_cache_point_alone_for_an_empty_configured_ttl(
+    bedrock_client, messages, tool_spec
+):
+    """An empty configured ttl is unconfigured, so it does not fill the tools point in."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl=""), cache_tools="default")
+
+    tru_point = model.format_request(messages, tool_specs=[tool_spec])["toolConfig"]["tools"][-1]
+
+    assert tru_point == {"cachePoint": {"type": "default"}}
+
+
+def test_format_request_leaves_a_tools_cache_point_alone_when_no_ttl_is_configured(bedrock_client, messages, tool_spec):
+    """Without a configured ttl there is nothing to inherit, so a bare cache_tools stays untimed."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"), cache_tools="default")
+
+    tru_point = model.format_request(messages, tool_specs=[tool_spec])["toolConfig"]["tools"][-1]
+
+    assert tru_point == {"cachePoint": {"type": "default"}}
+
+
+def test_format_request_applies_the_configured_ttl_behind_a_matching_tools_ttl(bedrock_client, messages, tool_spec):
+    _ = bedrock_client
+    model = BedrockModel(
+        cache_config=CacheConfig(strategy="anthropic", ttl="1h"), cache_tools=CacheToolsConfig(ttl="1h")
+    )
+    system_blocks = [{"text": "s"}, {"cachePoint": {"type": "default"}}]
+
+    tru_request = model.format_request(messages, tool_specs=[tool_spec], system_prompt_content=system_blocks)
+
+    assert tru_request["system"][1] == {"cachePoint": {"type": "default", "ttl": "1h"}}
+
+
+def test_format_request_applies_the_configured_ttl_when_the_request_carries_no_tools(bedrock_client, messages):
+    """No tool specs means no tools checkpoint ahead of the system one, so nothing constrains the fill-in."""
+    _ = bedrock_client
+    model = BedrockModel(
+        cache_config=CacheConfig(strategy="anthropic", ttl="1h"), cache_tools=CacheToolsConfig(ttl="5m")
+    )
+    system_blocks = [{"text": "s"}, {"cachePoint": {"type": "default"}}]
+
+    tru_point = model.format_request(messages, system_prompt_content=system_blocks)["system"][1]
+
+    assert tru_point == {"cachePoint": {"type": "default", "ttl": "1h"}}
+
+
+def test_format_request_drops_an_empty_system_cache_point_ttl_when_none_is_configured(bedrock_client, messages):
+    """A falsy TTL is not a TTL: Bedrock validates ttl against an enum and rejects "".
+
+    The fill-in does not apply here, so normalizing is the only thing standing between a caller's empty
+    TTL and a rejected request.
+    """
+    _ = bedrock_client
+    model = BedrockModel()
+    system_blocks = [{"text": "s"}, {"cachePoint": {"type": "default", "ttl": ""}}]
+
+    tru_point = model.format_request(messages, system_prompt_content=system_blocks)["system"][1]
+
+    assert tru_point == {"cachePoint": {"type": "default"}}
+
+
+def test_format_request_drops_an_empty_system_cache_point_ttl_behind_a_shorter_tools_ttl(
+    bedrock_client, messages, tool_spec
+):
+    """The fill-in stands down behind a shorter tools TTL, but the caller's empty TTL still must not ship."""
+    _ = bedrock_client
+    model = BedrockModel(
+        cache_config=CacheConfig(strategy="anthropic", ttl="1h"), cache_tools=CacheToolsConfig(ttl="5m")
+    )
+    system_blocks = [{"text": "s"}, {"cachePoint": {"type": "default", "ttl": ""}}]
+
+    tru_request = model.format_request(messages, tool_specs=[tool_spec], system_prompt_content=system_blocks)
+
+    assert tru_request["toolConfig"]["tools"][-1] == {"cachePoint": {"type": "default", "ttl": "5m"}}
+    assert tru_request["system"][1] == {"cachePoint": {"type": "default"}}
+
+
+def test_format_request_drops_a_null_system_cache_point_ttl(bedrock_client, messages):
+    """botocore rejects a null ttl before the request is even sent, so it is dropped like an empty one."""
+    _ = bedrock_client
+    model = BedrockModel()
+    system_blocks = [{"text": "s"}, {"cachePoint": {"type": "default", "ttl": None}}]
+
+    tru_point = model.format_request(messages, system_prompt_content=system_blocks)["system"][1]
+
+    assert tru_point == {"cachePoint": {"type": "default"}}
+
+
+def test_format_request_does_not_mutate_a_system_cache_point_it_normalizes(bedrock_client, messages):
+    """The caller owns the block, so dropping their empty TTL must not reach back into their own dict."""
+    _ = bedrock_client
+    model = BedrockModel()
+    cache_point = {"type": "default", "ttl": ""}
+    system_blocks = [{"text": "s"}, {"cachePoint": cache_point}]
+
+    tru_point = model.format_request(messages, system_prompt_content=system_blocks)["system"][1]
+
+    assert tru_point == {"cachePoint": {"type": "default"}}
+    assert cache_point == {"type": "default", "ttl": ""}
+
+
+def test_format_request_passes_an_empty_system_cache_point_through(bedrock_client, messages):
+    """An off-type cache point is the provider's to reject, not something to raise on while formatting."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"))
+    system_blocks = [{"text": "s"}, {"cachePoint": None}]
+
+    tru_system = model.format_request(messages, system_prompt_content=system_blocks)["system"]
+
+    assert tru_system == [{"text": "s"}, {"cachePoint": None}]
+
+
+def test_format_request_applies_the_configured_ttl_to_every_system_cache_point(bedrock_client, messages):
+    """Every checkpoint has to move together; a TTL on only the first would leave the rest behind it."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"))
+    system_blocks = [
+        {"text": "a"},
+        {"cachePoint": {"type": "default"}},
+        {"text": "b"},
+        {"cachePoint": {"type": "default"}},
+    ]
+
+    tru_system = model.format_request(messages, system_prompt_content=system_blocks)["system"]
+
+    exp_system = [
+        {"text": "a"},
+        {"cachePoint": {"type": "default", "ttl": "1h"}},
+        {"text": "b"},
+        {"cachePoint": {"type": "default", "ttl": "1h"}},
+    ]
+    assert tru_system == exp_system
+
+
+def test_format_request_treats_an_empty_configured_ttl_as_unconfigured(bedrock_client, messages):
+    """An empty TTL is not a TTL, so it must not reach the wire for the Bedrock enum to reject."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl=""))
+    system_blocks = [{"text": "s"}, {"cachePoint": {"type": "default"}}]
+
+    tru_point = model.format_request(messages, system_prompt_content=system_blocks)["system"][1]
+
+    exp_point = {"cachePoint": {"type": "default"}}
+    assert tru_point == exp_point

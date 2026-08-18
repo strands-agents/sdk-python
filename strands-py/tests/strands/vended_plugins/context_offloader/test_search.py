@@ -110,18 +110,14 @@ class TestSearchContentPatternWithLineRange:
     text = "\n".join(f"item {i + 1}" for i in range(30))
 
     def test_searches_only_within_range(self):
-        result = _search_content(
-            self.text, pattern="item 1", line_range=(10, 20), context_lines=0, max_chars=10_000
-        )
+        result = _search_content(self.text, pattern="item 1", line_range=(10, 20), context_lines=0, max_chars=10_000)
         assert "in lines 10-20" in result
         assert "> 10| item 10" in result
         assert "> 11| item 11" in result
         assert "> 1|" not in result
 
     def test_no_matches_within_range(self):
-        result = _search_content(
-            self.text, pattern="item 5", line_range=(10, 20), context_lines=0, max_chars=10_000
-        )
+        result = _search_content(self.text, pattern="item 5", line_range=(10, 20), context_lines=0, max_chars=10_000)
         assert "No matches found" in result
         assert "in lines 10-20" in result
 

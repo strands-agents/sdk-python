@@ -31,6 +31,8 @@ export interface ToolExecutorOptions {
   readonly tracer: Tracer
   /** Meter used to record tool-call metrics. */
   readonly meter: Meter
+  /** Cancellation signal scoped to this executor invocation. */
+  readonly cancelSignal: AbortSignal
 }
 
 /**
@@ -122,7 +124,7 @@ export abstract class ToolExecutor {
           invocationState,
         })
         yield afterToolCallEvent
-        if (this._shouldRetry(options.agent, afterToolCallEvent)) {
+        if (this._shouldRetry(afterToolCallEvent, options.cancelSignal)) {
           continue
         }
         return this._normalizeToolResultId(afterToolCallEvent.result, toolUseBlock.toolUseId)
@@ -143,7 +145,7 @@ export abstract class ToolExecutor {
       })
       yield afterToolCallEvent
 
-      if (this._shouldRetry(options.agent, afterToolCallEvent)) {
+      if (this._shouldRetry(afterToolCallEvent, options.cancelSignal)) {
         continue
       }
 
@@ -153,8 +155,8 @@ export abstract class ToolExecutor {
     }
   }
 
-  private _shouldRetry(agent: Agent, afterToolCallEvent: AfterToolCallEvent): boolean {
-    return afterToolCallEvent.retry === true && !agent.cancelSignal.aborted
+  private _shouldRetry(afterToolCallEvent: AfterToolCallEvent, cancelSignal: AbortSignal): boolean {
+    return afterToolCallEvent.retry === true && !cancelSignal.aborted
   }
 
   private _normalizeToolResultId(result: ToolResultBlock, toolUseId: string): ToolResultBlock {
@@ -198,6 +200,7 @@ export abstract class ToolExecutor {
       tool,
       toolUse: deepCopy(toolUse) as unknown as ToolUseData,
       invocationState,
+      cancelSignal: options.cancelSignal,
       interrupt: createMiddlewareInterrupt(
         options.agent._interruptState,
         `middleware:executeTool:${toolUse.toolUseId}`
@@ -253,6 +256,7 @@ export abstract class ToolExecutor {
           },
           agent: options.agent,
           invocationState,
+          cancelSignal: options.cancelSignal,
           interrupt: <T = JSONValue>(params: InterruptParams): T =>
             interruptFromAgent<T>(options.agent, `tool:${toolUse.toolUseId}:${params.name}`, params, 'tool'),
         }

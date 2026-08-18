@@ -443,15 +443,17 @@ class GeminiModel(Model):
                                 "delta": {
                                     "reasoningContent": {
                                         "text": event["data"].text,
-                                        **(
-                                            {
-                                                "signature": base64.b64encode(event["data"].thought_signature).decode(
-                                                    "ascii"
-                                                )
-                                            }
-                                            if event["data"].thought_signature
-                                            else {}
-                                        ),
+                                    },
+                                },
+                            },
+                        }
+
+                    case "reasoning_signature":
+                        return {
+                            "contentBlockDelta": {
+                                "delta": {
+                                    "reasoningContent": {
+                                        "signature": base64.b64encode(event["data"].thought_signature).decode("ascii"),
                                     },
                                 },
                             },
@@ -629,6 +631,24 @@ class GeminiModel(Model):
                             {
                                 "chunk_type": "content_delta",
                                 "data_type": data_type,
+                                "data": part,
+                            },
+                        )
+
+                    # A thought signature can arrive on a part carrying no text of its own (Gemini
+                    # attaches it to a trailing empty part), so emit it independently of part.text;
+                    # gating on part.text drops those signatures during aggregation. Function-call
+                    # parts carry their signature on the tool-use block start instead (see above).
+                    if part.thought_signature and not part.function_call:
+                        if data_type != "reasoning_content":
+                            if data_type is not None:
+                                yield self._format_chunk({"chunk_type": "content_stop", "data_type": data_type})
+                            yield self._format_chunk({"chunk_type": "content_start", "data_type": "reasoning_content"})
+                            data_type = "reasoning_content"
+                        yield self._format_chunk(
+                            {
+                                "chunk_type": "content_delta",
+                                "data_type": "reasoning_signature",
                                 "data": part,
                             },
                         )

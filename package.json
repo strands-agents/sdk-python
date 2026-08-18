@@ -3,7 +3,6 @@
   "version": "0.0.0",
   "private": true,
   "workspaces": [
-    "strandly",
     "strands-ts"
   ],
   "devDependencies": {
@@ -11,7 +10,6 @@
     "prettier": "^3.9.4"
   },
   "scripts": {
-    "dev": "strandly",
     "prepare": "husky",
     "build": "npm run build -w strands-ts",
     "test": "npm run test -w strands-ts",

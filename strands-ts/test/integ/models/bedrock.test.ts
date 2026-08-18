@@ -7,6 +7,7 @@ import {
   TextBlock,
   FunctionTool,
   CachePointBlock,
+  DocumentBlock,
   ImageBlock,
 } from '@strands-agents/sdk'
 import type { SystemContentBlock, ModelRedactionEvent } from '@strands-agents/sdk'
@@ -15,6 +16,7 @@ import { collectIterator } from '$/sdk/__fixtures__/model-test-helpers.js'
 import { bedrock } from '../__fixtures__/model-providers.js'
 import { loadFixture } from '../__fixtures__/test-helpers.js'
 import yellowPngUrl from '../__resources__/yellow.png?url'
+import letterPdfUrl from '../__resources__/letter.pdf?url'
 import {
   BedrockClient,
   CreateGuardrailCommand,
@@ -22,6 +24,8 @@ import {
   ListGuardrailsCommand,
 } from '@aws-sdk/client-bedrock'
 import { inject } from 'vitest'
+
+const CACHING_MODEL_ID = 'us.anthropic.claude-sonnet-4-5-20250929-v1:0'
 
 describe.skipIf(bedrock.skip)('BedrockModel Integration Tests', () => {
   describe('Streaming', () => {
@@ -46,7 +50,7 @@ describe.skipIf(bedrock.skip)('BedrockModel Integration Tests', () => {
 
       it.concurrent('uses system prompt cache on subsequent requests', async () => {
         const provider = bedrock.createModel({
-          modelId: 'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
+          modelId: CACHING_MODEL_ID,
           maxTokens: 100,
         })
         const largeContext = `Context information: ${'hello '.repeat(2000)} [test-${Date.now()}-${Math.random()}]`
@@ -77,7 +81,7 @@ describe.skipIf(bedrock.skip)('BedrockModel Integration Tests', () => {
 
       it.concurrent('uses message cache points on subsequent requests', async () => {
         const provider = bedrock.createModel({
-          modelId: 'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
+          modelId: CACHING_MODEL_ID,
           maxTokens: 100,
         })
         const largeContext = `Context information: ${'hello '.repeat(2000)} [test-${Date.now()}-${Math.random()}]`
@@ -99,9 +103,126 @@ describe.skipIf(bedrock.skip)('BedrockModel Integration Tests', () => {
         expect(metadata2?.usage?.cacheReadInputTokens).toBeGreaterThan(0)
       })
 
+      it.concurrent('keeps per-call content behind a cache point out of the cached prefix', async () => {
+        const provider = bedrock.createModel({
+          modelId: CACHING_MODEL_ID,
+          maxTokens: 100,
+          cacheConfig: { strategy: 'auto' },
+        })
+        const prefix = `Dossier ${Date.now()}-${Math.random()}. ${'The subject prefers concise answers. '.repeat(400)}`
+        const tail = (): string => `Addendum ${Date.now()}-${Math.random()}. ${'Disregard this filler. '.repeat(400)}`
+
+        const first = await collectIterator(
+          provider.stream([
+            new Message({
+              role: 'user',
+              content: [new TextBlock(prefix), new CachePointBlock({ cacheType: 'default' }), new TextBlock(tail())],
+            }),
+          ])
+        )
+        const usage1 = first.find((event) => event.type === 'modelMetadataEvent')?.usage
+        expect(usage1?.cacheWriteInputTokens).toBeGreaterThan(0)
+        expect(usage1?.inputTokens).toBeGreaterThan(1000)
+
+        const second = await collectIterator(
+          provider.stream([
+            new Message({
+              role: 'user',
+              content: [new TextBlock(prefix), new CachePointBlock({ cacheType: 'default' }), new TextBlock(tail())],
+            }),
+          ])
+        )
+        const usage2 = second.find((event) => event.type === 'modelMetadataEvent')?.usage
+        expect(usage2?.cacheReadInputTokens).toBeGreaterThan(0)
+      })
+
+      it.concurrent('accepts a leading cache point by replacing it with automatic placement', async () => {
+        const provider = bedrock.createModel({
+          modelId: CACHING_MODEL_ID,
+          maxTokens: 100,
+          cacheConfig: { strategy: 'auto' },
+        })
+        const prefix = `Dossier ${Date.now()}-${Math.random()}. ${'The subject prefers concise answers. '.repeat(400)}`
+
+        const events = await collectIterator(
+          provider.stream([
+            new Message({
+              role: 'user',
+              content: [new CachePointBlock({ cacheType: 'default' }), new TextBlock(prefix)],
+            }),
+          ])
+        )
+        const usage = events.find((event) => event.type === 'modelMetadataEvent')?.usage
+        expect(usage?.cacheWriteInputTokens).toBeGreaterThan(0)
+      })
+
+      it.concurrent('normalizes a caller TTL so it cannot conflict with the tools TTL', async () => {
+        const provider = bedrock.createModel({
+          modelId: CACHING_MODEL_ID,
+          maxTokens: 100,
+          cacheConfig: { strategy: 'auto', toolsTTL: '5m' },
+        })
+        const prefix = `Dossier ${Date.now()}-${Math.random()}. ${'The subject prefers concise answers. '.repeat(400)}`
+        const toolSpecs = [
+          {
+            name: 'currentTime',
+            description: 'Get the current time.',
+            inputSchema: { type: 'object' as const, properties: {} },
+          },
+        ]
+
+        const events = await collectIterator(
+          provider.stream(
+            [
+              new Message({
+                role: 'user',
+                content: [
+                  new TextBlock(prefix),
+                  new CachePointBlock({ cacheType: 'default', ttl: '1h' }),
+                  new TextBlock('Reply OK.'),
+                ],
+              }),
+            ],
+            { toolSpecs }
+          )
+        )
+        const usage = events.find((event) => event.type === 'modelMetadataEvent')?.usage
+        expect(usage?.cacheWriteInputTokens).toBeGreaterThan(0)
+      })
+
+      it.concurrent.each(['csv', 'pdf'] as const)(
+        'accepts a cache point after a %s document',
+        async (documentFormat) => {
+          const provider = bedrock.createModel({
+            modelId: CACHING_MODEL_ID,
+            maxTokens: 100,
+            cacheConfig: { strategy: 'auto' },
+          })
+          const prefix = `Dossier ${Date.now()}-${Math.random()}. ${'The subject prefers concise answers. '.repeat(400)}`
+          const bytes =
+            documentFormat === 'pdf' ? await loadFixture(letterPdfUrl) : new TextEncoder().encode('a,b\n1,2\n')
+          const document = new DocumentBlock({ format: documentFormat, name: 'attachment', source: { bytes } })
+
+          const events = await collectIterator(
+            provider.stream([
+              new Message({
+                role: 'user',
+                content: [
+                  new TextBlock(prefix),
+                  document,
+                  new CachePointBlock({ cacheType: 'default' }),
+                  new TextBlock('Summarize.'),
+                ],
+              }),
+            ])
+          )
+          expect(events.find((event) => event.type === 'modelMetadataEvent')).toBeDefined()
+        }
+      )
+
       it.concurrent('uses cacheConfig to automatically inject cache points in tools and messages', async () => {
         const provider = bedrock.createModel({
-          modelId: 'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
+          modelId: CACHING_MODEL_ID,
           maxTokens: 100,
           cacheConfig: { strategy: 'auto' },
         })
