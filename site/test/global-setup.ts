@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { readdirSync, realpathSync, statSync } from 'node:fs'
+import { readdirSync, realpathSync, statSync, utimesSync } from 'node:fs'
 import { join } from 'node:path'
 
 const DATA_STORE_PATH = '.astro/data-store.json'
@@ -33,18 +33,21 @@ function newestMtime(path: string, visited: Set<string>): number {
   return newest
 }
 
-// getCollection() reads the snapshot in DATA_STORE_PATH, not the content
-// files, so a stale snapshot silently tests against outdated entries.
-function isDataStoreFresh(): boolean {
-  let storeStat
+function storeHoldsCollections(): boolean {
   try {
-    storeStat = statSync(DATA_STORE_PATH)
+    // A store this small cannot hold real collections; treat it as absent.
+    return statSync(DATA_STORE_PATH).size > 100
   } catch {
     return false
   }
-  // A store this small cannot hold real collections; treat it as absent.
-  if (storeStat.size <= 100) return false
-  return CONTENT_SOURCES.every((source) => newestMtime(source, new Set()) <= storeStat.mtimeMs)
+}
+
+// getCollection() reads the snapshot in DATA_STORE_PATH, not the content
+// files, so a stale snapshot silently tests against outdated entries.
+function isDataStoreFresh(): boolean {
+  if (!storeHoldsCollections()) return false
+  const storeMtime = statSync(DATA_STORE_PATH).mtimeMs
+  return CONTENT_SOURCES.every((source) => newestMtime(source, new Set()) <= storeMtime)
 }
 
 export function setup() {
@@ -53,7 +56,11 @@ export function setup() {
   console.log('[global-setup] Data store missing or stale — running astro sync...')
 
   execFileSync('node', ['--input-type=module', '-e', SYNC_SCRIPT], { stdio: 'inherit', timeout: TIMEOUT_MS })
-  if (!isDataStoreFresh()) throw new Error(`astro sync did not refresh ${DATA_STORE_PATH}`)
+  if (!storeHoldsCollections()) throw new Error(`astro sync did not produce a usable ${DATA_STORE_PATH}`)
+  // sync rewrites the store only when matched content changed, so mtime can't
+  // confirm freshness here; a sync that exits 0 means the store is current.
+  const now = new Date()
+  utimesSync(DATA_STORE_PATH, now, now)
 
   console.log('[global-setup] Data store ready.')
 }
