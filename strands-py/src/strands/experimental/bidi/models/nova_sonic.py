@@ -60,7 +60,7 @@ from ..types.events import (
     BidiTranscriptStreamEvent,
     BidiUsageEvent,
 )
-from ..types.model import AudioConfig
+from ..types.model import AudioConfig, BidiConnectionConfig
 from .model import BidiModel, BidiModelTimeoutError
 
 logger = logging.getLogger(__name__)
@@ -134,6 +134,9 @@ class BidiNovaSonicModel(BidiModel):
                 - inference: Model inference settings (max_tokens, temperature, top_p)
                 - turn_detection: Turn detection configuration (v2 only feature)
                   - endpointingSensitivity: "HIGH" | "MEDIUM" | "LOW" (optional)
+                - connection: Reconnect overrides merged over the provider defaults
+                  (e.g. reconnect_margin_s, auto_reconnect); see
+                  BidiConnectionConfig.
             client_config: AWS authentication (boto_session OR region, not both)
             **kwargs: Reserved for future parameters.
 
@@ -145,8 +148,20 @@ class BidiNovaSonicModel(BidiModel):
         # Store model ID
         self.model_id = model_id
 
-        # Validate turn_detection configuration
+        # Nova caps a connection at ~8 min and reports cumulative usage totals.
+        self.connection_config: BidiConnectionConfig = {"max_connection_s": 480.0}
+        self.usage_is_cumulative = True
+
         provider_config = provider_config or {}
+
+        # Merge any caller-supplied connection overrides over the provider defaults, so
+        # reconnect behavior can be tuned (or opted out via auto_reconnect) through
+        # provider_config without replacing the whole config.
+        self.connection_config = cast(
+            BidiConnectionConfig, {**self.connection_config, **provider_config.get("connection", {})}
+        )
+
+        # Validate turn_detection configuration
         if "turn_detection" in provider_config and provider_config["turn_detection"]:
             if model_id == NOVA_SONIC_V1_MODEL_ID:
                 raise ValueError(
@@ -568,6 +583,7 @@ class BidiNovaSonicModel(BidiModel):
                 return
 
             await self._stream.close()
+            del self._stream  # so a second stop() does not re-close a closed stream
 
         async def stop_connection() -> None:
             self._connection_id = None
@@ -575,6 +591,26 @@ class BidiNovaSonicModel(BidiModel):
         await stop_all(stop_events, stop_stream, stop_connection)
 
         logger.debug("nova connection closed")
+
+    async def reconnect(
+        self,
+        system_prompt: str | None = None,
+        tools: list[ToolSpec] | None = None,
+        messages: Messages | None = None,
+        **restart_kwargs: Any,
+    ) -> None:
+        """Reconnect by closing the connection and starting a new one, replaying messages.
+
+        Args:
+            system_prompt: System instructions for the new connection.
+            tools: Tool specifications for the new connection.
+            messages: Conversation history to replay into the new connection.
+            **restart_kwargs: Reserved for provider-specific restart options.
+        """
+        logger.debug("nova reconnect starting")
+        await self.stop()
+        await self.start(system_prompt, tools, messages, **restart_kwargs)
+        logger.debug("connection_id=<%s> | nova reconnect complete", self._connection_id)
 
     def _convert_nova_event(self, nova_event: dict[str, Any]) -> BidiOutputEvent | None:
         """Convert Nova Sonic events to TypedEvent format."""
@@ -585,20 +621,12 @@ class BidiNovaSonicModel(BidiModel):
             logger.debug("completion_id=<%s> | nova completion started", self._current_completion_id)
             return None
 
-        # Handle completion end
+        # completionEnd brackets the whole prompt/session, not a turn (its completionId is
+        # constant across turns). Per-turn boundaries come from contentEnd stopReason below,
+        # so only clear completion tracking here.
         if "completionEnd" in nova_event:
-            completion_data = nova_event["completionEnd"]
-            completion_id = completion_data.get("completionId", self._current_completion_id)
-            stop_reason = completion_data.get("stopReason", "END_TURN")
-
-            event = BidiResponseCompleteEvent(
-                response_id=completion_id or str(uuid.uuid4()),  # Fallback to UUID if missing
-                stop_reason="interrupted" if stop_reason == "INTERRUPTED" else "complete",
-            )
-
-            # Clear completion tracking
             self._current_completion_id = None
-            return event
+            return None
 
         # Handle audio output
         if "audioOutput" in nova_event:
@@ -669,7 +697,19 @@ class BidiNovaSonicModel(BidiModel):
             )
 
         if "contentEnd" in nova_event:
+            content_end = nova_event["contentEnd"]
+            stop_reason = content_end.get("stopReason")
+            # Nova ends a turn after its FINAL assistant text block (which follows the audio).
+            # Both that text block and the preceding audio block carry END_TURN, so gate on
+            # the FINAL text to emit exactly one per-turn complete, after that text is in
+            # history. INTERRUPTED (barge-in) ends the turn regardless of block.
+            is_final_text = content_end.get("type") == "TEXT" and self._generation_stage == "FINAL"
             self._generation_stage = None
+            if stop_reason == "INTERRUPTED" or (stop_reason == "END_TURN" and is_final_text):
+                return BidiResponseCompleteEvent(
+                    response_id=self._current_completion_id or str(uuid.uuid4()),
+                    stop_reason="interrupted" if stop_reason == "INTERRUPTED" else "complete",
+                )
 
         # Ignore all other events
         return None

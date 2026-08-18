@@ -204,22 +204,28 @@ class BidiInterruptionEvent(BidiHookEvent):
 
 @dataclass
 class BidiBeforeConnectionRestartEvent(BidiHookEvent):
-    """Event emitted before agent attempts to restart model connection after timeout.
+    """Event emitted before the agent restarts the model connection.
+
+    A restart is triggered either reactively, after the model reports a timeout, or
+    proactively, when the reconnect timer fires ahead of the provider's limit.
 
     Attributes:
-        timeout_error: Timeout error reported by the model.
+        reason: What triggered the restart ("timeout" reactively, "scheduled" proactively).
+        timeout_error: The model's timeout error on the reactive path; None when scheduled.
     """
 
-    timeout_error: "BidiModelTimeoutError"
+    reason: Literal["timeout", "scheduled"]
+    timeout_error: "BidiModelTimeoutError | None" = None
 
 
 @dataclass
 class BidiAfterConnectionRestartEvent(BidiHookEvent):
-    """Event emitted after agent attempts to restart model connection after timeout.
+    """Event emitted after the agent attempts to restart the model connection.
 
-    Attribtues:
-        exception: Populated if exception was raised during connection restart.
-            None value means the restart was successful.
+    Attributes:
+        reason: What triggered the restart ("timeout" reactively, "scheduled" proactively).
+        exception: Populated if an exception was raised during the restart. None means success.
     """
 
+    reason: Literal["timeout", "scheduled"]
     exception: Exception | None = None

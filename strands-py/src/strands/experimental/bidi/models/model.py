@@ -23,6 +23,7 @@ from ..types.events import (
     BidiInputEvent,
     BidiOutputEvent,
 )
+from ..types.model import BidiConnectionConfig
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +38,17 @@ class BidiModel(Protocol):
 
     Attributes:
         config: Configuration dictionary with provider-specific settings.
+        connection_config: Declared connection limit and reconnect timing. Providers that
+            support proactive reconnect populate this; an empty config means reactive-only
+            behavior.
+        usage_is_cumulative: Whether the provider reports cumulative connection token totals
+            (True) rather than per-response deltas (False, the default when absent). Providers
+            reporting deltas may omit it.
     """
 
     config: dict[str, Any]
+    connection_config: BidiConnectionConfig
+    usage_is_cumulative: bool
 
     async def start(
         self,
@@ -114,6 +123,26 @@ class BidiModel(Protocol):
         """
         ...
 
+    async def reconnect(
+        self,
+        system_prompt: str | None = None,
+        tools: list[ToolSpec] | None = None,
+        messages: Messages | None = None,
+        **restart_kwargs: Any,
+    ) -> None:
+        """Close the current connection and establish a new one, preserving context.
+
+        Equivalent to ``stop()`` then ``start()``, but implemented by the provider so it
+        can apply its own resume mechanism (e.g. a session handle).
+
+        Args:
+            system_prompt: System instructions to configure model behavior.
+            tools: Tool specifications that the model can invoke during the conversation.
+            messages: Conversation history to replay for providers that resume via replay.
+            **restart_kwargs: Provider-specific restart options (e.g. from a timeout error).
+        """
+        ...
+
 
 class BidiModelTimeoutError(Exception):
     """Model timeout error.
@@ -130,6 +159,6 @@ class BidiModelTimeoutError(Exception):
             message: Timeout message from model.
             **restart_config: Configure restart specific behaviors in the call to model start.
         """
-        super().__init__(self, message)
+        super().__init__(message)
 
         self.restart_config = restart_config
