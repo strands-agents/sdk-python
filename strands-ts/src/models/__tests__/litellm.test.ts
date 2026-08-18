@@ -1,4 +1,3 @@
-import OpenAI from 'openai'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { collectIterator } from '../../__fixtures__/model-test-helpers.js'
