@@ -13,7 +13,7 @@
  * @packageDocumentation
  */
 
-export type { Storage, StorageSearchResult } from './storage.js'
+export type { Storage } from './storage.js'
 export type { SearchStrategy } from './search/types.js'
 export { InMemoryStorage } from './in-memory-storage.js'
 export { LocalFileStorage } from './local-file-storage.js'

@@ -6,7 +6,7 @@ import type { MemoryEntry, MemoryStore, MemoryStoreConfig, SearchOptions } from 
 import type { ExtractionConfig } from '../../memory/extraction/types.js'
 import type { JSONValue } from '../../types/json.js'
 import type { Storage } from '../../storage/storage.js'
-import { tokenize, tokenOverlapScore } from '../../storage/storage.js'
+import { tokenize, tokenOverlapScore } from '../../storage/search/keyword.js'
 
 /**
  * Metadata key holding the token-overlap relevance score on a search result.

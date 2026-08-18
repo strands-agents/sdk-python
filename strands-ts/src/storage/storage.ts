@@ -158,28 +158,6 @@ export interface Storage<ListQuery = string, SearchQuery = string> {
   search?(query: SearchQuery): Promise<StorageSearchResult[]>
 }
 
-/** Split text into a set of lowercased word tokens for keyword matching. */
-export function tokenize(text: string): Set<string> {
-  return new Set(
-    text
-      .toLowerCase()
-      .split(/[^\p{L}\p{N}_]+/u)
-      .filter(Boolean)
-  )
-}
-
-/**
- * Lexical relevance score: the number of distinct query tokens that appear in the content.
- * Returns 0 when there is no overlap.
- */
-export function tokenOverlapScore(queryTokens: Set<string>, content: string): number {
-  let score = 0
-  for (const token of tokenize(content)) {
-    if (queryTokens.has(token)) score++
-  }
-  return score
-}
-
 /**
  * Returns a {@link Storage} view with all keys prefixed by `prefix`.
  *

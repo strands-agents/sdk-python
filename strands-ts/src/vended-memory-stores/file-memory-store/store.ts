@@ -25,7 +25,8 @@ export interface FileMemoryStoreConfig extends MemoryStoreConfig {
 }
 import { LocalFileStorage } from '../../storage/local-file-storage.js'
 import { ModelExtractor } from '../../memory/extraction/model-extractor.js'
-import { normalizeKey, resolveNamespace, tokenize, tokenOverlapScore } from '../../storage/storage.js'
+import { normalizeKey, resolveNamespace } from '../../storage/storage.js'
+import { tokenize, tokenOverlapScore } from '../../storage/search/keyword.js'
 import { logger } from '../../logging/logger.js'
 
 const DEFAULT_EXTRACTION_PROMPT = `You extract durable facts worth remembering across future conversations from a transcript.
