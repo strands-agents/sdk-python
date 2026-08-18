@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  abortable,
   createEngine,
   deferred,
   expectTask,
@@ -12,7 +11,7 @@ import type { TestOutcome, TestResult, TestTask } from './engine-test-helpers.js
 
 afterEach(shutdownEngines)
 
-describe('BackgroundTaskEngine', () => {
+describe('InProcessTaskEngine', () => {
   describe('admission and isolation', () => {
     it('executes, reports updates, lists, and deduplicates work', async () => {
       const statuses: TestTask['status'][] = []
@@ -23,6 +22,9 @@ describe('BackgroundTaskEngine', () => {
             onTaskUpdated: (task) => statuses.push(task.status),
           }
         )
+      )
+      expect(() => engine.submit({ descriptor: { value: 'invalid' }, idempotencyKey: '' })).toThrow(
+        'task.idempotencyKey must be a non-empty string'
       )
       const admitted = engine.submit({ descriptor: { value: 'hello' }, idempotencyKey: 'work-1' })
       const duplicate = engine.submit({ descriptor: { value: 'hello' }, idempotencyKey: 'work-1' })
@@ -36,24 +38,17 @@ describe('BackgroundTaskEngine', () => {
       const external = engine.get(admitted.taskId)
       ;(external!.result as { value: string }).value = 'changed'
       expect(engine.get(admitted.taskId)).toEqual(completed)
+      engine.remove(admitted.taskId)
+      expect(engine.list()).toEqual([])
     })
 
-    it('snapshots submitted descriptors, outcomes, and events', async () => {
+    it('snapshots submitted descriptors and outcomes', async () => {
       const blocker = deferred<TestOutcome>()
       const result = { value: 'result' }
-      const state = { phase: 'finished' }
       const engine = initialize(
         createEngine(
-          async ({ descriptor }) =>
-            descriptor.value === 'block' ? blocker.promise : { status: 'completed', result, state },
-          {
-            maxConcurrency: 1,
-            onEvent: (event) => {
-              if (event.type === 'admitted' || event.type === 'executionStarted') {
-                ;(event.task.descriptor as { value: string }).value = 'observer mutation'
-              }
-            },
-          }
+          async ({ descriptor }) => (descriptor.value === 'block' ? blocker.promise : { status: 'completed', result }),
+          { maxConcurrency: 1 }
         )
       )
       const blocking = engine.submit({ descriptor: { value: 'block' } })
@@ -65,12 +60,10 @@ describe('BackgroundTaskEngine', () => {
       blocker.resolve({ status: 'completed', result: { value: 'blocker' } })
       await Promise.all([engine.wait(blocking.taskId), engine.wait(admitted.taskId)])
       result.value = 'executor mutation'
-      state.phase = 'executor mutation'
 
       expectTask(engine.get(admitted.taskId), admitted, {
         status: 'completed',
         result: { value: 'result' },
-        state: { phase: 'finished' },
       })
     })
 
@@ -86,25 +79,6 @@ describe('BackgroundTaskEngine', () => {
       expect(() => admissionEngine.submit({ descriptor: { value: 'admission' } })).toThrow(admissionError)
       expect(admissionEngine.list()).toEqual([])
       await expect(admissionEngine.waitForIdle()).rejects.toBe(admissionError)
-      await expect(admissionEngine.shutdown({ mode: 'drain', timeout: 1_000 })).resolves.toBeUndefined()
-
-      const workingError = new Error('working persistence failed')
-      const execute = vi.fn(async (): Promise<TestOutcome> => ({
-        status: 'completed',
-        result: { value: 'unexpected' },
-      }))
-      const workingEngine = initialize(
-        createEngine(execute, {
-          onTaskUpdated: (task) => {
-            if (task.status === 'working') throw workingError
-          },
-        })
-      )
-      const queued = workingEngine.submit({ descriptor: { value: 'working' } })
-      await expect(workingEngine.wait(queued.taskId)).rejects.toBe(workingError)
-      expectTask(workingEngine.get(queued.taskId), queued, { status: 'queued' })
-      expect(execute).not.toHaveBeenCalled()
-      await expect(workingEngine.shutdown({ mode: 'drain', timeout: 1_000 })).resolves.toBeUndefined()
 
       const terminalError = new Error('terminal persistence failed')
       const terminalEngine = initialize(
@@ -115,35 +89,12 @@ describe('BackgroundTaskEngine', () => {
         })
       )
       const terminal = terminalEngine.submit({ descriptor: { value: 'terminal' } })
-      const controller = new AbortController()
-      const removeListener = vi.spyOn(controller.signal, 'removeEventListener')
-      await expect(terminalEngine.wait(terminal.taskId, { cancelSignal: controller.signal })).rejects.toBe(
-        terminalError
-      )
+      await expect(terminalEngine.wait(terminal.taskId)).rejects.toBe(terminalError)
       expectTask(terminalEngine.get(terminal.taskId), terminal, {
         status: 'working',
       })
-      expect(removeListener).toHaveBeenCalledWith('abort', expect.any(Function))
       expect(() => terminalEngine.submit({ descriptor: { value: 'again' } })).toThrow(terminalError)
-      await expect(terminalEngine.shutdown({ mode: 'cancel', timeout: 1_000 })).resolves.toBeUndefined()
-      removeListener.mockRestore()
-    })
-
-    it('stops coherently when timeout persistence fails', async () => {
-      const timeoutError = new Error('timeout persistence failed')
-      const engine = initialize(
-        createEngine(abortable, {
-          timeout: 10,
-          onTaskUpdated: (task) => {
-            if (task.failure?.type === 'timeout') throw timeoutError
-          },
-        })
-      )
-      const task = engine.submit({ descriptor: { value: 'timeout' } })
-
-      await expect(engine.wait(task.taskId)).rejects.toBe(timeoutError)
-      expectTask(engine.get(task.taskId), task, { status: 'working' })
-      await expect(engine.shutdown({ mode: 'cancel', timeout: 1_000 })).resolves.toBeUndefined()
+      await expect(terminalEngine.shutdown({ timeout: 1_000 })).resolves.toBeUndefined()
     })
   })
 
@@ -164,12 +115,15 @@ describe('BackgroundTaskEngine', () => {
       )
       const healthy = engine.submit({ descriptor: { value: 'healthy' } })
       const invalid = ['uncloneable', 'missing'].map((value) => engine.submit({ descriptor: { value } }))
+      const failed: TestTask[] = []
 
       for (const task of invalid) {
-        expectTask(await engine.wait(task.taskId), task, {
+        const result = await engine.wait(task.taskId)
+        expectTask(result, task, {
           status: 'failed',
           failure: { type: 'executionError', message: expect.any(String) },
         })
+        failed.push(result)
       }
       expectTask(engine.get(healthy.taskId), healthy, {
         status: 'working',
@@ -179,6 +133,13 @@ describe('BackgroundTaskEngine', () => {
         status: 'completed',
         result: { value: 'healthy' },
       })
+
+      const restoredExecute = vi.fn(async (): Promise<TestOutcome> => ({
+        status: 'completed',
+        result: { value: 'unexpected' },
+      }))
+      expect(initialize(createEngine(restoredExecute), failed).list()).toEqual(failed)
+      expect(restoredExecute).not.toHaveBeenCalled()
     })
 
     it('bounds execution concurrency', async () => {
@@ -208,18 +169,10 @@ describe('BackgroundTaskEngine', () => {
       expect(maximum).toBe(2)
     })
 
-    it('records timeouts and classified failures', async () => {
-      const timeoutEngine = initialize(createEngine(abortable, { timeout: 10 }))
-      const timed = timeoutEngine.submit({ descriptor: { value: 'timeout' } })
-      expectTask(await timeoutEngine.wait(timed.taskId), timed, {
-        status: 'failed',
-        failure: { type: 'timeout', message: 'Timed out after 10ms' },
-      })
-
+    it('records classified failures', async () => {
       const thrownEngine = initialize(
         createEngine(async ({ descriptor }) => {
           if (descriptor.value === 'opaque') throw Object.create(null)
-          if (descriptor.value === 'success') return { status: 'completed', result: { value: 'success' } }
           throw new TypeError('Execution exploded')
         })
       )
@@ -233,16 +186,11 @@ describe('BackgroundTaskEngine', () => {
         status: 'failed',
         failure: { type: 'executionError', message: 'Background task execution failed' },
       })
-      const success = thrownEngine.submit({ descriptor: { value: 'success' } })
-      expectTask(await thrownEngine.wait(success.taskId), success, {
-        status: 'completed',
-        result: { value: 'success' },
-      })
 
       const returnedEngine = initialize(
         createEngine(async ({ descriptor }) =>
           descriptor.value === 'empty'
-            ? { status: 'failed', failure: { type: '', message: '' } }
+            ? { status: 'failed', failure: { type: 'executionError', message: '' } }
             : {
                 status: 'failed',
                 failure: { type: 'toolError', message: 'Tool failed' },

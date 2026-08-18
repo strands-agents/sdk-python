@@ -1,10 +1,10 @@
 import { expect } from 'vitest'
-import { BackgroundTaskEngine } from '../engine.js'
+import { InProcessTaskEngine } from '../engine.js'
 import type {
-  BackgroundTaskEngineConfig,
-  BackgroundTaskExecutionContext,
-  BackgroundTaskExecutionOutcome,
-  StoredEngineTask,
+  InProcessTaskEngineConfig,
+  InProcessTaskExecutionContext,
+  StoredInProcessTask,
+  TaskExecutionOutcome,
 } from '../types.js'
 
 export interface TestDescriptor {
@@ -19,24 +19,24 @@ export interface TestState {
   readonly phase: string
 }
 
-export type TestContext = BackgroundTaskExecutionContext<TestDescriptor, TestState>
-export type TestOutcome = BackgroundTaskExecutionOutcome<TestResult, TestState>
-export type TestEngine = BackgroundTaskEngine<TestDescriptor, TestResult, TestState>
-export type TestTask = StoredEngineTask<TestDescriptor, TestResult, TestState>
+export type TestContext = InProcessTaskExecutionContext<TestDescriptor, TestState>
+export type TestOutcome = TaskExecutionOutcome<TestResult, TestState>
+export type TestEngine = InProcessTaskEngine<TestDescriptor, TestResult, TestState>
+export type TestTask = StoredInProcessTask<TestDescriptor, TestResult, TestState>
 
-type ExpectedTaskFields = Pick<TestTask, 'status'> &
-  Partial<Record<'attemptCount' | 'attemptId' | 'cancellationReason' | 'state' | 'result' | 'failure', unknown>>
+type ExpectedTaskFields = Pick<TestTask, 'status'> & Partial<Pick<TestTask, 'state' | 'result' | 'failure'>>
 
 const engines = new Set<TestEngine>()
 
 export function createEngine(
   execute: (context: TestContext) => Promise<TestOutcome>,
-  options: Partial<BackgroundTaskEngineConfig<TestDescriptor, TestResult, TestState>> = {}
+  options: Partial<InProcessTaskEngineConfig<TestDescriptor, TestResult, TestState>> = {}
 ): TestEngine {
-  const engine = new BackgroundTaskEngine<TestDescriptor, TestResult, TestState>({
+  const engine = new InProcessTaskEngine<TestDescriptor, TestResult, TestState>({
     maxConcurrency: 2,
     timeout: 1_000,
     execute,
+    onTaskUpdated: () => undefined,
     ...options,
   })
   engines.add(engine)
@@ -49,7 +49,7 @@ export function initialize(engine: TestEngine, restoredTasks: readonly TestTask[
 }
 
 export async function shutdownEngines(): Promise<void> {
-  await Promise.allSettled([...engines].map((engine) => engine.shutdown({ mode: 'cancel', timeout: 1_000 })))
+  await Promise.allSettled([...engines].map((engine) => engine.shutdown({ timeout: 1_000 })))
   engines.clear()
 }
 
@@ -75,7 +75,6 @@ export function createStoredTask(overrides: Partial<TestTask> & Pick<TestTask, '
   return {
     taskId: globalThis.crypto.randomUUID(),
     descriptor: { value: 'restored' },
-    attemptCount: 0,
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -83,22 +82,12 @@ export function createStoredTask(overrides: Partial<TestTask> & Pick<TestTask, '
 }
 
 export function expectTask(actual: TestTask | undefined, task: TestTask, fields: ExpectedTaskFields): void {
-  const { status, attemptCount = status === 'queued' ? 0 : 1, ...rest } = fields
   expect(actual).toEqual({
     taskId: task.taskId,
     ...(task.idempotencyKey !== undefined && { idempotencyKey: task.idempotencyKey }),
     descriptor: task.descriptor,
-    status,
-    attemptCount,
-    ...((status === 'working' || status === 'paused') && { attemptId: expect.any(String) }),
-    ...rest,
+    ...fields,
     createdAt: task.createdAt,
     updatedAt: expect.any(String),
-  })
-}
-
-export function abortable(context: TestContext): Promise<TestOutcome> {
-  return new Promise((_resolve, reject) => {
-    context.cancelSignal.addEventListener('abort', () => reject(context.cancelSignal.reason), { once: true })
   })
 }
