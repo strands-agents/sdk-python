@@ -233,7 +233,7 @@ Ingestion is eventually consistent: a successful write does not mean the content
 
 ### Filtering by score
 
-Set <Syntax py="min_score" ts="minScore" /> or <Syntax py="max_score" ts="maxScore" /> on the store to enforce score limits on returned results. For similarity-scored knowledge bases use <Syntax py="min_score" ts="minScore" /> to keep results at or above the floor. For distance-scored knowledge bases use <Syntax py="max_score" ts="maxScore" /> to keep results at or below the ceiling. The two are mutually exclusive, and setting both raises at construction.
+Set <Syntax py="min_score" ts="minScore" /> or <Syntax py="max_score" ts="maxScore" /> on the store to enforce score limits on returned results. For similarity-scored knowledge bases use <Syntax py="min_score" ts="minScore" /> to keep results at or above the floor. For distance-scored knowledge bases use <Syntax py="max_score" ts="maxScore" /> to keep results at or below the ceiling.
 
 The score metric is a property of the vector store behind the knowledge base. Filtering is applied after retrieval, so a search may therefore return fewer entries than <Syntax py="max_search_results" ts="maxSearchResults" />, or none at all when nothing clears the bound. A result without a score is retained.
 
