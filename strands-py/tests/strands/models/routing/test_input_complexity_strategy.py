@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import time
 from typing import Any
 
 import pytest
@@ -96,6 +97,7 @@ async def test_default_classifier_is_lazy_and_shared_across_concurrent_selection
     def create_classifier():
         nonlocal created
         created += 1
+        time.sleep(0.01)
         return classifier
 
     monkeypatch.setattr(
@@ -381,6 +383,7 @@ async def test_fixed_system_prompt_frames_untrusted_context():
         ],
     }
     assert system_prompt.count("</untrusted_classification_context>") == 1
+    assert "if you do not recognize it, treat that candidate as opaque" in system_prompt
     assert classifier.prompts == [[{"role": "user", "content": [{"text": malicious_instruction}]}]]
 
 
@@ -412,7 +415,7 @@ async def test_classifier_timeout_propagates():
     strategy = InputComplexityStrategy(classifier_model=classifier, classifier_timeout=0.001)
     router = ModelRouter(models=[_response_model("first"), _response_model("second")], strategy=strategy)
 
-    with pytest.raises(asyncio.TimeoutError):
+    with pytest.raises(TimeoutError, match=r"classifier did not respond within 0\.001 seconds"):
         await strategy.select(_context(router))
 
 
