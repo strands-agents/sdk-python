@@ -1,7 +1,8 @@
 import type { Storage, StorageSearchResult } from './storage.js'
 
 import { StorageError } from '../errors.js'
-import { namespace, normalizeKey, normalizePrefix, tokenize, tokenOverlapScore } from './storage.js'
+import { namespace, normalizeKey, normalizePrefix } from './storage.js'
+import { KeywordSearchStrategy } from './search/keyword.js'
 
 /** Configuration for {@link S3Storage}. */
 export interface S3StorageConfig {
@@ -154,21 +155,7 @@ export class S3Storage implements Storage {
    * @returns All matches with relevance scores, ranked best-first
    */
   async search(query: string): Promise<StorageSearchResult[]> {
-    const queryTokens = tokenize(query)
-    if (queryTokens.size === 0) return []
-
-    const allKeys = await this.list('')
-    const scored: StorageSearchResult[] = []
-    for (const key of allKeys) {
-      const bytes = await this.read(key)
-      if (!bytes) continue
-      const content = new TextDecoder().decode(bytes)
-      const score = tokenOverlapScore(queryTokens, `${key} ${content}`)
-      if (score > 0) scored.push({ key, score })
-    }
-
-    scored.sort((a, b) => b.score - a.score)
-    return scored
+    return KeywordSearchStrategy.search(this, query)
   }
 
   private async _getClient(): Promise<import('@aws-sdk/client-s3').S3Client> {
