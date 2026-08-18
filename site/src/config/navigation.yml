@@ -357,6 +357,7 @@ sidebar:
       - label: Session Managers
         items:
           - docs/integrations/session-managers/agentcore-memory
+          - docs/integrations/session-managers/neo4j-agent-memory
           - docs/integrations/session-managers/strands-valkey-session-manager
       - label: Tool Protocols
         items:

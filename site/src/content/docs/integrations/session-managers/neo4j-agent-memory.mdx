@@ -1,0 +1,117 @@
+---
+title: Neo4j Agent Memory Session Manager
+community: true
+description: 'Persist Strands sessions in a Neo4j knowledge graph, extract entities from every turn, and recall long-term memory on hosted NAMS or self-hosted Neo4j.'
+integrationType: session-manager
+sidebar:
+  label: "Neo4j Agent Memory"
+---
+
+
+[Neo4j Agent Memory](https://github.com/neo4j-labs/agent-memory) persists a Strands
+session as a conversation in a Neo4j knowledge graph. Every turn becomes a `Message`
+node, and the entities and relationships extracted from those turns accumulate as
+long-term memory the agent can recall in later sessions.
+
+Two backends serve it: the hosted Neo4j Agent Memory Service (NAMS), or a Neo4j
+instance you run yourself. The Python SDK supports both. The TypeScript SDK targets
+NAMS.
+
+## Installation
+
+<Tabs>
+  <Tab label="Python">
+    ```bash
+    pip install 'neo4j-agent-memory[strands]'
+    ```
+  </Tab>
+  <Tab label="TypeScript">
+    ```bash
+    npm install @neo4j-labs/agent-memory @strands-agents/sdk
+    ```
+  </Tab>
+</Tabs>
+
+## Persisting a session
+
+Pass the session manager when you construct the agent. Strands restores the stored
+turns on the first invocation and persists each new turn as it happens.
+
+<Tabs>
+  <Tab label="Python">
+    ```python
+    from strands import Agent
+    from neo4j_agent_memory.integrations.strands import (
+        Neo4jRetrievalConfig,
+        Neo4jSessionManager,
+    )
+
+    # Connection comes from MEMORY_ENDPOINT and MEMORY_API_KEY. The retrieval
+    # config is optional: it searches long-term memory before each model call and
+    # prepends what it finds to the turn.
+    with Neo4jSessionManager.for_nams(
+        "support-session-42",
+        user_id="user-123",
+        retrieval_config=Neo4jRetrievalConfig(top_k=5),
+    ) as session_manager:
+        agent = Agent(session_manager=session_manager)
+        agent("I'm migrating our billing service from Postgres to Neo4j.")
+    ```
+
+    To reach a self-hosted instance, pass `settings=MemorySettings(...)` to the
+    constructor instead of using the factory.
+  </Tab>
+  <Tab label="TypeScript">
+    ```typescript
+    import { Agent } from '@strands-agents/sdk'
+    import { MemoryClient } from '@neo4j-labs/agent-memory'
+    import { connectMemoryToAgent } from '@neo4j-labs/agent-memory/integrations/strands'
+
+    // Reads MEMORY_API_KEY from the environment.
+    const memory = new MemoryClient()
+    const conversation = await memory.shortTerm.createConversation({
+      userId: 'user-123',
+    })
+
+    const agent = new Agent({
+      ...(await connectMemoryToAgent(memory, { conversationId: conversation.id })),
+    })
+
+    await agent.invoke("I'm migrating our billing service from Postgres to Neo4j.")
+    ```
+
+    `connectMemoryToAgent` also injects the reflections and observations NAMS derives
+    from the conversation into every model call.
+  </Tab>
+</Tabs>
+
+Reuse the same identifier on a later run and the stored turns come back. Persistence is
+memory-grade, not a byte-exact snapshot: the Python manager stores text turns and skips
+tool-use blocks and agent state, while the TypeScript storage carries the rest of the
+snapshot alongside the messages and restores it in full.
+
+## Backends
+
+Only the Python SDK has a choice to make here.
+
+| | Hosted NAMS | Self-hosted Neo4j |
+|---|---|---|
+| Setup | API key | Neo4j 5.20 or later that you operate |
+| Entity extraction | Server-side | Runs in your process |
+| Long-term recall | Entities | Entities, preferences, facts, relationships |
+
+Start on NAMS: an API key is the only setup. Move to a self-hosted instance when you
+need preference or fact recall, arbitrary Cypher, or a graph that never leaves your
+network.
+
+## References
+
+Both guides carry the full parameter reference for their SDK.
+
+- **Guides**:
+  [Python](https://neo4j.com/labs/agent-memory/how-to/integrations/aws-strands/),
+  [TypeScript](https://neo4j.com/labs/agent-memory/how-to/typescript/strands/)
+- **GitHub**: [neo4j-labs/agent-memory](https://github.com/neo4j-labs/agent-memory)
+- **PyPI**: [neo4j-agent-memory](https://pypi.org/project/neo4j-agent-memory/)
+- **npm**:
+  [@neo4j-labs/agent-memory](https://www.npmjs.com/package/@neo4j-labs/agent-memory)
