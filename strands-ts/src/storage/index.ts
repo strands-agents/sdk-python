@@ -15,7 +15,6 @@
 
 export type { Storage, StorageSearchResult } from './storage.js'
 export type { SearchStrategy } from './search/types.js'
-export { KeywordSearchStrategy } from './search/keyword.js'
 export { InMemoryStorage } from './in-memory-storage.js'
 export { LocalFileStorage } from './local-file-storage.js'
 export { S3Storage } from './s3-storage.js'

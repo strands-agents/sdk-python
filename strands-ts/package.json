@@ -148,6 +148,10 @@
       "types": "./dist/src/storage/index.d.ts",
       "default": "./dist/src/storage/index.js"
     },
+    "./storage/search": {
+      "types": "./dist/src/storage/search/index.d.ts",
+      "default": "./dist/src/storage/search/index.js"
+    },
     "./sandbox": {
       "types": "./dist/src/sandbox/index.d.ts",
       "default": "./dist/src/sandbox/index.js"
