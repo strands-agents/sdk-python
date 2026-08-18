@@ -27,7 +27,14 @@ const MANAGED_PARAMS: ReadonlySet<string> = new Set(['model', 'messages', 'strea
  * @internal
  */
 export function warnManagedParams(params: Record<string, unknown> | undefined): void {
-  warnManagedParamsShared(params, MANAGED_PARAMS)
+  if (!params) return
+  // `stream_options: null` is the documented opt-out and is honored rather than
+  // ignored, so it should not warn alongside the other managed keys.
+  const warned: Record<string, unknown> = { ...params }
+  if (warned.stream_options === null) {
+    delete warned.stream_options
+  }
+  warnManagedParamsShared(warned, MANAGED_PARAMS)
 }
 
 type OpenAIChatChoice = {
@@ -60,13 +67,21 @@ export function formatChatRequest(
 ): OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming {
   // User `params` are spread first so provider-managed fields always win.
   // The managed-params warning fires at config time to surface the collision.
+  const params = config.params ?? {}
   const request = {
-    ...(config.params ?? {}),
+    ...params,
     model: config.modelId ?? DEFAULT_CHAT_MODEL_ID,
     messages: [] as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
     stream: true as const,
-    stream_options: { include_usage: true },
   } as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming
+
+  // An explicit `stream_options: null` omits the field from the request,
+  // mirroring the Python SDK for endpoints that reject it.
+  if (params.stream_options === null) {
+    delete request.stream_options
+  } else {
+    request.stream_options = { include_usage: true }
+  }
 
   if (options?.systemPrompt !== undefined) {
     if (typeof options.systemPrompt === 'string') {

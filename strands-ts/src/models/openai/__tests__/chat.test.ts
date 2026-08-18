@@ -386,6 +386,24 @@ describe('OpenAIModel', () => {
       expect(captured.request.messages[0]).toEqual({ role: 'user', content: [{ type: 'text', text: 'Hi' }] })
       warnSpy.mockRestore()
     })
+
+    it('omits stream_options when params.stream_options is null', async () => {
+      const captured: { request: any } = { request: null }
+      const mockClient = createMockClientWithCapture(captured)
+      const warnSpy = vi.spyOn(logger, 'warn')
+      const provider = new OpenAIModel({
+        api: 'chat',
+        modelId: 'gpt-5.4',
+        client: mockClient,
+        params: { stream_options: null },
+      })
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hi')] })]
+      await collectIterator(provider.stream(messages))
+      expect(captured.request.stream_options).toBeUndefined()
+      // The opt-out is honored rather than ignored, so no warning is emitted.
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("'stream_options'"))
+      warnSpy.mockRestore()
+    })
   })
 
   describe('stream', () => {
