@@ -558,7 +558,7 @@ export class Agent implements LocalAgent, InvokableAgent {
     this._middlewareRegistry = new MiddlewareRegistry()
 
     if (config?.contextManager === 'agentic') {
-      this._middlewareRegistry.addInput(InvokeModelStage.Input, createTokenUsageMiddleware(this.model))
+      this._middlewareRegistry.addInput(InvokeModelStage.Input, createTokenUsageMiddleware())
     }
 
     // `undefined` (omitted) → install the default; `null`/`[]` → explicit opt-out.
@@ -2098,6 +2098,7 @@ export class Agent implements LocalAgent, InvokableAgent {
   ): AsyncGenerator<AgentStreamEvent, StreamAggregatedResult, undefined> {
     const context: InvokeModelContext = {
       agent: this,
+      model: this.model,
       messages: this.messages.map((msg) => msg.clone()),
       ...(this.systemPrompt !== undefined && { systemPrompt: cloneSystemPrompt(this.systemPrompt) }),
       toolSpecs: deepCopy(this._toolRegistry.list().map((tool) => tool.toolSpec)) as unknown as ToolSpec[],
@@ -2119,7 +2120,7 @@ export class Agent implements LocalAgent, InvokableAgent {
       InvokeModelStage,
       context,
       async function* (ctx: InvokeModelContext): AsyncGenerator<AgentStreamEvent, InvokeModelResult, undefined> {
-        const modelId = self.model.modelId
+        const modelId = ctx.model.modelId
         const modelSpan = self._tracer.startModelInvokeSpan({
           messages: ctx.messages as Message[],
           ...(modelId && { modelId }),
@@ -2139,7 +2140,7 @@ export class Agent implements LocalAgent, InvokableAgent {
             // Omitted when zero, so an ordinary call's options are unchanged.
             ...(ctx.dynamicTrailingBlocks ? { dynamicTrailingBlocks: ctx.dynamicTrailingBlocks } : {}),
           }
-          const gen = self._streamFromModel(ctx.messages as Message[], streamOptions, ctx.invocationState)
+          const gen = self._streamFromModel(ctx.model, ctx.messages as Message[], streamOptions, ctx.invocationState)
           let iterResult = await gen.next()
           while (!iterResult.done) {
             yield iterResult.value
@@ -2185,17 +2186,19 @@ export class Agent implements LocalAgent, InvokableAgent {
    * These are separate event classes because they represent different granularities
    * (partial deltas vs finished blocks). Both are yielded in the stream and hookable.
    *
+   * @param model - Model selected for this call
    * @param messages - Messages to send to the model
    * @param streamOptions - Options for streaming
    * @returns StreamAggregatedResult containing message, stop reason, and optional redaction message
    */
   private async *_streamFromModel(
+    model: Model,
     messages: Message[],
     streamOptions: StreamOptions,
     invocationState: InvocationState
   ): AsyncGenerator<AgentStreamEvent, StreamAggregatedResult, undefined> {
     messages = normalizeToolUseNames(messages)
-    const streamGenerator = this.model.streamAggregated(messages, streamOptions)
+    const streamGenerator = model.streamAggregated(messages, streamOptions)
     try {
       let result = await streamGenerator.next()
 
