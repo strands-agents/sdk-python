@@ -89,8 +89,8 @@ The outer `BedrockKnowledgeBaseStoreConfig` carries the per-store identity and b
 | `scope` | Logical namespace isolating documents. Applied as a metadata filter on search and stamped on writes. |
 | `filter` | Explicit retrieval filter; overrides the auto-generated scope filter on search. |
 | <Syntax py="access_control_list" ts="accessControlList" /> | Document-level ACL entries stamped on every write. Required when the data source has ACL awareness enabled. See [Access control lists](#access-control-lists). |
-| <Syntax py="min_score" ts="minScore" /> | Floor a result must meet. Use for similarity-scored knowledge bases, where a higher score is a better match. See [Filtering by score](#filtering-by-score). |
-| <Syntax py="max_score" ts="maxScore" /> | Ceiling a result must not exceed. Use for distance-scored knowledge bases, where a lower score is a better match. See [Filtering by score](#filtering-by-score). |
+| <Syntax py="min_score" ts="minScore" /> | Score floor a result must meet. Use for similarity-scored knowledge bases, where a higher score is a better match. See [Filtering by score](#filtering-by-score). |
+| <Syntax py="max_score" ts="maxScore" /> | Score ceiling a result must not exceed. Use for distance-scored knowledge bases, where a lower score is a better match. See [Filtering by score](#filtering-by-score). |
 
 ### Connection config
 
@@ -233,11 +233,9 @@ Ingestion is eventually consistent: a successful write does not mean the content
 
 ### Filtering by score
 
-Set <Syntax py="min_score" ts="minScore" /> or <Syntax py="max_score" ts="maxScore" /> on the store to drop weakly-matching results. The two are mutually exclusive, and setting both raises at construction. Which one applies depends on how the knowledge base scores: a similarity-scored knowledge base treats a higher score as the better match, so <Syntax py="min_score" ts="minScore" /> keeps results at or above the floor; a distance-scored one treats a lower score as the better match, so <Syntax py="max_score" ts="maxScore" /> keeps results at or below the ceiling. A vector knowledge base backed by Aurora PostgreSQL with pgvector's `<=>` operator returns cosine distance and needs the ceiling.
+Set <Syntax py="min_score" ts="minScore" /> or <Syntax py="max_score" ts="maxScore" /> on the store to enforce score limits on returned results. For similarity-scored knowledge bases use <Syntax py="min_score" ts="minScore" /> to keep results at or above the floor. For distance-scored knowledge bases use <Syntax py="max_score" ts="maxScore" /> to keep results at or below the ceiling. The two are mutually exclusive, and setting both raises at construction.
 
-The metric is a property of the vector store behind the knowledge base, which Retrieve does not report, so it cannot be detected automatically — choosing the wrong field silently keeps the worst matches and discards the best. The value is compared against the raw score the knowledge base reports and is not range-checked, so it sits on whatever scale that backend uses.
-
-Filtering happens after retrieval, since Retrieve has no score-bound parameter. A search may therefore return fewer entries than <Syntax py="max_search_results" ts="maxSearchResults" />, or none at all when nothing clears the bound. A result the knowledge base did not score is kept, as there is nothing to compare it against.
+The score metric is a property of the vector store behind the knowledge base. Filtering is applied after retrieval, so a search may therefore return fewer entries than <Syntax py="max_search_results" ts="maxSearchResults" />, or none at all when nothing clears the bound. A result without a score is retained.
 
 ## Extraction
 
