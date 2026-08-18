@@ -4,6 +4,7 @@ description: 'Trace, measure, and log BidiAgent sessions: connection lifecycle,
   time to first audio, interruptions, per-modality token usage, and reconnects.'
 sidebar:
   label: "Observability"
+languages: Python
 experimental: true
 tags: [bidi-streaming, observability]
 sourceLinks:
@@ -20,15 +21,13 @@ agent, see [Traces](../../observability-evaluation/traces.md),
 [Metrics](../../observability-evaluation/metrics.md), and
 [Logs](../../observability-evaluation/logs.md).
 
-`BidiAgent` observability is currently available for Python only.
-
 ## Enabling Tracing
 
 :::note[Install OpenTelemetry Dependencies]
-To enable OTEL exporting, install Strands Agents with the `otel` optional dependency:
+To run the Nova Sonic example below and export OTEL data, install both optional dependencies:
 
 ```shell
-pip install 'strands-agents[otel]'
+pip install 'strands-agents[bidi,otel]'
 ```
 :::
 
@@ -39,7 +38,7 @@ are produced automatically:
 ```python
 import asyncio
 
-from strands.experimental.bidi import BidiAgent, BidiResponseCompleteEvent
+from strands.experimental.bidi import BidiAgent, BidiConnectionStartEvent
 from strands.experimental.bidi.models import BidiNovaSonicModel
 from strands.telemetry import StrandsTelemetry
 
@@ -55,11 +54,11 @@ async def main():
         name="Voice Assistant",
     )
 
-    # The session span opens on entry and closes on exit.
+    # The session span opens on entry and closes on exit. Receiving the connection
+    # event confirms that the provider connection is established and traced.
     async with agent:
-        await agent.send("What is the weather in Seattle?")
         async for event in agent.receive():
-            if isinstance(event, BidiResponseCompleteEvent):
+            if isinstance(event, BidiConnectionStartEvent):
                 break
 
 
@@ -78,8 +77,9 @@ export OTEL_EXPORTER_OTLP_HEADERS="key1=value1,key2=value2"
 
 ## Trace Structure
 
-The session span is the root span and opens before the connection is established.
-Response and tool spans are children of the session, not of each other:
+The session span is the parent of bidi response, connection, restart, and tool spans. It
+starts a new trace when no recording span is active; when `BidiAgent` runs inside an
+instrumented request or custom span, the session span joins that existing trace:
 
 ```mermaid
 flowchart TB
@@ -102,7 +102,7 @@ flowchart TB
 | `bidi_connect` | Establishing the model connection |
 | `bidi_response` | One response from the model |
 | `execute_tool` | One tool call |
-| `bidi_connection_restart` | A reconnect after an idle timeout |
+| `bidi_connection_restart` | A reconnect after a provider timeout |
 
 Two span names carry a suffix identifying what they cover: `bidi_session <agent name>`
 and `execute_tool <tool name>`. The response ID is an attribute rather than part of the
@@ -119,50 +119,36 @@ Every span carries `gen_ai.event.start_time`, `gen_ai.event.end_time`, and
 `gen_ai.system` set to `strands-agents`, matching the non-streaming agent. Under the
 latest semantic conventions, `gen_ai.provider.name` replaces `gen_ai.system`.
 
-### Session-Level Attributes
+| Span | Attribute | Description |
+|------|-----------|-------------|
+| Session | `gen_ai.operation.name` | `bidi_session` |
+| Session | `gen_ai.agent.name` | Name of the agent, defaulting to `Strands Agents` |
+| Session | `gen_ai.request.model` | Model ID, when the provider exposes one |
+| Session | `gen_ai.agent.tools` | JSON array of tool names registered on the agent |
+| Session | `gen_ai.system_instructions` | System prompt, subject to the redaction policy |
+| Session | `gen_ai.usage.input_tokens` | Input tokens accumulated across the session |
+| Session | `gen_ai.usage.output_tokens` | Output tokens accumulated across the session |
+| Session | `gen_ai.usage.total_tokens` | Total tokens accumulated across the session |
+| Session | `gen_ai.usage.cache_read_input_tokens` | Cached input tokens read across the session |
+| Connection | `gen_ai.operation.name` | `bidi_connect` |
+| Connection | `gen_ai.request.model` | Model ID, when the provider exposes one |
+| Response | `gen_ai.operation.name` | `bidi_response` |
+| Response | `gen_ai.response.id` | Provider-assigned response identifier |
+| Response | `gen_ai.response.finish_reason` | Why the response ended |
+| Response | `gen_ai.server.time_to_first_audio` | Milliseconds from response start to first audio chunk |
+| Restart | `gen_ai.operation.name` | `bidi_connection_restart` |
+| Restart | `gen_ai.error.message` | Timeout error that triggered the restart |
 
-| Attribute | Description |
-|-----------|-------------|
-| `gen_ai.operation.name` | `bidi_session` |
-| `gen_ai.agent.name` | Name of the agent, defaulting to `Strands Agents` |
-| `gen_ai.request.model` | Model ID, when the provider exposes one |
-| `gen_ai.agent.tools` | JSON array of tool names registered on the agent |
-| `gen_ai.system_instructions` | System prompt, subject to the redaction policy |
-| `gen_ai.usage.input_tokens` | Input tokens accumulated across the session |
-| `gen_ai.usage.output_tokens` | Output tokens accumulated across the session |
-| `gen_ai.usage.total_tokens` | Total tokens accumulated across the session |
-| `gen_ai.usage.cache_read_input_tokens` | Cached input tokens read across the session |
+Session token counts are written when the session span closes. A session that is still
+open has no usage attributes. Zero-valued usage attributes are omitted, so an absent
+cache-read attribute means no positive cache-read count was observed; it does not
+distinguish "not reported" from "reported as zero."
 
-Token counts are sums over every usage report the provider sent during the session, not
-per turn, and are written when the span closes. A session that is still open reports no
-usage. An attribute with a value of zero is omitted rather than exported as `0`, so a
-provider that never reports cache reads is distinguishable from one that reported zero.
+Use `bidi_connect` to diagnose slow provider setup. If setup fails, both the connection
+and session spans close with error status and the exception surfaces to the caller.
 
-### Connection Attributes
-
-| Attribute | Description |
-|-----------|-------------|
-| `gen_ai.operation.name` | `bidi_connect` |
-| `gen_ai.request.model` | Model ID, when the provider exposes one |
-
-`bidi_connect` covers only the provider's connection setup, which makes it the span to
-check for slow session startup. If the connection fails, both this span and the session
-span close with error status and the exception surfaces to the caller.
-
-### Response Attributes
-
-| Attribute | Description |
-|-----------|-------------|
-| `gen_ai.operation.name` | `bidi_response` |
-| `gen_ai.response.id` | Provider-assigned identifier for the response |
-| `gen_ai.response.finish_reason` | Why the response ended |
-| `gen_ai.server.time_to_first_audio` | Milliseconds from response start to first audio chunk |
-
-`gen_ai.server.time_to_first_audio` is measured from the response span's start to the
-first audio chunk and recorded once; later chunks do not update it. A text-only turn
-produces no audio and carries no such attribute.
-
-`gen_ai.response.finish_reason` takes one of these values:
+`gen_ai.server.time_to_first_audio` is recorded once, on the first audio chunk. A
+text-only response has no such attribute. Response finish reasons are:
 
 | Value | Meaning |
 |-------|---------|
@@ -171,46 +157,36 @@ produces no audio and carries no such attribute.
 | `error` | The model stream raised while the response was open |
 | `incomplete` | The session stopped while the response was still open |
 
-`incomplete` is expected for the last response of a session ended mid-turn; it is not
-an error state. A custom model provider may also report `tool_use`; none of the bundled
-providers do.
+`incomplete` is expected when a session ends mid-turn and is not itself an error. A
+custom provider may also report `tool_use`; none of the bundled providers do.
 
-### Connection Restart Attributes
+A restart span covers the reconnect operation. During this interval, sends wait for
+the connection gate to reopen. Check span status, rather than the presence of
+`gen_ai.error.message`, to determine whether the restart succeeded. Status `OK` means
+the agent reconnected and the session continued.
 
-| Attribute | Description |
-|-----------|-------------|
-| `gen_ai.operation.name` | `bidi_connection_restart` |
-| `gen_ai.error.message` | The timeout error that triggered the restart |
-
-The span's duration is the window during which the agent could not accept input.
-`gen_ai.error.message` is always present on this span, since a restart is always
-triggered by a timeout — check the span status rather than the presence of this
-attribute to determine whether the restart succeeded. Status `OK` means the agent
-reconnected and the session continued.
-
-### Tool-Level Attributes
-
-Tool calls in a streaming session use the same `execute_tool <tool name>` span as the
-non-streaming agent, with the same attributes. See
-[Tool-Level Attributes](../../observability-evaluation/traces.md#tool-level-attributes).
+Tool calls use the same `execute_tool <tool name>` span and attributes as non-streaming
+agents. See [Tool-Level Attributes](../../observability-evaluation/traces.md#tool-level-attributes).
 
 ### Interruption Events
 
-An interruption is recorded as a `bidi_interruption` span event on the session span,
-carrying an `interruption.reason` attribute, since an interruption is a point in time
-rather than an operation with a duration. The response that was cut off separately
-closes with `gen_ai.response.finish_reason` set to `interrupted`.
+An interruption is recorded as a `bidi_interruption` event on the session span with an
+`interruption.reason` attribute. The interrupted response separately closes with
+`gen_ai.response.finish_reason` set to `interrupted`.
 
-To count interruptions, query the `bidi_interruption` event on the session span. To
-find which response was cut off, look for the `interrupted` finish reason. Recording
-the event on the session rather than the response also captures barge-ins that arrive
-between responses. For how barge-in is detected, see [Interruptions](interruption.md).
+To count interruptions, query the session span's `bidi_interruption` events. To find
+which response ended, query response spans with an `interrupted` finish reason. Keeping
+the event on the session also captures barge-ins between response spans. For detection
+and playback behavior, see [Interruptions](interruption.md).
 
 ## Inspecting Spans Locally
 
 The console exporter is the fastest way to confirm spans are being produced. A session
-that registers two tools and is interrupted mid-response produces a session span like
-this, with the resource block omitted:
+that registers two tools and is interrupted mid-response produces the following session
+span, with the resource block omitted:
+
+<details>
+<summary>Example session span</summary>
 
 ```json
 {
@@ -232,7 +208,7 @@ this, with the resource block omitted:
         "gen_ai.operation.name": "bidi_session",
         "gen_ai.system": "strands-agents",
         "gen_ai.agent.name": "Voice Assistant",
-        "gen_ai.request.model": "amazon.nova-sonic-v1:0",
+        "gen_ai.request.model": "amazon.nova-2-sonic-v1:0",
         "gen_ai.agent.tools": "[\"get_weather\", \"calculator\"]",
         "gen_ai.system_instructions": "You are a helpful voice assistant.",
         "gen_ai.event.end_time": "2026-08-10T13:27:30.900000+00:00",
@@ -253,10 +229,15 @@ this, with the resource block omitted:
 }
 ```
 
-`gen_ai.usage.cache_read_input_tokens` is omitted here because Nova Sonic did not
-report cached tokens for this session — a zero-valued attribute is never exported, so
-its absence distinguishes "not reported" from "reported as zero." A single spoken turn
-within the same session produces a child response span like this:
+</details>
+
+`gen_ai.usage.cache_read_input_tokens` is omitted here because no positive cache-read
+count was observed. Zero-valued usage attributes are not exported, so absence does not
+distinguish "not reported" from "reported as zero." A single spoken turn within the
+same session produces the following child response span:
+
+<details>
+<summary>Example response span</summary>
 
 ```json
 {
@@ -287,27 +268,18 @@ within the same session produces a child response span like this:
 }
 ```
 
-For a trace view rather than a log of spans, run a local collector:
+</details>
 
-```bash
-# Pull and run Jaeger all-in-one container
-docker run -d --name jaeger \
-  -e COLLECTOR_OTLP_ENABLED=true \
-  -p 16686:16686 \
-  -p 4317:4317 \
-  -p 4318:4318 \
-  jaegertracing/all-in-one:latest
-```
-
-Then open the Jaeger UI at http://localhost:16686. Any OpenTelemetry-compatible backend
-works — see [Visualization and Analysis](../../observability-evaluation/traces.md#visualization-and-analysis)
-for other options.
+For local trace visualization, follow the shared [Local Development Setup](../../observability-evaluation/traces.md#local-development-setup).
+It covers Jaeger and console-exporter setup. See
+[Visualization and Analysis](../../observability-evaluation/traces.md#visualization-and-analysis)
+for other OpenTelemetry-compatible backends.
 
 ## Session Metrics
 
 `BidiAgent` does not produce a metrics summary object. Interruption and reconnect
-counts are available through hooks, and token usage and latency are available through
-the event stream.
+counts are available through hooks, token usage is available through the event stream,
+and response latency is recorded on trace spans.
 
 ### Counting Interruptions and Reconnects
 
@@ -338,11 +310,7 @@ class SessionStats(HookProvider):
 
     def on_interruption(self, event: BidiInterruptionEvent) -> None:
         self.interruptions += 1
-        logger.info(
-            "reason=<%s>, response_id=<%s> | user interrupted the model",
-            event.reason,
-            event.interrupted_response_id,
-        )
+        logger.info("reason=<%s> | user interrupted the model", event.reason)
 
     def on_restart(self, event: BidiAfterConnectionRestartEvent) -> None:
         if event.exception is None:
@@ -353,8 +321,8 @@ Pass it in with `hooks=[SessionStats()]` when constructing the agent.
 `BidiAfterConnectionRestartEvent.exception` is `None` when the reconnect succeeded, so
 the check above counts successful recoveries. A rising interruption count typically
 indicates responses that run long for a voice interface; a rising reconnect count
-typically indicates sessions sitting idle long enough for the provider to close the
-connection. The full list of lifecycle events is in [Hooks](hooks.md).
+indicates sessions frequently reaching provider timeout conditions. The full list of
+lifecycle events is in [Hooks](hooks.md).
 
 ### Tracking Token Usage per Modality
 
@@ -467,8 +435,9 @@ export OTEL_TRACES_SAMPLER="traceidratio"
 export OTEL_TRACES_SAMPLER_ARG="0.5"
 ```
 
-Because the session is the root span, a sampling decision keeps or drops the entire
-session rather than individual spans within it.
+Because all bidi spans belong to one trace, the trace-level sampling decision keeps or
+drops the session and its child spans together. When the session runs inside an existing
+trace, it inherits that trace's sampling decision.
 
 ## Provider Differences
 
@@ -487,8 +456,9 @@ in the trace:
    healthy; a slow first audio chunk is user-facing latency.
 2. **Separate connect latency from response latency**: use `bidi_connect` to isolate
    handshake cost from model response time.
-3. **Track reconnects with hooks**: each reconnect is a window during which input was
-   rejected, so monitor the rate rather than treating individual reconnects as errors.
+3. **Track reconnects with hooks**: during a reconnect, sends wait for the connection
+   gate to reopen. Monitor reconnect frequency to identify sessions that regularly reach
+   provider timeout conditions.
 4. **Watch the interruption rate**: a rising rate of barge-ins often indicates
    responses that are too long for a voice interface.
 5. **Redact the system prompt in production**: session spans carry it verbatim unless
