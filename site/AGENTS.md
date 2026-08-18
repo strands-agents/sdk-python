@@ -65,8 +65,7 @@ When authoring or reviewing documentation pages, follow the voice guide and the 
 │   │   ├── community/            # Sections of the /community/ hub page (hero, courses, events, blog)
 │   │   ├── overrides/            # Starlight component overrides
 │   │   └── ...
-│   ├── config/                   # Site configuration (incl. learn.ts — deep-dive and
-│   │                             #   suggest-a-topic config for the /community/ page)
+│   ├── config/                   # Site configuration
 │   ├── content/                  # Content collections
 │   │   ├── catalog/              # Community catalog entries (one YAML per integration, zod-validated)
 │   │   ├── courses/              # Course metadata (one YAML per course, zod-validated)
@@ -82,16 +81,15 @@ When authoring or reviewing documentation pages, follow the voice guide and the 
 │   │       ├── examples/
 │   │       ├── integrations/
 │   │       ├── labs/
-│   │       ├── learning/         # Course lesson pages (lessonN-<slug>.mdx)
+│   │       ├── learning/         # Course lesson pages
 │   │       └── user-guide/
 │   ├── data/                     # Bot-maintained data (catalog-stats.json — updated by the
 │   │                             #   catalog-stats workflow; do not hand-edit)
 │   ├── layouts/                  # Custom layouts
-│   ├── pages/                    # Astro pages (incl. integrations.astro — the /integrations page,
-│   │                             #   and community.astro — the /community/ hub)
+│   ├── pages/                    # Astro pages (incl. integrations.astro — the /integrations page)
 │   ├── plugins/                  # Remark/Rehype plugins
 │   ├── styles/                   # Global styles
-│   └── util/                     # Utility functions (incl. learn.ts — course/event selection helpers)
+│   └── util/                     # Utility functions
 ├── astro.config.mjs              # Astro configuration
 ├── package.json                  # Node.js dependencies and scripts
 ├── tsconfig.json                 # TypeScript configuration
