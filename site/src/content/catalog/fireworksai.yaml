@@ -7,4 +7,4 @@ languages:
   typescript: {}
 github: https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/openai.py
 docsPage: docs/integrations/model-providers/fireworksai
-addedDate: 2026-01-01
+addedDate: 2025-10-06

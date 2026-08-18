@@ -7,4 +7,4 @@ languages:
   typescript: {}
 github: https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/openai.py
 docsPage: docs/integrations/model-providers/crusoe
-addedDate: 2026-07-31
+addedDate: 2026-07-30
