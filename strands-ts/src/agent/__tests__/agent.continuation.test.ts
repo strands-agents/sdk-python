@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MockMessageModel } from '../../__fixtures__/mock-message-model.js'
+import { createMockTool } from '../../__fixtures__/tool-helpers.js'
 import { AfterInvocationEvent, BeforeModelCallEvent, MessageAddedEvent } from '../../hooks/events.js'
+import { InterruptResponseContent } from '../../types/interrupt.js'
 import { Message, TextBlock, ToolResultBlock, ToolUseBlock } from '../../types/messages.js'
 import { Agent } from '../agent.js'
 import { continuations } from '../continuation.js'
@@ -59,6 +61,59 @@ describe('Agent continuation input', () => {
     expect(abandoned).toHaveBeenCalledWith(
       expect.objectContaining({ message: 'Continuation input must contain a complete message sequence' })
     )
+  })
+
+  it('retains follow-up input through failed resume attempts', async () => {
+    const model = new MockMessageModel()
+      .addTurn({
+        type: 'toolUseBlock',
+        name: 'confirmTool',
+        toolUseId: 'tool-1',
+        input: {},
+      })
+      .addTurn({ type: 'textBlock', text: 'resumed' })
+      .addTurn({ type: 'textBlock', text: 'continued' })
+    const requests = captureRequests(model)
+    const appended = vi.fn()
+    const abandoned = vi.fn()
+    const tool = createMockTool('confirmTool', (context) => {
+      const response = context.interrupt<string>({ name: 'confirm', reason: 'Confirm?' })
+      return `confirmed:${response}`
+    })
+    const agent = new Agent({ model, tools: [tool], printer: false })
+    let added = false
+
+    agent.addHook(AfterInvocationEvent, (event) => {
+      if (added) return
+      added = true
+      continuations.addInput(event, {
+        args: 'pending',
+        onAppended: appended,
+        onAbandoned: abandoned,
+      })
+    })
+
+    const interruptResult = await agent.invoke('start')
+
+    expect(interruptResult.stopReason).toBe('interrupt')
+    expect(appended).not.toHaveBeenCalled()
+    expect(abandoned).not.toHaveBeenCalled()
+
+    await expect(agent.invoke('invalid resume')).rejects.toThrow('Agent is in an interrupted state')
+    expect(appended).not.toHaveBeenCalled()
+    expect(abandoned).not.toHaveBeenCalled()
+
+    const finalResult = await agent.invoke([
+      new InterruptResponseContent({
+        interruptId: interruptResult.interrupts![0]!.id,
+        response: 'yes',
+      }),
+    ])
+
+    expect(finalResult.stopReason).toBe('endTurn')
+    expect(textOf(requests[2]!.at(-1)!)).toBe('pending')
+    expect(appended).toHaveBeenCalledOnce()
+    expect(abandoned).not.toHaveBeenCalled()
   })
 
   it('preserves an unrecognized stop reason instead of continuing', async () => {

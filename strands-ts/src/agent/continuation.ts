@@ -1,8 +1,8 @@
 import { AfterInvocationEvent, BeforeModelCallEvent } from '../hooks/events.js'
 import { logger } from '../logging/logger.js'
 
-import type { InvokeArgs } from '../types/agent.js'
-import type { Message } from '../types/messages.js'
+import type { InvokeArgs, LocalAgent } from '../types/agent.js'
+import type { Message, StopReason } from '../types/messages.js'
 
 /**
  * One internal input contribution to an agent or model invocation.
@@ -25,6 +25,7 @@ interface ContinuationState {
 }
 
 const stateByEvent = new WeakMap<AfterInvocationEvent | BeforeModelCallEvent, ContinuationState>()
+const deferredInputsByAgent = new WeakMap<LocalAgent, ContinuationInput[]>()
 
 /**
  * Internal continuation operations used by the agent loop.
@@ -47,9 +48,21 @@ function addInput(event: AfterInvocationEvent | BeforeModelCallEvent, input: Con
 
 async function prepare(
   event: AfterInvocationEvent | BeforeModelCallEvent,
-  normalizeInput: (args: InvokeArgs) => Message[]
+  normalizeInput: (args: InvokeArgs) => Message[],
+  stopReason?: StopReason
 ): Promise<readonly Message[] | undefined> {
-  const inputs = stateByEvent.get(event)?.inputs ?? []
+  if (stopReason === 'interrupt') {
+    const inputs = consumeInputs(event)
+    if (inputs.length > 0) {
+      deferredInputsByAgent.set(event.agent, [...(deferredInputsByAgent.get(event.agent) ?? []), ...inputs])
+    }
+    return undefined
+  }
+  if (stopReason !== undefined && stopReason !== 'endTurn' && stopReason !== 'stopSequence') return undefined
+
+  const deferredInputs = event instanceof AfterInvocationEvent ? deferredInputsByAgent.get(event.agent) : undefined
+  if (deferredInputs) deferredInputsByAgent.delete(event.agent)
+  const inputs = [...(deferredInputs ?? []), ...(stateByEvent.get(event)?.inputs ?? [])]
   const acceptedInputs: ContinuationInput[] = []
   const messages: Message[] = []
 

@@ -1166,14 +1166,15 @@ export class Agent implements LocalAgent, InvokableAgent {
 
         const stopReason = result!.stopReason
         const allowsContinuation = stopReason === 'endTurn' || stopReason === 'stopSequence'
-        if (!allowsContinuation) {
+        if (!allowsContinuation && stopReason !== 'interrupt') {
           await continuations.abandon(afterInvocationEvent, new Error(`Continuation abandoned after ${stopReason}`))
         }
 
         const hasContinuation =
-          allowsContinuation &&
-          (await continuations.prepare(afterInvocationEvent, (continuationArgs) =>
-            this._normalizeInput(continuationArgs)
+          (await continuations.prepare(
+            afterInvocationEvent,
+            (continuationArgs) => this._normalizeInput(continuationArgs),
+            stopReason
           )) !== undefined
         continuationEvent = hasContinuation ? afterInvocationEvent : undefined
 
