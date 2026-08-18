@@ -25,7 +25,7 @@ export interface FileMemoryStoreConfig extends MemoryStoreConfig {
 }
 import { LocalFileStorage } from '../../storage/local-file-storage.js'
 import { ModelExtractor } from '../../memory/extraction/model-extractor.js'
-import { NAMESPACED, namespace, normalizeKey, tokenize, tokenOverlapScore } from '../../storage/storage.js'
+import { normalizeKey, resolveNamespace, tokenize, tokenOverlapScore } from '../../storage/storage.js'
 import { logger } from '../../logging/logger.js'
 
 const DEFAULT_EXTRACTION_PROMPT = `You extract durable facts worth remembering across future conversations from a transcript.
@@ -109,6 +109,7 @@ export class FileMemoryStore implements MemoryStore {
   readonly extraction?: boolean | ExtractionConfig
 
   private readonly _storage: Storage
+  private readonly _writeLocks = new Map<string, Promise<string>>()
 
   constructor(config: FileMemoryStoreConfig) {
     this.name = config.name
@@ -132,10 +133,7 @@ export class FileMemoryStore implements MemoryStore {
   }
 
   private _resolveStorage(storage: Storage): Storage {
-    if (NAMESPACED in storage) return storage
-    const prefix = `${STORAGE_NAMESPACE}/${this.name}`
-    if (storage.namespace) return storage.namespace(prefix)
-    return namespace(storage, prefix)
+    return resolveNamespace(storage, `${STORAGE_NAMESPACE}/${this.name}`)
   }
 
   /**
@@ -155,7 +153,10 @@ export class FileMemoryStore implements MemoryStore {
       for (const result of results.slice(0, maxResults)) {
         const bytes = await this._storage.read(result.key)
         if (bytes) {
-          entries.push({ content: decoder.decode(bytes).trim(), metadata: { path: result.key } } as MemoryEntry)
+          entries.push({
+            content: decoder.decode(bytes).trim(),
+            metadata: { path: result.key, score: result.score },
+          } as MemoryEntry)
         }
       }
       return entries
@@ -184,7 +185,7 @@ export class FileMemoryStore implements MemoryStore {
             const relevanceScore = tokenOverlapScore(queryTokens, searchable)
             if (relevanceScore === 0) return null
             return {
-              entry: { content: body.trim(), metadata: { path: key } } as MemoryEntry,
+              entry: { content: body.trim(), metadata: { path: key, score: relevanceScore } } as MemoryEntry,
               relevanceScore,
             }
           } catch (error) {
@@ -220,17 +221,28 @@ export class FileMemoryStore implements MemoryStore {
     const key = `${slugify(firstLine) || `entry-${Date.now()}`}.md`
     const canonicalKey = normalizeKey(key).toLowerCase()
 
-    const existing = await this._storage.read(canonicalKey)
-    let merged: string
-    if (existing) {
-      const existingContent = decoder.decode(existing)
-      const newFacts = lines.slice(1).join('\n').trim()
-      merged = newFacts ? `${existingContent.trimEnd()}\n${newFacts}` : existingContent
-    } else {
-      merged = content
+    // Serialize writes per key to prevent lost-update from concurrent read-modify-write
+    const prev = this._writeLocks.get(canonicalKey) ?? Promise.resolve('')
+    const current = prev.then(async () => {
+      const existing = await this._storage.read(canonicalKey)
+      let merged: string
+      if (existing) {
+        const existingContent = decoder.decode(existing)
+        const newFacts = lines.slice(1).join('\n').trim()
+        merged = newFacts ? `${existingContent.trimEnd()}\n${newFacts}` : existingContent
+      } else {
+        merged = content
+      }
+      await this._storage.write(canonicalKey, encoder.encode(merged))
+      return canonicalKey
+    })
+    this._writeLocks.set(canonicalKey, current)
+    try {
+      return await current
+    } finally {
+      if (this._writeLocks.get(canonicalKey) === current) {
+        this._writeLocks.delete(canonicalKey)
+      }
     }
-
-    await this._storage.write(canonicalKey, encoder.encode(merged))
-    return canonicalKey
   }
 }

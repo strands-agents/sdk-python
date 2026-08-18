@@ -214,3 +214,19 @@ export function namespace(storage: Storage, prefix: string): Storage {
   }
   return view
 }
+
+/**
+ * Returns a namespaced view of `storage` under `prefix`, unless the storage is already namespaced.
+ *
+ * Consolidates the common pattern: if already marked with {@link NAMESPACED}, return as-is;
+ * otherwise delegate to the storage's own `namespace()` method or the standalone `namespace` helper.
+ *
+ * @param storage - The storage to scope
+ * @param prefix - Prefix to apply
+ * @returns A namespaced Storage view (or the original if already namespaced)
+ */
+export function resolveNamespace(storage: Storage, prefix: string): Storage {
+  if (NAMESPACED in storage) return storage
+  if (storage.namespace) return storage.namespace(prefix)
+  return namespace(storage, prefix)
+}
