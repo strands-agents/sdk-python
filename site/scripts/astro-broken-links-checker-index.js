@@ -63,7 +63,6 @@ export default function astroBrokenLinksChecker(options = {}) {
         });
 
         await Promise.all(checkHtmlPromises);
-
         logBrokenLinks(brokenLinksMap, logFilePath, logger);
 
         // end time
