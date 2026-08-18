@@ -12,7 +12,7 @@ import { parseChangedLines, rangeTouched } from './diff.mjs'
  * @param {object} input
  * @param {string} input.diff - `git diff -U0` between merge base and head
  * @param {Array<{path: string, additions: number, deletions: number}>} input.files
- * @param {Array<{file, name, complexity, startLine, endLine}>} input.functions
+ * @param {Array<{file, name, complexity, startLine, endLine, baseComplexity?}>} input.functions
  */
 export function buildReport({ diff, files, functions }) {
   const countedLines = files
@@ -21,14 +21,23 @@ export function buildReport({ diff, files, functions }) {
   const totalLines = files.reduce((sum, f) => sum + f.additions + f.deletions, 0)
 
   const changedLines = parseChangedLines(diff)
-  const touched = functions
+  const measured = functions
     .filter((fn) => isAnalyzable(fn.file))
     .filter((fn) => rangeTouched(changedLines.get(fn.file), fn.startLine, fn.endLine))
+  const touched = measured
+    // A function with a known base score counts only if the PR increased it:
+    // editing inside an already complex function without making it worse must
+    // not inherit the function's whole score. A function without a base score
+    // (new file, renamed file, or a base analysis failure) counts
+    // in full as new code.
+    .filter((fn) => fn.baseComplexity == null || fn.complexity > fn.baseComplexity)
     .sort((a, b) => b.complexity - a.complexity)
 
-  // No analyzable source touched (docs-only, tests-only) means no complexity
-  // signal exists — distinct from "we measured it and it was simple".
-  const maxComplexity = touched.length > 0 ? touched[0].complexity : null
+  // Three distinct outcomes: nothing measurable (docs-only, tests-only) means
+  // no label at all; functions measured but none increased is a real verdict
+  // of zero added complexity, which buckets as complexity/low; otherwise the
+  // most complex counted function drives the label.
+  const maxComplexity = touched.length > 0 ? touched[0].complexity : measured.length > 0 ? 0 : null
 
   return {
     size: {
@@ -57,6 +66,8 @@ export function formatReport(report) {
   lines.push(`size:       ${size.label}  (${size.countedLines} lines counted, ${size.excludedLines} excluded)`)
   if (complexity.label === null) {
     lines.push('complexity: n/a  (no SDK source functions touched)')
+  } else if (complexity.maxComplexity === 0 && complexity.offenders.length === 0) {
+    lines.push(`complexity: ${complexity.label}  (touched functions, none increased)`)
   } else {
     lines.push(`complexity: ${complexity.label}  (max ${complexity.maxComplexity})`)
     for (const fn of complexity.offenders) {

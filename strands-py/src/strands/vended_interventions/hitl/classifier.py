@@ -124,9 +124,7 @@ def _create_llm_risk_classifier(config: LLMClassifierConfig | None = None) -> Hu
         result = await inner.invoke_async(prompt, structured_output_model=_RiskDecision)
         decision = result.structured_output
         if not isinstance(decision, _RiskDecision):
-            raise ValueError(
-                f"LLM risk classifier produced no structured output (stop_reason={result.stop_reason!r})"
-            )
+            raise ValueError(f"LLM risk classifier produced no structured output (stop_reason={result.stop_reason!r})")
 
         return ClassifierResult(
             requires_human_in_the_loop=decision.requires_approval,

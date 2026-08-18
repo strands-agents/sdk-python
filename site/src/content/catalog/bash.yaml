@@ -7,4 +7,4 @@ languages:
   typescript: {}
 github: https://github.com/strands-agents/harness-sdk/tree/main/strands-py/src/strands/vended_tools/shell
 docsPage: docs/user-guide/concepts/tools/vended-tools
-addedDate: 2025-12-01
+addedDate: 2025-11-12

@@ -105,8 +105,9 @@ class BedrockModel(Model):
             additional_response_field_paths: Additional response field paths to extract
             cache_prompt: Cache point type for the system prompt (deprecated, use cache_config)
             cache_config: Configuration for prompt caching. Use CacheConfig(strategy="auto") for automatic caching.
-            cache_tools: Cache point type for tools. Pass a string (e.g. "default") for the default 5m TTL,
-                or a CacheToolsConfig instance to set both type and TTL (e.g. "1h").
+            cache_tools: Cache point type for tools. Pass a string (e.g. "default") to cache the tools with
+                no explicit TTL, or a CacheToolsConfig instance to set both type and TTL (e.g. "1h"). Inherits
+                cache_config.ttl if specified, otherwise it takes the Bedrock default.
             guardrail_id: ID of the guardrail to apply
             guardrail_trace: Guardrail trace mode. Defaults to enabled.
             guardrail_version: Version of the guardrail to apply
@@ -227,10 +228,17 @@ class BedrockModel(Model):
 
     @property
     def _cache_strategy(self) -> str | None:
-        """The cache strategy for this model based on its model ID.
+        """The effective cache strategy for this request, or None when caching is off or unsupported.
 
-        Returns the appropriate cache strategy name, or None if automatic caching is not supported for this model.
+        Resolves ``cache_config.strategy``: an explicit strategy is returned as written, while ``"auto"``
+        maps to ``"anthropic"`` for Claude/Anthropic model IDs and None for models without automatic
+        caching support.
         """
+        cache_config = self.config.get("cache_config")
+        if not cache_config:
+            return None
+        if cache_config.strategy != "auto":
+            return cache_config.strategy
         model_id = self.config.get("model_id", "").lower()
         if "claude" in model_id or "anthropic" in model_id:
             return "anthropic"
@@ -421,13 +429,10 @@ class BedrockModel(Model):
         ttl: str | None = None
         cache_config = self.config.get("cache_config")
         if cache_config and cache_config.ttl:
-            strategy: str | None = cache_config.strategy
-            if strategy == "auto":
-                strategy = self._cache_strategy
             tools_ttl_differs = bool(tools_cache_point) and (
                 tools_cache_point[0]["cachePoint"].get("ttl") != cache_config.ttl
             )
-            if strategy == "anthropic" and not tools_ttl_differs:
+            if self._cache_strategy == "anthropic" and not tools_ttl_differs:
                 ttl = cache_config.ttl
 
         normalized: list[SystemContentBlock] = []
@@ -451,6 +456,8 @@ class BedrockModel(Model):
     def _build_tools_cache_point(self) -> list[dict[str, Any]]:
         """Build the cache point block appended to ``toolConfig.tools`` if ``cache_tools`` is configured.
 
+        A ``cache_tools`` that carries no TTL of its own inherits ``cache_config.ttl``
+
         Returns:
             A single-element list containing the cache point block, or an empty list if no cache_tools is set.
         """
@@ -459,11 +466,18 @@ class BedrockModel(Model):
             return []
 
         if isinstance(cache_tools, CacheToolsConfig):
-            cache_point: dict[str, Any] = {"type": cache_tools.type}
-            if cache_tools.ttl:
-                cache_point["ttl"] = cache_tools.ttl
+            cache_type, ttl = cache_tools.type, cache_tools.ttl
         else:
-            cache_point = {"type": cache_tools}
+            cache_type, ttl = cache_tools, None
+
+        if not ttl:
+            cache_config = self.config.get("cache_config")
+            if cache_config and cache_config.ttl and self._cache_strategy == "anthropic":
+                ttl = cache_config.ttl
+
+        cache_point: dict[str, Any] = {"type": cache_type}
+        if ttl:
+            cache_point["ttl"] = ttl
 
         return [{"cachePoint": cache_point}]
 
@@ -751,15 +765,13 @@ class BedrockModel(Model):
         # Inject cache point into cleaned_messages (not original messages) if cache_config is set
         cache_config = self.config.get("cache_config")
         if cache_config:
-            strategy: str | None = cache_config.strategy
-            if strategy == "auto":
-                strategy = self._cache_strategy
-                if not strategy:
-                    logger.warning(
-                        "model_id=<%s> | cache_config is enabled but this model does not support automatic caching",
-                        self.config.get("model_id"),
-                    )
-            if strategy == "anthropic":
+            cache_strategy = self._cache_strategy
+            if cache_config.strategy == "auto" and not cache_strategy:
+                logger.warning(
+                    "model_id=<%s> | cache_config is enabled but this model does not support automatic caching",
+                    self.config.get("model_id"),
+                )
+            if cache_strategy == "anthropic":
                 self._inject_cache_point(cleaned_messages, dynamic_trailing_blocks)
 
         return cleaned_messages
