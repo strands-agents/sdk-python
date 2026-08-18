@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import sys
 import time
 import traceback
@@ -99,6 +100,12 @@ def _tool_use_blocks(events):
 
 
 pytestmark = pytest.mark.usefixtures("bedrock_client")
+
+
+def test_lazy_export_from_models_package():
+    """The provider resolves through the package's lazy ``__getattr__`` so importing it stays optional."""
+    assert "BedrockInvokeModel" in strands.models.__all__
+    assert strands.models.BedrockInvokeModel is BedrockInvokeModel
 
 
 def test_init_default_model_id():
@@ -268,6 +275,67 @@ def test_format_openai_request_tool_calls_and_results():
     assert fn == {"name": "fn", "arguments": json.dumps({"x": 1})}
     assert req["messages"][1] == {"role": "tool", "tool_call_id": "tu1", "content": "ok"}
     assert req["tool_choice"] == {"type": "function", "function": {"name": "fn"}}
+
+
+def test_format_anthropic_request_tool_result_success_omits_is_error(model):
+    """``is_error`` marks a failed tool result only, and a json result is serialized to text."""
+    tr = {"toolUseId": "tu1", "status": "success", "content": [{"json": {"ok": True}}]}
+    req = model._format_anthropic_request([{"role": "user", "content": [{"toolResult": tr}]}], None, None, None)
+    block = req["messages"][0]["content"][0]
+    assert "is_error" not in block
+    assert block["content"] == [{"type": "text", "text": json.dumps({"ok": True})}]
+
+
+def test_format_openai_request_omits_tool_choice_when_unset():
+    """Tools are declared without forcing a selection when the caller passes no tool_choice."""
+    spec = [{"name": "fn", "description": "d", "inputSchema": {"type": "object"}}]
+    m = BedrockInvokeModel(model_id="meta.llama3-1-8b-instruct-v1:0")
+    req = m._format_openai_request([{"role": "user", "content": [{"text": "hi"}]}], spec, None, None)
+    assert "tool_choice" not in req
+    assert req["tools"][0]["function"]["parameters"] == {"type": "object"}
+
+
+@pytest.mark.parametrize(
+    "family, tool_choice, expected",
+    [
+        ("anthropic", None, None),
+        ("anthropic", {"auto": {}}, {"type": "auto"}),
+        ("anthropic", {"any": {}}, {"type": "any"}),
+        ("anthropic", {"tool": {"name": "fn"}}, {"type": "tool", "name": "fn"}),
+        ("openai", None, None),
+        ("openai", {"auto": {}}, "auto"),
+        ("openai", {"any": {}}, "required"),
+        ("openai", {"tool": {"name": "fn"}}, {"type": "function", "function": {"name": "fn"}}),
+    ],
+)
+def test_to_tool_choice(family, tool_choice, expected):
+    assert BedrockInvokeModel._to_tool_choice(tool_choice, family) == expected
+
+
+# ---- sampling params
+
+
+def test_format_anthropic_request_sampling_params(model):
+    """The Anthropic body carries top_k and names the stop list ``stop_sequences``."""
+    model.update_config(temperature=0.2, top_p=0.9, top_k=40, stop_sequences=["STOP"])
+    req = model._format_anthropic_request([{"role": "user", "content": [{"text": "hi"}]}], None, None, None)
+    assert req["temperature"] == 0.2
+    assert req["top_p"] == 0.9
+    assert req["top_k"] == 40
+    assert req["stop_sequences"] == ["STOP"]
+
+
+def test_format_openai_request_sampling_params():
+    """The OpenAI body names the stop list ``stop`` and drops top_k, which the API does not accept."""
+    m = BedrockInvokeModel(
+        model_id="meta.llama3-1-8b-instruct-v1:0", temperature=0.2, top_p=0.9, top_k=40, stop_sequences=["STOP"]
+    )
+    req = m._format_openai_request([{"role": "user", "content": [{"text": "hi"}]}], None, None, None)
+    assert req["temperature"] == 0.2
+    assert req["top_p"] == 0.9
+    assert req["stop"] == ["STOP"]
+    assert "top_k" not in req
+    assert "stop_sequences" not in req
 
 
 # ---- params passthrough
@@ -484,6 +552,59 @@ async def test_stream_openai_content_blocks_are_delimited(bedrock_client):
 
 
 @pytest.mark.asyncio
+async def test_stream_anthropic_closes_unterminated_block(bedrock_client):
+    """A stream that ends without content_block_stop still closes the block, leaving nothing dangling."""
+    bedrock_client.invoke_model_with_response_stream.return_value = {
+        "body": _chunks([
+            {"type": "message_start", "message": {"usage": {"input_tokens": 3, "output_tokens": 0}}},
+            {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "partial"}},
+            {"type": "message_stop"},
+        ])
+    }
+    events = await _collect(BedrockInvokeModel(model_id=CLAUDE_ID), [{"role": "user", "content": [{"text": "hi"}]}])
+
+    tru_delimiters = (sum("contentBlockStart" in e for e in events), sum("contentBlockStop" in e for e in events))
+    assert tru_delimiters == (1, 1)
+    assert _texts(events) == "partial"
+    assert _stop_reason(events) == "end_turn"
+
+
+@pytest.mark.asyncio
+async def test_stream_openai_drops_arguments_for_closed_tool_call(bedrock_client, caplog):
+    """Arguments for an already-closed tool call are dropped, not misattributed to the open block."""
+    caplog.set_level(logging.WARNING, logger="strands.models.bedrock_invoke")
+    open_0 = {"index": 0, "id": "call_0", "function": {"name": "a"}}
+    open_1 = {"index": 1, "id": "call_1", "function": {"name": "b", "arguments": '{"y":2}'}}
+    late_0 = {"index": 0, "function": {"arguments": '{"x":1}'}}
+    bedrock_client.invoke_model_with_response_stream.return_value = {
+        "body": _chunks([
+            {"choices": [{"delta": {"tool_calls": [open_0]}, "finish_reason": None}]},
+            {"choices": [{"delta": {"tool_calls": [open_1]}, "finish_reason": None}]},
+            {"choices": [{"delta": {"tool_calls": [late_0]}, "finish_reason": "tool_calls"}]},
+        ])
+    }
+    m = BedrockInvokeModel(model_id="meta.llama3-1-8b-instruct-v1:0")
+    events = await _collect(m, [{"role": "user", "content": [{"text": "go"}]}])
+
+    tru_blocks = _tool_use_blocks(events)
+    exp_blocks = [({"toolUseId": "call_0", "name": "a"}, ""), ({"toolUseId": "call_1", "name": "b"}, '{"y":2}')]
+    assert tru_blocks == exp_blocks
+    assert "dropping arguments for a closed tool call" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_stream_system_prompt_reaches_request_body(bedrock_client):
+    """A plain ``system_prompt`` string is promoted to a system content block and lands on the wire."""
+    bedrock_client.invoke_model_with_response_stream.return_value = {"body": _chunks([{"type": "message_stop"}])}
+    m = BedrockInvokeModel(model_id=CLAUDE_ID)
+    await _collect(m, [{"role": "user", "content": [{"text": "hi"}]}], system_prompt="be nice")
+
+    body = json.loads(bedrock_client.invoke_model_with_response_stream.call_args.kwargs["body"])
+    assert body["system"] == "be nice"
+
+
+@pytest.mark.asyncio
 async def test_stream_non_streaming_anthropic(bedrock_client):
     body = unittest.mock.Mock()
     body.read.return_value = json.dumps({
@@ -496,6 +617,27 @@ async def test_stream_non_streaming_anthropic(bedrock_client):
     m = BedrockInvokeModel(model_id=CLAUDE_ID, streaming=False)
     events = await _collect(m, [{"role": "user", "content": [{"text": "hi"}]}])
     assert _texts(events) == "ack"
+
+
+@pytest.mark.asyncio
+async def test_stream_non_streaming_anthropic_tool_use(bedrock_client):
+    body = unittest.mock.Mock()
+    body.read.return_value = json.dumps({
+        "content": [
+            {"type": "text", "text": "checking"},
+            {"type": "tool_use", "id": "tu1", "name": "weather", "input": {"city": "Paris"}},
+        ],
+        "stop_reason": "tool_use",
+        "usage": {"input_tokens": 4, "output_tokens": 6},
+    }).encode("utf-8")
+    bedrock_client.invoke_model.return_value = {"body": body}
+
+    m = BedrockInvokeModel(model_id=CLAUDE_ID, streaming=False)
+    events = await _collect(m, [{"role": "user", "content": [{"text": "?"}]}])
+    assert _texts(events) == "checking"
+    assert _tool_use_blocks(events) == [({"toolUseId": "tu1", "name": "weather"}, json.dumps({"city": "Paris"}))]
+    assert _stop_reason(events) == "tool_use"
+    assert _metadata(events)["usage"] == {"inputTokens": 4, "outputTokens": 6, "totalTokens": 10}
 
 
 @pytest.mark.asyncio
@@ -730,3 +872,26 @@ async def test_structured_output_yields_pydantic_model(bedrock_client):
     async for event in m.structured_output(Person, [{"role": "user", "content": [{"text": "?"}]}]):
         structured.append(event)
     assert structured[-1]["output"] == Person(name="Ada", age=36)
+
+
+@pytest.mark.asyncio
+async def test_structured_output_raises_when_model_answers_with_text(bedrock_client):
+    """A turn that ends without the forced tool call cannot produce the output model."""
+    bedrock_client.invoke_model_with_response_stream.return_value = {
+        "body": _chunks([
+            {"type": "message_start", "message": {"usage": {"input_tokens": 4, "output_tokens": 0}}},
+            {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "no thanks"}},
+            {"type": "content_block_stop", "index": 0},
+            {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 2}},
+            {"type": "message_stop"},
+        ])
+    }
+
+    class Person(pydantic.BaseModel):
+        name: str
+
+    m = BedrockInvokeModel(model_id=CLAUDE_ID)
+    with pytest.raises(ValueError, match='instead of "tool_use"'):
+        async for event in m.structured_output(Person, [{"role": "user", "content": [{"text": "?"}]}]):
+            assert "output" not in event
