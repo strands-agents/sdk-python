@@ -4,10 +4,13 @@ import base64
 import os
 import threading
 import time
+from uuid import uuid4
 
 import pytest
 import requests
 import uvicorn
+from a2a.types import Message, Part, Role, SendMessageRequest
+from google.protobuf.json_format import MessageToDict
 
 from strands import Agent
 from strands.multiagent.a2a import A2AServer
@@ -20,9 +23,6 @@ async def test_a2a_executor_with_real_image():
     test_image_path = os.path.join(os.path.dirname(__file__), "resources/yellow.png")
     with open(test_image_path, "rb") as f:
         original_image_bytes = f.read()
-
-    # Encode as base64 (A2A format)
-    base64_image = base64.b64encode(original_image_bytes).decode("utf-8")
 
     # Create real Strands agent
     strands_agent = Agent(name="Test Image Agent", description="Agent for testing image processing")
@@ -37,29 +37,21 @@ async def test_a2a_executor_with_real_image():
     time.sleep(1)  # Give server time to start
 
     try:
-        # Create A2A message with real image
+        # Build the A2A SendMessage request via the SDK's own types so the wire format
+        # (camelCase field names, base64-encoded `raw` bytes) always matches the server.
+        message = Message(
+            message_id=str(uuid4()),
+            role=Role.ROLE_USER,
+            parts=[
+                Part(text="What primary color is this image, respond with NONE if you are unsure"),
+                Part(raw=original_image_bytes, media_type="image/png", filename="image.png"),
+            ],
+        )
         message_payload = {
             "jsonrpc": "2.0",
             "id": "test-image-request",
-            "method": "message/send",
-            "params": {
-                "message": {
-                    "messageId": "msg-123",
-                    "role": "user",
-                    "parts": [
-                        {
-                            "kind": "text",
-                            "text": "What primary color is this image, respond with NONE if you are unsure",
-                            "metadata": None,
-                        },
-                        {
-                            "kind": "file",
-                            "file": {"name": "image.png", "mimeType": "image/png", "bytes": base64_image},
-                            "metadata": None,
-                        },
-                    ],
-                }
-            },
+            "method": "SendMessage",
+            "params": MessageToDict(SendMessageRequest(message=message)),
         }
 
         # Send request to A2A server
@@ -70,12 +62,12 @@ async def test_a2a_executor_with_real_image():
         # Verify response
         assert response.status_code == 200
         response_data = response.json()
-        assert "completed" == response_data["result"]["status"]["state"]
+        assert "TASK_STATE_COMPLETED" == response_data["result"]["status"]["state"]
         all_text = " ".join(
             part["text"]
             for artifact in response_data["result"]["artifacts"]
             for part in artifact["parts"]
-            if part.get("kind") == "text"
+            if "text" in part
         ).lower()
         assert "yellow" in all_text
 

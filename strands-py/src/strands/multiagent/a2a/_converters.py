@@ -1,10 +1,11 @@
 """Conversion functions between Strands and A2A types."""
 
+from collections.abc import Sequence
 from typing import cast
 from uuid import uuid4
 
 from a2a.types import Message as A2AMessage
-from a2a.types import Part, Role, TaskArtifactUpdateEvent, TaskState, TaskStatusUpdateEvent, TextPart
+from a2a.types import Part, Role, TaskState
 
 from ...agent.agent_result import AgentResult
 from ...telemetry.metrics import EventLoopMetrics
@@ -15,13 +16,23 @@ from ...types.event_loop import StopReason
 
 # Mapping from A2A TaskState to Strands stop_reason
 _STATE_TO_STOP_REASON: dict[TaskState, StopReason] = {
-    TaskState.completed: "end_turn",
-    TaskState.failed: "end_turn",
-    TaskState.canceled: "end_turn",
-    TaskState.rejected: "end_turn",
-    TaskState.input_required: "interrupt",
-    TaskState.auth_required: "interrupt",
+    TaskState.TASK_STATE_COMPLETED: "end_turn",
+    TaskState.TASK_STATE_FAILED: "end_turn",
+    TaskState.TASK_STATE_CANCELED: "end_turn",
+    TaskState.TASK_STATE_REJECTED: "end_turn",
+    TaskState.TASK_STATE_INPUT_REQUIRED: "interrupt",
+    TaskState.TASK_STATE_AUTH_REQUIRED: "interrupt",
 }
+
+
+def _task_state_to_str(task_state: TaskState) -> str:
+    """Render a TaskState as the kebab-case wire string used by the A2A v0.3 JSON spec.
+
+    v1.0's protobuf enum names are SCREAMING_SNAKE_CASE (e.g. ``TASK_STATE_INPUT_REQUIRED``);
+    this keeps ``AgentResult.state["a2a_task_state"]`` stable for existing Strands callers.
+    """
+    name: str = TaskState.Name(task_state)  # type: ignore[attr-defined]
+    return name.removeprefix("TASK_STATE_").lower().replace("_", "-")
 
 
 def convert_input_to_message(prompt: AgentInput) -> A2AMessage:
@@ -40,9 +51,8 @@ def convert_input_to_message(prompt: AgentInput) -> A2AMessage:
 
     if isinstance(prompt, str):
         return A2AMessage(
-            kind="message",
-            role=Role.user,
-            parts=[Part(TextPart(kind="text", text=prompt))],
+            role=Role.ROLE_USER,
+            parts=[Part(text=prompt)],
             message_id=message_id,
         )
 
@@ -57,16 +67,14 @@ def convert_input_to_message(prompt: AgentInput) -> A2AMessage:
                     content = cast(list[ContentBlock], msg.get("content", []))
                     parts = convert_content_blocks_to_parts(content)
                     return A2AMessage(
-                        kind="message",
-                        role=Role.user,
+                        role=Role.ROLE_USER,
                         parts=parts,
                         message_id=message_id,
                     )
         else:
             parts = convert_content_blocks_to_parts(cast(list[ContentBlock], prompt))
             return A2AMessage(
-                kind="message",
-                role=Role.user,
+                role=Role.ROLE_USER,
                 parts=parts,
                 message_id=message_id,
             )
@@ -86,29 +94,45 @@ def convert_content_blocks_to_parts(content_blocks: list[ContentBlock]) -> list[
     parts = []
     for block in content_blocks:
         if "text" in block:
-            parts.append(Part(TextPart(kind="text", text=block["text"])))
+            parts.append(Part(text=block["text"]))
     return parts
 
 
 def _extract_task_state(response: A2AResponse) -> TaskState | None:
-    """Extract the task state from an A2A response.
+    """Extract the task state carried by a single A2A StreamResponse, if any.
 
     Args:
-        response: A2A response (either A2AMessage or tuple of task and update event).
+        response: A single StreamResponse from the A2A event stream.
 
     Returns:
-        The TaskState if available, None otherwise.
+        The TaskState if this response carries one (a ``task`` or ``status_update``), else None.
     """
-    if isinstance(response, tuple) and len(response) == 2:
-        _task, update_event = response
-        if isinstance(update_event, TaskStatusUpdateEvent):
-            if update_event.status and hasattr(update_event.status, "state"):
-                return update_event.status.state
+    if response.HasField("status_update"):
+        return response.status_update.status.state
+    if response.HasField("task"):
+        return response.task.status.state
     return None
 
 
-def convert_response_to_agent_result(response: A2AResponse) -> AgentResult:
-    """Convert A2A response to AgentResult.
+def _parts_to_content(parts: Sequence[Part]) -> list[ContentBlock]:
+    """Convert a sequence of A2A text Parts into Strands ContentBlocks, dropping non-text parts."""
+    return [{"text": part.text} for part in parts if part.HasField("text")]
+
+
+def convert_responses_to_agent_result(responses: Sequence[A2AResponse]) -> AgentResult:
+    """Convert the full sequence of A2A StreamResponse events from one call into an AgentResult.
+
+    A2A v1.0 streams flat ``StreamResponse`` events (``task`` | ``message`` | ``status_update`` |
+    ``artifact_update``) rather than pairing a cumulative Task with each update, so the final
+    content is reconstructed across the whole stream:
+    - ``artifact_update`` parts accumulate: a compliant-streaming server sends incremental deltas,
+      while a non-compliant server that sends the full text once still works, as that is then the
+      only chunk.
+    - ``status_update`` messages are progress narration on non-compliant-streaming servers and
+      would duplicate the artifact content above, so they are only used when no artifact content
+      was found (e.g. a status-only terminal event such as a rejection or failure message).
+    - a bare ``task`` or ``message`` response (no separate update events) supplies content
+      directly.
 
     Maps A2A task lifecycle states to appropriate Strands stop_reasons:
     - completed → end_turn
@@ -119,47 +143,36 @@ def convert_response_to_agent_result(response: A2AResponse) -> AgentResult:
     - auth_required → interrupt (agent needs authentication)
 
     Args:
-        response: A2A response (either A2AMessage or tuple of task and update event).
+        responses: All StreamResponse events observed for one ``send_message`` call, in order.
 
     Returns:
         AgentResult with extracted content and metadata.
     """
-    content: list[ContentBlock] = []
-    task_state = _extract_task_state(response)
+    artifact_content: list[ContentBlock] = []
+    status_message_content: list[ContentBlock] = []
+    task_content: list[ContentBlock] = []
+    message_content: list[ContentBlock] = []
+    task_state: TaskState | None = None
+
+    for response in responses:
+        state = _extract_task_state(response)
+        if state is not None:
+            task_state = state
+
+        if response.HasField("artifact_update"):
+            artifact_content.extend(_parts_to_content(response.artifact_update.artifact.parts))
+        elif response.HasField("status_update"):
+            if response.status_update.status.HasField("message"):
+                status_message_content = _parts_to_content(response.status_update.status.message.parts)
+        elif response.HasField("task"):
+            task_content = [
+                content for artifact in response.task.artifacts for content in _parts_to_content(artifact.parts)
+            ]
+        elif response.HasField("message"):
+            message_content = _parts_to_content(response.message.parts)
+
+    content = artifact_content or status_message_content or task_content or message_content
     stop_reason: StopReason = _STATE_TO_STOP_REASON.get(task_state, "end_turn") if task_state else "end_turn"
-
-    if isinstance(response, tuple) and len(response) == 2:
-        task, update_event = response
-
-        # Handle artifact updates
-        if isinstance(update_event, TaskArtifactUpdateEvent):
-            if update_event.artifact and hasattr(update_event.artifact, "parts") and update_event.artifact.parts:
-                for part in update_event.artifact.parts:
-                    if hasattr(part, "root") and hasattr(part.root, "text"):
-                        content.append({"text": part.root.text})
-        # Handle status updates with messages
-        elif isinstance(update_event, TaskStatusUpdateEvent):
-            if (
-                update_event.status
-                and hasattr(update_event.status, "message")
-                and update_event.status.message
-                and update_event.status.message.parts
-            ):
-                for part in update_event.status.message.parts:
-                    if hasattr(part, "root") and hasattr(part.root, "text"):
-                        content.append({"text": part.root.text})
-
-        # Use task.artifacts when no content was extracted from the event
-        if not content and task and hasattr(task, "artifacts") and task.artifacts is not None:
-            for artifact in task.artifacts:
-                if hasattr(artifact, "parts") and artifact.parts:
-                    for part in artifact.parts:
-                        if hasattr(part, "root") and hasattr(part.root, "text"):
-                            content.append({"text": part.root.text})
-    elif isinstance(response, A2AMessage):
-        for part in response.parts:
-            if hasattr(part, "root") and hasattr(part.root, "text"):
-                content.append({"text": part.root.text})
 
     message: Message = {
         "role": "assistant",
@@ -167,13 +180,13 @@ def convert_response_to_agent_result(response: A2AResponse) -> AgentResult:
     }
 
     # Build state dict with A2A metadata
-    state: dict[str, str] = {}
+    state_dict: dict[str, str] = {}
     if task_state is not None:
-        state["a2a_task_state"] = task_state.value
+        state_dict["a2a_task_state"] = _task_state_to_str(task_state)
 
     return AgentResult(
         stop_reason=stop_reason,
         message=message,
         metrics=EventLoopMetrics(),
-        state=state,
+        state=state_dict,
     )

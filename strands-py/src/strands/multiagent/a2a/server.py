@@ -9,11 +9,11 @@ from typing import Any, Literal
 from urllib.parse import urlparse
 
 import uvicorn
-from a2a.server.apps import A2AFastAPIApplication, A2AStarletteApplication
 from a2a.server.events import QueueManager
 from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.routes import add_a2a_routes_to_fastapi, create_agent_card_routes, create_jsonrpc_routes
 from a2a.server.tasks import InMemoryTaskStore, PushNotificationConfigStore, PushNotificationSender, TaskStore
-from a2a.types import AgentCapabilities, AgentCard, AgentSkill
+from a2a.types import AgentCapabilities, AgentCard, AgentInterface, AgentSkill
 from fastapi import FastAPI
 from starlette.applications import Starlette
 
@@ -124,6 +124,8 @@ class A2AServer:
         self.name = self.strands_agent.name
         self.description = self.strands_agent.description
         self.capabilities = AgentCapabilities(streaming=True)
+        self._agent_skills = skills
+        self._agent_card_url: str | None = None
         self.request_handler = DefaultRequestHandler(
             agent_executor=StrandsA2AExecutor(
                 agent,
@@ -135,9 +137,8 @@ class A2AServer:
             queue_manager=queue_manager,
             push_config_store=push_config_store,
             push_sender=push_sender,
+            agent_card=self.public_agent_card,
         )
-        self._agent_skills = skills
-        self._agent_card_url: str | None = None
         logger.info("Strands' integration with A2A is experimental. Be aware of frequent breaking changes.")
 
     def _parse_public_url(self, url: str) -> tuple[str, str]:
@@ -181,7 +182,7 @@ class A2AServer:
         return AgentCard(
             name=self.name,
             description=self.description,
-            url=self.agent_card_url,
+            supported_interfaces=[AgentInterface(protocol_binding="JSONRPC", url=self.agent_card_url)],
             version=self.version,
             skills=self.agent_skills,
             default_input_modes=["text"],
@@ -247,9 +248,9 @@ class A2AServer:
         Returns:
             Starlette: A Starlette application configured to serve this agent.
         """
-        a2a_app = A2AStarletteApplication(agent_card=self.public_agent_card, http_handler=self.request_handler).build(
-            **app_kwargs or {}
-        )
+        routes = create_agent_card_routes(self.public_agent_card)
+        routes.extend(create_jsonrpc_routes(self.request_handler, rpc_url="/"))
+        a2a_app = Starlette(routes=routes, **(app_kwargs or {}))
 
         if self.mount_path:
             # Create parent app and mount the A2A app at the specified path
@@ -272,8 +273,11 @@ class A2AServer:
         Returns:
             FastAPI: A FastAPI application configured to serve this agent.
         """
-        a2a_app = A2AFastAPIApplication(agent_card=self.public_agent_card, http_handler=self.request_handler).build(
-            **app_kwargs or {}
+        a2a_app = FastAPI(**(app_kwargs or {}))
+        add_a2a_routes_to_fastapi(
+            a2a_app,
+            agent_card_routes=create_agent_card_routes(self.public_agent_card),
+            jsonrpc_routes=create_jsonrpc_routes(self.request_handler, rpc_url="/"),
         )
 
         if self.mount_path:
