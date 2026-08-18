@@ -6,4 +6,4 @@ languages:
   python:
     package: sigil-sdk-strands
 github: https://github.com/grafana/agento11y
-addedDate: 2026-07-21
+addedDate: 2026-04-29

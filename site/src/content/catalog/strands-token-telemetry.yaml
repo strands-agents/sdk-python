@@ -6,4 +6,4 @@ languages:
   python:
     package: strands-token-telemetry
 github: https://github.com/flockcover/strands-token-telemetry
-addedDate: 2026-07-19
+addedDate: 2026-02-20
