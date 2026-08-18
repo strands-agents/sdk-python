@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
@@ -17,8 +16,6 @@ from ..model import Model
 from .fallback_strategy import FallbackStrategy
 from .router import ModelRouter, RoutingCandidate
 from .strategy import RoutingContext
-
-logger = logging.getLogger(__name__)
 
 _CLASSIFICATION_MESSAGE_CHARACTER_LIMIT = 4_000
 _CLASSIFICATION_SYSTEM_PROMPT_CHARACTER_LIMIT = 4_000
@@ -152,13 +149,17 @@ class InputComplexityStrategy:
     """Choose the concrete candidate best suited to each opening request.
 
     Classification adds one model call. The default classifier is Bedrock Claude Haiku 4.5 through a global inference
-    profile; this default may change. Classification failures are logged and recover to candidate zero. Candidate
-    order has no other capability meaning.
+    profile; this default may change. Candidate declaration order does not inform classification. Classifier failures
+    propagate before a candidate is selected.
 
-    Nested routers are unsupported. Custom or opaque candidates require descriptions. Runtime model failures use the
-    standard ``FallbackStrategy``; set ``ModelRouter(max_switches=0)`` to disable switching. The classifier receives
-    bounded request text and allowlisted model facts; raw model configuration, guarded text, and opaque content are
-    excluded.
+    Classification runs only for the opening selection. If the selected candidate fails while serving the request,
+    subsequent attempts use the standard ``FallbackStrategy`` instead of calling the classifier again. It excludes
+    candidates already tried since the last success, prefers candidates with fewer recorded failures, and uses
+    declaration order to break ties. The existing ``ModelRouter(max_switches=0)`` behavior prevents switching to
+    another candidate.
+
+    Nested routers are unsupported. Custom or opaque candidates require descriptions. The classifier receives bounded
+    request text and allowlisted model facts; raw model configuration, guarded text, and opaque content are excluded.
     """
 
     def __init__(
@@ -194,7 +195,7 @@ class InputComplexityStrategy:
         self._classifier_lock = asyncio.Lock()
 
     async def select(self, context: RoutingContext, **kwargs: Any) -> RoutingCandidate | None:
-        """Select an opening candidate, or use standard fallback after a model failure."""
+        """Classify an opening candidate, or use standard fallback after a model failure."""
         if context.attempts:
             return await self._fallback.select(context, **kwargs)
 
@@ -203,24 +204,10 @@ class InputComplexityStrategy:
             return context.candidates[0]
 
         profiles = tuple(_candidate_profile(candidate, index) for index, candidate in enumerate(context.candidates))
-        try:
-            selected_index = await asyncio.wait_for(
-                self._classify(context, profiles),
-                timeout=self._classifier_timeout,
-            )
-        except Exception as error:
-            reason = (
-                "classifier_timeout" if isinstance(error, (TimeoutError, asyncio.TimeoutError)) else "classifier_error"
-            )
-            logger.warning(
-                "strategy=<%s>, error_type=<%s>, reason=<%s> | classification failed | "
-                "using first configured candidate",
-                type(self).__name__,
-                type(error).__name__,
-                reason,
-            )
-            return context.candidates[0]
-
+        selected_index = await asyncio.wait_for(
+            self._classify(context, profiles),
+            timeout=self._classifier_timeout,
+        )
         return context.candidates[selected_index]
 
     async def _get_classifier_model(self) -> Model:
