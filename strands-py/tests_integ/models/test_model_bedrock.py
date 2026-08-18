@@ -392,8 +392,7 @@ def test_prompt_caching_with_5m_ttl(quiet_strands_logging):
 
 
 def test_prompt_caching_with_1h_ttl(quiet_strands_logging):
-    """Test prompt caching with 1 hour TTL and verify cache metrics.
-    """
+    """Test prompt caching with 1 hour TTL and verify cache metrics."""
     model = BedrockModel(
         model_id="us.anthropic.claude-haiku-4-5-20251001-v1:0",
         streaming=False,

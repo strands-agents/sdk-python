@@ -3344,9 +3344,7 @@ def test_cache_strategy_auto_maps_claude_to_anthropic(bedrock_client):
     )
     assert model._cache_strategy == "anthropic"
 
-    model2 = BedrockModel(
-        model_id="anthropic.claude-3-haiku-20240307-v1:0", cache_config=CacheConfig(strategy="auto")
-    )
+    model2 = BedrockModel(model_id="anthropic.claude-3-haiku-20240307-v1:0", cache_config=CacheConfig(strategy="auto"))
     assert model2._cache_strategy == "anthropic"
 
 

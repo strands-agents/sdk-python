@@ -2087,9 +2087,7 @@ class TestPromptCaching:
 
     def test_dynamic_trailing_blocks_covers_every_block_of_a_multi_block_tail(self, model):
         model.update_config(cache_config=CacheConfig(strategy="auto"))
-        messages = [
-            {"role": "user", "content": [{"text": "durable ask"}, {"text": "injected"}, {"text": "status"}]}
-        ]
+        messages = [{"role": "user", "content": [{"text": "durable ask"}, {"text": "injected"}, {"text": "status"}]}]
 
         request = model.format_request(messages, dynamic_trailing_blocks=2)
 
