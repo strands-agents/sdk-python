@@ -483,6 +483,7 @@ class BedrockInvokeModel(BedrockModel):
         tool_specs: list[ToolSpec] | None = None,
         system_prompt_content: list[SystemContentBlock] | None = None,
         tool_choice: ToolChoice | None = None,
+        dynamic_trailing_blocks: int = 0,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Reject Converse-shaped request formatting, which this provider never sends.
@@ -492,6 +493,8 @@ class BedrockInvokeModel(BedrockModel):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt_content: Structured system prompt content blocks.
             tool_choice: Selection strategy for tool invocation.
+            dynamic_trailing_blocks: How many trailing blocks of the last user message are rebuilt on every
+                call, so the cache point goes ahead of them.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Raises:
