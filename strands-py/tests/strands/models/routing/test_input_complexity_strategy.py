@@ -113,13 +113,13 @@ async def test_default_classifier_is_lazy_and_shared_across_concurrent_selection
 
 
 @pytest.mark.asyncio
-async def test_default_classifier_creation_failure_recovers_and_retries(monkeypatch, caplog):
+async def test_default_classifier_creation_failure_propagates_and_retries(monkeypatch):
     created = 0
 
     def fail_creation():
         nonlocal created
         created += 1
-        raise RuntimeError("credential-secret")
+        raise RuntimeError("classifier unavailable")
 
     monkeypatch.setattr(
         "strands.models.routing.input_complexity_strategy._create_default_classifier_model", fail_creation
@@ -127,12 +127,11 @@ async def test_default_classifier_creation_failure_recovers_and_retries(monkeypa
     strategy = InputComplexityStrategy()
     router = ModelRouter(models=[_response_model("first"), _response_model("second")], strategy=strategy)
 
-    with caplog.at_level("WARNING", logger="strands.models.routing.input_complexity_strategy"):
-        selections = [await strategy.select(_context(router)), await strategy.select(_context(router))]
+    for _ in range(2):
+        with pytest.raises(RuntimeError, match="classifier unavailable"):
+            await strategy.select(_context(router))
 
-    assert selections == [router.candidates[0], router.candidates[0]]
     assert created == 2
-    assert "credential-secret" not in caplog.text
 
 
 def test_default_classifier_configuration(monkeypatch):
@@ -387,37 +386,34 @@ async def test_fixed_system_prompt_frames_untrusted_context():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "classifier",
+    ("classifier", "error_type", "match"),
     [
-        _ClassifierModel(selected_index=2),
-        _ClassifierModel(output={"selected_candidate_index": 1}),
-        _ClassifierModel(error=RuntimeError("provider included user-secret")),
+        (_ClassifierModel(selected_index=2), ValueError, "classifier selected an unknown candidate"),
+        (
+            _ClassifierModel(output={"selected_candidate_index": 1}),
+            ValueError,
+            "classifier returned an invalid structured result",
+        ),
+        (_ClassifierModel(error=RuntimeError("provider unavailable")), RuntimeError, "provider unavailable"),
     ],
     ids=["out-of-range", "invalid-output", "provider-error"],
 )
-async def test_classifier_failure_recovers_without_sensitive_logs(classifier, caplog):
+async def test_classifier_failure_propagates(classifier, error_type, match):
     strategy = InputComplexityStrategy(classifier_model=classifier)
     router = ModelRouter(models=[_response_model("first"), _response_model("second")], strategy=strategy)
 
-    with caplog.at_level("WARNING", logger="strands.models.routing.input_complexity_strategy"):
-        selected = await strategy.select(_context(router))
-
-    assert selected is router.candidates[0]
-    assert "reason=<classifier_error>" in caplog.text
-    assert "user-secret" not in caplog.text
+    with pytest.raises(error_type, match=match):
+        await strategy.select(_context(router))
 
 
 @pytest.mark.asyncio
-async def test_classifier_timeout_recovers_to_candidate_zero(caplog):
+async def test_classifier_timeout_propagates():
     classifier = _ClassifierModel(delay=1)
     strategy = InputComplexityStrategy(classifier_model=classifier, classifier_timeout=0.001)
     router = ModelRouter(models=[_response_model("first"), _response_model("second")], strategy=strategy)
 
-    with caplog.at_level("WARNING", logger="strands.models.routing.input_complexity_strategy"):
-        selected = await strategy.select(_context(router))
-
-    assert selected is router.candidates[0]
-    assert "reason=<classifier_timeout>" in caplog.text
+    with pytest.raises(asyncio.TimeoutError):
+        await strategy.select(_context(router))
 
 
 @pytest.mark.parametrize(
