@@ -684,7 +684,7 @@ def test_format_chunk_metadata_without_cache_tokens():
 
 
 def test_format_chunk_metadata_with_cost():
-    """format_chunk sets usage.totalCost when the model can be priced."""
+    """format_chunk sets usage.totalCostUsd when the model can be priced."""
     model = LiteLLMModel(model_id="openai/gpt-4o")
 
     mock_usage = unittest.mock.Mock()
@@ -699,11 +699,11 @@ def test_format_chunk_metadata_with_cost():
     with unittest.mock.patch.object(model, "_compute_cost", return_value=0.0045):
         result = model.format_chunk(event)
 
-    assert result["metadata"]["usage"]["totalCost"] == 0.0045
+    assert result["metadata"]["usage"]["totalCostUsd"] == 0.0045
 
 
 def test_format_chunk_metadata_without_cost_when_unpriceable():
-    """format_chunk omits totalCost when the model cannot be priced, so absence means untracked."""
+    """format_chunk omits totalCostUsd when the model cannot be priced, so absence means untracked."""
     model = LiteLLMModel(model_id="test")
 
     mock_usage = unittest.mock.Mock()
@@ -718,7 +718,7 @@ def test_format_chunk_metadata_without_cost_when_unpriceable():
     with unittest.mock.patch.object(model, "_compute_cost", return_value=None):
         result = model.format_chunk(event)
 
-    assert "totalCost" not in result["metadata"]["usage"]
+    assert "totalCostUsd" not in result["metadata"]["usage"]
 
 
 def test_compute_cost_forwards_cache_tokens():

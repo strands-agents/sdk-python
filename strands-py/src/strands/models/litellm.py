@@ -330,7 +330,7 @@ class LiteLLMModel(OpenAIModel):
             # Cost is left unset when the model cannot be priced, so consumers can distinguish
             # "not tracked" from a genuine zero.
             if (cost := self._compute_cost(event["data"])) is not None:
-                usage_data["totalCost"] = cost
+                usage_data["totalCostUsd"] = cost
 
             return StreamEvent(
                 metadata=MetadataEvent(
