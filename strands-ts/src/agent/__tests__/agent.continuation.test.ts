@@ -61,6 +61,37 @@ describe('Agent continuation input', () => {
     )
   })
 
+  it('preserves an unrecognized stop reason instead of continuing', async () => {
+    // Unknown provider stop reasons must remain terminal (#3837).
+    const stopReason = 'providerSpecificStop'
+    const model = new MockMessageModel()
+      .addTurn({ type: 'textBlock', text: 'partial' }, { stopReason })
+      .addTurn({ type: 'textBlock', text: 'unreachable' })
+    const abandoned = vi.fn()
+    const agent = new Agent({ model, printer: false })
+    let added = false
+
+    agent.addHook(AfterInvocationEvent, (event) => {
+      if (added) return
+      added = true
+      continuations.addInput(event, { args: 'pending', onAbandoned: abandoned })
+    })
+
+    const result = await agent.invoke('start')
+
+    expect({
+      stopReason: result.stopReason,
+      modelCalls: model.callCount,
+      messages: agent.messages.map(textOf),
+      abandoned: abandoned.mock.calls.length,
+    }).toEqual({
+      stopReason,
+      modelCalls: 1,
+      messages: ['start', 'partial'],
+      abandoned: 1,
+    })
+  })
+
   it('appends a complete tool exchange contributed before the model call', async () => {
     const model = textModel('final')
     const requests = captureRequests(model)
