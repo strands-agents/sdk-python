@@ -30,6 +30,16 @@ class ToolSpec(TypedDict):
         outputSchema: Optional JSON Schema defining the expected output format.
             Note: Not all model providers support this field. Providers that don't
             support it should filter it out before sending to their API.
+        annotations: Optional metadata describing tool behavior (e.g. MCP tool
+            annotations such as `readOnlyHint` or `destructiveHint`). Distinct
+            from content-level annotations on tool results.
+            Annotations are untrusted hints from the tool provider, not
+            guarantees; consumers such as permission layers must not treat them
+            as a security boundary. A missing key means unknown, not False:
+            per MCP spec `destructiveHint` and `openWorldHint` default to True
+            when absent (`readOnlyHint` and `idempotentHint` default to False),
+            and this field is absent entirely for non-MCP tools. This field is
+            not sent to model provider APIs.
         strict: Optional Boolean that ensures the model will only output tool calls
             containing parameters that perfectly match the defined input schema.
             Note: When using strict mode, optional parameters must be explicitly typed
@@ -42,6 +52,7 @@ class ToolSpec(TypedDict):
     inputSchema: JSONSchema
     name: str
     outputSchema: NotRequired[JSONSchema]
+    annotations: NotRequired[dict[str, object]]
     strict: NotRequired[bool]
 
 

@@ -4,7 +4,8 @@ import { MockMessageModel } from '../../__fixtures__/mock-message-model.js'
 import { SlidingWindowConversationManager } from '../../conversation-manager/sliding-window-conversation-manager.js'
 import { SummarizingConversationManager } from '../../conversation-manager/summarizing-conversation-manager.js'
 import { ContextOffloader } from '../../vended-plugins/context-offloader/plugin.js'
-import { InMemoryStorage } from '../../vended-plugins/context-offloader/storage.js'
+import { InMemoryStorage as LegacyInMemoryStorage } from '../../vended-plugins/context-offloader/storage.js'
+import { NAMESPACED } from '../../storage/storage.js'
 import type { ConversationManager } from '../../conversation-manager/conversation-manager.js'
 
 function internals(agent: Agent): any {
@@ -56,15 +57,16 @@ describe('Agent contextManager', () => {
       expect(conversationManager._compressionThreshold).toBe(0.85)
     })
 
-    it('adds ContextOffloader plugin with benchmark defaults', () => {
+    it('adds ContextOffloader plugin with benchmark defaults', async () => {
       const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'hi' })
       const agent = new Agent({ model, contextManager: 'auto' })
-      const pending = getPending(agent)
-      const offloader = pending.find((p: any) => p.name === 'strands:context-offloader') as any
+      await agent.invoke('hi')
+      const plugins = internals(agent)._pluginRegistry._plugins
+      const offloader = plugins.get('strands:context-offloader') as any
       expect(offloader).toBeDefined()
       expect(offloader._maxResultTokens).toBe(1500)
       expect(offloader._previewTokens).toBe(750)
-      expect(offloader._storage).toBeInstanceOf(InMemoryStorage)
+      expect(NAMESPACED in offloader._storage).toBe(true)
     })
   })
 
@@ -87,7 +89,7 @@ describe('Agent contextManager', () => {
     it('does not add duplicate ContextOffloader if user provides one', () => {
       const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'hi' })
       const userOffloader = new ContextOffloader({
-        storage: new InMemoryStorage(),
+        storage: new LegacyInMemoryStorage(),
         maxResultTokens: 3000,
         previewTokens: 1000,
       })

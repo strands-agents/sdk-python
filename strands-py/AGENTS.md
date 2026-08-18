@@ -57,15 +57,7 @@ pre-commit install -t pre-commit -t commit-msg # Install hooks
 
 ### 3. Pull Request Guidelines
 
-When creating pull requests, you MUST follow the guidelines in [PR.md](../team/PR.md). Key principles:
-
-- Focus on WHY: Explain motivation and user impact, not implementation details
-- Document public API changes: Show before/after code examples
-- Be concise: Use prose over bullet lists; avoid exhaustive checklists
-- Target senior engineers: Assume familiarity with the SDK
-- Exclude implementation details: Leave these to code comments and diffs
-
-See [PR.md](../team/PR.md) for the complete guidance and template.
+When creating pull requests, you MUST follow the guidelines and template in [PR.md](../team/PR.md).
 
 ### 4. Quality Gates
 
@@ -214,7 +206,7 @@ class XModel(Model):
 - **Never buffer a stream into a list before yielding.** Consume upstream async iterables with `async for` and yield as you go.
 - **Async-first with thin sync facades.** Public APIs come in async form (`invoke_async`, `stream_async`) plus thin sync wrappers (`__call__`, `invoke`) that delegate via `_async.run_async`. Never block the event loop — wrap blocking or third-party-sync calls in `asyncio.to_thread` (see `bedrock.py`).
 - **The floor is Python 3.10.** Do not use `asyncio.TaskGroup` or `asyncio.timeout` (3.11+) without a `sys.version_info` gate and a 3.10 fallback (see `multiagent/swarm.py`); for concurrent work use `asyncio.create_task` and clean up in `finally` with `task.cancel()` then `await asyncio.gather(*tasks, return_exceptions=True)`.
-- **Cancellation is cooperative.** It uses an internal `threading.Event` set by `agent.cancel()` and checked at turn/tool boundaries (see `agent/_concurrency.py`); the SDK does not accept an external cancel token. *(The TypeScript SDK uses `AbortSignal` instead — see its AGENTS.md.)*
+- **Cancellation is cooperative.** Long-running integrations must propagate and observe the agent cancellation signal rather than blocking the event loop. *(The TypeScript SDK uses `AbortSignal` instead — see its AGENTS.md.)*
 
 ## MCP Tasks (Experimental)
 
@@ -338,7 +330,7 @@ hatch build                    # Build package
 
 ### Code Comments
 
-Comments explain WHAT/WHY and stay evergreen — the full rule (including how it applies to tests, and the deprecated/legacy nuance) is in the [root AGENTS.md](../AGENTS.md).
+Comments are to-the-point, state only what cannot be inferred from the code, and stay evergreen. The full rule (including how it applies to tests, and the deprecated/legacy nuance) is in the [root AGENTS.md](../AGENTS.md).
 
 ### Code Review Considerations
 

@@ -4,6 +4,7 @@ import { ContextWindowOverflowError, Message, TextBlock, ToolUseBlock, ToolResul
 import { AfterModelCallEvent, BeforeModelCallEvent } from '../../hooks/events.js'
 import { createMockAgent, invokeTrackedHook } from '../../__fixtures__/agent-helpers.js'
 import { MockMessageModel } from '../../__fixtures__/mock-message-model.js'
+import { Model as ModelBase } from '../../models/model.js'
 import type { Model, BaseModelConfig } from '../../models/model.js'
 
 function textMsg(role: 'user' | 'assistant', text: string): Message {
@@ -51,6 +52,23 @@ describe('SummarizingConversationManager', () => {
       })
       // Recent messages preserved
       expect(mockAgent.messages.slice(-2)).toEqual(lastTwo)
+    })
+
+    it('assigns a durable tracking id to the generated summary message', async () => {
+      const model = new MockMessageModel()
+      model.addTurn({ type: 'textBlock', text: 'Summary of conversation' })
+
+      const manager = new SummarizingConversationManager({ summaryRatio: 0.5, preserveRecentMessages: 2 })
+      const mockAgent = createMockAgent({ messages: makeMessages(20) })
+
+      await manager.reduce({
+        agent: mockAgent,
+        model: model as unknown as Model,
+        error: new ContextWindowOverflowError('overflow'),
+      })
+
+      expect(typeof mockAgent.messages[0]!.trackingId).toBe('string')
+      expect(mockAgent.messages[0]!.trackingId).toBeTruthy()
     })
 
     it('uses the config model over the reduce model when provided', async () => {
@@ -332,7 +350,10 @@ describe('SummarizingConversationManager', () => {
       })
       const messages = makeMessages(20)
       const mockAgent = createMockAgent({ messages })
-      const mockModel = { getConfig: () => ({ contextWindowLimit: 1000 }) as BaseModelConfig } as any
+      const mockModel = {
+        getConfig: () => ({ contextWindowLimit: 1000 }) as BaseModelConfig,
+        estimateUtilization: ModelBase.prototype.estimateUtilization,
+      } as any
 
       manager.initAgent(mockAgent)
 
@@ -363,7 +384,10 @@ describe('SummarizingConversationManager', () => {
       })
       const messages = makeMessages(20)
       const mockAgent = createMockAgent({ messages })
-      const mockModel = { getConfig: () => ({ contextWindowLimit: 1000 }) as BaseModelConfig } as any
+      const mockModel = {
+        getConfig: () => ({ contextWindowLimit: 1000 }) as BaseModelConfig,
+        estimateUtilization: ModelBase.prototype.estimateUtilization,
+      } as any
 
       manager.initAgent(mockAgent)
 
@@ -390,7 +414,10 @@ describe('SummarizingConversationManager', () => {
       })
       const messages = makeMessages(20)
       const mockAgent = createMockAgent({ messages })
-      const mockModel = { getConfig: () => ({ contextWindowLimit: 1000 }) as BaseModelConfig } as any
+      const mockModel = {
+        getConfig: () => ({ contextWindowLimit: 1000 }) as BaseModelConfig,
+        estimateUtilization: ModelBase.prototype.estimateUtilization,
+      } as any
 
       manager.initAgent(mockAgent)
 

@@ -67,7 +67,7 @@ jobs:
           allow-unsafe-pr-checkout: true  # opt back into fork-PR checkout, blocked by default in checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
 
@@ -121,17 +121,37 @@ jobs:
               pull_number: prNumber,
             });
 
-            // Build preview links for changed doc pages
-            const docFiles = files
-              .filter(f => f.filename.startsWith('site/src/content/docs/') && f.filename.endsWith('.mdx'))
-              .filter(f => f.status !== 'removed');
+            // Map a changed file to the site path it renders at, or null if it
+            // has no page of its own.
+            const toUrlPath = (filename) => {
+              const docsMatch = filename.match(/^site\/src\/content\/docs\/(.+)\.mdx$/);
+              if (docsMatch) {
+                const route = docsMatch[1].replace(/(^|\/)index$/, '');
+                return route ? `/docs/${route}/` : '/docs/';
+              }
+              // Catalog entries all render on the /integrations/ page
+              if (/^site\/src\/content\/catalog\/.+\.ya?ml$/.test(filename)) {
+                return '/integrations/';
+              }
+              // Static Astro pages; dynamic [param] routes have no single URL
+              const pageMatch = filename.match(/^site\/src\/pages\/(.+)\.astro$/);
+              if (pageMatch && !pageMatch[1].includes('[')) {
+                const route = pageMatch[1].replace(/(^|\/)index$/, '');
+                return route ? `/${route}/` : '/';
+              }
+              return null;
+            };
 
-            const previewLinks = docFiles.map(f => {
-              const urlPath = f.filename
-                .replace('site/src/content/docs/', '/docs/')
-                .replace(/\/index\.mdx$/, '/')
-                .replace(/\.mdx$/, '/');
-              const label = urlPath.replace(/^\/docs\//, '').replace(/\/$/, '');
+            // Build preview links for changed pages
+            const urlPaths = [...new Set(
+              files
+                .filter(f => f.status !== 'removed')
+                .map(f => toUrlPath(f.filename))
+                .filter(Boolean)
+            )].sort();
+
+            const previewLinks = urlPaths.map(urlPath => {
+              const label = urlPath.replace(/^\/(docs\/)?/, '').replace(/\/$/, '') || 'home';
               return `- [${label}](${baseUrl}${urlPath})`;
             });
 

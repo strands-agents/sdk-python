@@ -497,6 +497,17 @@ describe('Tracer', () => {
         },
       ])
     })
+
+    it('sets latest convention tool call arguments attribute', () => {
+      vi.stubEnv('OTEL_SEMCONV_STABILITY_OPT_IN', 'gen_ai_latest_experimental')
+      const tracer = new Tracer()
+
+      tracer.startToolCallSpan({
+        tool: { name: 'search', toolUseId: 'call-2', input: { query: 'test' } },
+      })
+
+      expect(mockSpan.getAttributeValue('gen_ai.tool.call.arguments')).toBe('{"query":"test"}')
+    })
   })
 
   describe('endToolCallSpan', () => {
@@ -543,6 +554,47 @@ describe('Tracer', () => {
       expect(parsed[0].role).toBe('tool')
       expect(parsed[0].parts[0].type).toBe('tool_call_response')
       expect(parsed[0].parts[0].id).toBe('call-1')
+    })
+
+    it('sets latest convention tool call result attribute on success', () => {
+      vi.stubEnv('OTEL_SEMCONV_STABILITY_OPT_IN', 'gen_ai_latest_experimental')
+      const tracer = new Tracer()
+      const span = tracer.startToolCallSpan({
+        tool: { name: 'calc', toolUseId: 'call-1', input: {} },
+      })
+
+      const toolResult = new ToolResultBlock({
+        toolUseId: 'call-1',
+        status: 'success',
+        content: [new TextBlock('42')],
+      })
+
+      tracer.endToolCallSpan(span, { toolResult })
+
+      const resultAttr = mockSpan.getAttributeValue('gen_ai.tool.call.result')
+      expect(resultAttr).toBeDefined()
+      const parsed = JSON.parse(resultAttr as string)
+      expect(parsed).toHaveLength(1)
+      expect(parsed[0]).toMatchObject({ text: '42' })
+    })
+
+    it('omits latest convention tool call result attribute on error status', () => {
+      vi.stubEnv('OTEL_SEMCONV_STABILITY_OPT_IN', 'gen_ai_latest_experimental')
+      const tracer = new Tracer()
+      const span = tracer.startToolCallSpan({
+        tool: { name: 'calc', toolUseId: 'call-1', input: {} },
+      })
+
+      const toolResult = new ToolResultBlock({
+        toolUseId: 'call-1',
+        status: 'error',
+        content: [new TextBlock('tool exploded')],
+      })
+
+      tracer.endToolCallSpan(span, { toolResult })
+
+      expect(mockSpan.getAttributeValue('gen_ai.tool.call.result')).toBeUndefined()
+      expect(mockSpan.getAttributeValue('gen_ai.tool.status')).toBe('error')
     })
 
     it('records error on tool failure', () => {
@@ -888,6 +940,81 @@ describe('Tracer', () => {
       })
 
       expect(mockSpan.getAttributeValue('langfuse.observation.type')).toBeUndefined()
+    })
+  })
+
+  describe('span attributes only', () => {
+    // With the opt-in set, message content is recorded as span attributes rather than deprecated
+    // span events, for backends that cannot read events.
+    it('records latest-convention content as span attributes and skips the event when opted in', () => {
+      vi.stubEnv('OTEL_SEMCONV_STABILITY_OPT_IN', 'gen_ai_latest_experimental,gen_ai_span_attributes_only')
+      const tracer = new Tracer()
+
+      tracer.startModelInvokeSpan({ messages: [textMessage('user', 'Hi')] })
+
+      const inputMessages = JSON.stringify([{ role: 'user', parts: [{ type: 'text', content: 'Hi' }] }])
+      expect(mockSpan.calls.setAttributes).toContainEqual({
+        attributes: { 'gen_ai.input.messages': inputMessages },
+      })
+      expect(mockSpan.getEvents('gen_ai.client.inference.operation.details')).toHaveLength(0)
+    })
+
+    it('records latest-convention content as span attributes for Langfuse without opt-in', () => {
+      vi.stubEnv('OTEL_EXPORTER_OTLP_ENDPOINT', 'https://us.cloud.langfuse.com')
+      vi.stubEnv('OTEL_SEMCONV_STABILITY_OPT_IN', 'gen_ai_latest_experimental')
+      const tracer = new Tracer()
+
+      tracer.startModelInvokeSpan({ messages: [textMessage('user', 'Hi')] })
+
+      const inputMessages = JSON.stringify([{ role: 'user', parts: [{ type: 'text', content: 'Hi' }] }])
+      expect(mockSpan.calls.setAttributes).toContainEqual({
+        attributes: { 'gen_ai.input.messages': inputMessages },
+      })
+      expect(mockSpan.getEvents('gen_ai.client.inference.operation.details')).toHaveLength(0)
+    })
+
+    it('emits span events by default without the opt-in or Langfuse', () => {
+      vi.stubEnv('OTEL_EXPORTER_OTLP_ENDPOINT', '')
+      vi.stubEnv('OTEL_EXPORTER_OTLP_TRACES_ENDPOINT', '')
+      vi.stubEnv('LANGFUSE_BASE_URL', '')
+      vi.stubEnv('OTEL_SEMCONV_STABILITY_OPT_IN', 'gen_ai_latest_experimental')
+      const tracer = new Tracer()
+
+      tracer.startModelInvokeSpan({ messages: [textMessage('user', 'Hi')] })
+
+      expect(mockSpan.getEvents('gen_ai.client.inference.operation.details')).toHaveLength(1)
+    })
+
+    it('leaves legacy per-message events as events even when opted in', () => {
+      vi.stubEnv('OTEL_EXPORTER_OTLP_ENDPOINT', '')
+      vi.stubEnv('OTEL_EXPORTER_OTLP_TRACES_ENDPOINT', '')
+      vi.stubEnv('LANGFUSE_BASE_URL', '')
+      vi.stubEnv('OTEL_SEMCONV_STABILITY_OPT_IN', 'gen_ai_span_attributes_only')
+      const tracer = new Tracer()
+
+      tracer.startModelInvokeSpan({ messages: [textMessage('user', 'Hi')] })
+
+      expect(mockSpan.getEvents('gen_ai.user.message')).toHaveLength(1)
+    })
+
+    it('records the memory search query as a span attribute and skips the event when opted in', () => {
+      vi.stubEnv('OTEL_SEMCONV_STABILITY_OPT_IN', 'gen_ai_span_attributes_only')
+      const tracer = new Tracer()
+
+      tracer.startMemorySearchSpan({ query: 'dark mode preference', storeNames: ['personal'] })
+
+      expect(mockSpan.calls.setAttributes).toContainEqual({ attributes: { content: 'dark mode preference' } })
+      expect(mockSpan.getEvents('memory.query')).toHaveLength(0)
+    })
+
+    it('records the memory add content as a span attribute and skips the event when opted in', () => {
+      vi.stubEnv('OTEL_SEMCONV_STABILITY_OPT_IN', 'gen_ai_span_attributes_only')
+      const tracer = new Tracer()
+
+      tracer.startMemoryAddSpan({ content: 'remember dark mode', storeNames: ['personal'] })
+
+      expect(mockSpan.calls.setAttributes).toContainEqual({ attributes: { content: 'remember dark mode' } })
+      expect(mockSpan.getEvents('memory.content')).toHaveLength(0)
     })
   })
 

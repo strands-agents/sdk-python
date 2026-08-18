@@ -15,6 +15,7 @@ from ..plugins.plugin import Plugin
 from ..types.content import ContentBlock, Messages, SystemContentBlock
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
+from ._defaults import DEFAULT_CONTEXT_WINDOW_LIMIT
 
 if TYPE_CHECKING:
     from ..agent.agent import Agent
@@ -138,7 +139,10 @@ class CacheConfig:
             - "auto": Automatically detect model support and inject cachePoint to maximize cache coverage
             - "anthropic": Inject cachePoint in Anthropic-compatible format without model support check
         ttl: Optional TTL duration for cache entries (e.g. "5m", "1h").
-            When specified, auto-injected cache points will include this TTL value.
+            When specified, auto-injected cache points will include this TTL value. Bedrock requires
+            checkpoint TTLs to be non-increasing across toolConfig, system and messages, and rejects a
+            longer TTL that follows a shorter one. This TTL also fills in for a cache point that carries
+            none of its own.
     """
 
     strategy: Literal["auto", "anthropic"] = "auto"
@@ -290,6 +294,31 @@ class Model(abc.ABC):
             Estimated total input tokens.
         """
         return _estimate_tokens_with_heuristic(messages, tool_specs, system_prompt, system_prompt_content)
+
+    def estimate_utilization(self, input_tokens: int) -> float:
+        """Estimate the fraction of the model's context window consumed by the given input token count.
+
+        Resolves the model's context window limit (falling back to :data:`DEFAULT_CONTEXT_WINDOW_LIMIT`
+        with a warning when not configured) and returns ``input_tokens / context_window_limit``.
+
+        Args:
+            input_tokens: Total input token count (e.g. from a model event's projected input tokens).
+
+        Returns:
+            Token usage ratio (0–1+; above 1.0 means overflow).
+        """
+        context_window_limit = self.context_window_limit
+        if not context_window_limit:
+            context_window_limit = DEFAULT_CONTEXT_WINDOW_LIMIT
+            if not getattr(self, "_utilization_limit_warned", False):
+                self._utilization_limit_warned = True
+                logger.warning(
+                    "context_window_limit=<%s> | context_window_limit not set on model, using default"
+                    " for utilization estimate | set context_window_limit in your model config for accurate results",
+                    DEFAULT_CONTEXT_WINDOW_LIMIT,
+                )
+
+        return input_tokens / context_window_limit
 
 
 class _ModelPlugin(Plugin):

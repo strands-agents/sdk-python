@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..agent.state import AgentState
 from ..tools._tool_helpers import generate_missing_tool_result_content
-from ..types.content import ContentBlock, Message
+from ..types.content import ContentBlock, Message, _generate_tracking_id
 from ..types.exceptions import SessionException
 from ..types.session import (
     Session,
@@ -26,7 +26,16 @@ logger = logging.getLogger(__name__)
 
 
 class RepositorySessionManager(SessionManager):
-    """Session manager for persisting agents in a SessionRepository."""
+    """Session manager for persisting agents in a SessionRepository.
+
+    This manager uses a :class:`SessionRepository` (a structured per-message CRUD interface),
+    not the unified :class:`~strands.storage.storage.Storage` protocol. It does not resolve
+    from the agent-level ``storage`` parameter. For snapshot-based persistence that integrates
+    with agent-level storage, use :class:`~strands.session.snapshot_session_manager.SnapshotSessionManager`.
+    """
+
+    # Process-global to avoid repeated log noise when multiple instances see agent-level storage.
+    _warned_storage_ignored: bool = False
 
     def __init__(
         self,
@@ -173,6 +182,13 @@ class RepositorySessionManager(SessionManager):
             agent: Agent to initialize from the session
             **kwargs: Additional keyword arguments for future extensibility.
         """
+        if not RepositorySessionManager._warned_storage_ignored and agent.storage is not None:
+            RepositorySessionManager._warned_storage_ignored = True
+            logger.warning(
+                "agent_id=<%s> | agent-level storage is set but RepositorySessionManager does not use it;"
+                " use SnapshotSessionManager for unified storage integration",
+                agent.agent_id,
+            )
         if agent.agent_id in self._latest_agent_message:
             raise SessionException("The `agent_id` of an agent must be unique in a session.")
         self._latest_agent_message[agent.agent_id] = None
@@ -279,9 +295,7 @@ class RepositorySessionManager(SessionManager):
 
         for index in reversed(tool_use_indices):
             message = messages[index]
-            tool_use_ids = [
-                content["toolUse"]["toolUseId"] for content in message["content"] if "toolUse" in content
-            ]
+            tool_use_ids = [content["toolUse"]["toolUseId"] for content in message["content"] if "toolUse" in content]
 
             next_message = messages[index + 1]
             next_content = next_message["content"]
@@ -305,8 +319,10 @@ class RepositorySessionManager(SessionManager):
             )
 
             # Ensure a toolResult slot exists after this assistant message
+            # This synthesized message bypasses the append chokepoint, so give it a durable
+            # tracking id — matching messages appended through the normal path.
             if not existing_results and non_tool_result_content:
-                messages.insert(index + 1, {"role": "user", "content": []})
+                messages.insert(index + 1, {"role": "user", "content": [], "tracking_id": _generate_tracking_id()})
                 next_message = messages[index + 1]
                 non_tool_result_content = []
 

@@ -7,7 +7,9 @@
  * - Dark bg: #0E0E0E
  */
 
-@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap');
+/* The Figtree web font is loaded via preconnect + <link rel="stylesheet"> in
+   src/components/SiteScripts.astro (included by Head.astro and LandingLayout.astro)
+   rather than an @import here, which would chain a render-blocking fetch. */
 
 /* Dark mode colors. */
 :root {
@@ -56,4 +58,21 @@ a[aria-current="page"]:hover {
 /* Layout */
 :root {
 	--sl-content-width: 50rem;
+}
+/* Embed mode: html[data-embed] is set before paint by the inline script in
+   overrides/Head.astro when the URL carries `?embed` (used by the
+   /integrations docs drawer iframe). Hide all site chrome and collapse the
+   layout offsets it reserved, leaving just the article content. */
+html[data-embed] {
+	--sl-nav-height: 0rem;
+	--sl-mobile-toc-height: 0rem;
+	--sl-content-inline-start: 0rem;
+}
+html[data-embed] .page > header.header,
+html[data-embed] .page > nav.sidebar,
+html[data-embed] .right-sidebar-container,
+html[data-embed] .main-pane main > .content-panel footer,
+html[data-embed] .site-footer,
+html[data-embed] .integrations-back {
+	display: none;
 }

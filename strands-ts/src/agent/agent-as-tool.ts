@@ -15,6 +15,13 @@ import type { ToolContext, ToolStreamGenerator } from '../tools/tool.js'
 import type { ToolSpec } from '../tools/types.js'
 
 /**
+ * Description suffix appended to delegation tools to guide the model.
+ * @internal
+ */
+export const DELEGATION_DESCRIPTION_SUFFIX =
+  ' Calling this tool will return its response directly to the user as the final answer. It should be the only tool called in the turn.'
+
+/**
  * Options for creating an agent tool via {@link Agent.asTool}.
  */
 export interface AgentAsToolOptions {
@@ -49,6 +56,17 @@ export interface AgentAsToolOptions {
    * @defaultValue false
    */
   preserveContext?: boolean
+
+  /**
+   * When true, the orchestrator treats this tool's result as the final
+   * response and exits without an additional model call.
+   *
+   * A delegation tool's description is automatically suffixed with an instruction
+   * telling the model that this tool should be the only tool called in the turn.
+   *
+   * @defaultValue false
+   */
+  delegate?: boolean
 }
 
 /**
@@ -91,6 +109,14 @@ export class AgentAsTool extends Tool {
   readonly description: string
   readonly toolSpec: ToolSpec
 
+  /**
+   * When true, the orchestrator treats this tool's result as the final
+   * response and exits without an additional model call.
+   *
+   * @defaultValue false
+   */
+  readonly delegate: boolean
+
   private readonly _agent: Agent
   private readonly _preserveContext: boolean
   private readonly _initialSnapshot: Snapshot | undefined
@@ -100,6 +126,7 @@ export class AgentAsTool extends Tool {
     super()
     this._agent = config.agent
     this._preserveContext = config.preserveContext ?? false
+    this.delegate = config.delegate ?? false
 
     if (!this._preserveContext && this._agent.sessionManager != null) {
       throw new Error(
@@ -119,6 +146,10 @@ export class AgentAsTool extends Tool {
       config.description ??
       config.agent.description ??
       `Use the ${this.name} agent by providing a natural language input`
+
+    if (this.delegate) {
+      this.description += DELEGATION_DESCRIPTION_SUFFIX
+    }
 
     this.toolSpec = {
       name: this.name,
@@ -144,7 +175,7 @@ export class AgentAsTool extends Tool {
   }
 
   async *stream(toolContext: ToolContext): ToolStreamGenerator {
-    const { toolUse } = toolContext
+    const { toolUse, invocationState, cancelSignal } = toolContext
     const toolUseId = toolUse.toolUseId
 
     // Concurrency guard: loadSnapshot + agent.stream() must not overlap.
@@ -164,7 +195,10 @@ export class AgentAsTool extends Tool {
       // Stream the sub-agent, forwarding the outer invocation's state so
       // mutations in the inner agent's hooks/tools are visible to the outer
       // agent's downstream callbacks and final AgentResult.
-      const gen = this._agent.stream(input, { invocationState: toolContext.invocationState })
+      const gen = this._agent.stream(input, {
+        invocationState,
+        cancelSignal,
+      })
       let next = await gen.next()
       while (!next.done) {
         const event = next.value
@@ -177,6 +211,10 @@ export class AgentAsTool extends Tool {
         next = await gen.next()
       }
       const result = next.value
+
+      if (result.stopReason === 'cancelled') {
+        return createErrorResult(`Agent '${this.name}' cancelled`, toolUseId)
+      }
 
       // Build the tool result
       if (result.structuredOutput !== undefined) {

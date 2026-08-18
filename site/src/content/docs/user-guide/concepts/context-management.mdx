@@ -7,10 +7,7 @@ sourceLinks:
   - path: strands-py/src/strands/agent/conversation_manager/conversation_manager.py
   - path: strands-ts/src/context-manager/modes/agentic/agentic-context.ts
   - path: strands-ts/src/conversation-manager/conversation-manager.ts
-sidebar:
-  badge:
-    text: New
-    variant: tip
+addedDate: 2026-06-12
 ---
 
 As conversations grow, your agent's context window fills with messages, tool results, and system prompts. Without management, this leads to token limit errors, degraded performance, and loss of relevant information.
@@ -86,6 +83,11 @@ agent = Agent(
 </Tabs>
 
 ## Agentic context management
+
+:::caution[Experimental]
+Agentic context management is experimental and may change in future
+versions. Use with caution in production environments.
+:::
 
 Auto mode compresses on a fixed threshold the SDK controls. Agentic mode hands that control to the model. Pass <Syntax py='context_manager="agentic"' ts='contextManager: "agentic"' /> and the model manages its own working memory: it sees how full the context window is and chooses when to compress, what to compress, and what to protect.
 

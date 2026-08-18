@@ -1,3 +1,9 @@
+/**
+ * Agentic context management: model-driven compression via injected tools.
+ *
+ * @experimental This module is experimental and may change in future versions.
+ */
+
 import { z } from 'zod'
 import { Message, TextBlock } from '../../../types/messages.js'
 import { tool } from '../../../tools/tool-factory.js'
@@ -12,7 +18,7 @@ import {
 import type { InvokeModelContext } from '../../../middleware/stages.js'
 import type { MiddlewareInputHandler } from '../../../middleware/types.js'
 import type { Model } from '../../../models/model.js'
-import { DEFAULT_CONTEXT_WINDOW_LIMIT } from '../../../conversation-manager/conversation-manager.js'
+import { DEFAULT_CONTEXT_WINDOW_LIMIT } from '../../../models/defaults.js'
 
 /** Default number of recent messages to preserve verbatim during summarization or truncation. */
 const DEFAULT_KEEP_RECENT_MESSAGES = 10
@@ -204,7 +210,10 @@ export function createTokenUsageMiddleware(model: Model): MiddlewareInputHandler
       ...(lastMessage.metadata && { metadata: lastMessage.metadata }),
     })
 
-    return { ...context, messages }
+    // The live token count makes this block per-call, so a cache point must stay ahead of it. Only
+    // counted for a user message: elsewhere it would move the cache point off an unrelated message.
+    const appended = lastMessage.role === 'user' ? 1 : 0
+    return { ...context, messages, dynamicTrailingBlocks: (context.dynamicTrailingBlocks ?? 0) + appended }
   }
 }
 

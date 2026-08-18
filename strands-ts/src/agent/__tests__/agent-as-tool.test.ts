@@ -5,9 +5,12 @@ import { MockMessageModel } from '../../__fixtures__/mock-message-model.js'
 import { collectGenerator } from '../../__fixtures__/model-test-helpers.js'
 import { createMockContext } from '../../__fixtures__/tool-helpers.js'
 import { ToolValidationError } from '../../errors.js'
-import { Tool, ToolStreamEvent } from '../../tools/tool.js'
+import { BeforeModelCallEvent } from '../../hooks/events.js'
+import { createErrorResult, Tool, ToolStreamEvent } from '../../tools/tool.js'
+import { DELEGATION_DESCRIPTION_SUFFIX } from '../agent-as-tool.js'
 import { ToolResultBlock } from '../../types/messages.js'
 import { SessionManager } from '../../session/session-manager.js'
+import type { Plugin } from '../../plugins/plugin.js'
 import type { SnapshotStorage } from '../../session/storage.js'
 
 describe('AgentAsTool', () => {
@@ -129,6 +132,67 @@ describe('AgentAsTool', () => {
           text: 'Agent response',
         })
       )
+    })
+
+    it('returns an error when the execution signal cancels the wrapped agent', async () => {
+      const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Agent response' })
+      const agent = new Agent({ model, name: 'test-agent', printer: false })
+      const tool = new AgentAsTool({ agent })
+      const controller = new AbortController()
+      agent.addHook(BeforeModelCallEvent, () => controller.abort())
+
+      const context = createMockContext({
+        name: 'test-agent',
+        toolUseId: 'tool-1',
+        input: { input: 'Hello agent' },
+      })
+      context.cancelSignal = controller.signal
+
+      const { result } = await collectGenerator(tool.stream(context))
+
+      expect(result).toEqual(createErrorResult("Agent 'test-agent' cancelled", 'tool-1'))
+    })
+
+    it('does not persist cancellation when the signal aborts during initialization', async () => {
+      let signalInitializationStarted!: () => void
+      const initializationStarted = new Promise<void>((resolve) => {
+        signalInitializationStarted = resolve
+      })
+      let releaseInitialization!: () => void
+      const initializationReleased = new Promise<void>((resolve) => {
+        releaseInitialization = resolve
+      })
+      const plugin: Plugin = {
+        name: 'delayed-initialization',
+        async initAgent(): Promise<void> {
+          signalInitializationStarted()
+          await initializationReleased
+        },
+      }
+      const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Agent response' })
+      const agent = new Agent({ model, name: 'test-agent', plugins: [plugin], printer: false })
+      const tool = new AgentAsTool({ agent, preserveContext: true })
+      const controller = new AbortController()
+      const context = createMockContext({
+        name: 'test-agent',
+        toolUseId: 'tool-1',
+        input: { input: 'Hello agent' },
+      })
+      context.cancelSignal = controller.signal
+
+      const execution = collectGenerator(tool.stream(context))
+      await initializationStarted
+      controller.abort()
+      releaseInitialization()
+      const { result } = await execution
+
+      expect({
+        result,
+        messages: agent.messages,
+      }).toEqual({
+        result: createErrorResult("Agent 'test-agent' cancelled", 'tool-1'),
+        messages: [],
+      })
     })
 
     it('yields ToolStreamEvents wrapping sub-agent events', async () => {
@@ -405,6 +469,28 @@ describe('AgentAsTool', () => {
 
       expect(tool.name).toBe('custom-name')
       expect(tool.description).toBe('Custom desc')
+    })
+
+    it('sets delegate and appends description suffix when delegate is true', () => {
+      const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Hi' })
+      const agent = new Agent({ model, name: 'specialist', description: 'Handles billing', printer: false })
+
+      const tool = agent.asTool({ delegate: true }) as AgentAsTool
+
+      expect(tool.delegate).toBe(true)
+      expect(tool.description).toBe('Handles billing' + DELEGATION_DESCRIPTION_SUFFIX)
+      expect(tool.toolSpec.description).toBe('Handles billing' + DELEGATION_DESCRIPTION_SUFFIX)
+    })
+
+    it('does not set delegate or append description suffix when delegate is false', () => {
+      const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Hi' })
+      const agent = new Agent({ model, name: 'specialist', description: 'Handles billing', printer: false })
+
+      const tool = agent.asTool({ delegate: false }) as AgentAsTool
+
+      expect(tool.delegate).toBe(false)
+      expect(tool.description).toBe('Handles billing')
+      expect(tool.description).not.toContain(DELEGATION_DESCRIPTION_SUFFIX)
     })
   })
 

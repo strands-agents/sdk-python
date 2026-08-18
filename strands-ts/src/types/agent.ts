@@ -1,8 +1,10 @@
 import type { Sandbox } from '../sandbox/base.js'
+import type { Storage } from '../storage/storage.js'
 import type { StateStore } from '../state-store.js'
 import type { ContentBlock, ContentBlockData, Message, MessageData, StopReason, SystemPrompt } from './messages.js'
 import type { Interrupt } from '../interrupt.js'
 import type { InterruptResponseContent, InterruptResponseContentData } from './interrupt.js'
+import type { Checkpoint, CheckpointResumeContent } from '../experimental/checkpoint.js'
 import type { AgentTrace } from '../telemetry/tracer.js'
 import type { Snapshot } from './snapshot.js'
 import type { TakeSnapshotOptions } from '../agent/snapshot.js'
@@ -49,6 +51,9 @@ import { AgentMetrics } from '../telemetry/meter.js'
  * - `ContentBlock[]` | `ContentBlockData[]` - Array of content blocks (creates single user Message)
  * - `Message[]` | `MessageData[]` - Array of messages (appends all to conversation)
  * - `InterruptResponseContent[]` - Array of interrupt responses (resumes from interrupted state)
+ * - `CheckpointResumeContent` - Resume payload for a checkpointing agent
+ *
+ * @experimental The `CheckpointResumeContent` member is experimental and subject to change.
  */
 export type InvokeArgs =
   | string
@@ -58,6 +63,7 @@ export type InvokeArgs =
   | MessageData[]
   | InterruptResponseContent[]
   | InterruptResponseContentData[]
+  | CheckpointResumeContent
 
 /**
  * Per-invocation state threaded through hooks and tools for a single agent
@@ -251,11 +257,6 @@ export interface LocalAgent {
   readonly id: string
 
   /**
-   * Read-only snapshot of accumulated agent metrics (cycles, token usage, tool stats).
-   */
-  readonly metrics: AgentMetrics
-
-  /**
    * App state storage accessible to tools and application logic.
    */
   appState: StateStore
@@ -286,6 +287,21 @@ export interface LocalAgent {
   readonly sandbox: Sandbox
 
   /**
+   * Default storage backend for agent subsystems.
+   *
+   * When set, subsystems that do not have their own explicit storage (e.g.,
+   * SessionManager, ContextOffloader) resolve from this. Each subsystem
+   * auto-namespaces under its own prefix to avoid key collisions.
+   */
+  readonly storage?: Storage | undefined
+
+  /**
+   * Aggregated metrics for the agent's loop execution.
+   * Tracks cycle counts, token usage, tool execution stats, and model latency.
+   */
+  readonly metrics: AgentMetrics
+
+  /**
    * The model provider used by the agent for inference.
    */
   readonly model: Model
@@ -308,7 +324,7 @@ export interface LocalAgent {
    * callback: async ({ items }, context) => {
    *   const results = []
    *   for (const item of items) {
-   *     if (context.agent.cancelSignal.aborted) return results
+   *     if (context?.cancelSignal.aborted) return results
    *     results.push(await process(item))
    *   }
    *   return results
@@ -318,7 +334,7 @@ export interface LocalAgent {
    * **Signal forwarding** — pass to APIs that accept `AbortSignal`:
    * ```ts
    * callback: async ({ url }, context) => {
-   *   const res = await fetch(url, { signal: context.agent.cancelSignal })
+   *   const res = await fetch(url, { signal: context?.cancelSignal })
    *   return res.text()
    * }
    * ```
@@ -439,6 +455,15 @@ export class AgentResult {
    */
   readonly interrupts?: Interrupt[]
 
+  /**
+   * Checkpoint captured when the agent paused for durable execution. Populated
+   * only when `stopReason` is `'checkpoint'`. See the experimental checkpoint
+   * module for usage.
+   *
+   * @experimental
+   */
+  readonly checkpoint?: Checkpoint
+
   constructor(data: {
     stopReason: StopReason
     lastMessage: Message
@@ -447,6 +472,7 @@ export class AgentResult {
     metrics?: AgentMetrics
     structuredOutput?: z.output<z.ZodType>
     interrupts?: Interrupt[]
+    checkpoint?: Checkpoint
   }) {
     this.stopReason = data.stopReason
     this.lastMessage = data.lastMessage
@@ -462,6 +488,9 @@ export class AgentResult {
     }
     if (data.interrupts !== undefined) {
       this.interrupts = data.interrupts
+    }
+    if (data.checkpoint !== undefined) {
+      this.checkpoint = data.checkpoint
     }
   }
 
@@ -499,6 +528,7 @@ export class AgentResult {
       stopReason: this.stopReason,
       lastMessage: this.lastMessage,
       ...(this.structuredOutput !== undefined && { structuredOutput: this.structuredOutput }),
+      ...(this.checkpoint !== undefined && { checkpoint: this.checkpoint.toJSON() }),
     }
   }
 

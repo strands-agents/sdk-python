@@ -193,6 +193,75 @@ async function resultModificationExample() {
   // --8<-- [end:result_modification]
 }
 
+async function modelCallRetryExample() {
+  // --8<-- [start:model_call_retry_class]
+  class RetryOnServiceUnavailable implements Plugin {
+    name = 'retry-on-service-unavailable'
+
+    constructor(private readonly maxRetries = 3) {}
+
+    initAgent(agent: LocalAgent): void {
+      agent.addHook(AfterModelCallEvent, (event) => this.handleRetry(event))
+    }
+
+    private handleRetry(event: AfterModelCallEvent): void {
+      // `attemptCount` is 1-indexed and includes the attempt that just failed,
+      // so no manual counter is needed to cap retries.
+      if (
+        event.error !== undefined &&
+        event.error.message.includes('ServiceUnavailable') &&
+        event.attemptCount <= this.maxRetries
+      ) {
+        event.retry = true
+      }
+    }
+  }
+  // --8<-- [end:model_call_retry_class]
+
+  // --8<-- [start:model_call_retry_usage]
+  const agent = new Agent({ plugins: [new RetryOnServiceUnavailable(3)] })
+
+  const result = await agent.invoke('What is the capital of France?')
+  // --8<-- [end:model_call_retry_usage]
+  return result
+}
+
+async function toolCallRetryExample() {
+  // --8<-- [start:tool_call_retry_class]
+  class RetryOnToolError implements Plugin {
+    name = 'retry-on-tool-error'
+
+    private readonly attempts = new Map<string, number>()
+
+    constructor(private readonly maxRetries = 1) {}
+
+    initAgent(agent: LocalAgent): void {
+      agent.addHook(AfterToolCallEvent, (event) => this.handleRetry(event))
+    }
+
+    private handleRetry(event: AfterToolCallEvent): void {
+      const toolUseId = event.result.toolUseId
+      const attempt = (this.attempts.get(toolUseId) ?? 0) + 1
+      this.attempts.set(toolUseId, attempt)
+
+      if (event.error !== undefined && attempt <= this.maxRetries) {
+        event.retry = true
+      } else if (event.error === undefined) {
+        // Clean up tracking once the tool call finally succeeds.
+        this.attempts.delete(toolUseId)
+      }
+    }
+  }
+  // --8<-- [end:tool_call_retry_class]
+
+  // --8<-- [start:tool_call_retry_usage]
+  const agent = new Agent({ plugins: [new RetryOnToolError(1)] })
+
+  const result = await agent.invoke('Fetch the latest metrics')
+  // --8<-- [end:tool_call_retry_usage]
+  return result
+}
+
 // =====================
 // Best Practices Examples
 // =====================

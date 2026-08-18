@@ -14,6 +14,7 @@ import logging
 import threading
 import warnings
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
+from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -44,6 +45,7 @@ from ..types._snapshot import (
 if TYPE_CHECKING:
     from ..tools import ToolProvider
 from .._middleware import MiddlewareRegistry
+from .._middleware.stages import AgentStreamContext, AgentStreamStage
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..hooks import (
     AfterInvocationEvent,
@@ -56,17 +58,19 @@ from ..hooks import (
     MessageAddedEvent,
 )
 from ..hooks.registry import TEvent
-from ..interrupt import _InterruptState
+from ..interrupt import InterruptException, _InterruptState
 from ..interventions.handler import InterventionHandler
 from ..interventions.registry import InterventionRegistry
 from ..memory import MemoryManager, MemoryManagerConfig
 from ..models.bedrock import BedrockModel
 from ..models.model import Model, _ModelPlugin
+from ..models.routing import ModelRouter
 from ..plugins import Plugin
 from ..plugins.registry import _PluginRegistry
 from ..sandbox import Sandbox
 from ..sandbox.not_a_sandbox_local_environment import NotASandboxLocalEnvironment
 from ..session.session_manager import SessionManager
+from ..storage import Storage
 from ..telemetry.metrics import EventLoopMetrics
 from ..telemetry.tracer import get_tracer, serialize
 from ..tools._caller import _ToolCaller
@@ -77,7 +81,14 @@ from ..tools.structured_output._structured_output_context import StructuredOutpu
 from ..tools.watcher import ToolWatcher
 from ..types._events import AgentResultEvent, EventLoopStopEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
 from ..types.agent import AgentInput, ConcurrentInvocationMode, Limits
-from ..types.content import ContentBlock, Message, Messages, SystemContentBlock, split_system_prompt
+from ..types.content import (
+    ContentBlock,
+    Message,
+    Messages,
+    SystemContentBlock,
+    _ensure_tracking_id,
+    split_system_prompt,
+)
 from ..types.exceptions import ConcurrencyException, ContextWindowOverflowException
 from ..types.tools import AgentTool
 from ..types.traces import AttributeValue
@@ -117,7 +128,12 @@ _DEFAULT_AGENT_NAME = "Strands Agents"
 _DEFAULT_AGENT_ID = "default"
 
 ContextManagerStrategy = Literal["auto", "agentic"]
-"""Supported values for the ``context_manager`` parameter."""
+"""Supported values for the ``context_manager`` parameter.
+
+- ``"auto"``: SummarizingConversationManager with proactive compression + ContextOffloader.
+- ``"agentic"``: (Experimental) Lets the model drive context management via injected tools.
+  This mode may change in future versions.
+"""
 
 _CONTEXT_MANAGER_MAX_RESULT_TOKENS = 1_500
 """Benchmark-validated token threshold for offloading tool results."""
@@ -133,6 +149,18 @@ _CONTEXT_MANAGER_SUMMARY_RATIO = 0.3
 
 _CONTEXT_MANAGER_COMPRESSION_THRESHOLD = 0.85
 """Benchmark-validated context window ratio that triggers proactive compression."""
+
+
+@dataclass
+class _PassProgress:
+    """What the event loop itself did during one ``AgentStreamStage`` pass.
+
+    Middleware can produce a pass's result without the event loop running at all (a short-circuit),
+    which resuming replays harmlessly. Only a result the event loop produced means a resume would
+    call the model again.
+    """
+
+    event_loop_produced_result: bool = False
 
 
 class Agent(AgentBase):
@@ -153,7 +181,7 @@ class Agent(AgentBase):
 
     def __init__(
         self,
-        model: Model | str | None = None,
+        model: Model | str | ModelRouter | None = None,
         messages: Messages | None = None,
         tools: list[Union[str, dict[str, str], "ToolProvider", Any]] | None = None,
         system_prompt: str | list[SystemContentBlock] | None = None,
@@ -180,12 +208,14 @@ class Agent(AgentBase):
         concurrent_invocation_mode: ConcurrentInvocationMode = ConcurrentInvocationMode.THROW,
         checkpointing: bool = False,
         sandbox: Sandbox | None = None,
+        storage: Storage | None = None,
     ):
         """Initialize the Agent with the specified configuration.
 
         Args:
             model: Provider for running inference or a string representing the model-id for Bedrock to use.
-                Defaults to strands.models.BedrockModel if None.
+                May also be a ``ModelRouter``, whose first candidate is resolved to a concrete model and
+                exposed as ``agent.model``. Defaults to strands.models.BedrockModel if None.
             messages: List of initial messages to pre-load into the conversation.
                 Defaults to an empty list if None.
             tools: List of tools to make available to the agent.
@@ -231,9 +261,10 @@ class Agent(AgentBase):
                 using benchmark-validated defaults. If ``conversation_manager`` is also provided,
                 the user's conversation manager is used instead. Defaults to None (no context management).
 
-                Note: The offloader uses in-memory storage that does not persist across process
-                restarts. For agents using ``session_manager``, provide an explicit
-                ``ContextOffloader`` with durable storage via the ``plugins`` parameter.
+                Note: The offloader uses in-memory storage by default. When an agent-level
+                ``storage`` is provided, the offloader uses that instead. Alternatively,
+                provide an explicit ``ContextOffloader`` with its own storage via the
+                ``plugins`` parameter.
             plugins: List of Plugin instances to extend agent functionality.
                 Plugins are initialized with the agent instance after construction and can register hooks,
                 modify agent attributes, or perform other setup tasks.
@@ -280,16 +311,32 @@ class Agent(AgentBase):
                 ``context.agent.sandbox``. Defaults to ``None``, which falls back to a
                 :class:`~strands.sandbox.NotASandboxLocalEnvironment` that runs on the host
                 with no isolation.
+            storage: Default storage backend for agent subsystems.
+                When provided, subsystems that do not have their own explicit storage
+                (e.g., ContextOffloader) resolve from this value. Each subsystem
+                auto-namespaces under its own prefix (e.g., ``offloader/``) to avoid key
+                collisions. Storage specified directly on a subsystem always takes
+                precedence over this agent-level default. Defaults to None.
 
         Raises:
             ValueError: If agent id contains path separators.
         """
-        self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
+        self._model_router: ModelRouter | None = None
+        if isinstance(model, ModelRouter):
+            self._model_router = model
+            self.model = model.default_model
+        elif not model:
+            self.model = BedrockModel()
+        elif isinstance(model, str):
+            self.model = BedrockModel(model_id=model)
+        else:
+            self.model = model
         self.messages = messages if messages is not None else []
         if sandbox is not None and not isinstance(sandbox, Sandbox):
             raise TypeError(f"sandbox must be a Sandbox instance or None, got {type(sandbox).__name__}")
         # Resolve once: configured sandbox, or this agent's own host default (not shared across agents).
         self._sandbox: Sandbox = sandbox or NotASandboxLocalEnvironment()
+        self._storage: Storage | None = storage
         # initializing self._system_prompt for backwards compatibility
         self._system_prompt, self._system_prompt_content = split_system_prompt(system_prompt)
         self._default_structured_output_model = structured_output_model
@@ -398,15 +445,18 @@ class Agent(AgentBase):
         self.hooks = HookRegistry()
 
         self._middleware_registry = MiddlewareRegistry()
+        self._plugin_registry = _PluginRegistry(self)
+
+        # Input handlers preserve registration order, so initialize routing before capability middleware.
+        if self._model_router is not None:
+            self._plugin_registry.add_and_init(self._model_router)
 
         # In agentic mode, surface live token usage to the model so it can decide when to compress.
         if context_manager == "agentic":
             from .._context_manager.modes.agentic.agentic_context import create_token_usage_middleware
             from .._middleware.stages import InvokeModelStage
 
-            self._middleware_registry.add_middleware(InvokeModelStage.Input, create_token_usage_middleware(self.model))
-
-        self._plugin_registry = _PluginRegistry(self)
+            self._middleware_registry.add_middleware(InvokeModelStage.Input, create_token_usage_middleware())
 
         self._interrupt_state = _InterruptState()
 
@@ -421,12 +471,10 @@ class Agent(AgentBase):
 
         self._concurrency = _ConcurrencyController(concurrent_invocation_mode)
 
-        # In the future, we'll have a RetryStrategy base class but until
-        # that API is determined we only allow ModelRetryStrategy
         if (
             retry_strategy is not None
             and not isinstance(retry_strategy, _DefaultRetryStrategySentinel)
-            and type(retry_strategy) is not ModelRetryStrategy
+            and not isinstance(retry_strategy, ModelRetryStrategy)
         ):
             raise ValueError("retry_strategy must be an instance of ModelRetryStrategy")
 
@@ -478,6 +526,12 @@ class Agent(AgentBase):
             for plugin in plugins_to_register:
                 self._plugin_registry.add_and_init(plugin)
 
+        has_agent_delegation = any(plugin.name == "strands:agent-delegation" for plugin in (plugins_to_register or []))
+        if not has_agent_delegation:
+            from ._agent_delegation import AgentDelegation
+
+            self._plugin_registry.add_and_init(AgentDelegation())
+
         # Resolve and register the memory manager (a Plugin); keep a reference so the
         # synchronous entry point can flush pending extraction writes.
         self.memory_manager = self._resolve_memory_manager(memory_manager)
@@ -522,7 +576,7 @@ class Agent(AgentBase):
         if context_manager is None:
             return None, None
 
-        from ..vended_plugins.context_offloader import ContextOffloader, InMemoryStorage
+        from ..vended_plugins.context_offloader import ContextOffloader
         from .conversation_manager import SummarizingConversationManager
 
         if context_manager == "auto":
@@ -549,7 +603,6 @@ class Agent(AgentBase):
         if not has_offloader:
             resolved_plugins.append(
                 ContextOffloader(
-                    storage=InMemoryStorage(),
                     max_result_tokens=offloader_max_result_tokens,
                     preview_tokens=_CONTEXT_MANAGER_PREVIEW_TOKENS,
                 )
@@ -588,6 +641,8 @@ class Agent(AgentBase):
         The agent will stop gracefully at the next cancellation-safe point:
         - During model response streaming
         - Before tool execution
+        - During MCP tool execution
+        - After tool execution, before the next model call
 
         The agent will return a result with stop_reason="cancelled".
 
@@ -619,6 +674,11 @@ class Agent(AgentBase):
         configured.
         """
         return self._sandbox
+
+    @property
+    def storage(self) -> Storage | None:
+        """Default storage backend for agent subsystems."""
+        return self._storage
 
     @property
     def system_prompt(self) -> str | None:
@@ -954,6 +1014,7 @@ class Agent(AgentBase):
         name: str | None = None,
         description: str | None = None,
         preserve_context: bool = False,
+        delegate: bool = False,
     ) -> AgentTool:
         r"""Convert this agent into a tool for use by another agent.
 
@@ -967,6 +1028,10 @@ class Agent(AgentBase):
                 values they had at construction time before each call, ensuring every
                 invocation starts from the same baseline regardless of any external
                 interactions with the agent. Defaults to False.
+            delegate: When True, the orchestrator treats this tool's result as the final
+                response and exits without an additional model call. The tool's description
+                is automatically suffixed with an instruction telling the model that this
+                tool should be the only tool called in the turn. Defaults to False.
 
         Returns:
             A tool wrapping this agent.
@@ -976,11 +1041,18 @@ class Agent(AgentBase):
             researcher = Agent(name="researcher", description="Finds information")
             writer = Agent(name="writer", tools=[researcher.as_tool()])
             writer("Write about AI agents")
+
+            # Delegation: sub-agent response is returned directly as the final answer
+            billing = Agent(name="billing", description="Handles billing questions")
+            orchestrator = Agent(tools=[billing.as_tool(delegate=True)])
+            orchestrator("What is my balance?")
             ```
         """
         if not name:
             name = self.name
-        return _AgentAsTool(self, name=name, description=description, preserve_context=preserve_context)
+        return _AgentAsTool(
+            self, name=name, description=description, preserve_context=preserve_context, delegate=delegate
+        )
 
     def cleanup(self) -> None:
         """Clean up resources used by the agent.
@@ -1020,7 +1092,8 @@ class Agent(AgentBase):
                 the callback's first parameter type hint. If a list is provided,
                 the callback is registered for each type in the list.
             order: Execution priority. Lower values execute first.
-                Use HookOrder.SDK_FIRST (-100), HookOrder.DEFAULT (0), or HookOrder.SDK_LAST (100).
+                Use a HookOrder constant such as SDK_FIRST (-100), DEFAULT (0),
+                MODEL_ROUTING (50), or SDK_LAST (100).
 
         Raises:
             ValueError: If event_type is not provided and cannot be inferred from
@@ -1190,15 +1263,27 @@ class Agent(AgentBase):
                         messages, merged_state, structured_output_model, structured_output_prompt, limits
                     )
 
+                    # The result is the last EventLoopStopEvent, not the last event overall:
+                    # AgentStreamStage middleware may yield trailing events after the stop event.
+                    stop_event: EventLoopStopEvent | None = None
                     async for event in events:
                         event.prepare(invocation_state=merged_state)
+
+                        if isinstance(event, EventLoopStopEvent):
+                            stop_event = event
 
                         if event.is_callback_event:
                             as_dict = event.as_dict()
                             callback_handler(**as_dict)
                             yield as_dict
 
-                    result = AgentResult(*event["stop"])
+                    if stop_event is None:
+                        raise RuntimeError(
+                            "Agent stream produced no result event. AgentStreamStage middleware must "
+                            "forward events from next() and must not drop the terminal stop event."
+                        )
+
+                    result = AgentResult(*stop_event["stop"])
                     callback_handler(result=result)
                     yield AgentResultEvent(result=result).as_dict()
 
@@ -1268,6 +1353,12 @@ class Agent(AgentBase):
             try:
                 yield InitEventLoopEvent()
 
+                # Backfill ids for any messages that entered history outside the append chokepoint
+                # (e.g. a caller doing agent.messages.append(...) directly, or a legacy session
+                # restored without ids), so every message carries one before the model is called.
+                for message in self.messages:
+                    _ensure_tracking_id(message)
+
                 await self._append_messages(*current_messages)
 
                 structured_output_context = StructuredOutputContext(
@@ -1275,30 +1366,79 @@ class Agent(AgentBase):
                     structured_output_prompt=structured_output_prompt or self._structured_output_prompt,
                 )
 
-                # Execute the event loop cycle with retry logic for context limits
-                events = self._execute_event_loop_cycle(invocation_state, structured_output_context, limits)
-                async for event in events:
-                    # Signal from the model provider that the message sent by the user should be redacted,
-                    # likely due to a guardrail.
-                    if (
-                        isinstance(event, ModelStreamChunkEvent)
-                        and event.chunk
-                        and event.chunk.get("redactContent")
-                        and event.chunk["redactContent"].get("redactUserContentMessage")
+                pass_progress = _PassProgress()
+                middleware_context = AgentStreamContext(
+                    agent=self,
+                    messages=current_messages,
+                    invocation_state=invocation_state,
+                    # Snapshot interrupts before the pass so a gate's re-read after next_fn
+                    # survives the tool cycle clearing the live dict. Empty when not activated,
+                    # so a dead cycle's retained response cannot resolve a fresh gate.
+                    _interrupts=dict(self._interrupt_state.interrupts) if self._interrupt_state.activated else {},
+                )
+                try:
+                    async for event in self._middleware_registry.invoke(
+                        AgentStreamStage,
+                        middleware_context,
+                        self._make_agent_stream_terminal(structured_output_context, limits, pass_progress),
                     ):
-                        self.messages[-1]["content"] = self._redact_user_content(
-                            self.messages[-1]["content"],
-                            str(event.chunk["redactContent"]["redactUserContentMessage"]),
-                        )
-                        if self._session_manager:
-                            self._session_manager.redact_latest_message(self.messages[-1], self)
-                    yield event
+                        if isinstance(event, EventLoopStopEvent):
+                            agent_result = AgentResult(*event["stop"])
+                        yield event
 
-                # Capture the result from the final event if available
-                if isinstance(event, EventLoopStopEvent):
-                    agent_result = AgentResult(*event["stop"])
+                    # A resumed AgentStreamStage interrupt that finished without tool execution
+                    # never hits the tool path's deactivate(), so clear the interrupt state here.
+                    if (
+                        self._interrupt_state.activated
+                        and (agent_result is None or agent_result.stop_reason != "interrupt")
+                        and not self._interrupt_state.has_pending_tool_execution
+                    ):
+                        self._interrupt_state.deactivate()
+                except InterruptException as interrupt_exception:
+                    # Refuse a late interrupt — resuming would re-call the model
+                    # and corrupt history.
+                    if (
+                        pass_progress.event_loop_produced_result
+                        and not self._interrupt_state.has_pending_tool_execution
+                    ):
+                        self._interrupt_state.deactivate()
+                        raise RuntimeError(
+                            f"interrupt_name=<{interrupt_exception.interrupt.name}> | agent-stream middleware "
+                            "interrupted after the pass produced its result | interrupt before the pass "
+                            "produces its assistant turn"
+                        ) from interrupt_exception
+
+                    registered = self._interrupt_state.interrupts.get(interrupt_exception.interrupt.id)
+                    if registered is None or registered.response is not None:
+                        self._interrupt_state.interrupts[interrupt_exception.interrupt.id] = (
+                            interrupt_exception.interrupt
+                        )
+                    self._interrupt_state.activate()
+                    interrupt_message: Message = (
+                        self.messages[-1]
+                        if self.messages
+                        else {"role": "assistant", "content": [{"text": "Interrupted"}]}
+                    )
+                    # Surface all unanswered interrupts so the caller can build a complete resume payload.
+                    unanswered = [
+                        interrupt
+                        for interrupt in self._interrupt_state.interrupts.values()
+                        if interrupt.response is None
+                    ]
+                    stop_event = EventLoopStopEvent(
+                        "interrupt",
+                        interrupt_message,
+                        self.event_loop_metrics,
+                        invocation_state.get("request_state", {}),
+                        unanswered,
+                    )
+                    agent_result = AgentResult(*stop_event["stop"])
+                    yield stop_event
 
             finally:
+                if not self._interrupt_state.activated:
+                    self._interrupt_state.end_interrupt_cycle()
+
                 self.conversation_manager.apply_management(self)
                 after_invocation_event, _interrupts = await self.hooks.invoke_callbacks_async(
                     AfterInvocationEvent(agent=self, invocation_state=invocation_state, result=agent_result)
@@ -1314,6 +1454,57 @@ class Agent(AgentBase):
                 current_messages = await self._convert_prompt_to_messages(after_invocation_event.resume)
             else:
                 current_messages = None
+
+    def _make_agent_stream_terminal(
+        self,
+        structured_output_context: StructuredOutputContext,
+        limits: Limits | None,
+        pass_progress: _PassProgress,
+    ) -> Callable[["AgentStreamContext"], AsyncGenerator[TypedEvent, None]]:
+        """Build the terminal for the AgentStreamStage middleware chain.
+
+        The terminal drives the event loop cycle for one invocation pass — the core work the
+        AgentStreamStage middleware wraps. It reads ``invocation_state`` from the context it
+        receives (not a captured value), so an Input/wrap handler that transforms the context
+        via ``dataclasses.replace()`` actually reaches the event loop. It also handles
+        guardrail-driven user-content redaction inline so that behavior runs whether or not
+        middleware is registered.
+
+        Args:
+            structured_output_context: Structured output context for this pass.
+            limits: Optional per-invocation budget caps.
+            pass_progress: Records whether the event loop produced this pass's result, which
+                determines whether resuming the pass would call the model again.
+
+        Returns:
+            An async generator function yielding the pass's events, ending with an
+            ``EventLoopStopEvent``.
+        """
+
+        async def terminal(ctx: "AgentStreamContext") -> AsyncGenerator[TypedEvent, None]:
+            # Execute the event loop cycle with retry logic for context limits
+            events = self._execute_event_loop_cycle(ctx.invocation_state, structured_output_context, limits)
+            async for event in events:
+                if isinstance(event, EventLoopStopEvent):
+                    pass_progress.event_loop_produced_result = True
+
+                # Signal from the model provider that the message sent by the user should be redacted,
+                # likely due to a guardrail.
+                if (
+                    isinstance(event, ModelStreamChunkEvent)
+                    and event.chunk
+                    and event.chunk.get("redactContent")
+                    and event.chunk["redactContent"].get("redactUserContentMessage")
+                ):
+                    self.messages[-1]["content"] = self._redact_user_content(
+                        self.messages[-1]["content"],
+                        str(event.chunk["redactContent"]["redactUserContentMessage"]),
+                    )
+                    if self._session_manager:
+                        self._session_manager.redact_latest_message(self.messages[-1], self)
+                yield event
+
+        return terminal
 
     async def _execute_event_loop_cycle(
         self,
@@ -1513,8 +1704,12 @@ class Agent(AgentBase):
                 raise TypeError(f"limits[{key!r}] must be a positive int, got {value!r}")
 
     async def _append_messages(self, *messages: Message) -> None:
-        """Appends messages to history and invoke the callbacks for the MessageAddedEvent."""
+        """Appends messages to history and invoke the callbacks for the MessageAddedEvent.
+
+        Assigns a durable tracking id to any message that does not already have one.
+        """
         for message in messages:
+            _ensure_tracking_id(message)
             self.messages.append(message)
             await self.hooks.invoke_callbacks_async(MessageAddedEvent(agent=self, message=message))
 

@@ -50,7 +50,11 @@ def mock_agent():
     agent.event_loop_metrics = EventLoopMetrics()
     agent.event_loop_metrics.reset_usage_metrics()
     agent.hooks = Mock()
-    agent.hooks.invoke_callbacks_async = AsyncMock()
+
+    async def invoke_callbacks_async(event):
+        return event, []
+
+    agent.hooks.invoke_callbacks_async = AsyncMock(side_effect=invoke_callbacks_async)
     agent.trace_span = None
     agent.trace_attributes = {}
     agent.tool_executor = Mock()
@@ -205,12 +209,10 @@ async def test_event_loop_forces_structured_output_on_end_turn(
         )
         await alist(stream)
 
-        # Should have appended a message to force structured output
-        mock_agent._append_messages.assert_called_once()
-        args = mock_agent._append_messages.call_args[0][0]
-        assert args["role"] == "user"
-        # Should use the default prompt
-        assert args["content"][0]["text"] == DEFAULT_STRUCTURED_OUTPUT_PROMPT
+        # The force-structured-output prompt should have been appended (among other messages)
+        appended_messages = [call.args[0] for call in mock_agent._append_messages.call_args_list]
+        expected_force_prompt = {"role": "user", "content": [{"text": DEFAULT_STRUCTURED_OUTPUT_PROMPT}]}
+        assert appended_messages.count(expected_force_prompt) == 1
 
         # Should have called recurse_event_loop with the context
         mock_recurse.assert_called_once()
@@ -260,11 +262,10 @@ async def test_event_loop_forces_structured_output_with_custom_prompt(mock_agent
         )
         await alist(stream)
 
-        # Should have appended a message with the custom prompt
-        mock_agent._append_messages.assert_called_once()
-        args = mock_agent._append_messages.call_args[0][0]
-        assert args["role"] == "user"
-        assert args["content"][0]["text"] == custom_prompt
+        # The custom force prompt should have been appended (among other messages)
+        appended_messages = [call.args[0] for call in mock_agent._append_messages.call_args_list]
+        expected_force_prompt = {"role": "user", "content": [{"text": custom_prompt}]}
+        assert appended_messages.count(expected_force_prompt) == 1
 
 
 @patch("strands.event_loop.event_loop.get_tracer")

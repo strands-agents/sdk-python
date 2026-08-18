@@ -1,4 +1,3 @@
-import json
 import logging
 import unittest.mock
 
@@ -745,12 +744,199 @@ async def test_stream_response_reasoning(gemini_client, model, messages, agenera
     exp_chunks = [
         {"messageStart": {"role": "assistant"}},
         {"contentBlockStart": {"start": {}}},
-        {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "YWJj", "text": "test reason"}}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "test reason"}}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "YWJj"}}}},
         {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "end_turn"}},
         {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
     ]
     assert tru_chunks == exp_chunks
+
+
+@pytest.mark.asyncio
+async def test_stream_response_reasoning_signature_survives_aggregation(
+    gemini_client, model, messages, agenerator, alist
+):
+    """Test that a thought signature round-trips from the stream back into a request part.
+
+    Guarantees that a signed thought part keeps its signature through stream aggregation, so the
+    signature Gemini requires on a subsequent turn is the one it originally issued.
+    """
+    gemini_client.aio.models.generate_content_stream.return_value = agenerator(
+        [
+            genai.types.GenerateContentResponse(
+                candidates=[
+                    genai.types.Candidate(
+                        content=genai.types.Content(
+                            parts=[
+                                genai.types.Part(
+                                    text="test reason",
+                                    thought=True,
+                                    thought_signature=b"abc",
+                                ),
+                            ],
+                        ),
+                        finish_reason="STOP",
+                    ),
+                ],
+                usage_metadata=genai.types.GenerateContentResponseUsageMetadata(
+                    prompt_token_count=1,
+                    total_token_count=3,
+                ),
+            ),
+        ]
+    )
+
+    stream = strands.event_loop.streaming.process_stream(model.stream(messages))
+    events = await alist(stream)
+    message = events[-1]["stop"][1]
+
+    tru_reasoning = message["content"][0]["reasoningContent"]["reasoningText"]
+    exp_reasoning = {"text": "test reason", "signature": "YWJj"}
+    assert tru_reasoning == exp_reasoning
+
+    # The reasoning text must still reach consumers as its own stream event.
+    tru_reasoning_text = [event["reasoningText"] for event in events if "reasoningText" in event]
+    exp_reasoning_text = ["test reason"]
+    assert tru_reasoning_text == exp_reasoning_text
+
+    # Feeding the aggregated message back must reproduce the original signature bytes.
+    tru_part = model._format_request_content_part(message["content"][0], {})
+    assert tru_part.thought_signature == b"abc"
+
+
+@pytest.mark.asyncio
+async def test_stream_response_reasoning_signature_on_empty_text_part_survives(
+    gemini_client, model, messages, agenerator, alist
+):
+    """Test that a signature arriving on a separate empty-text part still round-trips.
+
+    Gemini can attach the thought signature to a trailing part that carries no text of its own.
+    Gating the signature emission on part.text drops it, so the signature the model requires on a
+    subsequent turn is lost.
+    """
+    gemini_client.aio.models.generate_content_stream.return_value = agenerator(
+        [
+            genai.types.GenerateContentResponse(
+                candidates=[
+                    genai.types.Candidate(
+                        content=genai.types.Content(
+                            parts=[
+                                genai.types.Part(text="test reason", thought=True),
+                                genai.types.Part(thought=True, thought_signature=b"abc"),
+                            ],
+                        ),
+                        finish_reason="STOP",
+                    ),
+                ],
+                usage_metadata=genai.types.GenerateContentResponseUsageMetadata(
+                    prompt_token_count=1,
+                    total_token_count=3,
+                ),
+            ),
+        ]
+    )
+
+    stream = strands.event_loop.streaming.process_stream(model.stream(messages))
+    events = await alist(stream)
+    message = events[-1]["stop"][1]
+
+    tru_reasoning = message["content"][0]["reasoningContent"]["reasoningText"]
+    exp_reasoning = {"text": "test reason", "signature": "YWJj"}
+    assert tru_reasoning == exp_reasoning
+
+    # Feeding the aggregated message back must reproduce the original signature bytes.
+    tru_part = model._format_request_content_part(message["content"][0], {})
+    assert tru_part.thought_signature == b"abc"
+
+
+@pytest.mark.asyncio
+async def test_stream_response_signature_after_text_opens_reasoning_block(
+    gemini_client, model, messages, agenerator, alist
+):
+    """Test that a signature arriving after a text part closes it and opens a reasoning block.
+
+    The signature part is not itself text, so the open text block has to be closed before the
+    signature can be emitted; otherwise the signature delta would land inside the text block and
+    the round-trip would lose it.
+    """
+    gemini_client.aio.models.generate_content_stream.return_value = agenerator(
+        [
+            genai.types.GenerateContentResponse(
+                candidates=[
+                    genai.types.Candidate(
+                        content=genai.types.Content(
+                            parts=[
+                                genai.types.Part(text="hello"),
+                                genai.types.Part(thought=True, thought_signature=b"abc"),
+                            ],
+                        ),
+                        finish_reason="STOP",
+                    ),
+                ],
+                usage_metadata=genai.types.GenerateContentResponseUsageMetadata(
+                    prompt_token_count=1,
+                    total_token_count=3,
+                ),
+            ),
+        ]
+    )
+
+    stream = strands.event_loop.streaming.process_stream(model.stream(messages))
+    events = await alist(stream)
+    message = events[-1]["stop"][1]
+
+    tru_content = message["content"]
+    exp_content = [
+        {"text": "hello"},
+        {"reasoningContent": {"reasoningText": {"text": "", "signature": "YWJj"}}},
+    ]
+    assert tru_content == exp_content
+
+    # Feeding the aggregated message back must reproduce the original signature bytes.
+    tru_part = model._format_request_content_part(message["content"][1], {})
+    assert tru_part.thought_signature == b"abc"
+
+
+@pytest.mark.asyncio
+async def test_stream_response_signature_only_part_opens_reasoning_block(
+    gemini_client, model, messages, agenerator, alist
+):
+    """Test that a candidate whose only part carries a signature still emits a reasoning block.
+
+    Nothing has opened a content block yet at that point, so the signature emission has to open one
+    itself rather than assume a reasoning block is already in progress.
+    """
+    gemini_client.aio.models.generate_content_stream.return_value = agenerator(
+        [
+            genai.types.GenerateContentResponse(
+                candidates=[
+                    genai.types.Candidate(
+                        content=genai.types.Content(
+                            parts=[genai.types.Part(thought=True, thought_signature=b"abc")],
+                        ),
+                        finish_reason="STOP",
+                    ),
+                ],
+                usage_metadata=genai.types.GenerateContentResponseUsageMetadata(
+                    prompt_token_count=1,
+                    total_token_count=3,
+                ),
+            ),
+        ]
+    )
+
+    stream = strands.event_loop.streaming.process_stream(model.stream(messages))
+    events = await alist(stream)
+    message = events[-1]["stop"][1]
+
+    tru_content = message["content"]
+    exp_content = [{"reasoningContent": {"reasoningText": {"text": "", "signature": "YWJj"}}}]
+    assert tru_content == exp_content
+
+    # Feeding the aggregated message back must reproduce the original signature bytes.
+    tru_part = model._format_request_content_part(message["content"][0], {})
+    assert tru_part.thought_signature == b"abc"
 
 
 @pytest.mark.asyncio
@@ -804,11 +990,8 @@ async def test_stream_response_reasoning_and_text(gemini_client, model, messages
     exp_chunks = [
         {"messageStart": {"role": "assistant"}},
         {"contentBlockStart": {"start": {}}},
-        {
-            "contentBlockDelta": {
-                "delta": {"reasoningContent": {"signature": "c2lnMQ==", "text": "thinking about math"}}
-            }
-        },
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "thinking about math"}}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "c2lnMQ=="}}}},
         {"contentBlockStop": {}},
         {"contentBlockStart": {"start": {}}},
         {"contentBlockDelta": {"delta": {"text": "2 + 2 = 4"}}},
@@ -921,11 +1104,16 @@ async def test_stream_response_empty_stream(gemini_client, model, messages, agen
 
 @pytest.mark.asyncio
 async def test_stream_response_throttled_exception(gemini_client, model, messages):
+    """Regression test for https://github.com/strands-agents/harness-sdk/issues/3226.
+
+    Vertex AI returns 429s whose message is plain text rather than a JSON document; the status
+    attribute alone must be enough to classify them as throttling.
+    """
     gemini_client.aio.models.generate_content_stream.side_effect = genai.errors.ClientError(
-        429, {"message": '{"error": {"status": "RESOURCE_EXHAUSTED"}}'}
+        429, {"error": {"status": "RESOURCE_EXHAUSTED", "message": "Resource exhausted. Please try again later."}}
     )
 
-    with pytest.raises(ModelThrottledException, match="RESOURCE_EXHAUSTED"):
+    with pytest.raises(ModelThrottledException, match="Resource exhausted. Please try again later."):
         await anext(model.stream(messages))
 
 
@@ -934,18 +1122,14 @@ async def test_stream_response_context_overflow_exception(gemini_client, model, 
     gemini_client.aio.models.generate_content_stream.side_effect = genai.errors.ClientError(
         400,
         {
-            "message": json.dumps(
-                {
-                    "error": {
-                        "message": "request exceeds the maximum number of tokens (100)",
-                        "status": "INVALID_ARGUMENT",
-                    },
-                }
-            ),
+            "error": {
+                "message": "request exceeds the maximum number of tokens (100)",
+                "status": "INVALID_ARGUMENT",
+            },
         },
     )
 
-    with pytest.raises(ContextWindowOverflowException, match="INVALID_ARGUMENT"):
+    with pytest.raises(ContextWindowOverflowException, match="exceeds the maximum number of tokens"):
         await anext(model.stream(messages))
 
 
@@ -1059,19 +1243,187 @@ async def test_stream_request_with_gemini_tools_and_function_tools(gemini_client
     gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
 
 
+@pytest.mark.parametrize(
+    ("tool_choice", "exp_function_calling_config"),
+    [
+        ({"auto": {}}, {"mode": "AUTO"}),
+        ({"any": {}}, {"mode": "ANY"}),
+        ({"tool": {"name": "name"}}, {"allowed_function_names": ["name"], "mode": "ANY"}),
+    ],
+)
 @pytest.mark.asyncio
-async def test_stream_handles_non_json_error(gemini_client, model, messages, caplog, alist):
+async def test_stream_request_with_tool_choice(
+    gemini_client, model, messages, tool_spec, model_id, tool_choice, exp_function_calling_config
+):
+    await anext(model.stream(messages, tool_specs=[tool_spec], tool_choice=tool_choice))
+
+    exp_request = {
+        "config": {
+            "tools": [
+                {
+                    "function_declarations": [
+                        {
+                            "description": tool_spec["description"],
+                            "name": tool_spec["name"],
+                            "parameters_json_schema": tool_spec["inputSchema"]["json"],
+                        }
+                    ]
+                }
+            ],
+            "tool_config": {"function_calling_config": exp_function_calling_config},
+        },
+        "contents": [{"parts": [{"text": "test"}], "role": "user"}],
+        "model": model_id,
+    }
+    gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
+
+
+@pytest.mark.asyncio
+async def test_stream_request_with_tool_choice_and_no_tool_specs(gemini_client, model, messages, model_id):
+    await anext(model.stream(messages, tool_choice={"any": {}}))
+
+    exp_request = {
+        "config": {},
+        "contents": [{"parts": [{"text": "test"}], "role": "user"}],
+        "model": model_id,
+    }
+    gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
+
+
+@pytest.fixture
+def tool_config_param_model(gemini_client, model_id):
+    _ = gemini_client
+
+    tool_config = genai.types.ToolConfig(
+        function_calling_config=genai.types.FunctionCallingConfig(
+            mode=genai.types.FunctionCallingConfigMode.NONE,
+            allowed_function_names=["safe_tool"],
+        ),
+        # A full tool config, so the assertions below pin that a tool choice leaves all of it in place.
+        retrieval_config=genai.types.RetrievalConfig(language_code="en-GB"),
+    )
+    return GeminiModel(model_id=model_id, params={"tool_config": tool_config})
+
+
+@pytest.mark.parametrize(
+    "tool_choice",
+    [None, {"auto": {}}, {"any": {}}, {"tool": {"name": "name"}}],
+    ids=["no-choice", "auto", "any", "tool"],
+)
+@pytest.mark.asyncio
+async def test_stream_request_tool_config_param_takes_precedence(
+    gemini_client, tool_config_param_model, messages, tool_spec, model_id, tool_choice
+):
+    """An explicit tool config wins over any per-request choice, matching the other providers."""
+    await anext(tool_config_param_model.stream(messages, tool_specs=[tool_spec], tool_choice=tool_choice))
+
+    exp_request = {
+        "config": {
+            "tools": [
+                {
+                    "function_declarations": [
+                        {
+                            "description": tool_spec["description"],
+                            "name": tool_spec["name"],
+                            "parameters_json_schema": tool_spec["inputSchema"]["json"],
+                        }
+                    ]
+                }
+            ],
+            "tool_config": {
+                "function_calling_config": {"mode": "NONE", "allowed_function_names": ["safe_tool"]},
+                "retrieval_config": {"language_code": "en-GB"},
+            },
+        },
+        "contents": [{"parts": [{"text": "test"}], "role": "user"}],
+        "model": model_id,
+    }
+    gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
+
+
+@pytest.mark.asyncio
+async def test_stream_tool_config_param_set_to_none_still_takes_precedence(
+    gemini_client, messages, tool_spec, model_id
+):
+    """Params owns the key, so an explicit None keeps a tool choice out of the request.
+
+    Matches the sibling providers, which spread params last and therefore let an explicit None win.
+    """
+    model = GeminiModel(model_id=model_id, params={"tool_config": None})
+
+    await anext(model.stream(messages, tool_specs=[tool_spec], tool_choice={"any": {}}))
+
+    exp_request = {
+        "config": {
+            "tools": [
+                {
+                    "function_declarations": [
+                        {
+                            "description": tool_spec["description"],
+                            "name": tool_spec["name"],
+                            "parameters_json_schema": tool_spec["inputSchema"]["json"],
+                        }
+                    ]
+                }
+            ],
+        },
+        "contents": [{"parts": [{"text": "test"}], "role": "user"}],
+        "model": model_id,
+    }
+    gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
+
+
+@pytest.mark.asyncio
+async def test_stream_tool_choice_does_not_persist_into_the_next_request(gemini_client, messages, tool_spec, model_id):
+    """A tool choice configures its own request only, so it never lands in the model's own params."""
+    model = GeminiModel(model_id=model_id, params={"temperature": 0.5})
+
+    await anext(model.stream(messages, tool_specs=[tool_spec], tool_choice={"any": {}}))
+    await anext(model.stream(messages, tool_specs=[tool_spec]))
+
+    exp_request = {
+        "config": {
+            "temperature": 0.5,
+            "tools": [
+                {
+                    "function_declarations": [
+                        {
+                            "description": tool_spec["description"],
+                            "name": tool_spec["name"],
+                            "parameters_json_schema": tool_spec["inputSchema"]["json"],
+                        }
+                    ]
+                }
+            ],
+        },
+        "contents": [{"parts": [{"text": "test"}], "role": "user"}],
+        "model": model_id,
+    }
+    gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
+
+
+def test_format_tool_choice_unrecognized_strategy(model):
+    tru_tool_config = model._format_tool_choice({"unrecognized": {}})
+    exp_tool_config = None
+    assert tru_tool_config == exp_tool_config
+
+
+@pytest.mark.asyncio
+async def test_stream_tool_choice_no_warning(model, messages, tool_spec, captured_warnings):
+    await anext(model.stream(messages, tool_specs=[tool_spec], tool_choice={"auto": {}}))
+
+    assert len(captured_warnings) == 0
+
+
+@pytest.mark.asyncio
+async def test_stream_handles_non_json_error(gemini_client, model, messages, alist):
     error_message = "Invalid API key"
     gemini_client.aio.models.generate_content_stream.side_effect = genai.errors.ClientError(
-        error_message, {"message": error_message}
+        400, {"error": {"message": error_message}}
     )
 
-    with caplog.at_level(logging.WARNING):
-        with pytest.raises(genai.errors.ClientError, match=error_message):
-            await alist(model.stream(messages))
-
-    assert "Gemini API returned non-JSON error" in caplog.text
-    assert f"error_message=<{error_message}>" in caplog.text
+    with pytest.raises(genai.errors.ClientError, match=error_message):
+        await alist(model.stream(messages))
 
 
 @pytest.mark.asyncio

@@ -45,12 +45,15 @@ import {
   type CitationsDelta as BedrockCitationsDelta,
   type GuardrailTraceAssessment,
 } from '@aws-sdk/client-bedrock-runtime'
+import { FetchHttpHandler, type FetchHttpHandlerOptions } from '@smithy/fetch-http-handler'
 import {
   type BaseModelConfig,
   type CacheConfig,
+  type CacheTTL,
   type CountTokensOptions,
   Model,
   type StreamOptions,
+  resolveCacheSection,
   resolveConfigMetadata,
 } from '../models/model.js'
 import type { ContentBlock, Message, StopReason, ToolUseBlock } from '../types/messages.js'
@@ -130,10 +133,8 @@ const DEFAULT_REDACT_OUTPUT_MESSAGE = '[Assistant output redacted.]'
 /**
  * TTL durations accepted by Bedrock for prompt-cache checkpoints.
  *
- * Bedrock currently accepts `'5m'` (default) and `'1h'`. The `(string & {})` branch keeps
- * autocomplete on the known values while letting callers pass any string forward — Bedrock
- * validates the value server-side and rejects unsupported values with `ValidationException`,
- * so this stays correct as AWS adds new TTL values without an SDK update.
+ * Bedrock accepts `'5m'` (default) and `'1h'`, and validates the value server-side, rejecting
+ * unsupported values with `ValidationException`.
  *
  * Bedrock also requires checkpoint TTLs to be **non-increasing** across
  * `toolConfig` → system → messages — setting a longer TTL on a later checkpoint than an
@@ -141,19 +142,12 @@ const DEFAULT_REDACT_OUTPUT_MESSAGE = '[Assistant output redacted.]'
  *
  * @see https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_CachePointBlock.html
  */
-export type BedrockCacheTTL = '5m' | '1h' | (string & {})
+export type BedrockCacheTTL = CacheTTL
 
 /**
- * Bedrock-specific prompt-caching configuration. Narrows the TTL fields onto the common
- * {@link CacheConfig} for the Bedrock provider.
+ * Prompt-caching configuration for the Bedrock provider.
  */
-export interface BedrockCacheConfig extends CacheConfig {
-  /** TTL applied to the auto-injected cache point appended after `toolConfig.tools`. */
-  toolsTTL?: BedrockCacheTTL
-
-  /** TTL applied to the auto-injected cache point appended to the last user message. */
-  messagesTTL?: BedrockCacheTTL
-}
+export type BedrockCacheConfig = CacheConfig
 
 /**
  * Redaction configuration for Bedrock guardrails.
@@ -438,13 +432,15 @@ export class BedrockModel extends Model<BedrockModelConfig> {
       ? `${clientConfig.customUserAgent} strands-agents-ts-sdk`
       : 'strands-agents-ts-sdk'
 
+    const requestHandler = withDefaultRequestTimeout(clientConfig?.requestHandler)
     this._client = new BedrockRuntimeClient({
       ...(clientConfig ?? {}),
-      requestHandler: withDefaultRequestTimeout(clientConfig?.requestHandler),
+      requestHandler,
       // region takes precedence over clientConfig
       ...(region ? { region: region } : {}),
       customUserAgent,
     })
+    applyAbortAwareBrowserRequestHandler(this._client.config, requestHandler)
 
     if (apiKey) {
       applyApiKey(this._client, apiKey)
@@ -469,9 +465,9 @@ export class BedrockModel extends Model<BedrockModelConfig> {
    * Determines if caching should be enabled.
    * Returns true when:
    * - strategy is 'anthropic' (explicit enable)
-   * - strategy is 'auto' and model supports caching (auto-detect)
+   * - strategy is 'auto' (the default) and the model supports caching (auto-detect)
    *
-   * @returns True if caching should be enabled
+   * @returns True if caching should be enabled.
    */
   private _shouldEnableCaching(): boolean {
     const cacheConfig = this._config.cacheConfig
@@ -479,7 +475,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
       return false
     }
 
-    let strategy = cacheConfig.strategy
+    let strategy = cacheConfig.strategy ?? 'auto'
 
     if (strategy === 'auto') {
       const detectedStrategy = this._getCacheStrategy()
@@ -493,6 +489,39 @@ export class BedrockModel extends Model<BedrockModelConfig> {
     }
 
     return strategy === 'anthropic'
+  }
+
+  /**
+   * Applies `cacheConfig.ttl` to a caller-placed system cache point that carries no TTL of its own.
+   *
+   * Bedrock rejects a TTL that exceeds an earlier cache point's, in the order toolConfig, system,
+   * messages. Filling the system point in keeps it from sitting at the default between two configured
+   * points. A TTL the caller wrote is left as written, and the fill-in stands down when the tools point
+   * carries a different TTL, leaving the caller to reconcile the two.
+   *
+   * @param request - The formatted request, with `system` and `toolConfig` already populated.
+   */
+  private _applySystemCacheTTL(request: ConverseStreamCommandInput): void {
+    const system = request.system
+    if (!system) {
+      return
+    }
+    let ttl = this._shouldEnableCaching() ? this._config.cacheConfig?.ttl || undefined : undefined
+    if (ttl) {
+      const toolsPoint = request.toolConfig?.tools?.find((tool) => 'cachePoint' in tool)
+      if (toolsPoint && 'cachePoint' in toolsPoint && toolsPoint.cachePoint?.ttl !== ttl) {
+        ttl = undefined
+      }
+    }
+
+    for (const block of system) {
+      if ('cachePoint' in block && block.cachePoint && !block.cachePoint.ttl) {
+        delete block.cachePoint.ttl
+        if (ttl) {
+          block.cachePoint.ttl = ttl as BedrockSdkCacheTTL
+        }
+      }
+    }
   }
 
   /**
@@ -627,7 +656,9 @@ export class BedrockModel extends Model<BedrockModelConfig> {
       if (this._config.stream !== false) {
         // Create and send the command
         const command = new ConverseStreamCommand(request)
-        const response = await this._client.send(command)
+        const response = options?.cancelSignal
+          ? await this._client.send(command, { abortSignal: options.cancelSignal })
+          : await this._client.send(command)
         // Stream the response
         if (response.stream) {
           let lastStopReason: string | undefined
@@ -642,7 +673,9 @@ export class BedrockModel extends Model<BedrockModelConfig> {
         }
       } else {
         const command = new ConverseCommand(request)
-        const response = await this._client.send(command)
+        const response = options?.cancelSignal
+          ? await this._client.send(command, { abortSignal: options.cancelSignal })
+          : await this._client.send(command)
         for (const event of this._mapBedrockEventToSDKEvent(response)) {
           yield event
         }
@@ -670,7 +703,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
   private _formatRequest(messages: Message[], options?: StreamOptions): ConverseStreamCommandInput {
     const request: ConverseStreamCommandInput = {
       modelId: this._config.modelId,
-      messages: this._formatMessages(messages),
+      messages: this._formatMessages(messages, options?.dynamicTrailingBlocks ?? 0),
     }
 
     // Add system prompt
@@ -708,12 +741,15 @@ export class BedrockModel extends Model<BedrockModelConfig> {
           }) as Tool
       )
 
-      if (this._shouldEnableCaching()) {
+      const cacheConfig = this._config.cacheConfig
+      const toolsCache = this._shouldEnableCaching()
+        ? resolveCacheSection(cacheConfig?.toolsTTL, cacheConfig?.ttl)
+        : { enabled: false }
+      if (toolsCache.enabled) {
         const cachePoint: BedrockCachePointBlock = { type: 'default' }
-        const ttl = this._config.cacheConfig?.toolsTTL
-        if (ttl !== undefined) {
+        if (toolsCache.ttl) {
           // Bedrock validates TTL values server-side, so accept any string here.
-          cachePoint.ttl = ttl as BedrockSdkCacheTTL
+          cachePoint.ttl = toolsCache.ttl as BedrockSdkCacheTTL
         }
         tools.push({ cachePoint })
       }
@@ -728,6 +764,9 @@ export class BedrockModel extends Model<BedrockModelConfig> {
 
       request.toolConfig = toolConfig
     }
+
+    // Runs after toolConfig so the tools checkpoint ahead of the system one is known.
+    this._applySystemCacheTTL(request)
 
     // Add inference configuration
     const inferenceConfig: InferenceConfiguration = {}
@@ -801,7 +840,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
    * @param messages - SDK messages
    * @returns Bedrock-formatted messages
    */
-  private _formatMessages(messages: Message[]): BedrockMessage[] {
+  private _formatMessages(messages: Message[], dynamicTrailingBlocks = 0): BedrockMessage[] {
     // Pre-compute the index of the last user message containing text/image content
     // This ensures guardContent wrapping is maintained across tool execution cycles
     const lastUserTextIdx = this._config.guardrailConfig?.guardLatestUserMessage
@@ -824,29 +863,124 @@ export class BedrockModel extends Model<BedrockModelConfig> {
       return acc
     }, [])
 
-    // Inject cache point if caching is enabled
-    if (this._shouldEnableCaching()) {
-      this._injectCachePoint(formattedMessages)
+    const cacheConfig = this._config.cacheConfig
+    const messagesCache = this._shouldEnableCaching()
+      ? resolveCacheSection(cacheConfig?.messagesTTL, cacheConfig?.ttl)
+      : { enabled: false }
+    if (messagesCache.enabled) {
+      this._injectCachePoint(formattedMessages, messagesCache.ttl, dynamicTrailingBlocks)
     }
 
     return formattedMessages
   }
 
   /**
-   * Inject a cache point at the end of the last user message.
-   * Strips any existing cache points from all messages first.
+   * Keep a caller-placed cache point, applying the configured TTL and the document rule.
+   *
+   * The caller's position is honored; their TTL is not. Bedrock processes cache points in the order
+   * toolConfig, system, messages and rejects a longer TTL that follows a shorter one (see CacheConfig),
+   * so a TTL written here can turn a working configuration into a rejected request. Normalizing to
+   * `cacheConfig.messagesTTL` is what makes the honored path TTL-identical to the automatic one.
+   *
+   * @param content - Content blocks of the last user message (modified in place)
+   * @param placedIdx - Index of the caller-placed cache point
+   * @param msgIdx - Index of the message, for logging
+   * @param ttl - TTL for the honored cache point. Falsy leaves the Bedrock default.
+   * @returns True when the point was kept, possibly relocated. False when nothing cacheable precedes
+   *   it, so the point was removed: Bedrock rejects a cache point with no content ahead of it ("There
+   *   is nothing available to cache"). The caller then retries automatic placement, which lands a point
+   *   only if the remaining content allows one - for a leading document it declines too.
+   */
+  private _honorPlacedCachePoint(
+    content: BedrockContentBlock[],
+    placedIdx: number,
+    msgIdx: number,
+    ttl?: CacheTTL
+  ): boolean {
+    // Unreachable in practice - the caller scans for cache points to get this index - but the
+    // compiler cannot know that under noUncheckedIndexedAccess.
+    const placed = content[placedIdx]
+    if (!placed || !('cachePoint' in placed)) {
+      return false
+    }
+
+    if (placedIdx === 0) {
+      content.splice(placedIdx, 1)
+      logger.warn(
+        `msg_idx=<${msgIdx}> | removed cache point with no content ahead of it, falling back to automatic placement`
+      )
+      return false
+    }
+
+    // Honor the caller's position, not their TTL: Bedrock processes cache points in the order
+    // toolConfig, system, messages and rejects a longer TTL that follows a shorter one, so a TTL
+    // written here can invalidate a request against one configured for tools or system. Deleting it
+    // unconditionally also handles null and "", which are rejected before placement is even judged.
+    delete placed.cachePoint.ttl
+    if (ttl) {
+      // Bedrock validates TTL values server-side, so accept any string here. An empty configured TTL
+      // is not a TTL, matching the Python side rather than forwarding "" for the enum to reject.
+      placed.cachePoint.ttl = ttl as BedrockSdkCacheTTL
+    }
+
+    // Bedrock only rejects a cache point *directly* preceded by a non-PDF document, so step back over
+    // the adjacent run of them. Moving further would evict durable content - usually the document
+    // itself, the expensive part - from the cached prefix for no reason.
+    let targetIdx = placedIdx
+    while (targetIdx > 0) {
+      const previous = content[targetIdx - 1]
+      if (!previous || !('document' in previous) || previous.document?.format === 'pdf') {
+        break
+      }
+      targetIdx--
+    }
+
+    if (targetIdx !== placedIdx) {
+      content.splice(placedIdx, 1)
+      if (targetIdx === 0) {
+        // Nothing precedes the documents, so there is no prefix to cache.
+        logger.warn(`msg_idx=<${msgIdx}> | dropped cache point ahead of a leading document`)
+        return false
+      }
+      content.splice(targetIdx, 0, placed)
+      logger.debug(`msg_idx=<${msgIdx}>, block_idx=<${targetIdx}> | relocated caller-placed cache point`)
+      return true
+    }
+
+    logger.debug(`msg_idx=<${msgIdx}>, block_idx=<${placedIdx}> | honored caller-placed cache point`)
+    return true
+  }
+
+  /**
+   * Ensure the last user message carries exactly one cache point.
+   *
+   * A cache point already present in the last user message is honored where it sits rather than
+   * replaced: a caller places one to mark where its reusable prefix ends, ahead of content that is
+   * rebuilt every call. Moving it to the end of the message would put that per-call content inside
+   * the cached prefix, so every request would write a new entry and none would ever read one.
+   *
+   * Cache points in earlier messages are still removed, so they cannot accumulate one per turn
+   * against the provider's cache-point budget.
    *
    * @param messages - List of messages to inject cache point into (modified in place)
+   * @param ttl - TTL for the injected cache point. Falsy leaves the Bedrock default.
    */
-  private _injectCachePoint(messages: BedrockMessage[]): void {
+  private _injectCachePoint(messages: BedrockMessage[], ttl?: CacheTTL, dynamicTrailingBlocks = 0): void {
     if (messages.length === 0) {
       return
     }
 
     let lastUserIdx: number | null = null
-
-    // Strip existing cache points and find last user message
     for (let msgIdx = 0; msgIdx < messages.length; msgIdx++) {
+      if (messages[msgIdx]?.role === 'user') {
+        lastUserIdx = msgIdx
+      }
+    }
+
+    // Strip cache points everywhere except the last user message, whose own point is the caller's
+    // boundary and is handled below.
+    for (let msgIdx = 0; msgIdx < messages.length; msgIdx++) {
+      if (msgIdx === lastUserIdx) continue
       const msg = messages[msgIdx]
       if (!msg) continue
 
@@ -861,23 +995,91 @@ export class BedrockModel extends Model<BedrockModelConfig> {
           )
         }
       }
-
-      if (msg.role === 'user') {
-        lastUserIdx = msgIdx
-      }
     }
 
     // Add cache point to last user message
     if (lastUserIdx !== null) {
       const lastMsg = messages[lastUserIdx]
       if (lastMsg && lastMsg.content) {
+        const content = lastMsg.content
+
+        const placedIdxs: number[] = []
+        for (let blockIdx = 0; blockIdx < content.length; blockIdx++) {
+          const block = content[blockIdx]
+          if (block && 'cachePoint' in block) {
+            placedIdxs.push(blockIdx)
+          }
+        }
+
+        if (placedIdxs.length > 0) {
+          // One boundary per message, so this message contributes a single cache point to the budget.
+          // Extras are not worthless - a second point ahead of the per-call tail doubles the cached
+          // prefix - but Bedrock allows only four cache points per request and the budget is shared
+          // across toolConfig, system and messages. The SDK already spends up to two of them via
+          // cacheTools and cachePrompt, so honoring a caller's extras needs that arithmetic first, or
+          // three caller points become a hard rejection rather than weaker caching. Descending, so
+          // each removal is above every index still to be used.
+          for (const extraIdx of placedIdxs.slice(1).reverse()) {
+            content.splice(extraIdx, 1)
+            logger.warn(
+              `msg_idx=<${lastUserIdx}>, block_idx=<${extraIdx}> | stripped existing cache point (auto mode manages cache points)`
+            )
+          }
+          if (this._honorPlacedCachePoint(content, placedIdxs[0] as number, lastUserIdx, ttl)) {
+            return
+          }
+          if (content.length === 0) {
+            // Removing the point emptied the message, so there is nothing left to cache and
+            // re-adding one would rebuild the request Bedrock just refused.
+            logger.debug(`msg_idx=<${lastUserIdx}> | no content left to cache`)
+            return
+          }
+          // The point could not legally stay, so fall through to automatic placement below.
+        }
+
         const cachePoint: BedrockCachePointBlock = { type: 'default' }
-        const ttl = this._config.cacheConfig?.messagesTTL
-        if (ttl !== undefined) {
+        if (ttl) {
           // Bedrock validates TTL values server-side, so accept any string here.
           cachePoint.ttl = ttl as BedrockSdkCacheTTL
         }
-        lastMsg.content.push({ cachePoint })
+
+        if (dynamicTrailingBlocks > 0) {
+          // Per-call content sits at the end, so the reusable prefix ends where that content begins.
+          // Routed through the honor path so the document rule and configured TTL apply identically.
+          const boundaryIdx = Math.max(0, content.length - dynamicTrailingBlocks)
+          if (boundaryIdx === 0) {
+            logger.debug(`msg_idx=<${lastUserIdx}> | skipped cache point, no durable prefix`)
+            return
+          }
+          content.splice(boundaryIdx, 0, { cachePoint })
+          // A false here means a leading document left no prefix to cache; automatic placement declines
+          // for the same reason, so there is nothing to fall back to.
+          this._honorPlacedCachePoint(content, boundaryIdx, lastUserIdx, ttl)
+          return
+        }
+
+        // Locate the first non-PDF document block
+        let firstNonPdfDocIdx: number | null = null
+        for (let i = 0; i < content.length; i++) {
+          const block = content[i]
+          if (block && 'document' in block && block.document?.format !== 'pdf') {
+            firstNonPdfDocIdx = i
+            break
+          }
+        }
+
+        // Insert the cache point before the first non-PDF document so it is not directly
+        // preceded by that block, which Bedrock rejects with a ValidationException
+        if (firstNonPdfDocIdx === null) {
+          content.push({ cachePoint })
+        } else if (firstNonPdfDocIdx > 0) {
+          content.splice(firstNonPdfDocIdx, 0, { cachePoint })
+        } else {
+          // A leading non-PDF document leaves no prefix to cache and Bedrock rejects it
+          logger.debug(`msg_idx=<${lastUserIdx}> | skipped cache point for leading non-PDF document`)
+          return
+        }
+
         logger.debug(`msg_idx=<${lastUserIdx}> | added cache point to last user message`)
       }
     }
@@ -1084,8 +1286,8 @@ export class BedrockModel extends Model<BedrockModelConfig> {
 
       case 'cachePointBlock': {
         const cachePoint: BedrockCachePointBlock = { type: block.cacheType }
-        if (block.ttl !== undefined) {
-          // Bedrock validates TTL values server-side, so accept any string here.
+        if (block.ttl) {
+          // Bedrock validates non-empty TTL values server-side, so do not restrict them to known values here.
           cachePoint.ttl = block.ttl as BedrockSdkCacheTTL
         }
         return { cachePoint }
@@ -1777,6 +1979,25 @@ function withDefaultRequestTimeout(
   // Use `??` rather than spread order so an explicit `requestTimeout: undefined` still gets
   // the default (spread would otherwise overwrite the default with `undefined`, disabling it).
   return { ...options, requestTimeout: options.requestTimeout ?? DEFAULT_REQUEST_TIMEOUT_MS }
+}
+
+/**
+ * Replaces the AWS browser default WebSocket wrapper for this model's HTTPS
+ * requests. The wrapper drops HttpHandlerOptions when delegating to fetch, so
+ * abortSignal never reaches the transport. Node defaults and caller-provided
+ * handler instances are left unchanged.
+ */
+function applyAbortAwareBrowserRequestHandler(
+  config: BedrockRuntimeClientResolvedConfig,
+  requestHandler: NonNullable<BedrockRuntimeClientConfig['requestHandler']>
+): void {
+  if (typeof (requestHandler as { handle?: unknown }).handle === 'function') {
+    return
+  }
+  if (config.requestHandler?.metadata?.handlerProtocol !== 'websocket/h1.1') {
+    return
+  }
+  config.requestHandler = new FetchHttpHandler(requestHandler as FetchHttpHandlerOptions)
 }
 
 /**

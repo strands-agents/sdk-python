@@ -13,6 +13,7 @@ import { MaxTokensError, ModelError } from '../../errors.js'
 import { Model } from '../model.js'
 import type { BaseModelConfig, StreamOptions } from '../model.js'
 import type { ModelStreamEvent } from '../streaming.js'
+import { anyTrackingId } from '../../__fixtures__/message-helpers.js'
 
 /**
  * Test model provider that throws an error from stream().
@@ -86,6 +87,7 @@ describe('Model', () => {
             type: 'message',
             role: 'assistant',
             content: [{ type: 'textBlock', text: 'Hello' }],
+            trackingId: anyTrackingId,
             metadata: {
               usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
             },
@@ -164,6 +166,7 @@ describe('Model', () => {
               { type: 'textBlock', text: 'First' },
               { type: 'textBlock', text: 'Second' },
             ],
+            trackingId: anyTrackingId,
             metadata: {
               usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
             },
@@ -228,6 +231,7 @@ describe('Model', () => {
                 input: { location: 'Paris' },
               },
             ],
+            trackingId: anyTrackingId,
             metadata: {
               usage: { inputTokens: 10, outputTokens: 8, totalTokens: 18 },
             },
@@ -286,6 +290,7 @@ describe('Model', () => {
                 input: {},
               },
             ],
+            trackingId: anyTrackingId,
             metadata: {
               usage: { inputTokens: 10, outputTokens: 8, totalTokens: 18 },
             },
@@ -447,6 +452,7 @@ describe('Model', () => {
                 signature: 'sig1',
               },
             ],
+            trackingId: anyTrackingId,
             metadata: {
               usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
             },
@@ -498,6 +504,7 @@ describe('Model', () => {
                 redactedContent: new Uint8Array(0),
               },
             ],
+            trackingId: anyTrackingId,
             metadata: {
               usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
             },
@@ -549,6 +556,7 @@ describe('Model', () => {
                 text: 'Thinking',
               },
             ],
+            trackingId: anyTrackingId,
             metadata: {
               usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
             },
@@ -620,6 +628,7 @@ describe('Model', () => {
               { type: 'toolUseBlock', toolUseId: 'tool1', name: 'get_weather', input: { city: 'Paris' } },
               { type: 'reasoningBlock', text: 'Reasoning', signature: 'sig1' },
             ],
+            trackingId: anyTrackingId,
             metadata: {
               usage: { inputTokens: 10, outputTokens: 15, totalTokens: 25 },
             },
@@ -712,6 +721,7 @@ describe('Model', () => {
             type: 'message',
             role: 'assistant',
             content: [{ type: 'textBlock', text: 'Hello' }],
+            trackingId: anyTrackingId,
             metadata: {
               usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
               metrics: { latencyMs: 100 },
@@ -753,6 +763,7 @@ describe('Model', () => {
             type: 'message',
             role: 'assistant',
             content: [{ type: 'textBlock', text: 'Hello' }],
+            trackingId: anyTrackingId,
           },
           stopReason: 'endTurn',
           metadata: undefined,
@@ -1098,5 +1109,34 @@ describe('countTokens', () => {
       Math.ceil(JSON.stringify({ city: 'Seattle' }).length / 2) +
       Math.ceil('72F'.length / 4)
     expect(result).toBe(expected)
+  })
+})
+
+describe('estimateUtilization', () => {
+  it('returns ratio of inputTokens to contextWindowLimit', () => {
+    const provider = new TestModelProvider()
+    provider.updateConfig({ contextWindowLimit: 100_000 })
+
+    expect(provider.estimateUtilization(50_000)).toBe(0.5)
+  })
+
+  it('uses DEFAULT_CONTEXT_WINDOW_LIMIT when contextWindowLimit is not set', () => {
+    const provider = new TestModelProvider()
+
+    expect(provider.estimateUtilization(100_000)).toBe(100_000 / 200_000)
+  })
+
+  it('returns value above 1.0 when tokens exceed limit', () => {
+    const provider = new TestModelProvider()
+    provider.updateConfig({ contextWindowLimit: 1000 })
+
+    expect(provider.estimateUtilization(1500)).toBeGreaterThan(1.0)
+  })
+
+  it('returns 0 for zero tokens', () => {
+    const provider = new TestModelProvider()
+    provider.updateConfig({ contextWindowLimit: 100_000 })
+
+    expect(provider.estimateUtilization(0)).toBe(0)
   })
 })

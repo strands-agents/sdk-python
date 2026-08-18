@@ -6,7 +6,6 @@
 import base64
 import json
 import logging
-import mimetypes
 from collections.abc import AsyncGenerator
 from typing import Any, TypeVar, cast
 
@@ -16,7 +15,7 @@ from typing_extensions import Required, Unpack, override
 
 from ..event_loop.streaming import process_stream
 from ..tools.structured_output.structured_output_utils import convert_pydantic_to_tool_spec
-from ..types.content import ContentBlock, Messages, SystemContentBlock
+from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
 from ..types.event_loop import Usage
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
@@ -24,7 +23,7 @@ from ..types.tools import ToolChoice, ToolChoiceToolDict, ToolSpec
 from ._defaults import resolve_config_metadata
 from ._strict_schema import ensure_strict_json_schema
 from ._validation import _has_location_source, validate_config_keys
-from .model import BaseModelConfig, Model
+from .model import BaseModelConfig, CacheConfig, CacheToolsConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +36,16 @@ _IMAGE_MEDIA_TYPES = {
     "png": "image/png",
     "webp": "image/webp",
 }
+
+# Anthropic document sources accept only pdf (base64) and plain text; these formats are delivered as text.
+_TEXT_FILE_FORMATS = frozenset({"csv", "html", "md", "txt"})
+
+# Anthropic accepts ``cache_control`` on these block types only; any other block is rejected.
+# https://docs.claude.com/en/docs/build-with-claude/prompt-caching
+_CACHEABLE_BLOCK_TYPES = frozenset({"document", "image", "text", "tool_result", "tool_use"})
+
+# ``ephemeral`` is the only cache type the Anthropic API supports
+_ANTHROPIC_CACHE_TYPE = "ephemeral"
 
 
 class AnthropicModel(Model):
@@ -61,6 +70,9 @@ class AnthropicModel(Model):
         """Configuration options for Anthropic models.
 
         Attributes:
+            cache_config: Configuration for prompt caching. Adds a cache point to the last user message,
+                caching everything before it. Caching is off when unset.
+            cache_tools: Caches the tool definitions.
             max_tokens: Maximum number of tokens to generate.
             model_id: Calude model ID (e.g., "claude-3-7-sonnet-latest").
                 For a complete list of supported models, see
@@ -72,6 +84,8 @@ class AnthropicModel(Model):
                 When False (default), skips the API call and uses the local estimator.
         """
 
+        cache_config: CacheConfig | None
+        cache_tools: str | CacheToolsConfig | None
         max_tokens: Required[int]
         model_id: Required[str]
         params: dict[str, Any] | None
@@ -122,33 +136,47 @@ class AnthropicModel(Model):
             Anthropic formatted content block.
 
         Raises:
-            TypeError: If the content block type cannot be converted to an Anthropic-compatible format.
+            TypeError: If the content block type or document format cannot be converted to an
+                Anthropic-compatible format.
         """
         if "document" in content:
-            mime_type = mimetypes.types_map.get(f".{content['document']['format']}", "application/octet-stream")
+            document_format = content["document"]["format"]
+            if document_format == "pdf":
+                source: dict[str, Any] = {
+                    "data": base64.b64encode(content["document"]["source"]["bytes"]).decode("utf-8"),
+                    "media_type": "application/pdf",
+                    "type": "base64",
+                }
+            elif document_format in _TEXT_FILE_FORMATS:
+                try:
+                    text_data = content["document"]["source"]["bytes"].decode("utf-8")
+                except UnicodeDecodeError as decode_error:
+                    raise TypeError(
+                        f"content_type=<document>, format=<{document_format}> | document is not valid utf-8 text"
+                    ) from decode_error
+                source = {
+                    "data": text_data,
+                    "media_type": "text/plain",
+                    "type": "text",
+                }
+            else:
+                raise TypeError(f"content_type=<document>, format=<{document_format}> | unsupported format")
+
             return {
-                "source": {
-                    "data": (
-                        content["document"]["source"]["bytes"].decode("utf-8")
-                        if mime_type == "text/plain"
-                        else base64.b64encode(content["document"]["source"]["bytes"]).decode("utf-8")
-                    ),
-                    "media_type": mime_type,
-                    "type": "text" if mime_type == "text/plain" else "base64",
-                },
+                "source": source,
                 "title": content["document"]["name"],
                 "type": "document",
             }
 
         if "image" in content:
             image_format = content["image"]["format"]
+            if image_format not in _IMAGE_MEDIA_TYPES:
+                raise TypeError(f"content_type=<image>, format=<{image_format}> | unsupported format")
+
             return {
                 "source": {
                     "data": base64.b64encode(content["image"]["source"]["bytes"]).decode("utf-8"),
-                    "media_type": _IMAGE_MEDIA_TYPES.get(
-                        image_format,
-                        mimetypes.types_map.get(f".{image_format}", "application/octet-stream"),
-                    ),
+                    "media_type": _IMAGE_MEDIA_TYPES[image_format],
                     "type": "base64",
                 },
                 "type": "image",
@@ -189,23 +217,46 @@ class AnthropicModel(Model):
 
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
 
-    def _format_request_messages(self, messages: Messages) -> list[dict[str, Any]]:
+    def _format_request_messages(
+        self, messages: Messages, cache_target_idx: int | None = None, dynamic_trailing_blocks: int = 0
+    ) -> list[dict[str, Any]]:
         """Format an Anthropic messages array.
 
         Args:
             messages: List of message objects to be processed by the model.
+            cache_target_idx: Index of the message that owns the managed cache point while
+                ``cache_config`` is set. Automatic placement applies to that message only when nothing in
+                it already carries the cache point.
+            dynamic_trailing_blocks: How many trailing blocks of the cache-target message are rebuilt on
+                every call, so the cache point stays ahead of them.
 
         Returns:
             An Anthropic messages array.
         """
+        cache_config = self.config.get("cache_config")
+        configured_ttl = cache_config.ttl if cache_config else None
         formatted_messages = []
 
-        for message in messages:
+        for message_idx, message in enumerate(messages):
             formatted_contents: list[dict[str, Any]] = []
+            marked = False
 
             for content in message["content"]:
                 if "cachePoint" in content:
-                    formatted_contents[-1]["cache_control"] = {"type": "ephemeral"}
+                    ttl = content["cachePoint"].get("ttl")
+                    if not ttl and message_idx == cache_target_idx:
+                        ttl = configured_ttl
+
+                    if self._attach_cache_control(formatted_contents, ttl):
+                        marked = True
+                    elif message_idx == cache_target_idx:
+                        logger.warning(
+                            "msg_idx=<%d> | nothing ahead of the placed cache point can carry one, "
+                            "falling back to automatic placement",
+                            message_idx,
+                        )
+                    else:
+                        logger.warning("no preceding block accepts a cache point | skipped cache point")
                     continue
 
                 # Check for location sources in image, document, or video content
@@ -215,10 +266,118 @@ class AnthropicModel(Model):
 
                 formatted_contents.append(self._format_request_message_content(content))
 
+            # Automatic placement runs once the whole message is formatted, so the cache point lands on a
+            # block that survived translation. It is skipped when a caller-placed point already marked one.
+            # Per-call trailing blocks apply only to the cache-target message, which is where a producer
+            # appends content rebuilt every call.
+            if message_idx == cache_target_idx and not marked:
+                if self._attach_cache_control(formatted_contents, configured_ttl, dynamic_trailing_blocks):
+                    logger.debug("msg_idx=<%d> | added cache point to last user message", message_idx)
+                else:
+                    logger.debug("msg_idx=<%d> | no cacheable content block, skipped cache point", message_idx)
+
             if formatted_contents:
                 formatted_messages.append({"content": formatted_contents, "role": message["role"]})
 
         return formatted_messages
+
+    @classmethod
+    def _attach_cache_control(
+        cls, formatted_contents: list[dict[str, Any]], ttl: str | None, skip_trailing: int = 0
+    ) -> bool:
+        """Mark the last already-formatted block that the API accepts ``cache_control`` on.
+
+        Scans backwards because the nearest block may be a type the API rejects (a ``thinking`` block,
+        for example) or may have been dropped in translation.
+
+        Args:
+            formatted_contents: Blocks formatted so far for the current message. Mutated in place.
+            ttl: Optional TTL duration carried by the cache point.
+            skip_trailing: Trailing blocks rebuilt every call; the cache point stays ahead of them, since a
+                prefix that changes every call is written every call and never read.
+
+        Returns:
+            True when a block was marked, False when none of the blocks can carry a cache point.
+        """
+        durable = formatted_contents[: len(formatted_contents) - skip_trailing]
+        for block in reversed(durable):
+            if block.get("type") in _CACHEABLE_BLOCK_TYPES:
+                block["cache_control"] = cls._format_cache_control(ttl)
+                return True
+
+        return False
+
+    @staticmethod
+    def _format_cache_control(ttl: str | None) -> dict[str, Any]:
+        """Build an Anthropic ``cache_control`` value.
+
+        Args:
+            ttl: TTL duration (e.g. "5m", "1h"). A falsy value is omitted, leaving the API default.
+
+        Returns:
+            An Anthropic cache_control dict.
+        """
+        cache_control: dict[str, Any] = {"type": _ANTHROPIC_CACHE_TYPE}
+        if ttl:
+            cache_control["ttl"] = ttl
+        return cache_control
+
+    def _manage_cache_points(self, messages: Messages) -> tuple[Messages, int | None]:
+        """Return a copy of messages carrying at most one cache point, and the message that owns it.
+
+        A cache point in the last user message is kept where it sits; extras there, and points in earlier
+        messages, are stripped so they cannot accumulate one per turn against the API's shared budget.
+
+        Args:
+            messages: List of message objects to manage cache points for.
+
+        Returns:
+            A new list of messages and the index of the message that owns the cache point, or None when no
+            user message can carry one. The input is never modified.
+        """
+        cache_config = self.config.get("cache_config")
+        if not cache_config:
+            return messages, None
+
+        if cache_config.strategy not in ("auto", "anthropic"):
+            logger.warning("strategy=<%s> | unknown cache strategy, prompt caching disabled", cache_config.strategy)
+            return messages, None
+
+        target_idx = next(
+            (
+                idx
+                for idx in reversed(range(len(messages)))
+                if messages[idx]["role"] == "user"
+                and any("cachePoint" not in block for block in messages[idx]["content"])
+            ),
+            None,
+        )
+        if target_idx is None:
+            logger.debug("no user message with content | skipped cache point")
+
+        copied: list[Message] = []
+        stripped = 0
+        for msg_idx, message in enumerate(messages):
+            content: list[ContentBlock] = []
+            honored = False
+            for block in message["content"]:
+                if "cachePoint" not in block:
+                    content.append(block)
+                elif msg_idx == target_idx and not honored:
+                    honored = True
+                    content.append(block)
+                else:
+                    stripped += 1
+            copied.append({"role": message["role"], "content": content})
+
+        if stripped:
+            logger.warning(
+                "count=<%d> | stripped extra cache points, cache_config keeps the first cache point in the "
+                "last user message; unset cache_config to keep every cache point",
+                stripped,
+            )
+
+        return copied, target_idx
 
     def format_request(
         self,
@@ -226,6 +385,7 @@ class AnthropicModel(Model):
         tool_specs: list[ToolSpec] | None = None,
         system_prompt: str | None = None,
         tool_choice: ToolChoice | None = None,
+        dynamic_trailing_blocks: int = 0,
     ) -> dict[str, Any]:
         """Format an Anthropic streaming request.
 
@@ -234,6 +394,8 @@ class AnthropicModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
+            dynamic_trailing_blocks: How many trailing blocks of the last user message are rebuilt on
+                every call, so the cache point stays ahead of them.
 
         Returns:
             An Anthropic streaming request.
@@ -242,27 +404,39 @@ class AnthropicModel(Model):
             TypeError: If a message contains a content block type that cannot be converted to an Anthropic-compatible
                 format.
         """
-        return {
+        messages, cache_target_idx = self._manage_cache_points(messages)
+
+        tools: list[dict[str, Any]] = [
+            {
+                "name": tool_spec["name"],
+                "description": tool_spec["description"],
+                "input_schema": (
+                    ensure_strict_json_schema(tool_spec["inputSchema"]["json"])
+                    if tool_spec.get("strict")
+                    else tool_spec["inputSchema"]["json"]
+                ),
+                **({"strict": tool_spec["strict"]} if "strict" in tool_spec else {}),
+            }
+            for tool_spec in tool_specs or []
+        ]
+
+        # A cache_control on the final tool caches all of them, so one cache point suffices.
+        cache_tools = self.config.get("cache_tools")
+        if cache_tools and tools:
+            ttl = cache_tools.ttl if isinstance(cache_tools, CacheToolsConfig) else None
+            tools[-1]["cache_control"] = self._format_cache_control(ttl)
+
+        request = {
             "max_tokens": self.config["max_tokens"],
-            "messages": self._format_request_messages(messages),
+            "messages": self._format_request_messages(messages, cache_target_idx, dynamic_trailing_blocks),
             "model": self.config["model_id"],
-            "tools": [
-                {
-                    "name": tool_spec["name"],
-                    "description": tool_spec["description"],
-                    "input_schema": (
-                        ensure_strict_json_schema(tool_spec["inputSchema"]["json"])
-                        if tool_spec.get("strict")
-                        else tool_spec["inputSchema"]["json"]
-                    ),
-                    **({"strict": tool_spec["strict"]} if "strict" in tool_spec else {}),
-                }
-                for tool_spec in tool_specs or []
-            ],
+            "tools": tools,
             **(self._format_tool_choice(tool_choice)),
             **({"system": system_prompt} if system_prompt else {}),
             **(self.config.get("params") or {}),
         }
+
+        return request
 
     @staticmethod
     def _format_tool_choice(tool_choice: ToolChoice | None) -> dict:
@@ -482,7 +656,9 @@ class AnthropicModel(Model):
             ModelThrottledException: If the request is throttled by Anthropic.
         """
         logger.debug("formatting request")
-        request = self.format_request(messages, tool_specs, system_prompt, tool_choice)
+        request = self.format_request(
+            messages, tool_specs, system_prompt, tool_choice, kwargs.get("dynamic_trailing_blocks", 0)
+        )
         logger.debug("request=<%s>", request)
 
         logger.debug("invoking model")

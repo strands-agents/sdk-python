@@ -29,6 +29,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+REDACTED_VALUE = "[REDACTED]"
+
 
 class JSONEncoder(json.JSONEncoder):
     """Custom JSON encoder that handles non-serializable types."""
@@ -81,14 +83,33 @@ class JSONEncoder(json.JSONEncoder):
 class Tracer:
     """Handles OpenTelemetry tracing.
 
-    This class provides a simple interface for creating and managing traces,
-    with support for sending to OTLP endpoints.
+    This class provides a simple interface for creating and managing traces, with support for sending to OTLP endpoints.
 
-    When the OTEL_EXPORTER_OTLP_ENDPOINT environment variable is set, traces
-    are sent to the OTLP endpoint.
+    When the OTEL_EXPORTER_OTLP_ENDPOINT environment variable is set, traces are sent to the OTLP endpoint.
 
     Both attributes are controlled by including "gen_ai_latest_experimental", "gen_ai_tool_definitions",
     or "gen_ai_use_latest_invocation_tokens", respectively, in the OTEL_SEMCONV_STABILITY_OPT_IN environment variable.
+
+    Including "gen_ai_span_attributes_only" records message content directly as span attributes instead of
+    span events, for backends that cannot read span events. This applies to the aggregated content events
+    (latest-convention "gen_ai.*" messages and the "memory.query"/"memory.content" events); the legacy
+    per-message events are always emitted as events. The default (token absent, non-Langfuse) emits span
+    events for backward compatibility. Independent of this token, tool spans under the latest
+    conventions additionally record `gen_ai.tool.call.arguments` and `gen_ai.tool.call.result` as
+    span attributes per the execute_tool span convention.
+
+    Span attribute redaction is opt-in via the `gen_ai_unredacted_attributes=<list>` token in the same
+    environment variable. The list uses `;` as a separator and supports trailing-`*` glob patterns.
+    When the token is absent, all attributes are emitted unredacted (backward compatible).
+
+    Note: only a single trailing `*` is honored (e.g. `gen_ai.output.*`). A mid-string wildcard such
+    as `gen_ai.*.messages` will not match anything at the moment — it is treated as an exact name.
+
+    Sensitive attributes subject to the redaction policy are: `gen_ai.input.messages` (user messages
+    and tool inputs/results being fed into the model), `gen_ai.output.messages` (agent/model responses
+    and tool call responses), `gen_ai.system_instructions` (system prompts), and, on execute_tool
+    spans under the latest conventions, `gen_ai.tool.call.arguments` and `gen_ai.tool.call.result`
+    (tool inputs/outputs).
     """
 
     def __init__(self) -> None:
@@ -105,15 +126,72 @@ class Tracer:
         self.use_latest_genai_conventions = "gen_ai_latest_experimental" in opt_in_values
         self._include_tool_definitions = "gen_ai_tool_definitions" in opt_in_values
         self._use_latest_invocation_tokens = "gen_ai_use_latest_invocation_tokens" in opt_in_values
+        self._span_attributes_only = self.is_langfuse or "gen_ai_span_attributes_only" in opt_in_values
+
+        unredacted_token = next(
+            (t for t in opt_in_values if t.startswith("gen_ai_unredacted_attributes=")),
+            None,
+        )
+        self._redaction_enabled = unredacted_token is not None
+        self._unredacted_exact, self._unredacted_globs = self._compile_unredacted_patterns(
+            unredacted_token.partition("=")[2] if unredacted_token else ""
+        )
 
     def _parse_semconv_opt_in(self) -> set[str]:
         """Parse the OTEL_SEMCONV_STABILITY_OPT_IN environment variable.
 
         Returns:
-            A set of opt-in values from the environment variable.
+            A set of opt-in tokens from the environment variable.
         """
         opt_in_env = os.getenv("OTEL_SEMCONV_STABILITY_OPT_IN", "")
         return {value.strip() for value in opt_in_env.split(",")}
+
+    @staticmethod
+    def _compile_unredacted_patterns(value: str) -> tuple[frozenset[str], tuple[str, ...]]:
+        """Split an unredacted-attributes value into exact names and glob prefixes.
+
+        Globs are limited to a single trailing `*` (e.g. `gen_ai.output.*`). Empty entries are
+        ignored, which is how a value like `gen_ai_unredacted_attributes=` resolves to "redact
+        everything sensitive".
+        """
+        exact: set[str] = set()
+        globs: list[str] = []
+        for raw in value.split(";"):
+            entry = raw.strip()
+            if not entry:
+                continue
+            if entry.endswith("*"):
+                globs.append(entry[:-1])
+            else:
+                exact.add(entry)
+        return frozenset(exact), tuple(globs)
+
+    def _is_attribute_unredacted(self, attribute_name: str) -> bool:
+        """Return True if the attribute should be emitted as-is, False if it must be redacted."""
+        if not self._redaction_enabled:
+            return True
+        if attribute_name in self._unredacted_exact:
+            return True
+        return any(attribute_name.startswith(prefix) for prefix in self._unredacted_globs)
+
+    def _redact(self, attribute_name: str, value: str) -> str:
+        """Apply the redaction policy to a single sensitive attribute value.
+
+        Args:
+            attribute_name: The canonical semantic attribute name used for policy lookup
+                (`gen_ai.input.messages`, `gen_ai.output.messages`, `gen_ai.system_instructions`,
+                `gen_ai.tool.call.arguments`, or `gen_ai.tool.call.result`). This may differ
+                from the physical event field key emitted under legacy conventions (which uses
+                `content`/`message`), but the canonical name is always used so that allowlist
+                entries are independent of the convention in use.
+            value: The serialized attribute value to potentially redact.
+
+        Returns:
+            The original value if the attribute is unredacted, otherwise ``REDACTED_VALUE``.
+        """
+        if self._is_attribute_unredacted(attribute_name):
+            return value
+        return REDACTED_VALUE
 
     @property
     def is_langfuse(self) -> bool:
@@ -255,18 +333,23 @@ class Tracer:
     ) -> None:
         """Add an event with attributes to a span.
 
+        Per OpenTelemetry the span-event recording API is deprecated. When `to_span_attributes` is set,
+        the attributes are recorded directly on the span and the event is skipped, so the content is
+        recorded once rather than duplicated across both; otherwise the event is emitted.
+
         Args:
             span: The span to add the event to
             event_name: Name of the event
             event_attributes: Dictionary of attributes to set on the event
-            to_span_attributes: Add the attributes to span attributes
+            to_span_attributes: Record the attributes on the span instead of as an event
         """
         if not span:
             return
 
-        # Add to span attribute since some backend can't read the events
-        if to_span_attributes and event_attributes:
-            span.set_attributes(event_attributes)
+        if to_span_attributes:
+            if event_attributes:
+                span.set_attributes(event_attributes)
+            return
 
         span.add_event(event_name, attributes=event_attributes)
 
@@ -367,27 +450,29 @@ class Tracer:
         self._add_optional_usage_and_metrics_attributes(attributes, usage, metrics)
 
         if self.use_latest_genai_conventions:
+            output_messages = serialize(
+                [
+                    {
+                        "role": message["role"],
+                        "parts": self._map_content_blocks_to_otel_parts(message["content"]),
+                        "finish_reason": str(stop_reason),
+                    }
+                ]
+            )
             self._add_event(
                 span,
                 "gen_ai.client.inference.operation.details",
-                {
-                    "gen_ai.output.messages": serialize(
-                        [
-                            {
-                                "role": message["role"],
-                                "parts": self._map_content_blocks_to_otel_parts(message["content"]),
-                                "finish_reason": str(stop_reason),
-                            }
-                        ]
-                    ),
-                },
-                to_span_attributes=self.is_langfuse,
+                {"gen_ai.output.messages": self._redact("gen_ai.output.messages", output_messages)},
+                to_span_attributes=self._span_attributes_only,
             )
         else:
             self._add_event(
                 span,
                 "gen_ai.choice",
-                event_attributes={"finish_reason": str(stop_reason), "message": serialize(message["content"])},
+                event_attributes={
+                    "finish_reason": str(stop_reason),
+                    "message": self._redact("gen_ai.output.messages", serialize(message["content"])),
+                },
             )
 
         self._end_span(span, attributes)
@@ -427,27 +512,33 @@ class Tracer:
         span = self._start_span(span_name, parent_span, attributes=attributes, span_kind=trace_api.SpanKind.INTERNAL)
 
         if self.use_latest_genai_conventions:
+            # The execute_tool span convention records tool inputs in the dedicated
+            # gen_ai.tool.call.arguments span attribute (Opt-In), which spec-compliant
+            # consumers read on tool spans.
+            span.set_attribute(
+                "gen_ai.tool.call.arguments",
+                self._redact("gen_ai.tool.call.arguments", serialize(tool["input"])),
+            )
+            input_messages = serialize(
+                [
+                    {
+                        "role": "tool",
+                        "parts": [
+                            {
+                                "type": "tool_call",
+                                "name": tool["name"],
+                                "id": tool["toolUseId"],
+                                "arguments": tool["input"],
+                            }
+                        ],
+                    }
+                ]
+            )
             self._add_event(
                 span,
                 "gen_ai.client.inference.operation.details",
-                {
-                    "gen_ai.input.messages": serialize(
-                        [
-                            {
-                                "role": "tool",
-                                "parts": [
-                                    {
-                                        "type": "tool_call",
-                                        "name": tool["name"],
-                                        "id": tool["toolUseId"],
-                                        "arguments": tool["input"],
-                                    }
-                                ],
-                            }
-                        ]
-                    )
-                },
-                to_span_attributes=self.is_langfuse,
+                {"gen_ai.input.messages": self._redact("gen_ai.input.messages", input_messages)},
+                to_span_attributes=self._span_attributes_only,
             )
         else:
             self._add_event(
@@ -455,7 +546,7 @@ class Tracer:
                 "gen_ai.tool.message",
                 event_attributes={
                     "role": "tool",
-                    "content": serialize(tool["input"]),
+                    "content": self._redact("gen_ai.input.messages", serialize(tool["input"])),
                     "id": tool["toolUseId"],
                 },
             )
@@ -480,33 +571,38 @@ class Tracer:
             attributes["gen_ai.tool.status"] = str(status) if status is not None else ""
 
             if self.use_latest_genai_conventions:
+                # The execute_tool span convention records tool outputs in the dedicated
+                # gen_ai.tool.call.result span attribute (Opt-In), which spec-compliant
+                # consumers read on tool spans. The spec scopes the attribute to successful
+                # executions; failures are captured in the span status instead.
+                if status != "error":
+                    attributes["gen_ai.tool.call.result"] = self._redact("gen_ai.tool.call.result", serialize(content))
+                output_messages = serialize(
+                    [
+                        {
+                            "role": "tool",
+                            "parts": [
+                                {
+                                    "type": "tool_call_response",
+                                    "id": tool_result.get("toolUseId", ""),
+                                    "response": content,
+                                }
+                            ],
+                        }
+                    ]
+                )
                 self._add_event(
                     span,
                     "gen_ai.client.inference.operation.details",
-                    {
-                        "gen_ai.output.messages": serialize(
-                            [
-                                {
-                                    "role": "tool",
-                                    "parts": [
-                                        {
-                                            "type": "tool_call_response",
-                                            "id": tool_result.get("toolUseId", ""),
-                                            "response": content,
-                                        }
-                                    ],
-                                }
-                            ]
-                        )
-                    },
-                    to_span_attributes=self.is_langfuse,
+                    {"gen_ai.output.messages": self._redact("gen_ai.output.messages", output_messages)},
+                    to_span_attributes=self._span_attributes_only,
                 )
             else:
                 self._add_event(
                     span,
                     "gen_ai.choice",
                     event_attributes={
-                        "message": serialize(content),
+                        "message": self._redact("gen_ai.output.messages", serialize(content)),
                         "id": tool_result.get("toolUseId", ""),
                     },
                 )
@@ -574,26 +670,31 @@ class Tracer:
         if not span or not span.is_recording():
             return
 
-        event_attributes: dict[str, AttributeValue] = {"message": serialize(message["content"])}
+        event_attributes: dict[str, AttributeValue] = {
+            "message": self._redact("gen_ai.output.messages", serialize(message["content"])),
+        }
 
         if tool_result_message:
-            event_attributes["tool.result"] = serialize(tool_result_message["content"])
+            # tool results are conceptually fed back to the model as input, so they are
+            # policied under gen_ai.input.messages even when the emitted attribute key differs
+            event_attributes["tool.result"] = self._redact(
+                "gen_ai.input.messages", serialize(tool_result_message["content"])
+            )
 
             if self.use_latest_genai_conventions:
+                tool_result_messages = serialize(
+                    [
+                        {
+                            "role": tool_result_message["role"],
+                            "parts": self._map_content_blocks_to_otel_parts(tool_result_message["content"]),
+                        }
+                    ]
+                )
                 self._add_event(
                     span,
                     "gen_ai.client.inference.operation.details",
-                    {
-                        "gen_ai.output.messages": serialize(
-                            [
-                                {
-                                    "role": tool_result_message["role"],
-                                    "parts": self._map_content_blocks_to_otel_parts(tool_result_message["content"]),
-                                }
-                            ]
-                        )
-                    },
-                    to_span_attributes=self.is_langfuse,
+                    {"gen_ai.input.messages": self._redact("gen_ai.input.messages", tool_result_messages)},
+                    to_span_attributes=self._span_attributes_only,
                 )
             else:
                 self._add_event(span, "gen_ai.choice", event_attributes=event_attributes)
@@ -676,27 +777,29 @@ class Tracer:
 
         if response:
             if self.use_latest_genai_conventions:
+                output_messages = serialize(
+                    [
+                        {
+                            "role": "assistant",
+                            "parts": [{"type": "text", "content": str(response)}],
+                            "finish_reason": str(response.stop_reason),
+                        }
+                    ]
+                )
                 self._add_event(
                     span,
                     "gen_ai.client.inference.operation.details",
-                    {
-                        "gen_ai.output.messages": serialize(
-                            [
-                                {
-                                    "role": "assistant",
-                                    "parts": [{"type": "text", "content": str(response)}],
-                                    "finish_reason": str(response.stop_reason),
-                                }
-                            ]
-                        )
-                    },
-                    to_span_attributes=self.is_langfuse,
+                    {"gen_ai.output.messages": self._redact("gen_ai.output.messages", output_messages)},
+                    to_span_attributes=self._span_attributes_only,
                 )
             else:
                 self._add_event(
                     span,
                     "gen_ai.choice",
-                    event_attributes={"message": str(response), "finish_reason": str(response.stop_reason)},
+                    event_attributes={
+                        "message": self._redact("gen_ai.output.messages", str(response)),
+                        "finish_reason": str(response.stop_reason),
+                    },
                 )
 
             if hasattr(response, "metrics") and hasattr(response.metrics, "accumulated_usage"):
@@ -760,17 +863,19 @@ class Tracer:
                 parts = self._map_content_blocks_to_otel_parts(task)
             else:
                 parts = [{"type": "text", "content": task}]
+            input_messages = serialize([{"role": "user", "parts": parts}])
             self._add_event(
                 span,
                 "gen_ai.client.inference.operation.details",
-                {"gen_ai.input.messages": serialize([{"role": "user", "parts": parts}])},
-                to_span_attributes=self.is_langfuse,
+                {"gen_ai.input.messages": self._redact("gen_ai.input.messages", input_messages)},
+                to_span_attributes=self._span_attributes_only,
             )
         else:
+            content_value = serialize(task) if isinstance(task, list) else task
             self._add_event(
                 span,
                 "gen_ai.user.message",
-                event_attributes={"content": serialize(task) if isinstance(task, list) else task},
+                event_attributes={"content": self._redact("gen_ai.input.messages", content_value)},
             )
 
         return span
@@ -783,26 +888,25 @@ class Tracer:
         """End a swarm span with results."""
         if result:
             if self.use_latest_genai_conventions:
+                output_messages = serialize(
+                    [
+                        {
+                            "role": "assistant",
+                            "parts": [{"type": "text", "content": result}],
+                        }
+                    ]
+                )
                 self._add_event(
                     span,
                     "gen_ai.client.inference.operation.details",
-                    {
-                        "gen_ai.output.messages": serialize(
-                            [
-                                {
-                                    "role": "assistant",
-                                    "parts": [{"type": "text", "content": result}],
-                                }
-                            ]
-                        )
-                    },
-                    to_span_attributes=self.is_langfuse,
+                    {"gen_ai.output.messages": self._redact("gen_ai.output.messages", output_messages)},
+                    to_span_attributes=self._span_attributes_only,
                 )
             else:
                 self._add_event(
                     span,
                     "gen_ai.choice",
-                    event_attributes={"message": result},
+                    event_attributes={"message": self._redact("gen_ai.output.messages", result)},
                 )
 
     def _build_memory_span_attributes(
@@ -877,7 +981,7 @@ class Tracer:
         )
 
         span = self._start_span("memory.search", parent_span, attributes=attributes)
-        self._add_event(span, "memory.query", {"content": query}, to_span_attributes=self.is_langfuse)
+        self._add_event(span, "memory.query", {"content": query}, to_span_attributes=self._span_attributes_only)
 
         return span
 
@@ -921,7 +1025,7 @@ class Tracer:
                         ]
                     )
                 },
-                to_span_attributes=self.is_langfuse,
+                to_span_attributes=self._span_attributes_only,
             )
 
         self._end_span(span, attributes, error)
@@ -961,7 +1065,7 @@ class Tracer:
         )
 
         span = self._start_span("memory.add", parent_span, attributes=attributes, force_root=force_root)
-        self._add_event(span, "memory.content", {"content": content}, to_span_attributes=self.is_langfuse)
+        self._add_event(span, "memory.content", {"content": content}, to_span_attributes=self._span_attributes_only)
 
         return span
 
@@ -1168,17 +1272,19 @@ class Tracer:
 
         if self.use_latest_genai_conventions:
             parts = self._map_content_blocks_to_otel_parts(content_blocks)
+            # system prompts are sensitive and policed under gen_ai.system_instructions
             self._add_event(
                 span,
                 "gen_ai.client.inference.operation.details",
-                {"gen_ai.system_instructions": serialize(parts)},
-                to_span_attributes=self.is_langfuse,
+                {"gen_ai.system_instructions": self._redact("gen_ai.system_instructions", serialize(parts))},
+                to_span_attributes=self._span_attributes_only,
             )
         else:
+            # system prompts are sensitive and policed under gen_ai.system_instructions
             self._add_event(
                 span,
                 "gen_ai.system.message",
-                {"content": serialize(content_blocks)},
+                {"content": self._redact("gen_ai.system_instructions", serialize(content_blocks))},
             )
 
     def _add_event_messages(self, span: Span, messages: Messages) -> None:
@@ -1197,15 +1303,16 @@ class Tracer:
             self._add_event(
                 span,
                 "gen_ai.client.inference.operation.details",
-                {"gen_ai.input.messages": serialize(input_messages)},
-                to_span_attributes=self.is_langfuse,
+                {"gen_ai.input.messages": self._redact("gen_ai.input.messages", serialize(input_messages))},
+                to_span_attributes=self._span_attributes_only,
             )
         else:
             for message in messages:
+                redact_key = "gen_ai.output.messages" if message.get("role") == "assistant" else "gen_ai.input.messages"
                 self._add_event(
                     span,
                     self._get_event_name_for_message(message),
-                    {"content": serialize(message["content"])},
+                    {"content": self._redact(redact_key, serialize(message["content"]))},
                 )
 
     def _map_content_blocks_to_otel_parts(
