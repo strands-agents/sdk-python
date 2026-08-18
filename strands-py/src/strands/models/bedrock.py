@@ -106,7 +106,7 @@ class BedrockModel(Model):
             cache_prompt: Cache point type for the system prompt (deprecated, use cache_config)
             cache_config: Configuration for prompt caching. Use CacheConfig(strategy="auto") for automatic caching.
             cache_tools: Cache point type for tools. Pass a string (e.g. "default") to cache the tools with
-                no explicit TTL, or a CacheToolsConfig instance to set both type and TTL (e.g. "1h"). Inherits 
+                no explicit TTL, or a CacheToolsConfig instance to set both type and TTL (e.g. "1h"). Inherits
                 cache_config.ttl if specified, otherwise it takes the Bedrock default.
             guardrail_id: ID of the guardrail to apply
             guardrail_trace: Guardrail trace mode. Defaults to enabled.

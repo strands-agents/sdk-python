@@ -1,9 +1,10 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { getCollection } from 'astro:content'
 import { catalogEntrySchema } from '../src/content.config'
 import { CATALOG_TYPES } from '../src/components/catalog/types'
+import stats from '../src/data/catalog-stats.json'
 
 describe('catalog content collection', () => {
   it('loads catalog entries with validated data', async () => {
@@ -171,11 +172,18 @@ describe('catalog content collection', () => {
     expect(anthropic!.data.maintainedBy).toBe('strands')
     expect(anthropic!.data.docsPage).toBe('docs/user-guide/concepts/model-providers/anthropic')
     // The content layer silently drops entries whose YAML fails to parse;
-    // pinned counts catch that. Update them when granting or removing tiers.
+    // matching loaded ids against the on-disk files catches that and names
+    // the dropped entry, without pinning counts.
+    const fileIds = readdirSync('src/content/catalog', { recursive: true })
+      .map((f) => String(f).replaceAll('\\', '/'))
+      .filter((f) => f.endsWith('.yaml'))
+      .map((f) => f.slice(0, -'.yaml'.length))
+      .sort()
+    expect(entries.map((e) => e.id).sort()).toEqual(fileIds)
     const byTier = Map.groupBy(entries, (e) => e.data.maintainedBy)
-    expect(byTier.get('strands')?.length).toBe(33)
-    expect(byTier.get('aws')?.length).toBe(8)
-    expect(byTier.get('partner')?.length).toBe(21)
+    expect(byTier.get('strands')?.length).toBeGreaterThan(0)
+    expect(byTier.get('aws')?.length).toBeGreaterThan(0)
+    expect(byTier.get('partner')?.length).toBeGreaterThan(0)
     // Built-ins point at their source path in the SDK monorepo and always
     // have on-site docs.
     for (const e of byTier.get('strands') ?? []) {
@@ -194,6 +202,14 @@ describe('catalog content collection', () => {
       expect(m, `${e.id}: ${e.data.github}`).not.toBeNull()
       expect(existsSync(join('..', m![1])), `${e.id}: ${m![1]} missing from the repo`).toBe(true)
     }
+  })
+
+  it('has no catalog-stats keys for removed integrations', async () => {
+    // The refresh-stats workflow prunes removed entries only on its weekly
+    // run; a key left behind by a removed integration otherwise lingers.
+    const entries = await getCollection('catalog')
+    const ids = new Set(entries.map((e) => e.id))
+    expect(Object.keys(stats).filter((k) => !ids.has(k))).toEqual([])
   })
 
   it('every docsPage points at a real docs collection entry', async () => {

@@ -7,4 +7,4 @@ languages:
     package: openinference-instrumentation-strands-agents
 github: https://github.com/Arize-ai/openinference/tree/main/python/instrumentation/openinference-instrumentation-strands-agents
 docsUrl: https://arize.com/docs/ax/integrations/python-agent-frameworks/aws
-addedDate: 2026-07-21
+addedDate: 2026-01-26

@@ -6,7 +6,6 @@
 import base64
 import json
 import logging
-import mimetypes
 from collections.abc import AsyncGenerator
 from typing import Any, TypeVar, cast
 
@@ -36,6 +35,9 @@ _IMAGE_MEDIA_TYPES = {
     "png": "image/png",
     "webp": "image/webp",
 }
+
+# Anthropic document sources accept only pdf (base64) and plain text; these formats are delivered as text.
+_TEXT_FILE_FORMATS = frozenset({"csv", "html", "md", "txt"})
 
 # Anthropic accepts ``cache_control`` on these block types only; any other block is rejected.
 # https://docs.claude.com/en/docs/build-with-claude/prompt-caching
@@ -133,33 +135,47 @@ class AnthropicModel(Model):
             Anthropic formatted content block.
 
         Raises:
-            TypeError: If the content block type cannot be converted to an Anthropic-compatible format.
+            TypeError: If the content block type or document format cannot be converted to an
+                Anthropic-compatible format.
         """
         if "document" in content:
-            mime_type = mimetypes.types_map.get(f".{content['document']['format']}", "application/octet-stream")
+            document_format = content["document"]["format"]
+            if document_format == "pdf":
+                source: dict[str, Any] = {
+                    "data": base64.b64encode(content["document"]["source"]["bytes"]).decode("utf-8"),
+                    "media_type": "application/pdf",
+                    "type": "base64",
+                }
+            elif document_format in _TEXT_FILE_FORMATS:
+                try:
+                    text_data = content["document"]["source"]["bytes"].decode("utf-8")
+                except UnicodeDecodeError as decode_error:
+                    raise TypeError(
+                        f"content_type=<document>, format=<{document_format}> | document is not valid utf-8 text"
+                    ) from decode_error
+                source = {
+                    "data": text_data,
+                    "media_type": "text/plain",
+                    "type": "text",
+                }
+            else:
+                raise TypeError(f"content_type=<document>, format=<{document_format}> | unsupported format")
+
             return {
-                "source": {
-                    "data": (
-                        content["document"]["source"]["bytes"].decode("utf-8")
-                        if mime_type == "text/plain"
-                        else base64.b64encode(content["document"]["source"]["bytes"]).decode("utf-8")
-                    ),
-                    "media_type": mime_type,
-                    "type": "text" if mime_type == "text/plain" else "base64",
-                },
+                "source": source,
                 "title": content["document"]["name"],
                 "type": "document",
             }
 
         if "image" in content:
             image_format = content["image"]["format"]
+            if image_format not in _IMAGE_MEDIA_TYPES:
+                raise TypeError(f"content_type=<image>, format=<{image_format}> | unsupported format")
+
             return {
                 "source": {
                     "data": base64.b64encode(content["image"]["source"]["bytes"]).decode("utf-8"),
-                    "media_type": _IMAGE_MEDIA_TYPES.get(
-                        image_format,
-                        mimetypes.types_map.get(f".{image_format}", "application/octet-stream"),
-                    ),
+                    "media_type": _IMAGE_MEDIA_TYPES[image_format],
                     "type": "base64",
                 },
                 "type": "image",
