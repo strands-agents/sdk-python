@@ -21,6 +21,11 @@ navbar:
   - label: Examples
     href: /docs/examples/
     basePath: /docs/examples/
+  - label: Community
+    href: /community/
+    basePath:
+      - /community/
+      - /docs/learning/
   - label: Integrations
     href: /integrations/
     basePath:
@@ -28,11 +33,6 @@ navbar:
       - /docs/integrations/
       - /docs/labs/
       - /docs/contribute/
-  - label: Community
-    href: /community/
-    basePath:
-      - /community/
-      - /docs/learning/
   - label: API Reference
     href: /docs/api/typescript/
     basePath: /docs/api/
