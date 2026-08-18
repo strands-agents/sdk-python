@@ -86,8 +86,8 @@ bidi-io = [
 ]
 bidi-gemini = ["google-genai>=1.32.0,<3.0.0"]
 bidi-openai = ["websockets>=15.0.0,<17.0.0"]
-# bidi-aec depends on bidi-io: the audio processing lives in io/audio.py, which imports pyaudio at module
-# scope. Pulling in bidi-io makes `pip install strands-agents[bidi-aec]` usable on its own.
+# bidi-aec depends on bidi-io: audio processing is wired in through BidiAudioIO (io/audio.py), which imports
+# pyaudio at module scope. Pulling in bidi-io makes `pip install strands-agents[bidi-aec]` usable on its own.
 bidi-aec = ["strands-agents[bidi-io]", "pywebrtc-audio>=0.1.0,<1.0.0", "numpy>=1.21.0,<3.0.0"]
 
 cedar = ["cedarpy==4.8.7", "cedar-policy-mcp-schema-generator==0.6.0"]
@@ -335,11 +335,13 @@ prepare = [
 template = "bidi"
 
 [tool.hatch.envs.bidi-lint.scripts]
+# Glob both the top level (*.py) and one directory down (**/*.py without globstar). This keeps top-level
+# modules like audio.py in the lint/type gate; a bare **/*.py silently skips them.
 format-check = "format-fix --check"
-format-fix = "ruff format {args} --target-version py312 ./src/strands/experimental/bidi/**/*.py"
-quality-check = "ruff check {args} --target-version py312 ./src/strands/experimental/bidi/**/*.py"
+format-fix = "ruff format {args} --target-version py312 ./src/strands/experimental/bidi/*.py ./src/strands/experimental/bidi/**/*.py"
+quality-check = "ruff check {args} --target-version py312 ./src/strands/experimental/bidi/*.py ./src/strands/experimental/bidi/**/*.py"
 quality-fix = "quality-check --fix"
-type-check = "mypy {args} --python-version 3.12 ./src/strands/experimental/bidi/**/*.py"
+type-check = "mypy {args} --python-version 3.12 ./src/strands/experimental/bidi/*.py ./src/strands/experimental/bidi/**/*.py"
 
 [tool.hatch.envs.bidi-test]
 template = "bidi"
