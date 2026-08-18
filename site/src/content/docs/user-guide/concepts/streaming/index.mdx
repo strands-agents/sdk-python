@@ -271,7 +271,7 @@ This example demonstrates how to identify event emitted from an agent:
 
 ```python
 from strands import Agent
-from strands_tools import calculator
+from strands.vended_tools import http_request
 
 def process_event(event):
     """Shared event processor for both async iterators and callback handlers"""
@@ -297,8 +297,18 @@ def process_event(event):
         data_snippet = event["data"][:20] + ("..." if len(event["data"]) > 20 else "")
         print(f"📟 Text: {data_snippet}")
 
-agent = Agent(tools=[calculator], callback_handler=None)
-async for event in agent.stream_async("What is the capital of France and what is 42+7?"):
+agent = Agent(
+    tools=[http_request],
+    callback_handler=None,
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
+)
+async for event in agent.stream_async(
+    "What is the capital of France, and what is the temperature there right now?"
+):
     process_event(event)
 
 ```
@@ -322,7 +332,7 @@ Utilizing both [agents as a tool](../multi-agent/agents-as-tools.md) and [tool s
 from typing import AsyncIterator
 from dataclasses import dataclass
 from strands import Agent, tool
-from strands_tools import calculator
+from strands.vended_tools import http_request
 
 @dataclass
 class SubAgentResult:
@@ -330,13 +340,17 @@ class SubAgentResult:
     event: dict
 
 @tool
-async def math_agent(query: str) -> AsyncIterator:
-    """Solve math problems using the calculator tool."""
+async def weather_agent(query: str) -> AsyncIterator:
+    """Answer weather questions using the http_request tool."""
     agent = Agent(
-        name="Math Expert",
-        system_prompt="You are a math expert. Use the calculator tool for calculations.",
+        name="Weather Assistant",
+        system_prompt=(
+            "You are a weather assistant. You can get live weather from "
+            "https://api.open-meteo.com/v1/forecast"
+            "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+        ),
         callback_handler=None,
-        tools=[calculator]
+        tools=[http_request]
     )
 
     result = None
@@ -364,14 +378,16 @@ def process_sub_agent_events(event):
 
 # Using with async iterators
 orchestrator_async_iterator = Agent(
-    system_prompt="Route math questions to the math_agent tool.",
+    system_prompt="Route weather questions to the weather_agent tool.",
     callback_handler=None,
-    tools=[math_agent]
+    tools=[weather_agent]
 )
 
 
 # With async-iterator
-async for event in orchestrator_async_iterator.stream_async("What is 3+3?"):
+async for event in orchestrator_async_iterator.stream_async(
+    "What is the temperature in Seattle right now?"
+):
     process_sub_agent_events(event)
 
 
@@ -380,17 +396,19 @@ def handle_events(**kwargs):
     process_sub_agent_events(kwargs)
 
 orchestrator_callback = Agent(
-    system_prompt="Route math questions to the math_agent tool.",
+    system_prompt="Route weather questions to the weather_agent tool.",
     callback_handler=handle_events,
-    tools=[math_agent]
+    tools=[weather_agent]
 )
 
-orchestrator_callback("What is 3+3?")
+orchestrator_callback("What is the temperature in Tokyo right now?")
 ```
 </Tab>
 <Tab label="TypeScript">
 
 ```typescript
+--8<-- "user-guide/concepts/streaming/overview_imports.ts:sub_agent_basic_imports"
+
 --8<-- "user-guide/concepts/streaming/overview.ts:sub_agent_basic"
 ```
 </Tab>

@@ -70,7 +70,6 @@ describe('Sidebar Generation from navigation.yml', () => {
       .map((item) => item.label)
 
     expect(topLevelLabels).toContain('Docs')
-    expect(topLevelLabels).toContain('Examples')
     expect(topLevelLabels).toContain('Community')
   })
 

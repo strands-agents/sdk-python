@@ -171,16 +171,20 @@ Now let's evaluate how well agents use tools. Create `my_evaluation/trajectory_e
 
 ```python
 from strands import Agent
+from strands.vended_tools import http_request
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import TrajectoryEvaluator
 from strands_evals.extractors import tools_use_extractor
-from strands_tools import calculator, current_time
 
 # Define task function that captures tool usage
 def get_response_with_tools(case: Case) -> dict:
     agent = Agent(
-        tools=[calculator, current_time],
-        system_prompt="You are a helpful assistant. Use tools when appropriate.",
+        tools=[http_request],
+        system_prompt=(
+            "You are a weather assistant. You can get live weather from "
+            "https://api.open-meteo.com/v1/forecast"
+            "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+        ),
         callback_handler=None
     )
     response = agent(case.input)
@@ -193,22 +197,22 @@ def get_response_with_tools(case: Case) -> dict:
 # Create test cases with expected tool usage
 test_cases = [
     Case[str, str](
-        name="calculation-1",
-        input="What is 15% of 230?",
-        expected_trajectory=["calculator"],
-        metadata={"category": "math", "expected_tools": ["calculator"]}
+        name="weather-1",
+        input="What is the current temperature in Seattle?",
+        expected_trajectory=["http_request"],
+        metadata={"category": "weather", "expected_tools": ["http_request"]}
     ),
     Case[str, str](
-        name="time-1", 
-        input="What time is it right now?",
-        expected_trajectory=["current_time"],
-        metadata={"category": "time", "expected_tools": ["current_time"]}
+        name="weather-2",
+        input="What is the current temperature in Tokyo?",
+        expected_trajectory=["http_request"],
+        metadata={"category": "weather", "expected_tools": ["http_request"]}
     ),
     Case[str, str](
-        name="complex-1",
-        input="What time is it and what is 25 * 48?",
-        expected_trajectory=["current_time", "calculator"],
-        metadata={"category": "multi_tool", "expected_tools": ["current_time", "calculator"]}
+        name="comparison-1",
+        input="Is it warmer in Seattle or Miami right now?",
+        expected_trajectory=["http_request", "http_request"],
+        metadata={"category": "multi_tool", "expected_tools": ["http_request"]}
     )
 ]
 
@@ -233,7 +237,7 @@ evaluator = TrajectoryEvaluator(
 )
 
 # Update evaluator with tool descriptions to prevent context overflow
-sample_agent = Agent(tools=[calculator, current_time])
+sample_agent = Agent(tools=[http_request])
 tool_descriptions = tools_use_extractor.extract_tools_description(sample_agent, is_short=True)
 evaluator.update_trajectory_description(tool_descriptions)
 
@@ -262,25 +266,33 @@ The `TracedHandler` handles all of this automatically:
 
 ```python
 from strands import Agent
+from strands.vended_tools import http_request
 from strands_evals import eval_task, TracedHandler, Case, Experiment
 from strands_evals.evaluators import HelpfulnessEvaluator
-from strands_tools import calculator
 
 @eval_task(TracedHandler())
 def user_task_function():
-    return Agent(tools=[calculator], callback_handler=None)
+    return Agent(
+        tools=[http_request],
+        system_prompt=(
+            "You are a weather assistant. You can get live weather from "
+            "https://api.open-meteo.com/v1/forecast"
+            "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+        ),
+        callback_handler=None
+    )
 
 # Create test cases for helpfulness evaluation
 test_cases = [
     Case[str, str](
         name="helpful-1",
-        input="I need help calculating the tip for a $45.67 restaurant bill with 18% tip.",
+        input="What is the current temperature in Seattle?",
         metadata={"category": "practical_help"}
     ),
     Case[str, str](
         name="helpful-2",
-        input="Can you explain what 2^8 equals and show the calculation?",
-        metadata={"category": "educational"}
+        input="What is the current temperature in Tokyo?",
+        metadata={"category": "practical_help"}
     )
 ]
 
@@ -302,18 +314,23 @@ If you need more control (e.g., custom session mapping or per-case agent configu
 
 ```python
 from strands import Agent
+from strands.vended_tools import http_request
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import HelpfulnessEvaluator
 from strands_evals.telemetry import StrandsEvalsTelemetry
 from strands_evals.mappers import StrandsInMemorySessionMapper
-from strands_tools import calculator
 
 telemetry = StrandsEvalsTelemetry().setup_in_memory_exporter()
 
 def user_task_function(case: Case) -> dict:
     telemetry.in_memory_exporter.clear()
     agent = Agent(
-        tools=[calculator],
+        tools=[http_request],
+        system_prompt=(
+            "You are a weather assistant. You can get live weather from "
+            "https://api.open-meteo.com/v1/forecast"
+            "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+        ),
         trace_attributes={
             "gen_ai.conversation.id": case.session_id,
             "session.id": case.session_id
@@ -465,9 +482,9 @@ from strands_evals.evaluators import TrajectoryEvaluator
 # Define tool context
 tool_context = """
 Available tools:
-- calculator(expression: str) -> float: Evaluate mathematical expressions
-- current_time() -> str: Get the current date and time
+- http_request(method: str, url: str) -> dict: Fetch a URL and return the response
 - file_read(path: str) -> str: Read file contents
+- file_write(path: str, content: str) -> str: Write content to a file
 """
 
 # Generate experiment automatically
@@ -478,7 +495,7 @@ async def generate_experiment():
         context=tool_context,
         num_cases=5,
         evaluator=TrajectoryEvaluator,
-        task_description="Assistant with calculation and time tools",
+        task_description="Research and file assistant",
         num_topics=2  # Distribute across multiple topics
     )
     

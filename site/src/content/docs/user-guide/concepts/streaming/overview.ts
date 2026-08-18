@@ -1,4 +1,5 @@
 import { Agent, tool } from '@strands-agents/sdk'
+import { httpRequest } from '@strands-agents/sdk/vended-tools/http-request'
 import { notebook } from '@strands-agents/sdk/vended-tools/notebook'
 import type { AgentStreamEvent } from '@strands-agents/sdk'
 import { z } from 'zod'
@@ -81,19 +82,23 @@ async function agentLoopLifecycleExample() {
 async function subAgentStreamingExample() {
   // --8<-- [start:sub_agent_basic]
 
-  // Create the math agent
-  const mathAgent = new Agent({
-    systemPrompt: 'You are a math expert. Answer a math problem in one sentence',
+  // Create the weather agent
+  const weatherAssistant = new Agent({
+    systemPrompt:
+      'You are a weather assistant. You can get live weather from ' +
+      'https://api.open-meteo.com/v1/forecast' +
+      '?latitude=<lat>&longitude=<lon>&current=temperature_2m',
+    tools: [httpRequest],
     printer: false,
   })
 
-  const calculator = tool({
-    name: 'mathAgent',
-    description: 'Agent that calculates the answer to a math problem input.',
+  const weatherAgent = tool({
+    name: 'weatherAgent',
+    description: 'Answer weather questions using the http_request tool.',
     inputSchema: z.object({ input: z.string() }),
     callback: async function* (input): AsyncGenerator<string, string, unknown> {
       // Stream from the sub-agent
-      const generator = mathAgent.stream(input.input)
+      const generator = weatherAssistant.stream(input.input)
       let result = await generator.next()
       while (!result.done) {
         // Process events from the sub-agent
@@ -112,8 +117,9 @@ async function subAgentStreamingExample() {
     },
   })
 
-  const agent = new Agent({ tools: [calculator] })
-  for await (const event of agent.stream('What is 2 * 3? Use your tool.')) {
+  const agent = new Agent({ tools: [weatherAgent] })
+  const events = agent.stream('What is the temperature in Seattle right now?')
+  for await (const event of events) {
     if (event.type === 'toolStreamUpdateEvent') {
       console.log(`Tool Event: ${JSON.stringify(event.event.data)}`)
     }

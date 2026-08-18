@@ -364,7 +364,7 @@ You can add custom attributes to any span:
 ```python
 agent = Agent(
     system_prompt="You are a helpful assistant that provides concise responses.",
-    tools=[http_request, calculator],
+    tools=[http_request],
     trace_attributes={
         "session.id": "abc-1234",
         "user.id": "user-email-example@domain.com",

@@ -15,7 +15,7 @@ sourceLinks:
 LiteLLM is configured as an optional dependency in Strands Agents. To install, run:
 
 ```bash
-pip install 'strands-agents[litellm]' strands-agents-tools
+pip install 'strands-agents[litellm]'
 ```
 
 ## Usage
@@ -24,8 +24,8 @@ After installing `litellm`, you can import and initialize Strands Agents' LiteLL
 
 ```python
 from strands import Agent
+from strands.vended_tools import http_request
 from strands.models.litellm import LiteLLMModel
-from strands_tools import calculator
 
 model = LiteLLMModel(
     client_args={
@@ -39,8 +39,16 @@ model = LiteLLMModel(
     }
 )
 
-agent = Agent(model=model, tools=[calculator])
-response = agent("What is 2+2")
+agent = Agent(
+    model=model,
+    tools=[http_request],
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
+)
+response = agent("Do I need a jacket in Seattle today?")
 print(response)
 ```
 

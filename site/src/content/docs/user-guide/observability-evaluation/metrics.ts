@@ -1,14 +1,18 @@
 import { Agent } from '@strands-agents/sdk'
-import { notebook } from '@strands-agents/sdk/vended-tools/notebook'
+import { httpRequest } from '@strands-agents/sdk/vended-tools/http-request'
 
 // Basic metrics example
 async function basicMetricsExample() {
   // --8<-- [start:basic_metrics]
   const agent = new Agent({
-    tools: [notebook],
+    tools: [httpRequest],
+    systemPrompt:
+      'You can get live weather from ' +
+      'https://api.open-meteo.com/v1/forecast' +
+      '?latitude=<lat>&longitude=<lon>&current=temperature_2m',
   })
 
-  const result = await agent.invoke('What is the square root of 144?')
+  const result = await agent.invoke('Do I need a jacket in Seattle today?')
 
   // Access metrics through the AgentResult
   if (result.metrics) {
@@ -35,14 +39,18 @@ async function basicMetricsExample() {
 async function agentLoopMetricsExample() {
   // --8<-- [start:agent_loop_metrics]
   const agent = new Agent({
-    tools: [notebook],
+    tools: [httpRequest],
+    systemPrompt:
+      'You can get live weather from ' +
+      'https://api.open-meteo.com/v1/forecast' +
+      '?latitude=<lat>&longitude=<lon>&current=temperature_2m',
   })
 
   // First invocation
-  const _result1 = await agent.invoke('What is 5 + 3?')
+  const _result1 = await agent.invoke('What is the current temperature in Seattle?')
 
   // Second invocation
-  const result2 = await agent.invoke('What is the square root of 144?')
+  const result2 = await agent.invoke('And what about Tokyo?')
 
   // Access metrics for the latest invocation
   if (result2.metrics) {
@@ -74,10 +82,12 @@ async function agentLoopMetricsExample() {
 async function localTracesExample() {
   // --8<-- [start:local_traces]
   const agent = new Agent({
-    tools: [notebook],
+    tools: [httpRequest],
   })
 
-  const result = await agent.invoke('What is 15 * 8 + 42?')
+  const result = await agent.invoke(
+    'How many open issues does the strands-agents/harness-sdk repo have?'
+  )
 
   // Access traces directly from the result
   console.log(JSON.stringify(result.traces))
@@ -88,10 +98,14 @@ async function localTracesExample() {
 async function metricsSummaryExample() {
   // --8<-- [start:metrics_summary]
   const agent = new Agent({
-    tools: [notebook],
+    tools: [httpRequest],
+    systemPrompt:
+      'You can get live weather from ' +
+      'https://api.open-meteo.com/v1/forecast' +
+      '?latitude=<lat>&longitude=<lon>&current=temperature_2m',
   })
 
-  const result = await agent.invoke('What is the square root of 144?')
+  const result = await agent.invoke('Do I need a jacket in Seattle today?')
 
   // Serialize metrics to JSON
   console.log(JSON.stringify(result?.metrics, null, 2))

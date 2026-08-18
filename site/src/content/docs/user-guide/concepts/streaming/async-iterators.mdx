@@ -27,17 +27,24 @@ Python uses the [`stream_async`](@api/python/strands.agent.agent#Agent.stream_as
 ```python
 import asyncio
 from strands import Agent
-from strands_tools import calculator
+from strands.vended_tools import http_request
 
 # Initialize our agent without a callback handler
 agent = Agent(
-    tools=[calculator],
-    callback_handler=None
+    tools=[http_request],
+    callback_handler=None,
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
 )
 
 # Async function that iterators over streamed agent events
 async def process_streaming_response():
-    agent_stream = agent.stream_async("Calculate 2+2")
+    agent_stream = agent.stream_async(
+        "Is it beach weather in Miami right now?"
+    )
     async for event in agent_stream:
         print(event)
 
@@ -67,7 +74,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from strands import Agent
-from strands_tools import calculator, http_request
+from strands.vended_tools import http_request
 
 app = FastAPI()
 
@@ -78,7 +85,7 @@ class PromptRequest(BaseModel):
 async def stream_response(request: PromptRequest):
     async def generate():
         agent = Agent(
-            tools=[calculator, http_request],
+            tools=[http_request],
             callback_handler=None
         )
 
@@ -120,16 +127,23 @@ This async stream processor illustrates the event loop lifecycle events and how 
 
 ```python
 from strands import Agent
-from strands_tools import calculator
+from strands.vended_tools import http_request
 
 # Create agent with event loop tracker
 agent = Agent(
-    tools=[calculator],
-    callback_handler=None
+    tools=[http_request],
+    callback_handler=None,
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
 )
 
 # This will show the full event lifecycle in the console
-async for event in agent.stream_async("What is the capital of France and what is 42+7?"):
+async for event in agent.stream_async(
+    "What is the capital of France, and what is the temperature there right now?"
+):
     # Track event loop lifecycle
     if event.get("init_event_loop", False):
         print("🔄 Event loop initialized")

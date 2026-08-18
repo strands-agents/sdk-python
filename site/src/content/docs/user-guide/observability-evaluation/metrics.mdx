@@ -22,13 +22,20 @@ All these metrics are accessible through the [`AgentResult`](@api/python/strands
 
 ```python
 from strands import Agent
-from strands_tools import calculator
+from strands.vended_tools import http_request
 
 # Create an agent with tools
-agent = Agent(tools=[calculator])
+agent = Agent(
+    tools=[http_request],
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
+)
 
 # Invoke the agent with a prompt and get an AgentResult
-result = agent("What is the square root of 144?")
+result = agent("Do I need a jacket in Seattle today?")
 
 # Access metrics through the AgentResult
 print(f"Total tokens: {result.metrics.accumulated_usage['totalTokens']}")
@@ -56,6 +63,8 @@ The TypeScript SDK automatically tracks key metrics during agent execution throu
 All these metrics are accessible through the `AgentResult` object returned when you invoke an agent:
 
 ```typescript
+--8<-- "user-guide/observability-evaluation/metrics_imports.ts:basic_metrics_imports"
+
 --8<-- "user-guide/observability-evaluation/metrics.ts:basic_metrics"
 ```
 
@@ -90,15 +99,22 @@ This allows you to track metrics at both the individual invocation level and acr
 
 ```python
 from strands import Agent
-from strands_tools import calculator
+from strands.vended_tools import http_request
 
-agent = Agent(tools=[calculator])
+agent = Agent(
+    tools=[http_request],
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
+)
 
 # First invocation
-result1 = agent("What is 5 + 3?")
+result1 = agent("What is the current temperature in Seattle?")
 
 # Second invocation
-result2 = agent("What is the square root of 144?")
+result2 = agent("And what about Tokyo?")
 
 # Access metrics for the latest invocation
 latest_invocation = result2.metrics.latest_agent_invocation
@@ -106,7 +122,7 @@ cycles = latest_invocation.cycles
 usage = latest_invocation.usage
 
 # Or access all invocations
-for invocation in response.metrics.agent_invocations:
+for invocation in result2.metrics.agent_invocations:
     print(f"Invocation usage: {invocation.usage}")
     for cycle in invocation.cycles:
         print(f"  Cycle {cycle.event_loop_cycle_id}: {cycle.usage}")
@@ -139,6 +155,8 @@ The `agentInvocations` property is a list of `InvocationMetricsData` objects tha
 This allows you to track metrics at both the individual invocation level and across all invocations:
 
 ```typescript
+--8<-- "user-guide/observability-evaluation/metrics_imports.ts:agent_loop_metrics_imports"
+
 --8<-- "user-guide/observability-evaluation/metrics.ts:agent_loop_metrics"
 ```
 </Tab>
@@ -181,40 +199,120 @@ These metrics help you identify performance bottlenecks, tools with high error r
 
 The Strands Agents SDK provides a convenient `get_summary()` method on the `EventLoopMetrics` class that gives you a comprehensive overview of your agent's performance in a single call. This method aggregates all the metrics data into a structured dictionary that's easy to analyze or export.
 
-Let's look at the output from calling `get_summary()` on the metrics from our calculator example from the beginning of this document:
+Let's look at the output from calling `get_summary()` on the metrics from our example agent at the beginning of this document:
 
 ```python
-result = agent("What is the square root of 144?")
+result = agent("Do I need a jacket in Seattle today?")
 print(result.metrics.get_summary())
 ```
 ```python
 {
-  "total_cycles": 1,
-  "total_duration": 2.6939949989318848,
-  "average_cycle_time": 2.6939949989318848,
-  "tool_usage": {},
+  "total_cycles": 2,
+  "total_duration": 4.147886276245117,
+  "average_cycle_time": 2.0739431381225586,
+  "tool_usage": {
+      "http_request": {
+          "tool_info": {
+              "tool_use_id": "tooluse_kZ3NBguBTrHjm42Jy0W8rR",
+              "name": "http_request",
+              "input_params": {
+                  "method": "GET",
+                  "url": "https://api.open-meteo.com/v1/forecast?latitude=47.6&longitude=-122.3&current=temperature_2m"
+              }
+          },
+          "execution_stats": {
+              "call_count": 1,
+              "success_count": 1,
+              "error_count": 0,
+              "total_time": 0.4123374938964844,
+              "average_time": 0.4123374938964844,
+              "success_rate": 1.0
+          }
+      }
+  },
   "traces": [{
       "id": "e1264f67-81c9-4bd7-8cab-8f69c53e85f1",
       "name": "Cycle 1",
       "raw_name": None,
       "parent_id": None,
       "start_time": 1767110391.614767,
-      "end_time": 1767110394.308762,
-      "duration": 2.6939949989318848,
+      "end_time": 1767110394.281442,
+      "duration": 2.666675090789795,
       "children": [{
           "id": "0de6d280-14ff-423b-af80-9cc823c8c3a1",
           "name": "stream_messages",
           "raw_name": None,
           "parent_id": "e1264f67-81c9-4bd7-8cab-8f69c53e85f1",
           "start_time": 1767110391.614809,
-          "end_time": 1767110394.308734,
-          "duration": 2.693924903869629,
+          "end_time": 1767110393.868041,
+          "duration": 2.253232002258301,
           "children": [],
           "metadata": {},
           "message": {
               "role": "assistant",
               "content": [{
-                  "text": "The square root of 144 is 12.\n\nThis is because 12 × 12 = 144."
+                  "text": "I'll check the current weather in Seattle for you."
+              }, {
+                  "toolUse": {
+                      "input": {
+                          "method": "GET",
+                          "url": "https://api.open-meteo.com/v1/forecast?latitude=47.6&longitude=-122.3&current=temperature_2m"
+                      },
+                      "name": "http_request",
+                      "toolUseId": "tooluse_kZ3NBguBTrHjm42Jy0W8rR"
+                  }
+              }]
+          }
+      }, {
+          "id": "4f64ce3d-a21c-4696-aa71-2dd446f71488",
+          "name": "Tool: http_request",
+          "raw_name": "http_request - tooluse_kZ3NBguBTrHjm42Jy0W8rR",
+          "parent_id": "e1264f67-81c9-4bd7-8cab-8f69c53e85f1",
+          "start_time": 1767110393.869105,
+          "end_time": 1767110394.281442,
+          "duration": 0.4123374938964844,
+          "children": [],
+          "metadata": {
+              "toolUseId": "tooluse_kZ3NBguBTrHjm42Jy0W8rR",
+              "tool_name": "http_request"
+          },
+          "message": {
+              "role": "user",
+              "content": [{
+                  "toolResult": {
+                      "content": [{
+                          "text": "{\"status\": 200, \"status_text\": \"OK\", \"headers\": {...}, \"body\": \"{\\\"current\\\": {\\\"temperature_2m\\\": 12.4}, ...}\"}"
+                      }],
+                      "status": "success",
+                      "toolUseId": "tooluse_kZ3NBguBTrHjm42Jy0W8rR"
+                  }
+              }]
+          }
+      }],
+      "metadata": {},
+      "message": None
+  }, {
+      "id": "f482cee9-946c-471a-9bd3-fae23650f317",
+      "name": "Cycle 2",
+      "raw_name": None,
+      "parent_id": None,
+      "start_time": 1767110394.281699,
+      "end_time": 1767110395.76291,
+      "duration": 1.4812111854553223,
+      "children": [{
+          "id": "1317cfcb-0e87-432e-8665-da5ddfe099cd",
+          "name": "stream_messages",
+          "raw_name": None,
+          "parent_id": "f482cee9-946c-471a-9bd3-fae23650f317",
+          "start_time": 1767110394.281745,
+          "end_time": 1767110395.762893,
+          "duration": 1.4811480045318604,
+          "children": [],
+          "metadata": {},
+          "message": {
+              "role": "assistant",
+              "content": [{
+                  "text": "It is 12.4°C in Seattle right now, so a jacket is a good idea."
               }]
           }
       }],
@@ -222,25 +320,32 @@ print(result.metrics.get_summary())
       "message": None
   }],
   "accumulated_usage": {
-      "inputTokens": 16,
-      "outputTokens": 29,
-      "totalTokens": 45
+      "inputTokens": 5816,
+      "outputTokens": 113,
+      "totalTokens": 5929
   },
   "accumulated_metrics": {
-      "latencyMs": 1799
+      "latencyMs": 3641
   },
   "agent_invocations": [{
       "usage": {
-          "inputTokens": 16,
-          "outputTokens": 29,
-          "totalTokens": 45
+          "inputTokens": 5816,
+          "outputTokens": 113,
+          "totalTokens": 5929
       },
       "cycles": [{
           "event_loop_cycle_id": "ed854916-7eca-4317-a3f3-1ffcc03ee3ab",
           "usage": {
-              "inputTokens": 16,
-              "outputTokens": 29,
-              "totalTokens": 45
+              "inputTokens": 2861,
+              "outputTokens": 71,
+              "totalTokens": 2932
+          }
+      }, {
+          "event_loop_cycle_id": "b7f3aa9c-2d41-48e5-9c02-5cf1a8e64d17",
+          "usage": {
+              "inputTokens": 2955,
+              "outputTokens": 42,
+              "totalTokens": 2997
           }
       }]
   }]
@@ -254,40 +359,59 @@ This summary provides a complete picture of the agent's execution, including cyc
 The `AgentMetrics` class implements `toJSON()`, so you can serialize the complete metrics snapshot with `JSON.stringify()`. This gives you a comprehensive overview of your agent's performance in a single call:
 
 ```typescript
+--8<-- "user-guide/observability-evaluation/metrics_imports.ts:metrics_summary_imports"
+
 --8<-- "user-guide/observability-evaluation/metrics.ts:metrics_summary"
 ```
 ```json
 {
-  "cycleCount": 1,
+  "cycleCount": 2,
   "accumulatedUsage": {
-    "inputTokens": 16,
-    "outputTokens": 29,
-    "totalTokens": 45
+    "inputTokens": 5816,
+    "outputTokens": 113,
+    "totalTokens": 5929
   },
   "accumulatedMetrics": {
-    "latencyMs": 1799
+    "latencyMs": 3641
   },
   "agentInvocations": [
     {
       "usage": {
-        "inputTokens": 16,
-        "outputTokens": 29,
-        "totalTokens": 45
+        "inputTokens": 5816,
+        "outputTokens": 113,
+        "totalTokens": 5929
       },
       "cycles": [
         {
           "cycleId": "cycle-1",
           "duration": 2694,
           "usage": {
-            "inputTokens": 16,
-            "outputTokens": 29,
-            "totalTokens": 45
+            "inputTokens": 2861,
+            "outputTokens": 71,
+            "totalTokens": 2932
+          }
+        },
+        {
+          "cycleId": "cycle-2",
+          "duration": 1481,
+          "usage": {
+            "inputTokens": 2955,
+            "outputTokens": 42,
+            "totalTokens": 2997
           }
         }
       ]
     }
   ],
-  "toolMetrics": {}
+  "toolMetrics": {
+    "http_request": {
+      "callCount": 1,
+      "successCount": 1,
+      "errorCount": 0,
+      "totalTime": 412
+    }
+  },
+  "totalDuration": 4175
 }
 ```
 
@@ -306,10 +430,10 @@ Each trace represents a cycle in the agent loop, with child traces for model inv
 
 ```python
 from strands import Agent
-from strands_tools import calculator
+from strands.vended_tools import http_request
 
-agent = Agent(tools=[calculator])
-result = agent("What is 15 * 8 + 42?")
+agent = Agent(tools=[http_request])
+result = agent("How many open issues does the strands-agents/harness-sdk repo have?")
 
 # Traces are included in the summary output
 print(result.metrics.get_summary())
@@ -317,7 +441,7 @@ print(result.metrics.get_summary())
 
 Each trace contains:
 
-- **name**: Human-readable label (e.g., "Cycle 1", "stream_messages", "Tool: calculator")
+- **name**: Human-readable label (e.g., "Cycle 1", "stream_messages", "Tool: http_request")
 - **duration**: Execution time in seconds
 - **children**: Nested traces for operations within the cycle
 - **metadata**: Associated data like `cycleId`, `toolUseId`, and `toolName`
@@ -332,12 +456,14 @@ In addition to aggregate metrics, the Strands Agents SDK automatically collects 
 Each trace is an `AgentTrace` instance representing a cycle in the agent loop, with child traces for model invocations and tool calls:
 
 ```typescript
+--8<-- "user-guide/observability-evaluation/metrics_imports.ts:local_traces_imports"
+
 --8<-- "user-guide/observability-evaluation/metrics.ts:local_traces"
 ```
 
 Each `AgentTrace` contains:
 
-- **name**: Human-readable label (e.g., "Cycle 1", "stream_messages", "Tool: calculator")
+- **name**: Human-readable label (e.g., "Cycle 1", "stream_messages", "Tool: http_request")
 - **duration**: Execution time in milliseconds
 - **children**: Nested `AgentTrace` instances for operations within the cycle
 - **metadata**: Associated data like `cycleId`, `toolUseId`, and `toolName`

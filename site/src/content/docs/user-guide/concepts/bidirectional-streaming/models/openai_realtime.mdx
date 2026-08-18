@@ -38,14 +38,10 @@ After installing `strands-agents[bidi-openai]`, you can import and initialize th
 
 ```python
 import asyncio
-
 from strands.experimental.bidi import BidiAgent
 from strands.experimental.bidi.io import BidiAudioIO, BidiTextIO
 from strands.experimental.bidi.models import BidiOpenAIRealtimeModel
 from strands_tools import stop
-
-from strands_tools import calculator
-
 
 async def main() -> None:
     model = BidiOpenAIRealtimeModel(
@@ -58,7 +54,7 @@ async def main() -> None:
         client_config={"api_key": "<OPENAI_API_KEY>"},
     )
     # stop tool allows user to verbally stop agent execution.
-    agent = BidiAgent(model=model, tools=[calculator, stop])
+    agent = BidiAgent(model=model, tools=[stop])
 
     audio_io = BidiAudioIO()
     text_io = BidiTextIO()

@@ -599,9 +599,9 @@ Tool caching allows you to reuse a cached tool definition across multiple reques
 In Python, use the `cache_tools` parameter to enable tool caching independently:
 
 ```python
-from strands import Agent, tool
+from strands import Agent
+from strands.vended_tools import file_editor, http_request, shell
 from strands.models import BedrockModel
-from strands_tools import calculator, current_time
 
 # Using tool caching with BedrockModel
 bedrock_model = BedrockModel(
@@ -609,18 +609,26 @@ bedrock_model = BedrockModel(
     cache_tools="default"
 )
 
-# Create an agent with the model and tools
+# Tool definitions must exceed the model's minimum cacheable token count
+# (1,024 tokens for Claude Sonnet), so cache a few tools rather than one.
+# The extra tools are here only to clear that minimum; the prompt below
+# exercises only http_request.
 agent = Agent(
     model=bedrock_model,
-    tools=[calculator, current_time]
+    tools=[file_editor, http_request, shell],
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    )
 )
 # First request will cache the tools
-response1 = agent("What time is it?")
+response1 = agent("Do I need a jacket in Seattle today?")
 print(f"Cache write tokens: {response1.metrics.accumulated_usage.get('cacheWriteInputTokens')}")
 print(f"Cache read tokens: {response1.metrics.accumulated_usage.get('cacheReadInputTokens')}")
 
 # Second request will reuse the cached tools
-response2 = agent("What is the square root of 1764?")
+response2 = agent("Do I need a jacket in Seattle today?")
 print(f"Cache write tokens: {response2.metrics.accumulated_usage.get('cacheWriteInputTokens')}")
 print(f"Cache read tokens: {response2.metrics.accumulated_usage.get('cacheReadInputTokens')}")
 ```
@@ -1192,4 +1200,3 @@ const agent = new Agent({ model: bedrockModel })
 - [Amazon Bedrock Documentation](https://docs.aws.amazon.com/bedrock/)
 - [Bedrock Model IDs Reference](https://docs.aws.amazon.com/bedrock/latest/userguide/model-ids.html)
 - [Bedrock Pricing](https://aws.amazon.com/bedrock/pricing/)
-

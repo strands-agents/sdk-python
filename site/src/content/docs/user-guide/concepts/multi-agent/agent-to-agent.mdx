@@ -81,9 +81,10 @@ from strands.agent.a2a_agent import A2AAgent
 a2a_agent = A2AAgent(endpoint="http://localhost:9000")
 
 # Invoke it just like a regular Agent
-result = a2a_agent("Show me 10 ^ 6")
+result = a2a_agent("What is the current temperature in Seattle?")
 print(result.message)
-# {'role': 'assistant', 'content': [{'text': '10^6 = 1,000,000'}]}
+# Typical output:
+# {'role': 'assistant', 'content': [{'text': 'It is 23.1°C in Seattle right now.'}]}
 ```
 
 </Tab>
@@ -146,7 +147,7 @@ from strands.agent.a2a_agent import A2AAgent
 
 async def main():
     a2a_agent = A2AAgent(endpoint="http://localhost:9000")
-    result = await a2a_agent.invoke_async("Calculate the square root of 144")
+    result = await a2a_agent.invoke_async("Is it warmer in Tokyo or Seattle today?")
     print(result.message)
 
 asyncio.run(main())
@@ -161,7 +162,7 @@ In TypeScript, `invoke` is always async:
 import { A2AAgent } from '@strands-agents/sdk/a2a'
 
 const a2aAgent = new A2AAgent({ url: 'http://localhost:9000' })
-const result = await a2aAgent.invoke('Calculate the square root of 144')
+const result = await a2aAgent.invoke('Is it warmer in Tokyo or Seattle today?')
 console.log(result.lastMessage.content)
 ```
 
@@ -245,20 +246,20 @@ You can wrap an `A2AAgent` as a tool in an orchestrator agent's toolkit:
 from strands import Agent, tool
 from strands.agent.a2a_agent import A2AAgent
 
-calculator_agent = A2AAgent(
-    endpoint="http://calculator-service:9000",
-    name="calculator"
+weather_agent = A2AAgent(
+    endpoint="http://weather-service:9000",
+    name="weather"
 )
 
 @tool
-def calculate(expression: str) -> str:
-    """Perform a mathematical calculation."""
-    result = calculator_agent(expression)
+def get_weather(location: str) -> str:
+    """Fetch the current weather for a location."""
+    result = weather_agent(f"What is the current weather in {location}?")
     return str(result.message["content"][0]["text"])
 
 orchestrator = Agent(
-    system_prompt="You are a helpful assistant. Use the calculate tool for math.",
-    tools=[calculate]
+    system_prompt="You are a helpful assistant. Use the get_weather tool for weather.",
+    tools=[get_weather]
 )
 ```
 
@@ -293,18 +294,23 @@ Create a Strands agent and expose it as an A2A server:
 
 ```python
 import logging
-from strands_tools.calculator import calculator
 from strands import Agent
 from strands.multiagent.a2a import A2AServer
+from strands.vended_tools import http_request
 
 logging.basicConfig(level=logging.INFO)
 
 # Build a fresh agent for each A2A context so callers stay isolated
 def create_agent(context_id: str) -> Agent:
     return Agent(
-        name="Calculator Agent",
-        description="A calculator agent that can perform basic arithmetic operations.",
-        tools=[calculator],
+        name="Weather Agent",
+        description="An agent that can fetch live weather data.",
+        system_prompt=(
+            "You can get live weather from "
+            "https://api.open-meteo.com/v1/forecast"
+            "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+        ),
+        tools=[http_request],
         callback_handler=None
     )
 
@@ -321,6 +327,7 @@ a2a_server.serve()
 ```typescript
 import { Agent } from '@strands-agents/sdk'
 import { A2AExpressServer } from '@strands-agents/sdk/a2a/express'
+import { httpRequest } from '@strands-agents/sdk/vended-tools/http-request'
 
 --8<-- "user-guide/concepts/multi-agent/agent-to-agent.ts:basic_server"
 ```
@@ -347,8 +354,8 @@ from strands.multiagent.a2a import A2AServer
 
 def create_agent(context_id: str) -> Agent:
     return Agent(
-        name="Calculator Agent",
-        description="A calculator agent.",
+        name="Weather Agent",
+        description="An agent that can fetch live weather data.",
         callback_handler=None
     )
 
@@ -647,23 +654,23 @@ from strands.multiagent.a2a import A2AServer
 # Create an agent factory
 def create_agent(context_id: str) -> Agent:
     return Agent(
-        name="Calculator Agent",
-        description="A calculator agent",
+        name="Weather Agent",
+        description="A weather agent",
         callback_handler=None
     )
 
 # Deploy with path-based mounting
-# The agent will be accessible at http://my-alb.amazonaws.com/calculator/
+# The agent will be accessible at http://my-alb.amazonaws.com/weather/
 a2a_server = A2AServer(
     agent_factory=create_agent,
-    http_url="http://my-alb.amazonaws.com/calculator"
+    http_url="http://my-alb.amazonaws.com/weather"
 )
 
 # For load balancers that strip path prefixes, use serve_at_root=True
 a2a_server_with_root = A2AServer(
     agent_factory=create_agent,
-    http_url="http://my-alb.amazonaws.com/calculator",
-    serve_at_root=True  # Serves at root even though URL has /calculator path
+    http_url="http://my-alb.amazonaws.com/weather",
+    serve_at_root=True  # Serves at root even though URL has /weather path
 )
 ```
 
@@ -677,14 +684,14 @@ import { Agent } from '@strands-agents/sdk'
 import { A2AExpressServer } from '@strands-agents/sdk/a2a/express'
 
 const server = new A2AExpressServer({
-  agentFactory: (contextId) => new Agent({ systemPrompt: 'A calculator agent.' }),
-  name: 'Calculator Agent',
-  httpUrl: 'http://my-alb.amazonaws.com/calculator',
+  agentFactory: (contextId) => new Agent({ systemPrompt: 'A weather agent.' }),
+  name: 'Weather Agent',
+  httpUrl: 'http://my-alb.amazonaws.com/weather',
 })
 
 const express = (await import('express')).default
 const app = express()
-app.use('/calculator', server.createMiddleware())
+app.use('/weather', server.createMiddleware())
 app.listen(9000)
 ```
 

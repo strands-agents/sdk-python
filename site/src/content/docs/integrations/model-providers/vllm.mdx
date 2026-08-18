@@ -26,13 +26,13 @@ Traditional retokenization can cause drift in RL training—the same text may to
 Install strands-vllm along with the Strands Agents SDK:
 
 ```bash
-pip install strands-vllm strands-agents-tools
+pip install strands-vllm
 ```
 
 For retokenization drift demos (requires HuggingFace tokenizer):
 
 ```bash
-pip install "strands-vllm[drift]" strands-agents-tools
+pip install "strands-vllm[drift]"
 ```
 
 ## Requirements
@@ -98,8 +98,9 @@ Strands SDK already handles unknown tools and malformed JSON gracefully. `VLLMTo
 
 ```python
 import os
+
 from strands import Agent
-from strands_tools.calculator import calculator
+from strands.vended_tools import http_request
 from strands_vllm import VLLMModel, VLLMToolValidationHooks
 
 model = VLLMModel(
@@ -110,11 +111,16 @@ model = VLLMModel(
 
 agent = Agent(
     model=model,
-    tools=[calculator],
+    tools=[http_request],
     hooks=[VLLMToolValidationHooks()],
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
 )
 
-result = agent("Compute 17 * 19 using the calculator tool.")
+result = agent("Do I need a jacket in Seattle today?")
 print(result)
 ```
 
@@ -163,13 +169,10 @@ For building RL-ready trajectories with loss masks:
 ```python
 import asyncio
 import os
-from strands import Agent, tool
-from strands_tools.calculator import calculator as _calculator_impl
-from strands_vllm import TokenManager, VLLMModel, VLLMTokenRecorder, VLLMToolValidationHooks
 
-@tool
-def calculator(expression: str) -> dict:
-    return _calculator_impl(expression=expression)
+from strands import Agent
+from strands.vended_tools import http_request
+from strands_vllm import TokenManager, VLLMModel, VLLMTokenRecorder, VLLMToolValidationHooks
 
 async def main():
     model = VLLMModel(
@@ -181,12 +184,17 @@ async def main():
     recorder = VLLMTokenRecorder()
     agent = Agent(
         model=model,
-        tools=[calculator],
+        tools=[http_request],
         hooks=[VLLMToolValidationHooks()],
         callback_handler=recorder,
+        system_prompt=(
+            "You can get live weather from "
+            "https://api.open-meteo.com/v1/forecast"
+            "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+        ),
     )
 
-    await agent.invoke_async("What is 25 * 17?")
+    await agent.invoke_async("Do I need a jacket in Seattle today?")
 
     # Build RL trajectory with loss mask
     tm = TokenManager()
@@ -237,9 +245,9 @@ The `VLLMModel` accepts the following parameters:
 
 **Example error messages** (more informative than Strands defaults):
 
-- Unknown tool: `Error: unknown tool: fake_tool | allowed_tools=[calculator, search, ...]`
-- Missing argument: `Error: tool_name=<calculator> | missing required argument(s): expression`
-- Unknown argument: `Error: tool_name=<calculator> | unknown argument(s): invalid_param`
+- Unknown tool: `Error: unknown tool: fake_tool | allowed_tools=[http_request, ...]`
+- Missing argument: `Error: tool_name=<http_request> | missing required argument(s): url`
+- Unknown argument: `Error: tool_name=<http_request> | unknown argument(s): invalid_param`
 
 ## Troubleshooting
 

@@ -44,16 +44,29 @@ The decorator wraps your function so that `Experiment.run_evaluations` receives 
 Accept a `Case` parameter to customize agent behavior per test case:
 
 ```python
-from strands_tools import calculator
+from strands.vended_tools import http_request
 
 @eval_task()
 def my_task(case):
-    tools = [calculator] if (case.metadata or {}).get("use_calc") else []
-    return Agent(tools=tools, callback_handler=None)
+    if (case.metadata or {}).get("use_http"):
+        return Agent(
+            tools=[http_request],
+            system_prompt=(
+                "You are a weather assistant. You can get live weather from "
+                "https://api.open-meteo.com/v1/forecast"
+                "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+            ),
+            callback_handler=None,
+        )
+    return Agent(callback_handler=None)
 
 cases = [
-    Case(name="math", input="What is 15 * 23?", metadata={"use_calc": True}),
-    Case(name="chat", input="Tell me a joke", metadata={"use_calc": False}),
+    Case(
+        name="weather",
+        input="What is the current temperature in Seattle?",
+        metadata={"use_http": True},
+    ),
+    Case(name="chat", input="Tell me a joke", metadata={"use_http": False}),
 ]
 ```
 

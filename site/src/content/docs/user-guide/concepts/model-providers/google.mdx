@@ -22,7 +22,7 @@ To install it, run:
 <Tab label="Python">
 
 ```bash
-pip install 'strands-agents[gemini]' strands-agents-tools
+pip install 'strands-agents[gemini]'
 ```
 </Tab>
 <Tab label="TypeScript">
@@ -42,8 +42,8 @@ After installing dependencies, you can import and initialize the Strands Agents'
 
 ```python
 from strands import Agent
+from strands.vended_tools import http_request
 from strands.models.gemini import GeminiModel
-from strands_tools import calculator
 
 model = GeminiModel(
     client_args={
@@ -60,8 +60,16 @@ model = GeminiModel(
     }
 )
 
-agent = Agent(model=model, tools=[calculator])
-response = agent("What is 2+2")
+agent = Agent(
+    model=model,
+    tools=[http_request],
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
+)
+response = agent("Do I need a jacket in Seattle today?")
 print(response)
 ```
 </Tab>
@@ -331,8 +339,8 @@ Users can pass their own custom Gemini client to the GeminiModel for Strands Age
 ```python
 from google import genai
 from strands import Agent
+from strands.vended_tools import http_request
 from strands.models.gemini import GeminiModel
-from strands_tools import calculator
 
 client = genai.Client(api_key="<KEY>")
 
@@ -349,8 +357,16 @@ model = GeminiModel(
     }
 )
 
-agent = Agent(model=model, tools=[calculator])
-response = agent("What is 2+2")
+agent = Agent(
+    model=model,
+    tools=[http_request],
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
+)
+response = agent("Do I need a jacket in Seattle today?")
 print(response)
 ```
 </Tab>

@@ -16,7 +16,7 @@ redirectFrom:
 The Strands Agents SDK provides access to Nebius Token Factory models through the OpenAI compatibility layer, configured as an optional dependency. To install, run:
 
 ```bash
-pip install 'strands-agents[openai]' strands-agents-tools
+pip install 'strands-agents[openai]'
 ```
 
 ## Usage
@@ -25,8 +25,8 @@ After installing the `openai` package, you can import and initialize the Strands
 
 ```python
 from strands import Agent
+from strands.vended_tools import http_request
 from strands.models.openai import OpenAIModel
-from strands_tools import calculator
 
 model = OpenAIModel(
     client_args={
@@ -40,8 +40,16 @@ model = OpenAIModel(
     }
 )
 
-agent = Agent(model=model, tools=[calculator])
-agent("What is 2+2?")
+agent = Agent(
+    model=model,
+    tools=[http_request],
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
+)
+agent("Do I need a jacket in Seattle today?")
 ```
 
 ## Configuration
@@ -85,4 +93,3 @@ Ensure you're using a model ID compatible with Nebius Token Factory (e.g., `deep
 * [Nebius Token Factory Models](https://docs.tokenfactory.nebius.com/ai-models-inference/overview)
 * [OpenAI Python SDK](https://github.com/openai/openai-python)
 * [Strands Agents API](@api/python/strands.models.model)
-

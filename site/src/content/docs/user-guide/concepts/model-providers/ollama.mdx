@@ -24,7 +24,7 @@ The [`OllamaModel`](@api/python/strands.models.ollama) class in Strands enables 
 
 First install the python client into your python environment:
 ```bash
-pip install 'strands-agents[ollama]' strands-agents-tools
+pip install 'strands-agents[ollama]'
 ```
 
 Next, you'll need to install and setup ollama itself.
@@ -243,8 +243,8 @@ print(f"Rating: {book_analysis.rating}")
 
 ```python
 from strands import Agent
+from strands.vended_tools import http_request
 from strands.models.ollama import OllamaModel
-from strands_tools import calculator, current_time
 
 # Create an Ollama model
 ollama_model = OllamaModel(
@@ -255,11 +255,16 @@ ollama_model = OllamaModel(
 # Create an agent with tools
 agent = Agent(
     model=ollama_model,
-    tools=[calculator, current_time]
+    tools=[http_request],
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    )
 )
 
 # Use the agent with tools
-response = agent("What's the square root of 144 plus the current time?")
+response = agent("Do I need a jacket in Seattle today?")
 ```
 
 ## Troubleshooting

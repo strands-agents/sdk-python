@@ -24,8 +24,8 @@ After installing `writer`, you can import and initialize Strands Agents' Writer 
 
 ```python
 from strands import Agent
+from strands.vended_tools import http_request
 from strands.models.writer import WriterModel
-from strands_tools import calculator
 
 model = WriterModel(
     client_args={"api_key": "<WRITER_API_KEY>"},
@@ -33,12 +33,24 @@ model = WriterModel(
     model_id="palmyra-x5",
 )
 
-agent = Agent(model=model, tools=[calculator])
-response = agent("What is 2+2")
+agent = Agent(
+    model=model,
+    tools=[http_request],
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
+)
+response = agent("Do I need a jacket in Seattle today?")
 print(response)
 ```
 
-> **Note**: By default, Strands Agents use a `PrintingCallbackHandler` that streams responses to stdout as they're generated. When you call `agent("What is 2+2")`, you'll see the response appear in real-time as it's being generated. The `print(response)` above also shows the final collected result after the response is complete. See [Callback Handlers](../streaming/callback-handlers.md) for more details.
+> **Note**: By default, Strands Agents use a `PrintingCallbackHandler` that streams
+> responses to stdout as they're generated. When you call the agent, you'll see the
+> response appear in real-time as it's being generated. The `print(response)` above
+> also shows the final collected result after the response is complete. See
+> [Callback Handlers](../streaming/callback-handlers.md) for more details.
 
 ## Configuration
 
@@ -292,4 +304,3 @@ Ensure your Writer API key is valid and has the necessary permissions. You can g
 - [Writer Documentation](https://dev.writer.com/)
 - [Writer Models Guide](https://dev.writer.com/home/models)
 - [Writer API Reference](https://dev.writer.com/api-reference)
-

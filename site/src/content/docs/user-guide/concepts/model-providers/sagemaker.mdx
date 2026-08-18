@@ -18,7 +18,7 @@ For example, you can expose models like [Mistral-Small-24B-Instruct-2501](https:
 SageMaker is configured as an optional dependency in Strands Agents. To install, run:
 
 ```bash
-pip install 'strands-agents[sagemaker]' strands-agents-tools
+pip install 'strands-agents[sagemaker]'
 ```
 
 ## Usage
@@ -27,8 +27,8 @@ After installing the SageMaker dependencies, you can import and initialize the S
 
 ```python
 from strands import Agent
+from strands.vended_tools import http_request
 from strands.models.sagemaker import SageMakerAIModel
-from strands_tools import calculator
 
 model = SageMakerAIModel(
     endpoint_config={
@@ -42,8 +42,16 @@ model = SageMakerAIModel(
     }
 )
 
-agent = Agent(model=model, tools=[calculator])
-response = agent("What is the square root of 64?")
+agent = Agent(
+    model=model,
+    tools=[http_request],
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
+)
+response = agent("Do I need a jacket in Seattle today?")
 ```
 
 **Note**: Tool calling support varies by model. Models like [Mistral-Small-24B-Instruct-2501](https://aws.amazon.com/blogs/machine-learning/mistral-small-24b-instruct-2501-is-now-available-on-sagemaker-jumpstart-and-amazon-bedrock-marketplace/) have demonstrated reliable tool calling capabilities, but not all models deployed on SageMaker support this feature. Verify your model's capabilities before implementing tool-based workflows.

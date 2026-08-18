@@ -590,10 +590,10 @@ class ResultProcessor(HookProvider):
         registry.add_callback(AfterToolCallEvent, self.process_result)
 
     def process_result(self, event: AfterToolCallEvent) -> None:
-        if event.tool_use.name == "calculator":
-            # Add formatting to calculator results
+        if event.tool_use["name"] == "http_request":
+            # Truncate long response bodies before they reach the model
             original_content = event.result["content"][0]["text"]
-            event.result["content"][0]["text"] = f"Result: {original_content}"
+            event.result["content"][0]["text"] = original_content[:4000]
 ```
 </Tab>
 <Tab label="TypeScript">
@@ -678,10 +678,10 @@ class ResultProcessor(HookProvider):
         registry.add_callback(AfterToolCallEvent, self.process_result)
 
     def process_result(self, event: AfterToolCallEvent) -> None:
-        if event.tool_use.name == "calculator":
+        if event.tool_use["name"] == "http_request":
             original_content = event.result["content"][0]["text"]
-            logger.info(f"Modifying calculator result: {original_content}")
-            event.result["content"][0]["text"] = f"Result: {original_content}"
+            logger.info(f"Truncating http_request result: {len(original_content)} chars")
+            event.result["content"][0]["text"] = original_content[:4000]
 ```
 </Tab>
 <Tab label="TypeScript">
@@ -825,20 +825,23 @@ class ConstantToolArguments(HookProvider):
 </Tab>
 </Tabs>
 
-For example, to always force the `calculator` tool to use precision of 1 digit:
+For example, to force every request the `http_request` tool makes to be a read-only
+GET, whatever method the model asks for:
 
 <Tabs>
 <Tab label="Python">
 
 ```python
+from strands.vended_tools import http_request
+
 fix_parameters = ConstantToolArguments({
-    "calculator": {
-        "precision": 1,
+    "http_request": {
+        "method": "GET",
     }
 })
 
-agent = Agent(tools=[calculator], hooks=[fix_parameters])
-result = agent("What is 2 / 3?")
+agent = Agent(tools=[http_request], hooks=[fix_parameters])
+result = agent("Get a piece of wisdom from the GitHub Zen API")
 ```
 </Tab>
 <Tab label="TypeScript">
@@ -907,20 +910,30 @@ class LimitToolCounts(HookProvider):
 </Tab>
 </Tabs>
 
-For example, to limit the `sleep` tool to 3 invocations per invocation:
+For example, to limit the `http_request` tool to 3 calls per invocation:
 
 <Tabs>
 <Tab label="Python">
 
 ```python
-limit_hook = LimitToolCounts(max_tool_counts={"sleep": 3})
+from strands.vended_tools import http_request
 
-agent = Agent(tools=[sleep], hooks=[limit_hook])
+limit_hook = LimitToolCounts(max_tool_counts={"http_request": 3})
 
-# This call will only have 3 successful sleeps
-agent("Sleep 5 times for 10ms each or until you can't anymore")
-# This will sleep successfully again because the count resets every invocation
-agent("Sleep once")
+agent = Agent(
+    tools=[http_request],
+    hooks=[limit_hook],
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
+)
+
+# The limit blocks any request after the third
+agent("Check the current temperature in Seattle, Tokyo, Miami, and London")
+# The count resets every invocation, so this call can make requests again
+agent("Now check Berlin")
 ```
 </Tab>
 <Tab label="TypeScript">

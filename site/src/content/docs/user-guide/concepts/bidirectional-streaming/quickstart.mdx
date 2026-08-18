@@ -250,7 +250,6 @@ import asyncio
 from strands import tool
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
 from strands.experimental.bidi.models import BidiNovaSonicModel
-from strands_tools import calculator, current_time
 
 # Define a custom tool
 @tool
@@ -271,7 +270,7 @@ def get_weather(location: str) -> str:
 model = BidiNovaSonicModel()
 agent = BidiAgent(
     model=model,
-    tools=[calculator, current_time, get_weather],
+    tools=[get_weather],
     system_prompt="You are a helpful assistant with access to tools."
 )
 
@@ -288,9 +287,8 @@ asyncio.run(main())
 
 You can now ask questions like:
 
-- "What time is it?"
-- "Calculate 25 times 48"
 - "What's the weather in San Francisco?"
+- "Is it warmer in Seattle or in Miami?"
 
 The agent automatically determines when to use tools and executes them concurrently without blocking the conversation.
 

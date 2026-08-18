@@ -63,26 +63,26 @@ The simplest way to use an agent as a tool is to pass it directly in the `tools`
 
 ```python
 from strands import Agent
-from strands_tools import retrieve, http_request
+from strands.vended_tools import http_request
 
 # Create specialized agents
 research_agent = Agent(
     system_prompt="""You are a specialized research assistant. Focus only on providing
     factual, well-sourced information in response to research questions.
     Always cite your sources when possible.""",
-    tools=[retrieve, http_request],
+    tools=[http_request],
 )
 
 product_agent = Agent(
     system_prompt="""You are a specialized product recommendation assistant.
     Provide personalized product suggestions based on user preferences.""",
-    tools=[retrieve, http_request],
+    tools=[http_request],
 )
 
 travel_agent = Agent(
     system_prompt="""You are a specialized travel planning assistant.
     Create detailed travel itineraries based on user preferences.""",
-    tools=[retrieve, http_request],
+    tools=[http_request],
 )
 
 # Create the orchestrator — agents are automatically converted to tools
@@ -165,7 +165,7 @@ For more control over how the agent is invoked — such as custom pre/post-proce
 
 ```python
 from strands import Agent, tool
-from strands_tools import retrieve, http_request
+from strands.vended_tools import http_request
 
 RESEARCH_ASSISTANT_PROMPT = """
 You are a specialized research assistant. Focus only on providing
@@ -187,7 +187,7 @@ def research_assistant(query: str) -> str:
     try:
         research_agent = Agent(
             system_prompt=RESEARCH_ASSISTANT_PROMPT,
-            tools=[retrieve, http_request]
+            tools=[http_request]
         )
 
         response = research_agent(query)
@@ -225,7 +225,7 @@ def product_recommendation_assistant(query: str) -> str:
         product_agent = Agent(
             system_prompt="""You are a specialized product recommendation assistant.
             Provide personalized product suggestions based on user preferences.""",
-            tools=[retrieve, http_request, dialog],
+            tools=[http_request],
         )
         # Implementation with response handling
         # ...
@@ -248,7 +248,7 @@ def trip_planning_assistant(query: str) -> str:
         travel_agent = Agent(
             system_prompt="""You are a specialized travel planning assistant.
             Create detailed travel itineraries based on user preferences.""",
-            tools=[retrieve, http_request],
+            tools=[http_request],
         )
         # Implementation with response handling
         # ...
@@ -416,7 +416,7 @@ For complete implementations of this pattern, see the following examples:
 <Tabs>
 <Tab label="Python">
 
-The [Teacher's Assistant](../../../../examples/python/multi_agent_example/multi_agent_example/) example demonstrates an orchestrator agent that routes student queries to specialized agents for math, English, language translation, computer science, and general knowledge.
+The [Teacher's Assistant](https://github.com/strands-agents/samples) example in the samples repository demonstrates an orchestrator agent that routes student queries to specialized agents for math, English, language translation, computer science, and general knowledge.
 
 </Tab>
 <Tab label="TypeScript">

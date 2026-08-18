@@ -62,7 +62,7 @@ async def async_descriptive_tools_trajectory_example():
     Demonstrates evaluating tool usage trajectories in agent responses asynchronously.
 
     This example:
-    1. Defines a task function that uses an agent with calculator tool
+    1. Defines a task function that uses an agent with banking tools
        and returns both the response and the tools used
     2. Creates test cases with expected outputs and tool trajectories
     3. Creates a TrajectoryEvaluator to assess tool usage

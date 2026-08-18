@@ -6,6 +6,7 @@ Fast, code-based evaluation without LLM judges.
 import asyncio
 
 from strands import Agent
+from strands.vended_tools import http_request
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import Contains, Equals, StartsWith, ToolCalled
 
@@ -36,23 +37,34 @@ experiment = Experiment(
 # --- Trajectory evaluator ---
 
 from strands_evals.extractors import tools_use_extractor
-from strands_tools import calculator
 
 
 def get_response_with_tools(case: Case) -> dict:
-    agent = Agent(tools=[calculator], callback_handler=None)
+    agent = Agent(
+        tools=[http_request],
+        system_prompt=(
+            "You are a weather assistant. You can get live weather from "
+            "https://api.open-meteo.com/v1/forecast"
+            "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+        ),
+        callback_handler=None,
+    )
     response = agent(case.input)
     trajectory = tools_use_extractor.extract_agent_tools_used_from_messages(agent.messages)
     return {"output": str(response), "trajectory": trajectory}
 
 
 tool_cases = [
-    Case(name="calc", input="What is 15 * 23?", expected_trajectory=["calculator"]),
+    Case(
+        name="weather",
+        input="What is the current temperature in Seattle?",
+        expected_trajectory=["http_request"],
+    ),
 ]
 
 tool_experiment = Experiment(
     cases=tool_cases,
-    evaluators=[ToolCalled(tool_name="calculator")],
+    evaluators=[ToolCalled(tool_name="http_request")],
 )
 
 

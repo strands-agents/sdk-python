@@ -218,34 +218,38 @@ This example shows the complete workflow: run evaluations with diagnosis, then a
 
 ```python
 import asyncio
-
 from strands import Agent
+from strands.vended_tools import http_request
 from strands_evals import Case, Experiment, DiagnosisConfig, eval_task, TracedHandler
 from strands_evals.detectors import ConfidenceLevel, DiagnosisTrigger
 from strands_evals.evaluators import OutputEvaluator, GoalSuccessRateEvaluator
-from strands_tools import calculator
 
 @eval_task(TracedHandler())
-def math_agent():
+def weather_agent():
     return Agent(
-        tools=[calculator],
-        system_prompt="You are a math assistant. Use the calculator tool for computations.",
+        tools=[http_request],
+        system_prompt=(
+            "You are a weather assistant. You can get live weather from "
+            "https://api.open-meteo.com/v1/forecast"
+            "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+        ),
         callback_handler=None,
     )
 
 cases = [
     Case(
-        name="basic-math",
-        input="What is 15% of 230?",
-        expected_output="34.5",
-        metadata={"task_description": "Correct calculation provided"},
+        name="seattle-weather",
+        input="What is the current temperature in Seattle?",
+        metadata={"task_description": "Current temperature reported from the API"},
     ),
 ]
 
 experiment = Experiment(
     cases=cases,
     evaluators=[
-        OutputEvaluator(rubric="Score 1.0 if the answer is numerically correct. Score 0.0 otherwise."),
+        OutputEvaluator(
+            rubric="Score 1.0 if a temperature is reported. Score 0.0 otherwise."
+        ),
         GoalSuccessRateEvaluator(),
     ],
     diagnosis_config=DiagnosisConfig(
@@ -255,7 +259,7 @@ experiment = Experiment(
 )
 
 async def main():
-    report = await experiment.run_evaluations_async(math_agent, max_workers=1)
+    report = await experiment.run_evaluations_async(weather_agent, max_workers=1)
 
     # The experiment already returns a single combined report across all evaluators —
     # each row in `report.cases` carries an `evaluator` key naming the producer.

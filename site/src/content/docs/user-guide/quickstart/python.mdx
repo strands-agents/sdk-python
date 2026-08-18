@@ -110,7 +110,7 @@ And finally our `agent.py` file where the goodies are:
 
 ```python
 from strands import Agent, tool
-from strands_tools import calculator, current_time
+from strands.vended_tools import http_request
 
 # Define a custom tool as a Python function using the @tool decorator
 @tool
@@ -133,22 +133,20 @@ def letter_counter(word: str, letter: str) -> int:
 
     return word.lower().count(letter.lower())
 
-# Create an agent with tools from the community-driven strands-tools package
-# as well as our custom letter_counter tool
-agent = Agent(tools=[calculator, current_time, letter_counter])
+# Create an agent with our custom tool and the vended http_request tool
+agent = Agent(tools=[http_request, letter_counter])
 
 # Ask the agent a question that uses the available tools
 message = """
-I have 4 requests:
+I have 2 requests:
 
-1. What is the time right now?
-2. Calculate 3111696 / 74088
-3. Tell me how many letter R's are in the word "strawberry" 🍓
+1. How many stars does the strands-agents/harness-sdk repo have?
+2. Tell me how many letter R's are in the word "strawberry"
 """
 agent(message)
 ```
 
-This basic quickstart agent can perform mathematical calculations, get the current time, run Python code, and count letters in words. The agent automatically determines when to use tools based on the input query and context.
+This basic quickstart agent can fetch live data from the web and count letters in words. The agent automatically determines when to use tools based on the input query and context.
 
 ```mermaid
 flowchart LR
@@ -183,13 +181,13 @@ After running an agent, you can understand what happened during execution throug
 
 Traces provide detailed insight into the agent's reasoning process. You can access in-memory traces and metrics directly from the [`AgentResult`](@api/python/strands.agent.agent_result#AgentResult), or export them using [OpenTelemetry](../observability-evaluation/traces.md) to observability platforms.
 
-:::note[Example result.metrics.get_summary() output]
+:::note[Example result.metrics.get_summary() output (abbreviated)]
 
 <details>
 <summary>Click to expand</summary>
 
 ```python
-result = agent("What is the square root of 144?")
+result = agent("How many stars does the strands-agents/harness-sdk repo have?")
 print(result.metrics.get_summary())
 ```
 ```json
@@ -204,21 +202,21 @@ print(result.metrics.get_summary())
   },
   "average_cycle_time": 0.9406174421310425,
   "tool_usage": {
-    "calculator": {
+    "http_request": {
       "execution_stats": {
-        "average_time": 0.008260965347290039,
+        "average_time": 0.4123374938964844,
         "call_count": 1,
         "error_count": 0,
         "success_count": 1,
         "success_rate": 1.0,
-        "total_time": 0.008260965347290039
+        "total_time": 0.4123374938964844
       },
       "tool_info": {
         "input_params": {
-          "expression": "sqrt(144)",
-          "mode": "evaluate"
+          "method": "GET",
+          "url": "https://api.github.com/repos/strands-agents/harness-sdk"
         },
-        "name": "calculator",
+        "name": "http_request",
         "tool_use_id": "tooluse_jR3LAfuASrGil31Ix9V7qQ"
       }
     }
@@ -236,15 +234,15 @@ print(result.metrics.get_summary())
           "message": {
             "content": [
               {
-                "text": "I'll calculate the square root of 144 for you."
+                "text": "I'll look up the repository for you."
               },
               {
                 "toolUse": {
                   "input": {
-                    "expression": "sqrt(144)",
-                    "mode": "evaluate"
+                    "method": "GET",
+                    "url": "https://api.github.com/repos/strands-agents/harness-sdk"
                   },
-                  "name": "calculator",
+                  "name": "http_request",
                   "toolUseId": "tooluse_jR3LAfuASrGil31Ix9V7qQ"
                 }
               }
@@ -259,8 +257,8 @@ print(result.metrics.get_summary())
         },
         {
           "children": [],
-          "duration": 0.008296012878417969,
-          "end_time": 1747227039.948415,
+          "duration": 0.4123374938964844,
+          "end_time": 1747227040.352456,
           "id": "4f64ce3d-a21c-4696-aa71-2dd446f71488",
           "message": {
             "content": [
@@ -268,7 +266,7 @@ print(result.metrics.get_summary())
                 "toolResult": {
                   "content": [
                     {
-                      "text": "Result: 12"
+                      "text": "{\"status\": 200, \"status_text\": \"OK\", \"headers\": {...}, \"body\": \"{\\\"stargazers_count\\\": 3247, ...}\"}"
                     }
                   ],
                   "status": "success",
@@ -280,24 +278,24 @@ print(result.metrics.get_summary())
           },
           "metadata": {
             "toolUseId": "tooluse_jR3LAfuASrGil31Ix9V7qQ",
-            "tool_name": "calculator"
+            "tool_name": "http_request"
           },
-          "name": "Tool: calculator",
+          "name": "Tool: http_request",
           "parent_id": "78595347-43b1-4652-b215-39da3c719ec1",
-          "raw_name": "calculator - tooluse_jR3LAfuASrGil31Ix9V7qQ",
+          "raw_name": "http_request - tooluse_jR3LAfuASrGil31Ix9V7qQ",
           "start_time": 1747227039.940119
         },
         {
           "children": [],
           "duration": 1.881267786026001,
-          "end_time": 1747227041.8299048,
+          "end_time": 1747227042.2339463,
           "id": "0261b3a5-89f2-46b2-9b37-13cccb0d7d39",
           "message": null,
           "metadata": {},
           "name": "Recursive call",
           "parent_id": "78595347-43b1-4652-b215-39da3c719ec1",
           "raw_name": null,
-          "start_time": 1747227039.948637
+          "start_time": 1747227040.352678
         }
       ],
       "duration": null,
@@ -315,12 +313,12 @@ print(result.metrics.get_summary())
         {
           "children": [],
           "duration": 1.8811860084533691,
-          "end_time": 1747227041.829879,
+          "end_time": 1747227042.233920,
           "id": "1317cfcb-0e87-432e-8665-da5ddfe099cd",
           "message": {
             "content": [
               {
-                "text": "\n\nThe square root of 144 is 12."
+                "text": "\n\nThe strands-agents/harness-sdk repo has 3,247 stars."
               }
             ],
             "role": "assistant"
@@ -329,18 +327,18 @@ print(result.metrics.get_summary())
           "name": "stream_messages",
           "parent_id": "f482cee9-946c-471a-9bd3-fae23650f317",
           "raw_name": null,
-          "start_time": 1747227039.948693
+          "start_time": 1747227040.352734
         }
       ],
       "duration": 1.881234884262085,
-      "end_time": 1747227041.829896,
+      "end_time": 1747227042.233937,
       "id": "f482cee9-946c-471a-9bd3-fae23650f317",
       "message": null,
       "metadata": {},
       "name": "Cycle 2",
       "parent_id": null,
       "raw_name": null,
-      "start_time": 1747227039.948661
+      "start_time": 1747227040.352702
     }
   ]
 }
@@ -358,7 +356,7 @@ Agents display their reasoning and responses in real-time to the console by defa
 
 ```python
 agent = Agent(
-    tools=[calculator, current_time, letter_counter],
+    tools=[http_request, letter_counter],
     callback_handler=None,
 )
 ```
@@ -472,17 +470,17 @@ For asynchronous applications (like web servers or APIs), Strands provides an as
 ```python
 import asyncio
 from strands import Agent
-from strands_tools import calculator
+from strands.vended_tools import http_request
 
 # Initialize our agent without a callback handler
 agent = Agent(
-    tools=[calculator],
+    tools=[http_request],
     callback_handler=None  # Disable default callback handler
 )
 
 # Async function that iterates over streamed agent events
 async def process_streaming_response():
-    prompt = "What is 25 * 48 and explain the calculation"
+    prompt = "How many open issues does the strands-agents/harness-sdk repo have?"
 
     # Get an async iterator for the agent's response stream
     agent_stream = agent.stream_async(prompt)
@@ -515,7 +513,7 @@ Here is an example that captures streamed data from the agent and logs it instea
 ```python
 import logging
 from strands import Agent
-from strands_tools import shell
+from strands.vended_tools import shell
 
 logger = logging.getLogger("my_agent")
 
@@ -553,7 +551,9 @@ See the [Callback Handlers](../concepts/streaming/callback-handlers.md) document
 
 Ready to learn more? Check out these resources:
 
-- [Examples](../../examples/README.md) - Examples for many use cases, multi-agent systems, autonomous agents, and more
+- [Examples](https://github.com/strands-agents/samples) - Examples for many use cases, multi-agent systems, autonomous agents, and more
+- [Custom tools](../concepts/tools/custom-tools.md) - More on the `@tool` decorator used by the `letter_counter` tool above
+- [Vended tools](../concepts/tools/vended-tools.md) - Tools that ship with the SDK, like the `http_request` tool above
 - [Community Supported Tools](../concepts/tools/community-tools-package.md) - The `strands-agents-tools` package provides many powerful example tools for your agents to use during development
 - [Agent Loop](../concepts/agents/agent-loop.md) - Learn how Strands agents work under the hood
 - [State & Sessions](../concepts/agents/state.md) - Understand how agents maintain context and state across a conversation or workflow

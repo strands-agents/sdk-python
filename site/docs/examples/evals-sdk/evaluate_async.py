@@ -1,7 +1,7 @@
 import asyncio
 
 from strands import Agent
-from strands_tools import calculator
+from strands.vended_tools import http_request
 
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import ToolSelectionAccuracyEvaluator
@@ -16,8 +16,8 @@ async def async_example():
     Demonstrates running evaluations asynchronously with run_evaluations_async.
 
     This example:
-    1. Defines a task function that uses an agent with the calculator tool
-    2. Creates test cases for math scenarios
+    1. Defines a task function that uses an agent with the http_request tool
+    2. Creates test cases for weather scenarios
     3. Creates a ToolSelectionAccuracyEvaluator
     4. Runs evaluations asynchronously and returns the report
 
@@ -31,7 +31,12 @@ async def async_example():
             # IMPORTANT: trace_attributes with session IDs are required when using StrandsInMemorySessionMapper
             # to prevent spans from different test cases from being mixed together in the memory exporter
             trace_attributes={"gen_ai.conversation.id": case.session_id, "session.id": case.session_id},
-            tools=[calculator],
+            tools=[http_request],
+            system_prompt=(
+                "You are a weather assistant. You can get live weather from "
+                "https://api.open-meteo.com/v1/forecast"
+                "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+            ),
             callback_handler=None,
         )
         agent_response = agent(case.input)
@@ -42,11 +47,15 @@ async def async_example():
 
     ### Step 2: Create test cases ###
     test_cases = [
-        Case[str, str](name="math-1", input="Calculate the square root of 144", metadata={"category": "math"}),
         Case[str, str](
-            name="math-2",
-            input="What is 25 * 4? can you use that output and then divide it by 4, then the final output should be squared. Give me the final value.",
-            metadata={"category": "math"},
+            name="weather-1",
+            input="What is the current temperature in Seattle?",
+            metadata={"category": "weather"},
+        ),
+        Case[str, str](
+            name="weather-2",
+            input="Is it warmer in Seattle or Miami right now?",
+            metadata={"category": "weather"},
         )
     ]
 

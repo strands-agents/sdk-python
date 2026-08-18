@@ -43,14 +43,10 @@ After installing `strands-agents[bidi]`, you can import and initialize the Stran
 
 ```python
 import asyncio
-
 from strands.experimental.bidi import BidiAgent
 from strands.experimental.bidi.io import BidiAudioIO, BidiTextIO
 from strands.experimental.bidi.models import BidiNovaSonicModel
 from strands_tools import stop
-
-from strands_tools import calculator
-
 
 async def main() -> None:
     model = BidiNovaSonicModel(
@@ -63,7 +59,7 @@ async def main() -> None:
         client_config={"region": "us-east-1"},  # available in us-east-1, us-west-2, eu-north-1, and ap-northeast-1
     )
     # stop tool allows user to verbally stop agent execution.
-    agent = BidiAgent(model=model, tools=[calculator, stop])
+    agent = BidiAgent(model=model, tools=[stop])
 
     audio_io = BidiAudioIO()
     text_io = BidiTextIO()

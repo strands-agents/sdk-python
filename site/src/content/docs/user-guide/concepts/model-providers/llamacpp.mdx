@@ -15,7 +15,7 @@ sourceLinks:
 llama.cpp support is included in the base Strands Agents package. To install, run:
 
 ```bash
-pip install strands-agents strands-agents-tools
+pip install strands-agents
 ```
 
 ## Usage
@@ -24,8 +24,8 @@ After setting up a llama.cpp server, you can import and initialize the Strands A
 
 ```python
 from strands import Agent
+from strands.vended_tools import http_request
 from strands.models.llamacpp import LlamaCppModel
-from strands_tools import calculator
 
 model = LlamaCppModel(
     base_url="http://localhost:8080",
@@ -38,8 +38,16 @@ model = LlamaCppModel(
     }
 )
 
-agent = Agent(model=model, tools=[calculator])
-response = agent("What is 2+2")
+agent = Agent(
+    model=model,
+    tools=[http_request],
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
+)
+response = agent("Do I need a jacket in Seattle today?")
 print(response)
 ```
 

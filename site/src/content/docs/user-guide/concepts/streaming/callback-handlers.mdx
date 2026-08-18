@@ -22,7 +22,7 @@ The simplest way to use a callback handler is to pass a callback function to you
 
 ```python
 from strands import Agent
-from strands_tools import calculator
+from strands.vended_tools import http_request
 
 def custom_callback_handler(**kwargs):
     # Process stream data
@@ -33,11 +33,16 @@ def custom_callback_handler(**kwargs):
 
 # Create an agent with custom callback handler
 agent = Agent(
-    tools=[calculator],
-    callback_handler=custom_callback_handler
+    tools=[http_request],
+    callback_handler=custom_callback_handler,
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
 )
 
-agent("Calculate 2+2")
+agent("What's the current temperature in London?")
 ```
 
 ## Default Callback Handler
@@ -71,18 +76,18 @@ Custom callback handlers can be useful to debug sequences of events in the agent
 
 ```python
 from strands import Agent
-from strands_tools import calculator
+from strands.vended_tools import http_request
 
 def debugger_callback_handler(**kwargs):
     # Print the values in kwargs so that we can see everything
     print(kwargs)
 
 agent = Agent(
-    tools=[calculator],
+    tools=[http_request],
     callback_handler=debugger_callback_handler
 )
 
-agent("What is 922 + 5321")
+agent("Fetch https://api.github.com/zen and repeat what it says.")
 ```
 
 This handler prints all calls to the callback handler including full event details.
@@ -94,7 +99,7 @@ This handler demonstrates how to buffer text and only show it when a complete me
 ```python
 import json
 from strands import Agent
-from strands_tools import calculator
+from strands.vended_tools import http_request
 
 def message_buffer_handler(**kwargs):
     # When a new message is created from the assistant, print its content
@@ -103,11 +108,11 @@ def message_buffer_handler(**kwargs):
 
 # Usage with an agent
 agent = Agent(
-    tools=[calculator],
+    tools=[http_request],
     callback_handler=message_buffer_handler
 )
 
-agent("What is 2+2 and tell me about AWS Lambda")
+agent("Summarize the strands-agents/harness-sdk repository on GitHub.")
 ```
 
 This handler leverages the `message` event which is triggered when a complete message is created. By using this approach, we can buffer the incrementally streamed text and only display complete, coherent messages rather than partial fragments. This is particularly useful in conversational interfaces or when responses benefit from being processed as complete units.
@@ -118,7 +123,7 @@ This callback handler illustrates the event loop lifecycle events and how they r
 
 ```python
 from strands import Agent
-from strands_tools import calculator
+from strands.vended_tools import http_request
 
 def event_loop_tracker(**kwargs):
     # Track event loop lifecycle
@@ -146,12 +151,17 @@ def event_loop_tracker(**kwargs):
 
 # Create agent with event loop tracker
 agent = Agent(
-    tools=[calculator],
-    callback_handler=event_loop_tracker
+    tools=[http_request],
+    callback_handler=event_loop_tracker,
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
 )
 
 # This will show the full event lifecycle in the console
-agent("What is the capital of France and what is 42+7?")
+agent("What is the capital of France, and what is the temperature there right now?")
 ```
 
 The output will show the sequence of events:

@@ -281,22 +281,32 @@ Combine structured output with tool usage to format tool execution results:
 
 ```python
 from strands import Agent
-from strands_tools import calculator
+from strands.vended_tools import http_request
 from pydantic import BaseModel, Field
 
-class MathResult(BaseModel):
-    operation: str = Field(description="the performed operation")
-    result: int = Field(description="the result of the operation")
+class WeatherReport(BaseModel):
+    temperature_c: float = Field(description="current temperature in Celsius")
+    needs_jacket: bool = Field(description="whether a jacket is recommended")
 
 tool_agent = Agent(
-    tools=[calculator]
+    tools=[http_request],
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
 )
-res = tool_agent("What is 42 + 8", structured_output_model=MathResult)
+res = tool_agent(
+    "Do I need a jacket in Seattle today?",
+    structured_output_model=WeatherReport,
+)
 ```
 </Tab>
 <Tab label="TypeScript">
 
 ```typescript
+--8<-- "user-guide/concepts/agents/structured-output_imports.ts:combining_tools_imports"
+
 --8<-- "user-guide/concepts/agents/structured-output.ts:combining_tools"
 ```
 </Tab>

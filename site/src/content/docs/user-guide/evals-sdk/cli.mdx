@@ -51,11 +51,20 @@ The two modes are mutually exclusive — argparse rejects mixing them.
 
 ```python
 # my_pkg/agents.py
+
 from strands import Agent
-from strands_tools import calculator
+from strands.vended_tools import http_request
 
 def build_agent():
-    return Agent(tools=[calculator], callback_handler=None)
+    return Agent(
+        tools=[http_request],
+        system_prompt=(
+            "You are a helpful assistant. You can get live weather from "
+            "https://api.open-meteo.com/v1/forecast"
+            "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+        ),
+        callback_handler=None,
+    )
 ```
 
 The CLI synthesizes the standard task wrapper around it: telemetry setup → per-case OTel context (`session.id`, `gen_ai.conversation.id`) → factory call → invoke with `case.input` → map spans to a `Session` → return `{"output", "trajectory"}`. Trace-based evaluators (`HelpfulnessEvaluator`, `FaithfulnessEvaluator`, `GoalSuccessRateEvaluator`, etc.) read the `trajectory` directly.
@@ -64,7 +73,7 @@ The factory may also take a single `Case` argument for per-case customization:
 
 ```python
 def build_agent(case):
-    tools = [calculator] if (case.metadata or {}).get("use_calc") else []
+    tools = [http_request] if (case.metadata or {}).get("use_http") else []
     return Agent(tools=tools, callback_handler=None)
 ```
 
@@ -248,7 +257,7 @@ strands-evals generate \
   --context "$(cat tools.txt)" \
   --num-cases 10 \
   --evaluator TrajectoryEvaluator \
-  --task-description "Calculation and time-aware assistant" \
+  --task-description "Research and file assistant" \
   --num-topics 3 \
   -o experiments/generated.json
 ```

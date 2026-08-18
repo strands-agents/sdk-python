@@ -127,7 +127,7 @@ Prompting is a primary functionality of Strands that allows you to invoke tools 
 <Tab label="Python">
 
 ```python
-result = agent.tool.current_time(timezone="US/Pacific")
+result = agent.tool.http_request(method="GET", url="https://api.github.com/zen")
 ```
 </Tab>
 <Tab label="TypeScript">

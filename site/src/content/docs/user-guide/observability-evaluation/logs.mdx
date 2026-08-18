@@ -94,18 +94,25 @@ The Strands Agents SDK uses standard log levels:
 <Tabs>
 <Tab label="Python">
 
-The Strands Agents SDK logs information in several key areas. Let's look at what kinds of logs you might see when using the following example agent with a calculator tool:
+The Strands Agents SDK logs information in several key areas. Let's look at what kinds of logs you might see when using the following example agent with the vended `http_request` tool:
 
 ```python
 from strands import Agent
-from strands_tools import calculator
+from strands.vended_tools import http_request
 
-# Create an agent with the calculator tool
-agent = Agent(tools=[calculator])
-result = agent("What is 125 * 37?")
+# Create an agent with the http_request tool
+agent = Agent(
+    tools=[http_request],
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
+)
+result = agent("Do I need a jacket in Seattle today?")
 ```
 
-When running this code with logging enabled, you'll see logs from different components of the SDK as the agent processes the request, calls the calculator tool, and generates a response.
+When running this code with logging enabled, you'll see logs from different components of the SDK as the agent processes the request, calls the http_request tool, and generates a response.
 
 **Tool Registry and Execution**
 
@@ -113,27 +120,31 @@ Logs related to tool discovery, registration, and execution:
 
 ```
 # Tool registration
-DEBUG | strands.tools.registry | tool_name=<calculator> | registering tool
-DEBUG | strands.tools.registry | tool_name=<calculator>, tool_type=<function>, is_dynamic=<False> | registering tool
-DEBUG | strands.tools.registry | tool_name=<calculator> | loaded tool config
+DEBUG | strands.tools.registry | tool_name=<http_request>, tool_type=<function>, is_dynamic=<False> | registering tool
+DEBUG | strands.tools.registry | tool_name=<http_request> | loaded tool config
 DEBUG | strands.tools.registry | tool_count=<1> | tools configured
 
+# Tool execution
+DEBUG | strands.tools.executors._executor | tool_use=<{'toolUseId': 'tooluse_kZ3N...', 'name': 'http_request', ...}> | streaming
+```
+
+With `load_tools_from_directory=True`, the registry also scans a local `./tools/`
+directory, validates what it finds, and hot-reloads changes:
+
+```
 # Tool discovery
 DEBUG | strands.tools.registry | tools_dir=</path/to/tools> | found tools directory
 DEBUG | strands.tools.registry | tools_dir=</path/to/tools> | scanning
-DEBUG | strands.tools.registry | tool_modules=<['calculator', 'weather']> | discovered
+DEBUG | strands.tools.registry | tool_modules=<['weather']> | discovered
 
 # Tool validation
 WARNING | strands.tools.registry | tool_name=<invalid_tool> | spec validation failed | Missing required fields in tool spec: description
-DEBUG | strands.tools.registry | tool_name=<calculator> | loaded dynamic tool config
-
-# Tool execution
-DEBUG | strands.event_loop.event_loop | tool_use=<calculator_tool_use_id> | streaming
+DEBUG | strands.tools.registry | tool_name=<weather> | loaded dynamic tool config
 
 # Tool hot reloading
-DEBUG | strands.tools.registry | tool_name=<calculator> | searching directories for tool
-DEBUG | strands.tools.registry | tool_name=<calculator> | reloading tool
-DEBUG | strands.tools.registry | tool_name=<calculator> | successfully reloaded tool
+DEBUG | strands.tools.registry | tool_name=<weather> | searching directories for tool
+DEBUG | strands.tools.registry | tool_name=<weather> | reloading tool
+DEBUG | strands.tools.registry | tool_name=<weather> | successfully reloaded tool
 ```
 
 **Event Loop**
@@ -208,8 +219,8 @@ logging.getLogger("strands.models").setLevel(logging.WARNING)
 You can add custom handlers to process logs in different ways:
 
 ```python
-import logging
 import json
+import logging
 
 class JsonFormatter(logging.Formatter):
     def format(self, record):
@@ -261,4 +272,3 @@ You can implement your own logger to integrate with your application's logging s
 5. **Consistent Format**: Ensure your custom logger maintains consistent formatting across log levels
 </Tab>
 </Tabs>
-

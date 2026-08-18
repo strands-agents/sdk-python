@@ -18,7 +18,7 @@ Mistral AI offers both premier models and free models, driving innovation and co
 Mistral API is configured as an optional dependency in Strands Agents. To install, run:
 
 ```bash
-pip install 'strands-agents[mistral]' strands-agents-tools
+pip install 'strands-agents[mistral]'
 ```
 
 ## Usage
@@ -27,8 +27,8 @@ After installing `mistral`, you can import and initialize Strands Agents' Mistra
 
 ```python
 from strands import Agent
+from strands.vended_tools import http_request
 from strands.models.mistral import MistralModel
-from strands_tools import calculator
 
 model = MistralModel(
     api_key="<YOUR_MISTRAL_API_KEY>",
@@ -36,8 +36,16 @@ model = MistralModel(
     model_id="mistral-large-latest",
 )
 
-agent = Agent(model=model, tools=[calculator])
-response = agent("What is 2+2")
+agent = Agent(
+    model=model,
+    tools=[http_request],
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
+)
+response = agent("Do I need a jacket in Seattle today?")
 print(response)
 ```
 

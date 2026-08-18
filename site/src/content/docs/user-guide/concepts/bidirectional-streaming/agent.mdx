@@ -46,13 +46,20 @@ The standard `Agent` follows a traditional request-response pattern:
 
 ```python
 from strands import Agent
-from strands_tools import calculator
+from strands.vended_tools import http_request
 
-agent = Agent(tools=[calculator])
+agent = Agent(
+    tools=[http_request],
+    system_prompt=(
+        "You can get live weather from "
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+    ),
+)
 
 # Single request-response cycle
-result = agent("Calculate 25 * 48")
-print(result.message)  # "The result is 1200"
+result = agent("Do I need a jacket in Tokyo today?")
+print(result.message)
 ```
 
 **Characteristics:**
@@ -70,9 +77,10 @@ print(result.message)  # "The result is 1200"
 import asyncio
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
 from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.vended_tools import http_request
 
 model = BidiNovaSonicModel()
-agent = BidiAgent(model=model, tools=[calculator])
+agent = BidiAgent(model=model, tools=[http_request])
 audio_io = BidiAudioIO()
 
 async def main():
@@ -141,7 +149,7 @@ flowchart TB
 **Agent Initialization**
 
 ```python
-agent = BidiAgent(model=model, tools=[calculator])
+agent = BidiAgent(model=model, tools=[http_request])
 ```
 
 Creates tool registry, initializes agent state, and sets up hook registry.
@@ -197,12 +205,13 @@ User → send() → Model → receive() → Model Task → Event Queue → recei
 ```python
 from strands.experimental.bidi import BidiAgent
 from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.vended_tools import http_request
 
 model = BidiNovaSonicModel()
 
 agent = BidiAgent(
     model=model,
-    tools=[calculator, weather],
+    tools=[http_request],
     system_prompt="You are a helpful voice assistant.",
     messages=[],  # Optional conversation history
     agent_id="voice_assistant_1",
@@ -269,7 +278,7 @@ stateDiagram-v2
 #### 1. Creation
 
 ```python
-agent = BidiAgent(model=model, tools=[calculator])
+agent = BidiAgent(model=model, tools=[http_request])
 # Tool registry initialized, agent state created, hooks registered
 # NOT connected to model yet
 ```

@@ -22,7 +22,7 @@ languages: Python
 Install strands-sglang along with the Strands Agents SDK:
 
 ```bash
-pip install strands-sglang strands-agents-tools
+pip install strands-sglang
 ```
 
 
@@ -50,16 +50,24 @@ python -m sglang.launch_server \
 import asyncio
 from transformers import AutoTokenizer
 from strands import Agent
-from strands_tools import calculator
+from strands.vended_tools import http_request
 from strands_sglang import SGLangModel
 
 async def main():
     tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-4B-Instruct-2507")
     model = SGLangModel(tokenizer=tokenizer, base_url="http://localhost:30000")
-    agent = Agent(model=model, tools=[calculator])
+    agent = Agent(
+        model=model,
+        tools=[http_request],
+        system_prompt=(
+            "You can get live weather from "
+            "https://api.open-meteo.com/v1/forecast"
+            "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+        ),
+    )
 
     model.reset()  # Reset TITO state for new episode
-    result = await agent.invoke_async("What is 25 * 17?")
+    result = await agent.invoke_async("Do I need a jacket in Seattle today?")
     print(result)
 
     # Access TITO data for RL training

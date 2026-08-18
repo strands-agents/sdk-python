@@ -90,21 +90,27 @@ Direct tool calls are (by default) recorded in the conversation history:
 
 ```python
 from strands import Agent
-from strands_tools import calculator
+from strands.vended_tools import http_request
 
-agent = Agent(tools=[calculator])
+agent = Agent(tools=[http_request])
 
 # Direct tool call with recording (default behavior)
-agent.tool.calculator(expression="123 * 456")
+agent.tool.http_request(method="GET", url="https://api.github.com/zen")
 
 # Direct tool call without recording
-agent.tool.calculator(expression="765 / 987", record_direct_tool_call=False)
+agent.tool.http_request(
+    method="GET",
+    url="https://api.github.com/repos/strands-agents/harness-sdk",
+    record_direct_tool_call=False,
+)
 
 print(agent.messages)
 ```
-In this example we can see that the first `agent.tool.calculator()` call is recorded in the agent's conversation history.
+In this example we can see that the first `agent.tool.http_request()` call is
+recorded in the agent's conversation history.
 
-The second `agent.tool.calculator()` call is **not** recorded in the history because we specified the `record_direct_tool_call=False` argument.
+The second `agent.tool.http_request()` call is **not** recorded in the history
+because we specified the `record_direct_tool_call=False` argument.
 </Tab>
 <Tab label="TypeScript">
 

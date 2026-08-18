@@ -31,14 +31,31 @@ export const STATIC_SLUG_REDIRECTS: Record<string, string> = {
   // python-tools was renamed to custom-tools
   'docs/user-guide/concepts/tools/python-tools': 'docs/user-guide/concepts/tools/custom-tools',
 
-  // multi_agent_example index redirects to the main example page
-  'docs/examples/python/multi_agent_example': 'docs/examples/python/multi_agent_example/multi_agent_example',
-
   // Vanity URLs for community links
   discord: 'https://discord.gg/strands',
 
-  // cli-reference-agent was archived (strands-agents/agent-builder)
-  'docs/examples/python/cli-reference-agent': 'docs/examples',
+  // The docs/examples/ section was retired in favor of the samples repository,
+  // which is actively maintained. Every page that existed at retirement gets a
+  // static stub (crawler-followable); the docs/examples catch-all rule below covers any
+  // other docs/examples/ URL via the client-side 404 fallback. The cdk/, eks,
+  // and typescript deploy entries further down predate the retirement and keep
+  // their GitHub README targets.
+  'docs/examples': 'https://github.com/strands-agents/samples',
+  'docs/examples/structured_output': 'https://github.com/strands-agents/samples',
+  'docs/examples/python/agents_workflows': 'https://github.com/strands-agents/samples',
+  'docs/examples/python/cli-reference-agent': 'https://github.com/strands-agents/samples',
+  'docs/examples/python/file_operations': 'https://github.com/strands-agents/samples',
+  'docs/examples/python/graph_loops_example': 'https://github.com/strands-agents/samples',
+  'docs/examples/python/knowledge_base_agent': 'https://github.com/strands-agents/samples',
+  'docs/examples/python/mcp_calculator': 'https://github.com/strands-agents/samples',
+  'docs/examples/python/memory_agent': 'https://github.com/strands-agents/samples',
+  'docs/examples/python/meta_tooling': 'https://github.com/strands-agents/samples',
+  'docs/examples/python/multi_agent_example': 'https://github.com/strands-agents/samples',
+  'docs/examples/python/multi_agent_example/multi_agent_example': 'https://github.com/strands-agents/samples',
+  'docs/examples/python/multimodal': 'https://github.com/strands-agents/samples',
+  // structured_output's pre-rename slug, carried as redirectFrom by the deleted page
+  'docs/examples/python/structured_output': 'https://github.com/strands-agents/samples',
+  'docs/examples/python/weather_forecaster': 'https://github.com/strands-agents/samples',
 
   // robots-sim was archived (strands-labs/robots-sim); its capabilities are
   // now covered by Strands Robots' built-in simulation. Point the old page
@@ -131,6 +148,14 @@ const SLUG_RULES: SlugRule[] = [
   {
     match: startsWith('docs/community'),
     to: (m) => `docs/integrations/${m[1]}`,
+  },
+
+  // Catch-all for the retired docs/examples/ section. Exact static entries
+  // above win (including the cdk/ and deploy READMEs that keep GitHub
+  // targets), so this only covers stragglers via the client-side 404 fallback.
+  {
+    match: startsWith('docs/examples'),
+    to: 'https://github.com/strands-agents/samples',
   },
 ]
 

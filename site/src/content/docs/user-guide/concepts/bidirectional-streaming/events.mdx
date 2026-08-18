@@ -335,8 +335,8 @@ Emitted when the model requests tool execution. See [Tools Overview](../tools/in
     "type": "tool_use_stream",
     "current_tool_use": {
         "toolUseId": "tool_123",
-        "name": "calculator",
-        "input": {"expression": "2+2"}
+        "name": "http_request",
+        "input": {"method": "GET", "url": "https://api.github.com/zen"}
     }
 }
 ```
@@ -495,14 +495,22 @@ asyncio.run(main())
 import asyncio
 from strands.experimental.bidi import BidiAgent
 from strands.experimental.bidi.models import BidiNovaSonicModel
-from strands_tools import calculator
+from strands.vended_tools import http_request
 
 async def main():
     model = BidiNovaSonicModel()
-    agent = BidiAgent(model=model, tools=[calculator])
+    agent = BidiAgent(
+        model=model,
+        tools=[http_request],
+        system_prompt=(
+            "You can get live weather from "
+            "https://api.open-meteo.com/v1/forecast"
+            "?latitude=<lat>&longitude=<lon>&current=temperature_2m"
+        ),
+    )
     
     async with agent as agent:
-        await agent.send("What is 25 times 48?")
+        await agent.send("Do I need a jacket in San Francisco today?")
         
         async for event in agent.receive():
             event_type = event["type"]
