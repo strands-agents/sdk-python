@@ -23,6 +23,34 @@ if TYPE_CHECKING:
     from ..multiagent.base import MultiAgentBase
 
 
+class _SuppressMessage:
+    """Sentinel type for :attr:`AfterToolsEvent.end_turn`.
+
+    Setting ``end_turn`` to :data:`SUPPRESS_MESSAGE` halts the loop without
+    appending or persisting any assistant message, leaving production of the
+    turn's final message entirely to the component that set the sentinel.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        """Render the sentinel as its canonical name."""
+        return "SUPPRESS_MESSAGE"
+
+    def __bool__(self) -> bool:
+        """Stay truthy so the event loop's ``end_turn`` branch is entered."""
+        return True
+
+
+SUPPRESS_MESSAGE = _SuppressMessage()
+"""Sentinel value for :attr:`AfterToolsEvent.end_turn`.
+
+Truthy (so the event loop's ``end_turn`` branch is entered) but distinct from
+``bool`` and ``str``. When set, the loop halts without appending or persisting
+any message.
+"""
+
+
 @dataclass
 class AgentInitializedEvent(HookEvent):
     """Event triggered when an agent has finished initialization.
@@ -169,45 +197,6 @@ class BeforeToolsEvent(HookEvent, _Interruptible):
         return f"v1:before_tools:{uuid.uuid5(uuid.NAMESPACE_OID, name)}"
 
 
-class SuppressMessage:
-    """Sentinel type for :attr:`AfterToolsEvent.end_turn`.
-
-    Setting ``end_turn`` to :data:`SUPPRESS_MESSAGE` halts the loop without
-    appending or persisting any assistant message, leaving production of the
-    turn's final message entirely to the component that set the sentinel
-    (e.g. the delegation plugin).
-    """
-
-    _instance: "SuppressMessage | None" = None
-
-    def __new__(cls) -> "SuppressMessage":
-        """Return the process-wide singleton instance."""
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-
-    def __repr__(self) -> str:
-        """Render the sentinel as its canonical name."""
-        return "SUPPRESS_MESSAGE"
-
-    def __bool__(self) -> bool:
-        """Stay truthy so the event loop's ``end_turn`` branch is entered."""
-        return True
-
-    def __reduce__(self) -> tuple[type["SuppressMessage"], tuple]:
-        """Keep pickling stable across process boundaries (singleton is re-created)."""
-        return (SuppressMessage, ())
-
-
-SUPPRESS_MESSAGE = SuppressMessage()
-"""Sentinel value for :attr:`AfterToolsEvent.end_turn`.
-
-Truthy (so the event loop's ``end_turn`` branch is entered) but distinct from
-``bool`` and ``str``. When set, the loop halts without appending or persisting
-any message.
-"""
-
-
 @dataclass
 class AfterToolsEvent(HookEvent):
     """Event triggered after all tools complete execution.
@@ -235,7 +224,7 @@ class AfterToolsEvent(HookEvent):
 
     message: Message
     invocation_state: dict[str, Any]
-    end_turn: bool | str | SuppressMessage = False
+    end_turn: bool | str | _SuppressMessage = False
 
     def _can_write(self, name: str) -> bool:
         return name == "end_turn"

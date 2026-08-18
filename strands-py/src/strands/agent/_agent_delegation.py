@@ -6,11 +6,6 @@ When a tool is configured with ``delegate=True``, this plugin ensures:
 2. The agent loop exits immediately after a successful delegation (via end_turn)
 3. The AgentResult is transformed with the delegation tool's content as the last message
 4. Streaming events from the delegate agent are surfaced natively in the parent stream
-
-The delegation plugin sets ``AfterToolsEvent.end_turn`` to ``SUPPRESS_MESSAGE`` so the
-event loop stops without appending or persisting a placeholder. The final delegation
-message is produced in middleware after the core loop exits, and ``MessageAddedEvent``
-fires exactly once with the real delegated content, regardless of session manager presence.
 """
 
 from __future__ import annotations
@@ -355,9 +350,6 @@ class AgentDelegation(Plugin):
         delegation_message: MessageType = {"role": "assistant", "content": delegation_content}
         _ensure_tracking_id(delegation_message)
 
-        # No placeholder was ever appended (end_turn was set to SUPPRESS_MESSAGE),
-        # so append the real delegation message and fire MessageAddedEvent exactly
-        # once, regardless of session manager presence.
         messages.append(delegation_message)
         await context.agent.hooks.invoke_callbacks_async(
             MessageAddedEvent(agent=context.agent, message=delegation_message)

@@ -919,8 +919,6 @@ async def _handle_tool_execution(
             else "Turn ended early by hook after tool execution"
         )
         end_turn_message: Message = {"role": "assistant", "content": [{"text": end_turn_text}]}
-        # SUPPRESS_MESSAGE: halt without appending or persisting any message.
-        # The component that set the sentinel produces the final message itself.
         if after_tools_event.end_turn is not SUPPRESS_MESSAGE:
             await agent._append_messages(end_turn_message)
         yield EventLoopStopEvent(
