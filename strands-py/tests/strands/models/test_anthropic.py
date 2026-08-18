@@ -2282,3 +2282,18 @@ class TestPromptCaching:
             ("tools", "t2", {"type": "ephemeral", "ttl": "1h"}),
             ("messages", 0, {"type": "ephemeral", "ttl": "1h"}),
         ]
+
+    def test_leading_system_cache_point_falls_through_to_automatic_placement(self, model, messages):
+        """A point ahead of every text block cannot attach; auto-injection still caches the last block."""
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        system_prompt_content = [{"cachePoint": {"type": "default"}}, {"text": "ctx"}]
+
+        request = model.format_request(messages, system_prompt_content=system_prompt_content)
+
+        assert request["system"] == [{"type": "text", "text": "ctx", "cache_control": {"type": "ephemeral"}}]
+
+    def test_system_prompt_content_with_no_renderable_blocks_omits_the_system_field(self, model, messages):
+        """Blocks carrying neither text nor a cache point render nothing, so no system field is sent."""
+        request = model.format_request(messages, system_prompt_content=[{}])
+
+        assert "system" not in request
