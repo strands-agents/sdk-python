@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import logging
 import math
@@ -15,8 +14,9 @@ from pydantic import BaseModel, Field
 
 from ...types.content import Message, Messages, SystemPrompt
 from ..model import Model
+from .fallback_strategy import FallbackStrategy
 from .router import ModelRouter, RoutingCandidate
-from .strategy import RoutingContext, RoutingStrategy
+from .strategy import RoutingContext
 
 logger = logging.getLogger(__name__)
 
@@ -155,33 +155,30 @@ class InputComplexityStrategy:
     profile; this default may change. Classification failures are logged and recover to candidate zero. Candidate
     order has no other capability meaning.
 
-    Nested routers are unsupported. Custom or opaque candidates require descriptions. Runtime failover requires an
-    explicit ``fallback``. The classifier receives bounded request text and allowlisted model facts; raw model
-    configuration, guarded text, and opaque content are excluded.
+    Nested routers are unsupported. Custom or opaque candidates require descriptions. Runtime model failures use the
+    standard ``FallbackStrategy``; set ``ModelRouter(max_switches=0)`` to disable switching. The classifier receives
+    bounded request text and allowlisted model facts; raw model configuration, guarded text, and opaque content are
+    excluded.
     """
 
     def __init__(
         self,
         classifier_model: Model | None = None,
         *,
-        fallback: RoutingStrategy | None = None,
         classifier_timeout: float = 30.0,
     ) -> None:
         """Initialize the strategy.
 
         Args:
             classifier_model: Model used for classification. Defaults lazily to a low-cost Bedrock model.
-            fallback: Strategy used after a selected model fails. Defaults to no failover.
             classifier_timeout: Maximum seconds to wait for classification.
 
         Raises:
-            TypeError: If an argument has the wrong type or ``fallback`` has no asynchronous ``select`` method.
+            TypeError: If an argument has the wrong type.
             ValueError: If ``classifier_timeout`` is not finite and greater than zero.
         """
         if classifier_model is not None and not isinstance(classifier_model, Model):
             raise TypeError("classifier_model must be a Model or None")
-        if fallback is not None and not inspect.iscoroutinefunction(getattr(fallback, "select", None)):
-            raise TypeError("fallback must implement RoutingStrategy: an async select(context) method")
         if isinstance(classifier_timeout, bool) or not isinstance(classifier_timeout, (int, float)):
             raise TypeError("classifier_timeout must be a number")
         try:
@@ -192,15 +189,13 @@ class InputComplexityStrategy:
             raise ValueError("classifier_timeout must be finite and greater than zero")
 
         self._classifier_model = classifier_model
-        self._fallback = fallback
+        self._fallback = FallbackStrategy()
         self._classifier_timeout = normalized_timeout
         self._classifier_lock = asyncio.Lock()
 
     async def select(self, context: RoutingContext, **kwargs: Any) -> RoutingCandidate | None:
-        """Select an opening candidate, or delegate a model failure to the configured fallback."""
+        """Select an opening candidate, or use standard fallback after a model failure."""
         if context.attempts:
-            if self._fallback is None:
-                return None
             return await self._fallback.select(context, **kwargs)
 
         if len(context.candidates) == 1:
@@ -214,7 +209,9 @@ class InputComplexityStrategy:
                 timeout=self._classifier_timeout,
             )
         except Exception as error:
-            reason = "classifier_timeout" if isinstance(error, TimeoutError) else "classifier_error"
+            reason = (
+                "classifier_timeout" if isinstance(error, (TimeoutError, asyncio.TimeoutError)) else "classifier_error"
+            )
             logger.warning(
                 "strategy=<%s>, error_type=<%s>, reason=<%s> | classification failed | "
                 "using first configured candidate",
