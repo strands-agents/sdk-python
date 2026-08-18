@@ -383,6 +383,7 @@ class AnthropicModel(Model):
         messages: Messages,
         tool_specs: list[ToolSpec] | None = None,
         system_prompt: str | None = None,
+        *,
         system_prompt_content: list[SystemContentBlock] | None = None,
         tool_choice: ToolChoice | None = None,
         dynamic_trailing_blocks: int = 0,
@@ -420,6 +421,13 @@ class AnthropicModel(Model):
         cache_tools = self.config.get("cache_tools")
         if cache_tools and tools:
             ttl = cache_tools.ttl if isinstance(cache_tools, CacheToolsConfig) else None
+            # An untimed cache_tools inherits cache_config.ttl so the tools point does not sit at the
+            # default behind a longer system or messages TTL, which the API rejects (blocks are processed
+            # tools, system, messages). Mirrors the Bedrock tools cache point.
+            if not ttl:
+                cache_config = self.config.get("cache_config")
+                if cache_config and cache_config.ttl and cache_config.strategy in ("auto", "anthropic"):
+                    ttl = cache_config.ttl
             tools[-1]["cache_control"] = self._format_cache_control(ttl)
 
         system = self._format_system_prompt(system_prompt, system_prompt_content)
@@ -475,7 +483,11 @@ class AnthropicModel(Model):
         placed = False
         for block in system_prompt_content:
             if "cachePoint" in block:
-                if self._attach_cache_control(formatted, block["cachePoint"].get("ttl") or managed_ttl):
+                # A second point on a block that already carries one would silently overwrite it; the
+                # message path keeps the first and warns, so this one does too.
+                if formatted and "cache_control" in formatted[-1]:
+                    logger.warning("stripped an extra system cache point | keeping the earlier point on the block")
+                elif self._attach_cache_control(formatted, block["cachePoint"].get("ttl") or managed_ttl):
                     placed = True
                 continue
             if "text" in block:
@@ -653,7 +665,9 @@ class AnthropicModel(Model):
             return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
 
         try:
-            request = self.format_request(messages, tool_specs, system_prompt, system_prompt_content)
+            request = self.format_request(
+                messages, tool_specs, system_prompt, system_prompt_content=system_prompt_content
+            )
             # Keep only fields accepted by count_tokens; strip inference params (max_tokens, temperature, etc.)
             count_tokens_fields = {"model", "messages", "tools", "tool_choice", "system"}
             request = {k: request[k] for k in request.keys() & count_tokens_fields}
@@ -708,9 +722,9 @@ class AnthropicModel(Model):
             messages,
             tool_specs,
             system_prompt,
-            system_prompt_content,
-            tool_choice,
-            kwargs.get("dynamic_trailing_blocks", 0),
+            system_prompt_content=system_prompt_content,
+            tool_choice=tool_choice,
+            dynamic_trailing_blocks=kwargs.get("dynamic_trailing_blocks", 0),
         )
         logger.debug("request=<%s>", request)
 

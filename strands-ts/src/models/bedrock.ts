@@ -533,7 +533,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
     }
     const cacheConfig = this._config.cacheConfig
     const systemSection = resolveCacheSection(cacheConfig?.systemTTL, cacheConfig?.ttl)
-    let ttl = systemSection.enabled ? systemSection.ttl : undefined
+    let ttl = systemSection.ttl
 
     // The stand-down applies only to an inherited TTL; an explicit systemTTL is the caller's to order.
     if (ttl && typeof cacheConfig?.systemTTL !== 'string') {

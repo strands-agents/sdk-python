@@ -2244,3 +2244,41 @@ class TestPromptCaching:
 
         assert request["system"] == [{"type": "text", "text": "Heavy context"}]
         assert self._breakpoints(request) == []
+
+    def test_adjacent_system_cache_points_keep_the_first_and_warn(self, model, messages, caplog):
+        """First-wins parity with the messages path: a second point on a block already carrying one is
+        dropped, not applied over the first. Swapping the two TTLs swaps which value survives."""
+        caplog.set_level(logging.WARNING, logger="strands.models.anthropic")
+
+        def system_points(system_prompt_content):
+            request = model.format_request(messages, system_prompt_content=system_prompt_content)
+            return [point for point in self._breakpoints(request) if point[0] == "system"]
+
+        first_wins = system_points(
+            [{"text": "ctx"}, {"cachePoint": {"type": "default", "ttl": "1h"}}, {"cachePoint": {"type": "default"}}]
+        )
+        swapped = system_points(
+            [{"text": "ctx"}, {"cachePoint": {"type": "default"}}, {"cachePoint": {"type": "default", "ttl": "1h"}}]
+        )
+
+        assert first_wins == [("system", "text", {"type": "ephemeral", "ttl": "1h"})]
+        assert swapped == [("system", "text", {"type": "ephemeral"})]
+        assert "stripped an extra system cache point" in caplog.text
+
+    def test_system_prompt_content_is_keyword_only(self, model, messages, tool_specs):
+        """Keyword-only so an old positional call passing tool_choice fourth fails loudly, rather than
+        landing that dict in system_prompt_content and silently dropping both the prompt and the choice."""
+        with pytest.raises(TypeError):
+            model.format_request(messages, tool_specs, "SYSTEM", {"any": {}})
+
+    def test_untimed_cache_tools_inherits_cache_config_ttl(self, model, messages, tool_specs):
+        """Mirrors the Bedrock tools point: an untimed cache_tools inherits cache_config.ttl so it is not
+        the lone 5m point ahead of the 1h system/messages points, which the API rejects."""
+        model.update_config(cache_config=CacheConfig(strategy="anthropic", ttl="1h"), cache_tools="default")
+
+        breakpoints = self._breakpoints(model.format_request(messages, tool_specs))
+
+        assert breakpoints == [
+            ("tools", "t2", {"type": "ephemeral", "ttl": "1h"}),
+            ("messages", 0, {"type": "ephemeral", "ttl": "1h"}),
+        ]
