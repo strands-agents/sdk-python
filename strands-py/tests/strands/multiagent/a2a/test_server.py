@@ -239,8 +239,8 @@ def test_agent_skills_handles_missing_description(mock_strands_agent):
     }
     mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
 
-    # A2AServer builds its AgentCard (and thus agent_skills) eagerly during construction, since
-    # DefaultRequestHandler now requires the AgentCard upfront.
+    # A2AServer builds its AgentCard (and thus agent_skills) eagerly during construction,
+    # because DefaultRequestHandler requires the AgentCard upfront.
     with pytest.raises(KeyError):
         A2AServer(mock_strands_agent)
 
@@ -383,21 +383,18 @@ def test_explicit_skills_override_tools(mock_strands_agent):
 def test_skills_not_loaded_during_initialization(mock_strands_agent):
     """Test that agent_skills is not cached and is recomputed from tools on each access.
 
-    Note: A2AServer.__init__ does build the AgentCard (and thus agent_skills) once eagerly,
-    since v1.0's DefaultRequestHandler requires the AgentCard upfront. What ``agent_skills``
-    does NOT do is cache that result — ``_agent_skills`` stays None and every access re-derives
-    skills from the tool registry.
+    A2AServer.__init__ builds the AgentCard (and thus agent_skills) once eagerly, because
+    DefaultRequestHandler requires the AgentCard upfront. ``agent_skills`` itself is not
+    cached, though: ``_agent_skills`` stays None and every access re-derives skills from the
+    tool registry.
     """
     mock_tool_config = {"test_tool": {"name": "test_tool", "description": "A test tool"}}
     mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
 
     a2a_agent = A2AServer(mock_strands_agent)
 
-    # Verify that _agent_skills is None (not cached), even though the constructor already
-    # accessed agent_skills once to build the AgentCard.
     assert a2a_agent._agent_skills is None
 
-    # Access agent_skills property again - re-derives from tools rather than using a cache.
     skills = a2a_agent.agent_skills
 
     assert len(skills) == 1
