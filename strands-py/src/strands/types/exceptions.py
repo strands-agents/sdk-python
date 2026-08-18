@@ -74,12 +74,6 @@ class ModelThrottledException(Exception):
     pass
 
 
-class DefaultClassifierUnavailableError(RuntimeError):
-    """Exception raised when the SDK-provided routing classifier is unavailable."""
-
-    pass
-
-
 class SessionException(Exception):
     """Exception raised when session operations fail."""
 
