@@ -620,10 +620,15 @@ export class Agent implements LocalAgent, InvokableAgent {
     // The plugin is a no-op when no delegation tools fire.
     const hasAgentDelegation = (config?.plugins ?? []).some((p) => p.name === 'strands:agent-delegation')
 
+    const userPlugins =
+      hasContextManager && config?.contextManager instanceof ContextManager
+        ? (config.plugins ?? []).filter((p) => p.name !== 'strands:context-manager')
+        : (config?.plugins ?? [])
+
     this._pluginRegistry = new PluginRegistry([
       this._conversationManager,
       ...retryStrategies,
-      ...(config?.plugins ?? []),
+      ...userPlugins,
       ...(!hasAgentDelegation ? [new AgentDelegation()] : []),
       ...((config?.contextManager === 'auto' || config?.contextManager === 'agentic') && !hasOffloader
         ? [
@@ -637,7 +642,7 @@ export class Agent implements LocalAgent, InvokableAgent {
           ]
         : []),
       ...(this.memoryManager ? [this.memoryManager] : []),
-      ...(config?.contextManager instanceof ContextManager && !hasContextManager ? [config.contextManager] : []),
+      ...(config?.contextManager instanceof ContextManager ? [config.contextManager] : []),
       ...(config?.sessionManager ? [config.sessionManager] : []),
       new ModelPlugin(this.model),
     ])
