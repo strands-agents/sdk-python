@@ -683,6 +683,22 @@ def test_latest_context_size_does_not_double_count_subset_cache_tokens(event_loo
     assert event_loop_metrics.latest_context_size == 12936
 
 
+def test_latest_context_size_undercounts_anthropic_direct_cache(event_loop_metrics, mock_get_meter_provider):
+    """Documents the #3546 payload-sniff limitation: Anthropic-direct cache is not counted.
+
+    Anthropic-direct reports cache as a separate counter yet computes totalTokens as
+    inputTokens + outputTokens, so it is arithmetically indistinguishable from a subset provider and
+    the cache read is dropped -- an undercount that matches the prior baseline. Adapter-side
+    normalization to the disjoint convention (#3546) will make totalTokens include the cache and flip
+    this to the full prompt (5858); this test guards the boundary so that flip is intentional.
+    """
+    event_loop_metrics.reset_usage_metrics()
+    event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "c1"})
+    event_loop_metrics.update_usage(Usage(inputTokens=10, outputTokens=4, totalTokens=14, cacheReadInputTokens=5848))
+
+    assert event_loop_metrics.latest_context_size == 10
+
+
 def test_projected_context_size_no_invocations(event_loop_metrics):
     assert event_loop_metrics.projected_context_size is None
 

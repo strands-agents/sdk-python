@@ -569,10 +569,16 @@ export function createEmptyUsage(): Usage {
 /**
  * Returns the full prompt the model processed, including cached tokens.
  *
- * Cache counters follow two provider conventions: 'subset' (OpenAI/Gemini/LiteLLM), where cache
- * reads/writes are already inside `inputTokens`, and 'disjoint' (Bedrock/Anthropic), where they are
- * additional. The convention is detected from the payload, so the value is correct under both. With no
- * cache tokens both cases collapse to `inputTokens`.
+ * Payload-only heuristic. When `inputTokens + outputTokens === totalTokens` the cache is treated as
+ * already inside `inputTokens` ('subset': OpenAI/Gemini/LiteLLM) and `inputTokens` is returned;
+ * otherwise the cache counters are additional to it ('disjoint', where `totalTokens` already includes
+ * them: Bedrock Converse) and are added on top. With no cache tokens both branches collapse to
+ * `inputTokens`.
+ *
+ * Known limitation: a provider that reports cache as separate counters yet computes `totalTokens` as
+ * `inputTokens + outputTokens` (Anthropic-direct today) is arithmetically indistinguishable from the
+ * subset case, so its cache is not counted — an undercount matching the prior baseline that
+ * adapter-side normalization to the disjoint convention (#3546) will resolve.
  *
  * @param usage - Token usage from a model invocation
  * @returns The full prompt token count

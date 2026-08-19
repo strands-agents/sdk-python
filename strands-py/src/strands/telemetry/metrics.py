@@ -184,11 +184,16 @@ class AgentInvocation:
 def _full_prompt_tokens(usage: Usage) -> int:
     """Return the full prompt the model processed, including cached tokens.
 
-    Cache counters follow two provider conventions: 'subset' (OpenAI/Gemini/LiteLLM), where cache
-    reads/writes are already inside ``inputTokens``, and 'disjoint' (Bedrock/Anthropic), where they are
-    additional to it. The convention is detected from the payload -- ``inputTokens + outputTokens ==
-    totalTokens`` means subset -- so the value is correct under both. With no cache tokens both cases
-    collapse to ``inputTokens``.
+    Payload-only heuristic. When ``inputTokens + outputTokens == totalTokens`` the cache is treated as
+    already inside ``inputTokens`` ('subset': OpenAI/Gemini/LiteLLM) and ``inputTokens`` is returned;
+    otherwise the cache counters are additional to it ('disjoint', where ``totalTokens`` already includes
+    them: Bedrock Converse) and are added on top. With no cache tokens both branches collapse to
+    ``inputTokens``.
+
+    Known limitation: a provider that reports cache as separate counters yet computes
+    ``totalTokens`` as ``inputTokens + outputTokens`` (Anthropic-direct today) is arithmetically
+    indistinguishable from the subset case, so its cache is not counted -- an undercount matching the
+    prior baseline that adapter-side normalization to the disjoint convention (#3546) will resolve.
 
     Args:
         usage: Token usage from a model invocation.
@@ -196,9 +201,9 @@ def _full_prompt_tokens(usage: Usage) -> int:
     Returns:
         The full prompt token count.
     """
-    input_tokens = usage["inputTokens"]
-    output_tokens = usage["outputTokens"]
-    total_tokens = usage["totalTokens"]
+    input_tokens = usage.get("inputTokens", 0)
+    output_tokens = usage.get("outputTokens", 0)
+    total_tokens = usage.get("totalTokens", 0)
     if input_tokens + output_tokens == total_tokens:
         return input_tokens
     return input_tokens + usage.get("cacheReadInputTokens", 0) + usage.get("cacheWriteInputTokens", 0)
@@ -238,9 +243,8 @@ class EventLoopMetrics:
         """
         if self.agent_invocations and self.agent_invocations[-1].cycles:
             usage = self.agent_invocations[-1].cycles[-1].usage
-            if "inputTokens" not in usage:
-                return None
-            return _full_prompt_tokens(usage)
+            if usage.get("inputTokens") is not None:
+                return _full_prompt_tokens(usage)
         return None
 
     @property
