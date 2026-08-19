@@ -197,3 +197,23 @@ LLMs think in tokens — they consume tokens, produce tokens, and their context 
 Tokens are also a unified unit across modalities — text, images, JSON, video, and other content types all tokenize into the same currency. Characters only apply to text, forcing different heuristics for different content types. Token-based parameters provide a single, consistent metric regardless of what the model is processing.
 
 But the principle extends beyond size — wherever there is an LLM-native concept, our APIs should prefer it over a traditional developer abstraction.
+
+
+## Null Means Explicit Removal; Undefined Means Apply the Default
+
+**Date**: Aug 19, 2026
+
+### Decision
+
+When handling input, the SDK distinguishes two "no value" states:
+
+- **`null` means explicit removal.** The user is deliberately opting a field out. When plumbing information through to a downstream service, a `null` field should be removed from the request — not sent as `null`, and not replaced with an SDK default.
+- **`undefined` (or an absent field) means the default case.** The SDK is free to apply its own logic for sensible defaults — which may itself be to omit the field.
+
+In Python, which has no `undefined`, a missing key plays the `undefined` role and `None` plays `null`.
+
+### Rationale
+
+Users need a way to say "don't send this field at all" that is distinct from "I didn't specify this field." Collapsing the two either makes SDK-managed defaults impossible to opt out of, or forces the SDK to treat every unspecified field as a deliberate removal.
+
+For example, the TypeScript `OpenAIModel` manages `stream_options: { include_usage: true }` on streaming requests, but some OpenAI-compatible endpoints reject the field entirely. An explicit `params.stream_options: null` removes it from the wire request, while leaving it undefined gets the managed default ([#3872](https://github.com/strands-agents/harness-sdk/pull/3872)). The Python SDK behaves the same way: `params={"stream_options": None}` removes the field.
