@@ -5024,10 +5024,10 @@ def test_format_request_anthropic_strategy_appends_system_cache_point(bedrock_cl
 
 
 def test_format_request_auto_does_not_inject_system_cache_point_when_opted_out(bedrock_client, messages):
-    """inject_system_cache_point=False disables only the auto-injected system point."""
+    """system_ttl=False disables only the auto-injected system point."""
     model = BedrockModel(
         model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
-        cache_config=CacheConfig(strategy="auto", inject_system_cache_point=False),
+        cache_config=CacheConfig(strategy="auto", system_ttl=False),
     )
 
     tru_request = model.format_request(messages, system_prompt_content=[{"text": "static"}])
@@ -5084,3 +5084,34 @@ def test_format_request_auto_stands_the_system_cache_point_down_behind_a_shorter
 
     assert tru_request["toolConfig"]["tools"][-1] == {"cachePoint": {"type": "default", "ttl": "5m"}}
     assert tru_request["system"] == [{"text": "static"}, {"cachePoint": {"type": "default"}}]
+
+
+def test_format_request_auto_system_ttl_string_sets_the_section_duration(bedrock_client, messages):
+    """A system_ttl string sets the system section's own duration rather than deriving from the shared ttl."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto", system_ttl="1h"),
+    )
+
+    tru_request = model.format_request(messages, system_prompt_content=[{"text": "static"}])
+
+    assert tru_request["system"][-1] == {"cachePoint": {"type": "default", "ttl": "1h"}}
+
+
+def test_format_request_auto_system_ttl_string_is_honored_behind_a_differing_tools_ttl(
+    bedrock_client, messages, tool_spec
+):
+    """An explicit system_ttl string is honored verbatim, unlike a derived TTL which stands down.
+
+    Mirrors the TS systemTTL contract: the caller owns cross-section ordering when they set the string.
+    """
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto", ttl="5m", system_ttl="1h"),
+        cache_tools=CacheToolsConfig(ttl="5m"),
+    )
+
+    tru_request = model.format_request(messages, tool_specs=[tool_spec], system_prompt_content=[{"text": "static"}])
+
+    assert tru_request["toolConfig"]["tools"][-1] == {"cachePoint": {"type": "default", "ttl": "5m"}}
+    assert tru_request["system"][-1] == {"cachePoint": {"type": "default", "ttl": "1h"}}

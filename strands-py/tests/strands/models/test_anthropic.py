@@ -2186,12 +2186,20 @@ class TestPromptCaching:
 
         assert request["system"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
 
-    def test_inject_system_cache_point_false_leaves_the_system_prompt_uncached(self, model, messages):
-        model.update_config(cache_config=CacheConfig(strategy="auto", inject_system_cache_point=False))
+    def test_system_ttl_false_leaves_the_system_prompt_uncached(self, model, messages):
+        model.update_config(cache_config=CacheConfig(strategy="auto", system_ttl=False))
 
         request = model.format_request(messages, system_prompt="static prompt")
 
         assert request["system"] == "static prompt"
+
+    def test_system_ttl_string_sets_the_section_duration(self, model, messages):
+        """A system_ttl string sets the system section's own duration rather than deriving from the shared ttl."""
+        model.update_config(cache_config=CacheConfig(strategy="auto", ttl="5m", system_ttl="1h"))
+
+        request = model.format_request(messages, system_prompt="static prompt")
+
+        assert request["system"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
 
     def test_hand_placed_system_cache_point_is_not_doubled(self, model, messages):
         model.update_config(cache_config=CacheConfig(strategy="auto"))
@@ -2265,11 +2273,18 @@ class TestPromptCaching:
         assert swapped == [("system", "text", {"type": "ephemeral"})]
         assert "stripped an extra system cache point" in caplog.text
 
+    def test_tool_choice_stays_positional_fourth(self, model, messages, tool_specs):
+        """tool_choice keeps its fourth positional slot so an existing positional call still routes it
+        there; only system_prompt_content and dynamic_trailing_blocks are keyword-only."""
+        request = model.format_request(messages, tool_specs, "SYSTEM", {"any": {}})
+
+        assert request["tool_choice"] == {"type": "any"}
+
     def test_system_prompt_content_is_keyword_only(self, model, messages, tool_specs):
-        """Keyword-only so an old positional call passing tool_choice fourth fails loudly, rather than
-        landing that dict in system_prompt_content and silently dropping both the prompt and the choice."""
+        """system_prompt_content is keyword-only so a fifth positional argument fails loudly rather than
+        landing silently in it."""
         with pytest.raises(TypeError):
-            model.format_request(messages, tool_specs, "SYSTEM", {"any": {}})
+            model.format_request(messages, tool_specs, "SYSTEM", {"any": {}}, [{"text": "ctx"}])
 
     def test_untimed_cache_tools_inherits_cache_config_ttl(self, model, messages, tool_specs):
         """Mirrors the Bedrock tools point: an untimed cache_tools inherits cache_config.ttl so it is not

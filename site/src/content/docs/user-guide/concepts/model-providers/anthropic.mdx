@@ -259,11 +259,12 @@ Cache activity is reported in the usage metrics, in the same fields Bedrock uses
 <Tabs>
 <Tab label="Python">
 
-`cache_config` caches the system prompt and the conversation; set
-`inject_system_cache_point=False` to leave the system prompt uncached. `cache_tools`
-caches the tool definitions and works on its own, so tool definitions can be cached
-without caching the conversation. Passing a plain string (`"default"`) only switches it
-on: the value is not a TTL. Use `CacheToolsConfig(ttl=...)` to set one.
+`cache_config` caches the system prompt and the conversation; set `system_ttl=False` to
+leave the system prompt uncached, or a TTL string (`system_ttl="1h"`) to give it its own
+duration. `cache_tools` caches the tool definitions and works on its own, so tool
+definitions can be cached without caching the conversation. Passing a plain string
+(`"default"`) only switches it on: the value is not a TTL. Use `CacheToolsConfig(ttl=...)`
+to set one.
 
 `strategy` is ignored by this provider.
 </Tab>
