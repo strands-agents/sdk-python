@@ -10,7 +10,7 @@ once a later call succeeds. The API is provisional and may change before it is f
 
 from .fallback_strategy import FallbackStrategy
 from .input_complexity_strategy import InputComplexityStrategy
-from .router import CandidateInput, CandidateMetadata, ModelModality, ModelRouter, RoutingCandidate
+from .router import CandidateInput, CandidateMetadata, ModelRouter, RoutingCandidate
 from .strategy import RoutingAttempt, RoutingContext, RoutingStrategy
 
 __all__ = [
@@ -18,7 +18,6 @@ __all__ = [
     "CandidateMetadata",
     "FallbackStrategy",
     "InputComplexityStrategy",
-    "ModelModality",
     "ModelRouter",
     "RoutingAttempt",
     "RoutingCandidate",

@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import math
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 from typing import Any
@@ -49,7 +48,7 @@ class _InputComplexityClassification(BaseModel):
     )
 
 
-def _candidate_profile(candidate: RoutingCandidate, candidate_index: int) -> dict[str, Any]:
+def _build_candidate_profile(candidate: RoutingCandidate, candidate_index: int) -> dict[str, Any]:
     """Build classifier input from caller-supplied candidate information."""
     profile = {
         "candidate_index": candidate_index,
@@ -109,25 +108,16 @@ class InputComplexityStrategy:
             classifier_timeout: Maximum seconds to wait for classification.
 
         Raises:
-            TypeError: If the classifier model or timeout has the wrong type.
-            ValueError: If the timeout is not finite and greater than zero.
+            TypeError: If ``classifier_model`` is not a model.
         """
         if not isinstance(classifier_model, Model):
             raise TypeError("classifier_model must be a Model")
-        if isinstance(classifier_timeout, bool) or not isinstance(classifier_timeout, (int, float)):
-            raise TypeError("classifier_timeout must be a number")
-        try:
-            normalized_timeout = float(classifier_timeout)
-        except OverflowError as error:
-            raise ValueError("classifier_timeout must be finite and greater than zero") from error
-        if not math.isfinite(normalized_timeout) or normalized_timeout <= 0:
-            raise ValueError("classifier_timeout must be finite and greater than zero")
 
         self._classifier_model = classifier_model
         self._classifier_system_prompt = (
             classifier_system_prompt if classifier_system_prompt is not None else _DEFAULT_CLASSIFIER_SYSTEM_PROMPT
         )
-        self._classifier_timeout = normalized_timeout
+        self._classifier_timeout = classifier_timeout
 
     async def select(self, context: RoutingContext, **kwargs: Any) -> RoutingCandidate | None:
         """Select one opening candidate, declining on classification or serving-time failure."""
@@ -136,7 +126,9 @@ class InputComplexityStrategy:
         if len(context.candidates) == 1:
             return context.candidates[0]
 
-        profiles = tuple(_candidate_profile(candidate, index) for index, candidate in enumerate(context.candidates))
+        profiles = tuple(
+            _build_candidate_profile(candidate, index) for index, candidate in enumerate(context.candidates)
+        )
         try:
             selected_index = await asyncio.wait_for(
                 self._classify(context, profiles),

@@ -77,7 +77,7 @@ class CandidateMetadata:
     """Typed facts available to routing strategies.
 
     Every field is optional. ``None`` means unknown, while ``False`` explicitly means a feature is unsupported.
-    Metadata may be sent to a classifier model, so it must not contain secrets.
+    Classifier-based strategies may send provided values to the classifier provider. Do not include secrets.
     """
 
     provider: str | None = None
@@ -245,18 +245,25 @@ class ModelRouter(Plugin):
         """
         candidate = await self._ask(context)
         if candidate is None:
+            candidate = self._candidates[0]
+            model = self.default_model
             logger.info(
-                "strategy=<%s> | strategy declined the opening choice, using the default model",
+                "strategy=<%s>, candidate=<%s>, model=<%s> | strategy declined the opening choice, using the "
+                "default model",
                 self._strategy_name,
+                _candidate_label(candidate),
+                _model_label(model),
             )
-            return self._candidates[0], self.default_model
+            return candidate, model
 
+        model = await self._resolve(candidate, context)
         logger.info(
-            "strategy=<%s>, candidate=<%s> | candidate selected",
+            "strategy=<%s>, candidate=<%s>, model=<%s> | candidate selected",
             self._strategy_name,
             _candidate_label(candidate),
+            _model_label(model),
         )
-        return candidate, await self._resolve(candidate, context)
+        return candidate, model
 
     # ---- Resolving a candidate to a model ----
 
@@ -457,21 +464,26 @@ CandidateInput: TypeAlias = Model | ModelRouter | RoutingCandidate
 # ---- Module helpers ----
 
 
-def _candidate_label(candidate: RoutingCandidate) -> str:
-    """Return the candidate's name, or its provider and model id when it has none."""
-    if candidate.name:
-        return candidate.name
-    provider = type(candidate.model).__name__
+def _model_label(model: Model) -> str:
+    """Return a model's provider and model id without risking the routed call."""
+    provider = type(model).__name__
     try:
-        config = candidate.model.get_config() if isinstance(candidate.model, Model) else None
+        config = model.get_config()
     except Exception:
-        # Labels are built eagerly, as log arguments and by the construction guards, so one must never
-        # fail a routed call or mask a construction error.
+        # Labels are built eagerly as log arguments, so one must never fail a routed call or mask
+        # a construction error.
         return provider
     model_id = (
         config.get("model_id") if isinstance(config, dict) else getattr(config, "model_id", None) if config else None
     )
     return f"{provider}/{model_id}" if model_id else provider
+
+
+def _candidate_label(candidate: RoutingCandidate) -> str:
+    """Return the candidate's name, or its provider and model id when it has none."""
+    if candidate.name:
+        return candidate.name
+    return _model_label(candidate.model) if isinstance(candidate.model, Model) else type(candidate.model).__name__
 
 
 def _get_routing_state(invocation_state: Mapping[str, Any], key: str) -> _RoutingState | None:

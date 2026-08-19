@@ -326,8 +326,7 @@ async def test_select_classifier_failure_warns_safely_and_declines(classifier, r
     assert "provider-secret" not in caplog.text
 
 
-@pytest.mark.asyncio
-async def test_agent_classifier_failure_serves_candidate_zero(caplog):
+def test_agent_classifier_failure_serves_candidate_zero():
     classifier = _ClassifierModel(error=RuntimeError("classifier unavailable"))
     router = ModelRouter(
         models=[_candidate("default"), _candidate("other")],
@@ -335,16 +334,20 @@ async def test_agent_classifier_failure_serves_candidate_zero(caplog):
     )
     agent = Agent(model=router, retry_strategy=None, callback_handler=None)
 
-    with caplog.at_level(logging.WARNING):
-        tru_result = agent("hello")
+    tru_result = agent("hello")
 
     assert tru_result.message["content"][0]["text"] == "default"
     assert classifier.calls == 1
 
 
 def test_agent_selected_model_failure_surfaces_without_switching():
+    class _SelectedModelFailure(MockedModelProvider):
+        async def stream(self, *args, **kwargs):
+            raise RuntimeError("selected model failed")
+            yield  # pragma: no cover - marks this as an async generator
+
     classifier = _ClassifierModel(selected_index=0)
-    failing = MockedModelProvider([])
+    failing = _SelectedModelFailure([])
     router = ModelRouter(
         models=[
             RoutingCandidate(failing, description="Selected model.", metadata=CandidateMetadata(model_id="failing")),
@@ -354,7 +357,7 @@ def test_agent_selected_model_failure_surfaces_without_switching():
     )
     agent = Agent(model=router, retry_strategy=None, callback_handler=None)
 
-    with pytest.raises(IndexError):
+    with pytest.raises(RuntimeError, match="selected model failed"):
         agent("hello")
 
     assert classifier.calls == 1
@@ -382,23 +385,6 @@ def test_agent_selects_opaque_nested_router():
     assert classifier.calls == 1
 
 
-@pytest.mark.parametrize(
-    ("args", "kwargs", "error_type", "match"),
-    [
-        ((), {}, TypeError, "missing 1 required positional argument: 'classifier_model'"),
-        ((object(),), {}, TypeError, "classifier_model must be a Model"),
-        ((_ClassifierModel(),), {"classifier_timeout": True}, TypeError, "classifier_timeout must be a number"),
-        ((_ClassifierModel(),), {"classifier_timeout": 0}, ValueError, "must be finite and greater than zero"),
-        ((_ClassifierModel(),), {"classifier_timeout": float("inf")}, ValueError, "must be finite"),
-    ],
-    ids=[
-        "required-classifier",
-        "classifier-type",
-        "timeout-type",
-        "timeout-positive",
-        "timeout-finite",
-    ],
-)
-def test_constructor_rejects_invalid_configuration(args, kwargs, error_type, match):
-    with pytest.raises(error_type, match=match):
-        InputComplexityStrategy(*args, **kwargs)
+def test_constructor_rejects_non_model_classifier():
+    with pytest.raises(TypeError, match="classifier_model must be a Model"):
+        InputComplexityStrategy(object())
