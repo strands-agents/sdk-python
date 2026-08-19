@@ -115,7 +115,6 @@ export function messageMatchesTarget(
 ): boolean {
   if (targetMatchesMessage(target, message)) return true
   if (!target) return false
-  if (target === 'assistantText' || target === 'userText') return false
 
   // Tool result targets — must be a user message with a matching tool result
   if (message.role !== 'user') return false
