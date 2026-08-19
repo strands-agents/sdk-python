@@ -653,6 +653,36 @@ def test_latest_context_size_missing_input_tokens_key(event_loop_metrics):
     assert event_loop_metrics.latest_context_size is None
 
 
+def test_latest_context_size_counts_disjoint_cache_tokens(event_loop_metrics, mock_get_meter_provider):
+    """Counts cache reads on disjoint providers (Bedrock/Anthropic) where they add to inputTokens.
+
+    Regression for #3546: a large cache read must not read as a handful of tokens, or proactive
+    compaction never fires. Here inputTokens + outputTokens != totalTokens, so the cache is additional.
+    """
+    event_loop_metrics.reset_usage_metrics()
+    event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "c1"})
+    event_loop_metrics.update_usage(
+        Usage(inputTokens=10, outputTokens=4, totalTokens=5862, cacheReadInputTokens=5848)
+    )
+
+    assert event_loop_metrics.latest_context_size == 5858
+
+
+def test_latest_context_size_does_not_double_count_subset_cache_tokens(event_loop_metrics, mock_get_meter_provider):
+    """Does not double-count cache reads on subset providers (OpenAI/Gemini) where they sit inside input.
+
+    Regression for #3546: inputTokens + outputTokens == totalTokens signals the cache is already inside
+    inputTokens, so the full prompt is inputTokens (not inputTokens + cache).
+    """
+    event_loop_metrics.reset_usage_metrics()
+    event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "c1"})
+    event_loop_metrics.update_usage(
+        Usage(inputTokens=12936, outputTokens=10, totalTokens=12946, cacheReadInputTokens=6457)
+    )
+
+    assert event_loop_metrics.latest_context_size == 12936
+
+
 def test_projected_context_size_no_invocations(event_loop_metrics):
     assert event_loop_metrics.projected_context_size is None
 
@@ -692,3 +722,27 @@ def test_projected_context_size_missing_tokens_key(event_loop_metrics):
         )
     )
     assert event_loop_metrics.projected_context_size is None
+
+
+def test_projected_context_size_counts_disjoint_cache_tokens(event_loop_metrics, mock_get_meter_provider):
+    """Projects full prompt + output on disjoint providers where cache adds to inputTokens (#3546)."""
+    event_loop_metrics.reset_usage_metrics()
+    event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "c1"})
+    event_loop_metrics.update_usage(
+        Usage(inputTokens=10, outputTokens=4, totalTokens=5862, cacheReadInputTokens=5848)
+    )
+
+    assert event_loop_metrics.projected_context_size == 5862
+
+
+def test_projected_context_size_does_not_double_count_subset_cache_tokens(
+    event_loop_metrics, mock_get_meter_provider
+):
+    """Projects full prompt + output on subset providers without double-counting cache (#3546)."""
+    event_loop_metrics.reset_usage_metrics()
+    event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "c1"})
+    event_loop_metrics.update_usage(
+        Usage(inputTokens=12936, outputTokens=10, totalTokens=12946, cacheReadInputTokens=6457)
+    )
+
+    assert event_loop_metrics.projected_context_size == 12946

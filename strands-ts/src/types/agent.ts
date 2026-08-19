@@ -495,7 +495,7 @@ export class AgentResult {
   }
 
   /**
-   * The most recent input token count from the last model invocation.
+   * The full prompt the model processed on the last invocation, including cached tokens.
    * Convenience accessor that delegates to `metrics.latestContextSize`.
    * Returns `undefined` when no metrics or invocations are available.
    */
@@ -504,7 +504,8 @@ export class AgentResult {
   }
 
   /**
-   * Projected context size for the next model call (inputTokens + outputTokens from the last call).
+   * Projected context size for the next model call (full prompt including cached tokens plus the
+   * generated output from the last call).
    * Convenience accessor that delegates to `metrics.projectedContextSize`.
    * Returns `undefined` when no metrics or invocations are available.
    */

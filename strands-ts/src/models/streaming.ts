@@ -565,3 +565,22 @@ export function createEmptyUsage(): Usage {
     totalTokens: 0,
   }
 }
+
+/**
+ * Returns the full prompt the model processed, including cached tokens.
+ *
+ * Cache counters follow two provider conventions: 'subset' (OpenAI/Gemini/LiteLLM), where cache
+ * reads/writes are already inside `inputTokens`, and 'disjoint' (Bedrock/Anthropic), where they are
+ * additional. The convention is detected from the payload, so the value is correct under both. With no
+ * cache tokens both cases collapse to `inputTokens`.
+ *
+ * @param usage - Token usage from a model invocation
+ * @returns The full prompt token count
+ * @internal
+ */
+export function fullPromptTokens(usage: Usage): number {
+  if (usage.inputTokens + usage.outputTokens === usage.totalTokens) {
+    return usage.inputTokens
+  }
+  return usage.inputTokens + (usage.cacheReadInputTokens ?? 0) + (usage.cacheWriteInputTokens ?? 0)
+}

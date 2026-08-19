@@ -2133,6 +2133,38 @@ class TestEstimateInputTokens:
         agent.model.count_tokens.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_baseline_counts_disjoint_cache_tokens(self):
+        """Baseline includes cache reads on disjoint providers (#3546).
+
+        Without counting the cache read, a large cached prompt reads as a handful of tokens and
+        proactive compaction never fires. Here inputTokens + outputTokens != totalTokens, so the
+        cache read is additional to inputTokens and must be included in the baseline.
+        """
+        agent = unittest.mock.AsyncMock()
+        agent.messages = [
+            {"role": "user", "content": [{"text": "Hi"}]},
+            {
+                "role": "assistant",
+                "content": [{"text": "Hello"}],
+                "metadata": {
+                    "usage": {
+                        "inputTokens": 10,
+                        "outputTokens": 4,
+                        "totalTokens": 5862,
+                        "cacheReadInputTokens": 5848,
+                    }
+                },
+            },
+        ]
+        agent.system_prompt = "You are helpful"
+
+        result = await strands.event_loop.event_loop._estimate_input_tokens(agent)
+
+        # full prompt (10 + 5848 cache read) + output (4) = 5862, not 14
+        assert result == 5862
+        agent.model.count_tokens.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_error_fallback_returns_none_at_call_site(self):
         """When count_tokens raises, the caller catches and sets projected_input_tokens to None."""
         agent = unittest.mock.AsyncMock()
