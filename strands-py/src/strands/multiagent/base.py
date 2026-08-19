@@ -388,13 +388,7 @@ def _parse_metrics(metrics_data: dict[str, Any]) -> Metrics:
 
 
 def _accumulate_cache_usage(target: Usage, source: Usage) -> None:
-    """Add source's optional cache token counters into target, present-only.
-
-    The two cache counters are optional (only some providers emit them), so an absent counter must
-    not materialize as 0 in target and change serialized output for non-caching providers. Mirrors
-    ``EventLoopMetrics._accumulate_usage``; the required inputTokens/outputTokens/totalTokens are
-    summed by the caller.
-    """
+    """Add source's optional cache token counters into target."""
     if "cacheReadInputTokens" in source:
         target["cacheReadInputTokens"] = target.get("cacheReadInputTokens", 0) + source["cacheReadInputTokens"]
     if "cacheWriteInputTokens" in source:
