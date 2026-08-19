@@ -372,6 +372,20 @@ export abstract class BaseOffloadStrategy implements ContextStrategy {
     return null
   }
 
+  /** Whether a block is eligible for offload given the current target and filters. */
+  protected _blockMatchesTarget(
+    block: ContentBlock,
+    message: Message,
+    toolNameMap: Map<string, string>
+  ): boolean {
+    if (block instanceof TextBlock) return targetMatchesMessage(this._target, message)
+    if (block instanceof ToolResultBlock) {
+      return this._target === undefined ||
+        toolMatchesTarget(block, this._target, toolNameMap, this._includeFilter, this._excludeFilter)
+    }
+    return false
+  }
+
   /** Process eligible blocks in a message. */
   protected async _transformBlocks(
     message: Message,
@@ -383,18 +397,7 @@ export abstract class BaseOffloadStrategy implements ContextStrategy {
     let acted = false
     for (let blockIndex = 0; blockIndex < message.content.length; blockIndex++) {
       const block = message.content[blockIndex]!
-
-      if (block instanceof TextBlock) {
-        if (!targetMatchesMessage(this._target, message)) continue
-      } else if (block instanceof ToolResultBlock) {
-        if (
-          this._target !== undefined &&
-          !toolMatchesTarget(block, this._target, toolNameMap, this._includeFilter, this._excludeFilter)
-        )
-          continue
-      } else {
-        continue
-      }
+      if (!this._blockMatchesTarget(block, message, toolNameMap)) continue
 
       const tokens = await agent.model.countTokens([new Message({ role: message.role, content: [block] })])
       if (tokens <= effectiveThreshold) continue
@@ -439,17 +442,7 @@ export abstract class BaseOffloadStrategy implements ContextStrategy {
     for (const message of candidates) {
       let hasOversize = false
       for (const block of message.content) {
-        if (block instanceof TextBlock) {
-          if (!targetMatchesMessage(this._target, message)) continue
-        } else if (block instanceof ToolResultBlock) {
-          if (
-            this._target !== undefined &&
-            !toolMatchesTarget(block, this._target, toolNameMap, this._includeFilter, this._excludeFilter)
-          )
-            continue
-        } else {
-          continue
-        }
+        if (!this._blockMatchesTarget(block, message, toolNameMap)) continue
 
         const tokens = await agent.model.countTokens([new Message({ role: message.role, content: [block] })])
         if (tokens > this._threshold!) {
