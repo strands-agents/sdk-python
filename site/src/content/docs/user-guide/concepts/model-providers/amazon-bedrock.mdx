@@ -551,11 +551,11 @@ For complete details on supported models, token requirements, and cache field su
 
 Cache system prompts that remain static across multiple requests. This is useful when your system prompt contains no variables, timestamps, or dynamic content, exceeds the minimum cacheable token threshold for your model, and you make multiple requests with the same system prompt.
 
-With `cache_config` set to `strategy="auto"` (or `"anthropic"`), Strands caches the system prompt **by default**: it appends a cache point at the end of the system prompt on every request, so repeated calls with the same static system prefix — including fresh agents that share a system prompt — read it from cache. The system prompt is usually the largest, most static part of a request, so this is where most of the savings come from. To opt out and leave the system prompt uncached (for example, when it changes on every call), set <Syntax py="inject_system_cache_point=False" ts="systemTTL: false" />; this disables only the auto-injected system point, and tool and message caching are unaffected. A cache point you place by hand anywhere in the system prompt is honored as-is, and no second point is added.
+With <Syntax py="cache_config" ts="cacheConfig" /> set to the `auto` (or `anthropic`) strategy, Strands caches the system prompt **by default**: it appends a cache point at the end of the system prompt on every request, so repeated calls with the same static system prefix (including fresh agents that share a system prompt) read it from cache. To opt out and leave the system prompt uncached (for example, when it changes on every call), set <Syntax py="inject_system_cache_point=False" ts="systemTTL: false" />. This disables only the auto-injected system point, and tool and message caching are unaffected. A cache point you place by hand anywhere in the system prompt is honored as-is, and no second point is added.
 
-The auto-injected system point inherits the TTL you configured, so setting one `ttl` gives every cache point in the request the same duration. Bedrock requires TTLs to be non-increasing across the tool definitions, the system prompt, and the messages, and rejects a request where a longer TTL follows a shorter one; when a shorter tool-definitions TTL sits ahead of the system point, Strands leaves the system point at the default rather than emit an invalid longer-behind-shorter request.
+The auto-injected system cache point inherits the TTL you configured, so setting one `ttl` gives every cache point in the request the same duration. Bedrock requires TTLs to be non-increasing across the tool definitions, the system prompt, and the messages, and rejects a request where a longer TTL follows a shorter one.
 
-The example below places the cache point by hand for fine-grained control. With `cache_config` you do not need to — the point is added for you.
+The example below places the cache point by hand for fine-grained control. With <Syntax py="cache_config" ts="cacheConfig" /> you do not need to: the point is added for you.
 
 <Tabs>
 <Tab label="Python">
@@ -659,7 +659,7 @@ Place your cache point *ahead* of content that changes on every call, such as re
 
 **Option A: Automatic Cache Strategy (Claude models only)**
 
-Enable automatic cache point management for agent workflows with multi-turn conversations. The SDK automatically places a cache point at the end of the last user message to maximize cache hits without requiring manual management. The same `cache_config` also caches the system prompt by default (see [System Prompt Caching](#system-prompt-caching)), so a multi-turn conversation reuses both the static system prefix and the accumulated conversation context.
+Enable automatic cache point management for agent workflows with multi-turn conversations. The SDK automatically places a cache point at the end of the last user message to maximize cache hits without requiring manual management. The same <Syntax py="cache_config" ts="cacheConfig" /> also caches the system prompt by default (see [System Prompt Caching](#system-prompt-caching)), so a multi-turn conversation reuses both the static system prefix and the accumulated conversation context.
 
 <Tabs>
 <Tab label="Python">

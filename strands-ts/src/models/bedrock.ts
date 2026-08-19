@@ -494,10 +494,6 @@ export class BedrockModel extends Model<BedrockModelConfig> {
   /**
    * Whether to auto-inject a cache point at the end of the system prompt.
    *
-   * True only when caching resolves to the anthropic strategy, `systemTTL` is not `false`, the system
-   * prompt has cacheable content, and no system block already carries a cache point (a hand-placed point
-   * anywhere in the system prefix is honored rather than doubled).
-   *
    * @param system - The system content blocks that will be sent to Bedrock.
    * @returns True if a cache point should be appended.
    */
@@ -518,12 +514,6 @@ export class BedrockModel extends Model<BedrockModelConfig> {
    * Fills the resolved system-section TTL into a system cache point that carries none of its own,
    * whether auto-injected or caller-placed.
    *
-   * An explicit `systemTTL` is emitted as written: the caller owns cross-section ordering, exactly as
-   * `toolsTTL` and `messagesTTL` do. An inherited TTL (from `ttl`) instead stands down to the provider
-   * default rather than sit behind a shorter tools checkpoint, which Bedrock rejects — it processes
-   * cache points in the order toolConfig, system, messages and rejects a longer TTL following a shorter
-   * one. A TTL the caller wrote onto the point is always left as written.
-   *
    * @param request - The formatted request, with `system` and `toolConfig` already populated.
    */
   private _applySystemCacheTTL(request: ConverseStreamCommandInput): void {
@@ -535,7 +525,6 @@ export class BedrockModel extends Model<BedrockModelConfig> {
     const systemSection = resolveCacheSection(cacheConfig?.systemTTL, cacheConfig?.ttl)
     let ttl = systemSection.ttl
 
-    // The stand-down applies only to an inherited TTL; an explicit systemTTL is the caller's to order.
     if (ttl && typeof cacheConfig?.systemTTL !== 'string') {
       const toolsPoint = request.toolConfig?.tools?.find((tool) => 'cachePoint' in tool)
       if (toolsPoint && 'cachePoint' in toolsPoint && toolsPoint.cachePoint?.ttl !== ttl) {
@@ -744,12 +733,6 @@ export class BedrockModel extends Model<BedrockModelConfig> {
       }
     }
 
-    // Auto-inject a bare cachePoint at the end of the system prompt so repeated calls with the
-    // same static system prefix hit the cache. Bedrock (Anthropic) documents the prefix chain as
-    // tools → system → messages; caching only messages leaves the (usually largest and most static)
-    // system prefix uncached. The point carries no TTL here; `_applySystemCacheTTL` fills the resolved
-    // systemTTL in. A hand-placed point anywhere in the system prefix is honored rather than doubled,
-    // and `systemTTL: false` opts out.
     if (this._shouldCacheSystem(request.system)) {
       request.system!.push({ cachePoint: { type: 'default' } })
     }

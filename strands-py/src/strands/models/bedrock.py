@@ -306,12 +306,8 @@ class BedrockModel(Model):
         # Built ahead of the request so the tools cache point is known to the system cache point behind it.
         tools_cache_point = self._build_tools_cache_point() if tool_specs else []
 
-        # Auto-inject a cachePoint at the end of the system prompt so repeated calls with
-        # the same static system prefix hit the cache. Anthropic docs describe the
-        # tools → system → messages prefix chain; caching only messages leaves the
-        # (usually largest and most static) system prefix uncached.
         if self._should_cache_system(system_blocks):
-            system_blocks.append(self._build_system_cache_point())
+            system_blocks.append({"cachePoint": {"type": "default"}})
 
         formatted_messages = self._format_bedrock_messages(messages, dynamic_trailing_blocks)
         if self._tool_result_turn_separation_model_id == self.config["model_id"]:
@@ -463,10 +459,6 @@ class BedrockModel(Model):
     def _should_cache_system(self, system_blocks: list[SystemContentBlock]) -> bool:
         """Whether to auto-inject a cache point at the end of the system prompt.
 
-        True only when caching resolves to the anthropic strategy, the ``inject_system_cache_point``
-        opt-out is not set, ``system_blocks`` has cacheable content, and no system block already carries
-        a cache point (a hand-placed point anywhere in the system prefix is honored rather than doubled).
-
         Args:
             system_blocks: The system content blocks that will be sent to Bedrock.
 
@@ -484,18 +476,6 @@ class BedrockModel(Model):
             return False
 
         return not any("cachePoint" in block for block in system_blocks)
-
-    def _build_system_cache_point(self) -> SystemContentBlock:
-        """Build the bare cache point block appended to the system prompt.
-
-        Carries no TTL of its own. ``_apply_system_cache_ttl`` fills ``cache_config.ttl`` in and stands the
-        fill-in down when the tools point's TTL differs, so the system point never lands a longer TTL behind
-        a shorter tools checkpoint.
-
-        Returns:
-            The cache point block.
-        """
-        return cast(SystemContentBlock, {"cachePoint": {"type": "default"}})
 
     def _build_tools_cache_point(self) -> list[dict[str, Any]]:
         """Build the cache point block appended to ``toolConfig.tools`` if ``cache_tools`` is configured.

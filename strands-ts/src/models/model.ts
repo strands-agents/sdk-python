@@ -100,9 +100,7 @@ export interface CacheConfig {
   /**
    * Cache the system prompt, auto-injecting a cache point at its end so repeated calls with the same
    * static system prefix hit the cache. A TTL sets this section's duration; `false` disables it. A
-   * hand-placed system cache point is honored rather than doubled. An explicit TTL is emitted as
-   * written; an inherited one (from `ttl`) stands down to the provider default rather than sit behind
-   * a shorter tools checkpoint, which Bedrock would reject.
+   * hand-placed system cache point is honored rather than doubled.
    *
    * @defaultValue true
    */

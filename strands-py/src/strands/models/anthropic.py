@@ -421,9 +421,7 @@ class AnthropicModel(Model):
         cache_tools = self.config.get("cache_tools")
         if cache_tools and tools:
             ttl = cache_tools.ttl if isinstance(cache_tools, CacheToolsConfig) else None
-            # An untimed cache_tools inherits cache_config.ttl so the tools point does not sit at the
-            # default behind a longer system or messages TTL, which the API rejects (blocks are processed
-            # tools, system, messages). Mirrors the Bedrock tools cache point.
+
             if not ttl:
                 cache_config = self.config.get("cache_config")
                 if cache_config and cache_config.ttl and cache_config.strategy in ("auto", "anthropic"):
@@ -448,14 +446,6 @@ class AnthropicModel(Model):
         self, system_prompt: str | None, system_prompt_content: list[SystemContentBlock] | None
     ) -> str | list[dict[str, Any]] | None:
         """Format the system prompt for the Anthropic API, auto-injecting a cache point at its end.
-
-        ``system_prompt_content`` takes precedence: its text blocks are rendered so they can carry
-        ``cache_control``, and a hand-placed ``cachePoint`` is honored rather than doubled. When the section
-        should auto-cache and nothing was hand-placed, ``cache_control`` is attached to the last block. A
-        placed point that carries no TTL of its own inherits ``cache_config.ttl``, so it caches identically
-        to the automatic one; a placed point is honored regardless of ``inject_system_cache_point``, which
-        gates only the automatic one. Falls back to the plain string, promoted to a cached block when the
-        section auto-caches.
 
         Args:
             system_prompt: Plain string system prompt. Ignored when system_prompt_content is provided.
@@ -483,8 +473,6 @@ class AnthropicModel(Model):
         placed = False
         for block in system_prompt_content:
             if "cachePoint" in block:
-                # A second point on a block that already carries one would silently overwrite it; the
-                # message path keeps the first and warns, so this one does too.
                 if formatted and "cache_control" in formatted[-1]:
                     logger.warning("stripped an extra system cache point | keeping the earlier point on the block")
                 elif self._attach_cache_control(formatted, block["cachePoint"].get("ttl") or managed_ttl):

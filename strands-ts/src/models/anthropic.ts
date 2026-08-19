@@ -367,11 +367,6 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
   /**
    * Formats the system prompt for the Anthropic API, auto-injecting a cache point at its end.
    *
-   * A string prompt is promoted to a text block so it can carry `cache_control`; a block array honors a
-   * hand-placed cache point (`cachePointBlock`) rather than doubling it. When the system section is
-   * enabled and nothing was hand-placed, `cache_control` is attached to the last block. A string prompt
-   * with caching disabled is returned unchanged to keep the wire shape minimal.
-   *
    * @param systemPrompt - The system prompt as a string or content blocks.
    * @returns The API system value (string or text blocks), or undefined when nothing cacheable remains.
    */
@@ -397,7 +392,6 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
       if (block.type !== 'textBlock') continue
 
       const nextBlock = systemPrompt[index + 1]
-      // A TTL written on the point is more specific than the configured one, matching the messages path.
       const cacheControl =
         nextBlock?.type === 'cachePointBlock' ? this._formatCacheControl(nextBlock.ttl || systemCache.ttl) : undefined
       systemBlocks.push({ type: 'text', text: block.text, ...(cacheControl && { cache_control: cacheControl }) })

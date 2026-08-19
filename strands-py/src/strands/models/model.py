@@ -144,9 +144,7 @@ class CacheConfig:
             longer TTL that follows a shorter one. This TTL also fills in for a cache point that carries
             none of its own.
         inject_system_cache_point: Whether to auto-inject a cache point at the end of the system prompt so
-            repeated calls with the same static system prefix hit the cache. Disables only the auto-injected
-            system point; a hand-placed system cache point is still honored, and tool and message caching are
-            unaffected.
+            repeated calls with the same static system prefix hit the cache.
     """
 
     strategy: Literal["auto", "anthropic"] = "auto"
