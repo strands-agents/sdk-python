@@ -66,8 +66,6 @@ export class TruncateStrategy extends BaseOffloadStrategy {
     const headKeep = Math.floor(keepCount * headShare)
     const tailKeep = keepCount - headKeep
 
-    // Split into head (keep), middle (remove), tail (keep)
-    const headMessages = eligible.slice(0, headKeep)
     const middleMessages = eligible.slice(headKeep, eligible.length - tailKeep)
 
     if (middleMessages.length === 0) return false
