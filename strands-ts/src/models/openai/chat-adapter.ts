@@ -28,11 +28,14 @@ const MANAGED_PARAMS: ReadonlySet<string> = new Set(['model', 'messages', 'strea
  */
 export function warnManagedParams(params: Record<string, unknown> | undefined): void {
   if (!params) return
-  // `stream_options: null` is the documented opt-out and is honored rather than
-  // ignored, so it should not warn alongside the other managed keys.
+  // Params explicitly set to `null` are omitted from the request (see
+  // `formatChatRequest`), so they are honored rather than ignored and should
+  // not warn alongside the other managed keys.
   const warned: Record<string, unknown> = { ...params }
-  if (warned.stream_options === null) {
-    delete warned.stream_options
+  for (const key of Object.keys(warned)) {
+    if (warned[key] === null) {
+      delete warned[key]
+    }
   }
   warnManagedParamsShared(warned, MANAGED_PARAMS)
 }
@@ -75,8 +78,20 @@ export function formatChatRequest(
     stream: true as const,
   } as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming
 
-  // An explicit `stream_options: null` omits the field from the request,
-  // mirroring the Python SDK for endpoints that reject it.
+  // Any non-managed param explicitly set to `null` is omitted from the request,
+  // mirroring the Python SDK for endpoints that reject the field. An `undefined`
+  // param keeps the default behavior below; a set param passes through.
+  // `stream_options` is excluded: it is a managed key normalized below (the SDK
+  // reads stream usage from it).
+  const requestParams = request as unknown as Record<string, unknown>
+  for (const key of Object.keys(params)) {
+    if (params[key] === null && key !== 'stream_options') {
+      delete requestParams[key]
+    }
+  }
+
+  // `stream_options` is provider-managed: it defaults to include usage, and an
+  // explicit `null` omits the field (the opt-out for endpoints that reject it).
   if (params.stream_options === null) {
     delete request.stream_options
   } else {

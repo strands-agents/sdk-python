@@ -404,6 +404,34 @@ describe('OpenAIModel', () => {
       expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("'stream_options'"))
       warnSpy.mockRestore()
     })
+
+    it('omits any param set to null while passing through set params', async () => {
+      const captured: { request: any } = { request: null }
+      const mockClient = createMockClientWithCapture(captured)
+      const provider = new OpenAIModel({
+        api: 'chat',
+        modelId: 'gpt-5.4',
+        client: mockClient,
+        params: { temperature: null, top_p: 0.8, max_tokens: null },
+      })
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hi')] })]
+      await collectIterator(provider.stream(messages))
+      expect(captured.request.temperature).toBeUndefined()
+      expect(captured.request.max_tokens).toBeUndefined()
+      expect(captured.request.top_p).toBe(0.8)
+    })
+
+    it('does not warn for params set to null since they are omitted, not ignored', () => {
+      const warnSpy = vi.spyOn(logger, 'warn')
+      new OpenAIModel({
+        api: 'chat',
+        modelId: 'gpt-5.4',
+        client: createMockClientWithCapture({ request: null }),
+        params: { seed: null },
+      })
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("'seed'"))
+      warnSpy.mockRestore()
+    })
   })
 
   describe('stream', () => {
