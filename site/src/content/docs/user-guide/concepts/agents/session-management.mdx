@@ -504,7 +504,7 @@ Give each conversation its own session ID. Several agents can share one session 
 
 ### Create an Agent per Conversation
 
-Constructing an agent is cheap: it wires up tools, hooks, and plugins locally and makes no model call. Build one per request, invoke it, and let it go out of scope. An agent binds to one session for its lifetime: in Python at construction, which restores the stored history there, and in TypeScript on the first invocation. The model provider is the part worth reusing: providers such as `BedrockModel` build their client in the constructor, so create the provider once per process and pass the same instance to every agent.
+Constructing an agent is cheap: it wires up tools, hooks, and plugins locally and makes no model call. Build one per request, invoke it, and let it go out of scope. The model provider is the part worth reusing: providers such as `BedrockModel` build their client in the constructor, so create the provider once per process and pass the same instance to every agent.
 
 ### Serializing Access to a Shared Session
 
