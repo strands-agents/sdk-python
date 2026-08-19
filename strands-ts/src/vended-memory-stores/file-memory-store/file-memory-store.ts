@@ -270,10 +270,9 @@ export class FileMemoryStore implements MemoryStore {
   }
 
   /**
-   * Read one knowledge file's body by path — the on-demand half of progressive disclosure, and what
-   * the read tool calls. Canonicalizes the path with the same rules {@link add} applies on the way in,
-   * so a file written under one spelling is not readable under another, and strips the frontmatter the
-   * model has already seen in the listing.
+   * Read one knowledge file's body by path — the on-demand half of progressive disclosure. Tries the
+   * canonical (lowercased) key {@link add} writes under, then on a miss the path as {@link listFiles}
+   * advertised it, so a file seeded outside the store's API stays readable. Strips the frontmatter.
    *
    * @param path - Path of the file to read, as rendered in the injected listing
    * @returns The file's body, without frontmatter
@@ -281,8 +280,11 @@ export class FileMemoryStore implements MemoryStore {
    */
   async readFile(path: string): Promise<string> {
     const key = canonicalizeKnowledgePath(path)
+    const rawKey = normalizeKey(path)
 
-    const bytes = await this._storage.read(key)
+    // Canonical key first; on a miss, retry the raw listed key so a file seeded outside the store's API
+    // (never lowercased) stays readable. The second read only fires when the two differ.
+    const bytes = (await this._storage.read(key)) ?? (rawKey === key ? null : await this._storage.read(rawKey))
     if (!bytes) {
       throw new Error(`No memory file at '${key}'. Paths must match the memory file listing exactly.`)
     }

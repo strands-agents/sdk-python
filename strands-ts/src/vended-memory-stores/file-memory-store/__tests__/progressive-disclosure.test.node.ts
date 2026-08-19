@@ -328,6 +328,24 @@ describe('FileMemoryStore progressive disclosure', () => {
       })
     })
 
+    it('reads a store-written file under a differently-cased path, preferring the canonical key', async () => {
+      await store.add('User prefers dark mode', { title: 'ui', description: 'UI preference' })
+
+      expect(await readTool(store).invoke({ path: 'facts/UI.md' })).toStrictEqual({
+        content: 'User prefers dark mode',
+      })
+    })
+
+    it('reads a file seeded outside the store under the raw key listFiles advertises', async () => {
+      // add() lowercases every key it writes, so a non-lowercased key only appears when a file is
+      // seeded onto the backend directly. listFiles() advertises that raw key, so the read tool must
+      // serve it under the same spelling rather than lowercasing to a key that does not exist.
+      await scoped.write('facts/Upper.md', encoder.encode('---\ndescription: "seeded"\n---\n\nseeded body'))
+
+      expect(await store.listFiles()).toStrictEqual([{ path: 'facts/Upper.md', description: 'seeded' }])
+      expect(await readTool(store).invoke({ path: 'facts/Upper.md' })).toStrictEqual({ content: 'seeded body' })
+    })
+
     it('throws a path-directed error when no file exists there', async () => {
       await expect(readTool(store).invoke({ path: 'facts/missing.md' })).rejects.toThrow(
         "No memory file at 'facts/missing.md'"
