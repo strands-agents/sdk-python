@@ -506,9 +506,6 @@ Give each conversation its own session ID. Several agents can share one session 
 
 Constructing an agent is cheap: it wires up tools, hooks, and plugins locally and makes no model call. Build one per request, invoke it, and let it go out of scope. The model provider is the part worth reusing: providers such as `BedrockModel` build their client in the constructor, so create the provider once per process and pass the same instance to every agent.
 
-### Serializing Access to a Shared Session
-
-When requests for one session ID can arrive at the same time, as with an AWS Lambda retry, queue redelivery, or a double-submitted form, serialize them before they reach the agent. Take a distributed lock keyed by the session ID before constructing the agent, release it after the invocation completes, and give it a TTL so a crashed holder cannot block the session forever. A conditional write on a DynamoDB item and `SET key value NX PX` in Redis both do the job. Where the work does not have to be synchronous, a FIFO queue partitioned by session ID (in Amazon SQS, the session ID becomes the message group ID) serializes the requests instead.
 
 ### Common Failure Modes
 
