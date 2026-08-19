@@ -89,6 +89,14 @@ describe('FileMemoryStore progressive disclosure', () => {
       expect(await store.listFiles()).toStrictEqual([{ path: 'facts/ui.md', description: 'UI preference' }])
     })
 
+    it('excludes non-markdown keys, so a stray file like .DS_Store never appears as memory', async () => {
+      await store.add('User prefers dark mode', { title: 'ui', description: 'UI preference' })
+      await scoped.write('.DS_Store', encoder.encode('binary junk'))
+      await scoped.write('notes.txt', encoder.encode('plain text, not markdown'))
+
+      expect(await store.listFiles()).toStrictEqual([{ path: 'facts/ui.md', description: 'UI preference' }])
+    })
+
     it('returns every file, even past the per-turn injection cap — the cap is on injection, not on this API', async () => {
       for (let index = 0; index < 101; index++) {
         const key = `facts/fact-${String(index).padStart(3, '0')}.md`

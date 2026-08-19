@@ -23,7 +23,13 @@ import { LocalFileStorage } from '../../storage/local-file-storage.js'
 import { NAMESPACED, namespace, normalizeKey } from '../../storage/storage.js'
 import { DEFAULT_MAX_SEARCH_RESULTS, tokenize, tokenOverlapScore } from '../../memory/search/keyword.js'
 import { generatePlan } from './consolidation/planner.js'
-import { CONSOLIDATION_CHANGELOG, executePlan, readAllFiles, recordChangelog } from './consolidation/execute.js'
+import {
+  CONSOLIDATION_CHANGELOG,
+  executePlan,
+  isKnowledgeKey,
+  readAllFiles,
+  recordChangelog,
+} from './consolidation/execute.js'
 import { FRONTMATTER_DESCRIPTION_PATTERN } from './consolidation/validate.js'
 import { mapWithConcurrency, STORAGE_READ_CONCURRENCY } from './concurrency.js'
 import { createProgressiveDisclosureInjector, createReadTool } from './progressive-disclosure.js'
@@ -192,7 +198,7 @@ export class FileMemoryStore implements MemoryStore {
 
     const scored = (
       await mapWithConcurrency(allKeys, STORAGE_READ_CONCURRENCY, async (key) => {
-        if (key === CONSOLIDATION_CHANGELOG) return null
+        if (!isKnowledgeKey(key)) return null
         try {
           const bytes = await this._storage.read(key)
           if (!bytes) return null
@@ -242,9 +248,7 @@ export class FileMemoryStore implements MemoryStore {
   private async _collectListing(
     limit?: number
   ): Promise<{ files: { path: string; description: string }[]; total: number }> {
-    const keys = (await this._storage.list(''))
-      .filter((key) => key !== CONSOLIDATION_CHANGELOG)
-      .sort((a, b) => a.localeCompare(b))
+    const keys = (await this._storage.list('')).filter(isKnowledgeKey).sort((a, b) => a.localeCompare(b))
     const truncated = limit !== undefined && keys.length > limit
     const selected = truncated ? keys.slice(0, limit) : keys
 

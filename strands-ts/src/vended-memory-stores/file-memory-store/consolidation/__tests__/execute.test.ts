@@ -46,6 +46,17 @@ describe('readAllFiles', () => {
     expect([...files.keys()]).toEqual(['facts/a.md'])
   })
 
+  it('excludes non-markdown keys from the working set', async () => {
+    const storage = new InMemoryStorage()
+    await seed(storage, 'facts/a.md', 'A body')
+    await seed(storage, '.DS_Store', 'binary junk')
+    await seed(storage, 'notes.txt', 'plain text')
+
+    const files = await readAllFiles(storage, 100)
+
+    expect([...files.keys()]).toEqual(['facts/a.md'])
+  })
+
   it('returns an empty map for an empty store', async () => {
     expect(await readAllFiles(new InMemoryStorage(), 100)).toEqual(new Map())
   })

@@ -355,6 +355,14 @@ describe('FileMemoryStore', () => {
       })
     })
 
+    it('excludes non-markdown keys, even when their content matches', async () => {
+      await scoped.write('deploy-notes.txt', encoder.encode('deploy blue-green strategy notes'))
+
+      const results = await store.search('deploy')
+
+      expect(results.map((result) => result.metadata?.['path'])).not.toContain('deploy-notes.txt')
+    })
+
     it('matches against description frontmatter', async () => {
       const results = await store.search('integration-first')
       expect(results[0]).toEqual({
