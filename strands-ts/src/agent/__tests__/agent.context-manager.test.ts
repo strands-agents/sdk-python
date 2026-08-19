@@ -147,14 +147,11 @@ describe('Agent contextManager', () => {
       expect(plugins.get('strands:context-manager')).toBe(cm)
     })
 
-    it('does not add duplicate ContextManager if already in plugins', async () => {
+    it('throws if ContextManager is passed in both param and plugins', async () => {
       const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'hi' })
       const cm = new ContextManager({ strategies: [{ name: 'noop', apply: async () => false }] })
       const agent = new Agent({ model, contextManager: cm, plugins: [cm] })
-      await agent.invoke('hi')
-      const plugins = internals(agent)._pluginRegistry._plugins
-      const cmEntries = [...plugins.entries()].filter(([key]: [string, unknown]) => key === 'strands:context-manager')
-      expect(cmEntries).toHaveLength(1)
+      await expect(agent.invoke('hi')).rejects.toThrow('plugin already registered')
     })
   })
 

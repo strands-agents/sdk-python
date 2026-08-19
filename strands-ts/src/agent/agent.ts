@@ -539,11 +539,7 @@ export class Agent implements LocalAgent, InvokableAgent {
     this.name = config?.name ?? DEFAULT_AGENT_NAME
     this.id = config?.id ?? DEFAULT_AGENT_ID
     if (config?.description !== undefined) this.description = config.description
-    this.contextManager =
-      config?.contextManager instanceof ContextManager &&
-      !(config.plugins ?? []).some((p) => p.name === 'strands:context-manager')
-        ? config.contextManager
-        : ((config?.plugins ?? []).find((p) => p.name === 'strands:context-manager') as ContextManager | undefined)
+    this.contextManager = config?.contextManager instanceof ContextManager ? config.contextManager : undefined
     this.sessionManager = config?.sessionManager
     this.storage = config?.storage
     this.memoryManager =
@@ -616,6 +612,9 @@ export class Agent implements LocalAgent, InvokableAgent {
     // The plugin is a no-op when no delegation tools fire.
     const hasAgentDelegation = (config?.plugins ?? []).some((p) => p.name === 'strands:agent-delegation')
 
+    const contextManagerPlugin =
+      config?.contextManager instanceof ContextManager ? config.contextManager : undefined
+
     this._pluginRegistry = new PluginRegistry([
       this._conversationManager,
       ...retryStrategies,
@@ -633,10 +632,7 @@ export class Agent implements LocalAgent, InvokableAgent {
           ]
         : []),
       ...(this.memoryManager ? [this.memoryManager] : []),
-      ...(config?.contextManager instanceof ContextManager &&
-      !(config.plugins ?? []).some((p) => p.name === 'strands:context-manager')
-        ? [config.contextManager]
-        : []),
+      ...(contextManagerPlugin ? [contextManagerPlugin] : []),
       ...(config?.sessionManager ? [config.sessionManager] : []),
       new ModelPlugin(this.model),
     ])
