@@ -4294,10 +4294,13 @@ describe('BedrockModel', () => {
         const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
         const events = await collectIterator(provider.stream(messages))
 
-        expect(events).toContainEqual({
-          type: 'modelRedactionEvent',
-          inputRedaction: { replaceContent: '[User input redacted.]' },
-        })
+        const redactEvents = events.filter((e) => e.type === 'modelRedactionEvent')
+        expect(redactEvents).toStrictEqual([
+          {
+            type: 'modelRedactionEvent',
+            inputRedaction: { replaceContent: '[User input redacted.]' },
+          },
+        ])
       })
 
       it('emits redaction events when guardrail_intervened but no metadata event arrives', async () => {
@@ -4683,10 +4686,13 @@ describe('BedrockModel', () => {
           provider.stream([new Message({ role: 'user', content: [new TextBlock('Hello')] })])
         )
 
-        expect(events).toContainEqual({
-          type: 'modelRedactionEvent',
-          inputRedaction: { replaceContent: '[User input redacted.]' },
-        })
+        const redactEvents = events.filter((e) => e.type === 'modelRedactionEvent')
+        expect(redactEvents).toStrictEqual([
+          {
+            type: 'modelRedactionEvent',
+            inputRedaction: { replaceContent: '[User input redacted.]' },
+          },
+        ])
       })
     })
 
