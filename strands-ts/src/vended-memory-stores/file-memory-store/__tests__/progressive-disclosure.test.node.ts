@@ -89,6 +89,15 @@ describe('FileMemoryStore progressive disclosure', () => {
       expect(await store.listFiles()).toStrictEqual([{ path: 'facts/ui.md', description: 'UI preference' }])
     })
 
+    it('returns every file, even past the per-turn injection cap — the cap is on injection, not on this API', async () => {
+      for (let index = 0; index < 101; index++) {
+        const key = `facts/fact-${String(index).padStart(3, '0')}.md`
+        await scoped.write(key, encoder.encode(`---\ndescription: "d${index}"\n---\n\nbody ${index}`))
+      }
+
+      expect(await store.listFiles()).toHaveLength(101)
+    })
+
     it('skips unreadable files so one bad file does not cost the model its whole listing', async () => {
       const flakyStorage: Storage = {
         async write(): Promise<void> {},
@@ -224,6 +233,63 @@ describe('FileMemoryStore progressive disclosure', () => {
 
     it('skips injection entirely for an empty store, so a fresh store costs no tokens', async () => {
       expect(await renderInjectedListing(store)).toBeUndefined()
+    })
+
+    it('caps the injected listing on a store larger than progressive disclosure targets', async () => {
+      // MAX_LISTED_FILES is 100; seed 101 so the cap fires with the smallest oversize.
+      for (let index = 0; index < 101; index++) {
+        const key = `facts/fact-${String(index).padStart(3, '0')}.md`
+        await scoped.write(key, encoder.encode(`---\ndescription: "d${index}"\n---\n\nbody ${index}`))
+      }
+
+      const injected = (await renderInjectedListing(store)) ?? ''
+
+      // Keeps the first 100 by sorted path and reports the shortfall rather than hiding files silently.
+      expect(injected).toContain('Only the first 100 of 101 memory files are shown')
+      expect(injected).toContain('<file path="facts/fact-000.md">d0</file>')
+      expect(injected).toContain('<file path="facts/fact-099.md">d99</file>')
+      expect(injected).not.toContain('<file path="facts/fact-100.md">')
+    })
+
+    it('reads only up to the cap, so per-turn storage cost stays bounded on a large store', async () => {
+      // Each read is a storage round-trip; the cap should bound them to 100, not one per file.
+      let readCount = 0
+      const countingStorage: Storage = {
+        async write(): Promise<void> {},
+        async read(key: string): Promise<Uint8Array | null> {
+          readCount++
+          return encoder.encode(`---\ndescription: "d for ${key}"\n---\n\nbody`)
+        },
+        async delete(): Promise<void> {},
+        async list(): Promise<string[]> {
+          return Array.from({ length: 200 }, (_, index) => `memory/big/facts/fact-${String(index).padStart(3, '0')}.md`)
+        },
+      }
+      const bigStore = new FileMemoryStore({ name: 'big', storage: countingStorage })
+
+      await renderInjectedListing(bigStore)
+
+      expect(readCount).toBe(100)
+    })
+
+    it('honors a custom maxListedFiles cap', async () => {
+      const capped = new FileMemoryStore({ name: 'small-cap', storage, maxListedFiles: 2 })
+      for (let index = 0; index < 3; index++) {
+        await capped.add(`fact ${index}`, { title: `f${index}`, description: `d${index}` })
+      }
+
+      expect(await renderInjectedListing(capped)).toContain('Only the first 2 of 3 memory files are shown')
+    })
+
+    it('injects the whole listing when maxListedFiles is Infinity', async () => {
+      const uncapped = new FileMemoryStore({ name: 'no-cap', storage, maxListedFiles: Infinity })
+      for (let index = 0; index < 3; index++) {
+        await uncapped.add(`fact ${index}`, { title: `f${index}`, description: `d${index}` })
+      }
+
+      const injected = (await renderInjectedListing(uncapped)) ?? ''
+      expect(injected).toContain('<file path="facts/f0.md">d0</file>')
+      expect(injected).not.toContain('memory files are shown')
     })
 
     it('injects on an autonomous tool-result turn, which the SDK-wide userTurn default would skip', async () => {

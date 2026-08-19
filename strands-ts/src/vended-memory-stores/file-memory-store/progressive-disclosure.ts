@@ -19,22 +19,30 @@ import { escapeXmlAttr, escapeXmlText } from '../../injection/xml.js'
  * listing to find the next. Fields are flattened and XML-escaped, since stored content is a
  * prompt-injection surface.
  *
+ * The store caps how many files it reads per turn, so a large listing is truncated to a stable prefix
+ * and the instruction reports how many were omitted.
+ *
  * @param storeName - The store's name, which makes the plugin name unique per store
- * @param listFiles - Supplies the current path/description listing, called once per injected turn
+ * @param getListing - Supplies the listing and total file count, once per injected turn; `files.length`
+ *   is below `total` when the store capped it
  * @returns A {@link ContextInjector} that injects the listing
  */
 export function createProgressiveDisclosureInjector(
   storeName: string,
-  listFiles: () => Promise<{ path: string; description: string }[]>
+  getListing: () => Promise<{ files: { path: string; description: string }[]; total: number }>
 ): Plugin {
   return new ContextInjector({
     name: `strands:file-memory-progressive-disclosure:${storeName}`,
     trigger: 'everyTurn',
     renderContent: async (): Promise<string | undefined> => {
-      const files = await listFiles()
+      const { files, total } = await getListing()
       if (files.length === 0) return undefined
 
-      const instruction = `You have these memory files from previous conversations. Read any whose description looks relevant to the current request with ${readToolName(storeName)} before answering — the descriptions below are summaries, not the content.`
+      const truncated = total > files.length
+      const truncationNote = truncated
+        ? ` Only the first ${files.length} of ${total} memory files are shown; the rest are not in this listing.`
+        : ''
+      const instruction = `You have these memory files from previous conversations. Read any whose description looks relevant to the current request with ${readToolName(storeName)} before answering — the descriptions below are summaries, not the content.${truncationNote}`
       const lines = files.map(
         (file) => `<file path="${escapeXmlAttr(flatten(file.path))}">${escapeXmlText(flatten(file.description))}</file>`
       )

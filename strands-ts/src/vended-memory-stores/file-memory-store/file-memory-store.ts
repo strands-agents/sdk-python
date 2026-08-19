@@ -18,6 +18,7 @@ import type { Tool } from '../../tools/tool.js'
 import type { ConsolidateConfig, FileMemoryStoreConfig } from './types.js'
 import { CONSOLIDATE_OPERATIONS } from './types.js'
 import { ConsolidationError } from '../../errors.js'
+import { logger } from '../../logging/logger.js'
 import { LocalFileStorage } from '../../storage/local-file-storage.js'
 import { NAMESPACED, namespace, normalizeKey } from '../../storage/storage.js'
 import { DEFAULT_MAX_SEARCH_RESULTS, tokenize, tokenOverlapScore } from '../../memory/search/keyword.js'
@@ -39,6 +40,14 @@ const STORAGE_NAMESPACE = 'memory'
 
 /** Default subdirectory (within the store's namespace) for entries added without an explicit path. */
 const FACTS_PREFIX = 'facts/'
+
+/**
+ * Default cap on files the per-turn progressive-disclosure injection reads and shows — each is one
+ * storage read and one line of context, so this bounds the recurring cost on a large store. Override
+ * per store with {@link FileMemoryStoreConfig.maxListedFiles}. {@link ConsolidateConfig.maxFiles} sets
+ * the same scale; {@link FileMemoryStore.listFiles} is not capped.
+ */
+const DEFAULT_MAX_LISTED_FILES = 100
 
 /** Extract the filename stem (without `.md` extension) from a storage key. */
 function basename(key: string): string {
@@ -134,6 +143,7 @@ export class FileMemoryStore implements MemoryStore {
 
   private readonly _storage: Storage
   private readonly _progressiveDisclosure: boolean
+  private readonly _maxListedFiles: number
 
   /**
    * Guards against overlapping {@link consolidate} runs on this instance. Set synchronously before
@@ -142,6 +152,9 @@ export class FileMemoryStore implements MemoryStore {
    */
   private _consolidating = false
 
+  /** Set once the injected listing has been truncated, so the size warning logs at most once. */
+  private _listingTruncationWarned = false
+
   constructor(config: FileMemoryStoreConfig) {
     this.name = config.name
     this.writable = config.writable ?? true
@@ -149,6 +162,7 @@ export class FileMemoryStore implements MemoryStore {
     if (config.maxSearchResults !== undefined) this.maxSearchResults = config.maxSearchResults
     if (config.extraction !== undefined) this.extraction = config.extraction
     this._progressiveDisclosure = config.progressiveDisclosure ?? true
+    this._maxListedFiles = config.maxListedFiles ?? DEFAULT_MAX_LISTED_FILES
     this._storage = this._resolveStorage(config.storage ?? new LocalFileStorage())
   }
 
@@ -207,17 +221,41 @@ export class FileMemoryStore implements MemoryStore {
   }
 
   /**
-   * List every knowledge file's path and description, without content. This is what progressive
-   * disclosure injects: enough for the model to judge relevance at a fraction of the token cost.
-   * Sorted by path for stability across turns. Excludes the consolidation changelog.
+   * List every knowledge file's path and description, without content — enough to judge relevance
+   * cheaply. Sorted by path, changelog excluded. Never capped, unlike the per-turn injection (see
+   * {@link FileMemoryStoreConfig.maxListedFiles}); both are built by {@link _collectListing}.
    *
    * @returns Every knowledge file's path and description, sorted by path
    */
   async listFiles(): Promise<{ path: string; description: string }[]> {
-    const allKeys = await this._storage.list('')
+    return (await this._collectListing()).files
+  }
 
-    const infos = await mapWithConcurrency(allKeys, STORAGE_READ_CONCURRENCY, async (key) => {
-      if (key === CONSOLIDATION_CHANGELOG) return null
+  /**
+   * Shared builder for {@link listFiles} and the injector: list keys, sort, read each description.
+   * `limit` caps how many are read (the first by sorted key), bounding per-turn cost; `total` is the
+   * full count so the caller can report what it omitted.
+   *
+   * @param limit - Maximum files to read and return; omit for all
+   * @returns The (possibly capped) files sorted by path, and the total eligible file count
+   */
+  private async _collectListing(
+    limit?: number
+  ): Promise<{ files: { path: string; description: string }[]; total: number }> {
+    const keys = (await this._storage.list(''))
+      .filter((key) => key !== CONSOLIDATION_CHANGELOG)
+      .sort((a, b) => a.localeCompare(b))
+    const truncated = limit !== undefined && keys.length > limit
+    const selected = truncated ? keys.slice(0, limit) : keys
+
+    if (truncated && !this._listingTruncationWarned) {
+      this._listingTruncationWarned = true
+      logger.warn(
+        `store=<${this.name}>, total=<${keys.length}>, shown=<${limit}> | memory store exceeds the injected-listing cap, injecting a truncated listing`
+      )
+    }
+
+    const infos = await mapWithConcurrency(selected, STORAGE_READ_CONCURRENCY, async (key) => {
       try {
         const bytes = await this._storage.read(key)
         if (!bytes) return null
@@ -228,9 +266,7 @@ export class FileMemoryStore implements MemoryStore {
       }
     })
 
-    return infos
-      .filter((info): info is NonNullable<typeof info> => info !== null)
-      .sort((a, b) => a.path.localeCompare(b.path))
+    return { files: infos.filter((info): info is NonNullable<typeof info> => info !== null), total: keys.length }
   }
 
   /**
@@ -271,7 +307,9 @@ export class FileMemoryStore implements MemoryStore {
    * @returns The listing injector, or nothing when `progressiveDisclosure` is off
    */
   getPlugins(): Plugin[] {
-    return this._progressiveDisclosure ? [createProgressiveDisclosureInjector(this.name, () => this.listFiles())] : []
+    return this._progressiveDisclosure
+      ? [createProgressiveDisclosureInjector(this.name, () => this._collectListing(this._maxListedFiles))]
+      : []
   }
 
   /**
