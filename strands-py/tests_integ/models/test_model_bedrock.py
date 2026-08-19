@@ -601,9 +601,10 @@ def test_prompt_caching_cache_tools_ttl():
     )
 
     # The call must succeed — Bedrock must accept cachePoint.ttl on the toolConfig checkpoint
-    # without raising a ValidationException.
+    # without raising a ValidationException. The loop only returns on a terminal stop reason, so
+    # this proves completion without depending on the model emitting text.
     result = agent("Use the lookup_fact tool to look up 'python'.")
-    assert len(str(result)) > 0
+    assert result.stop_reason == "end_turn"
 
 
 def test_prompt_caching_cache_config_auto_with_ttl(quiet_strands_logging):
@@ -671,9 +672,10 @@ def test_prompt_caching_aligned_1h_ttl_across_checkpoints(quiet_strands_logging)
         load_tools_from_directory=False,
     )
 
-    # Must succeed without ValidationException on the non-increasing TTL rule
+    # Must succeed without ValidationException on the non-increasing TTL rule. The large context
+    # exceeds the cache minimum, so a cache write reliably confirms the request was accepted.
     result = agent("What is 2+2?")
-    assert len(str(result)) > 0
+    assert result.metrics.accumulated_usage.get("cacheWriteInputTokens", 0) > 0
 
 
 def test_prompt_caching_untimed_cache_tools_inherits_the_configured_ttl(quiet_strands_logging):
@@ -698,8 +700,10 @@ def test_prompt_caching_untimed_cache_tools_inherits_the_configured_ttl(quiet_st
         load_tools_from_directory=False,
     )
 
+    # The durable prefix exceeds the cache minimum, so a cache write reliably confirms Bedrock
+    # accepted the aligned-TTL request without a ValidationException.
     result = agent("What is 2+2?")
-    assert len(str(result)) > 0
+    assert result.metrics.accumulated_usage.get("cacheWriteInputTokens", 0) > 0
 
 
 def test_bedrock_cache_point(quiet_strands_logging):
