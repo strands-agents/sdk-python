@@ -17,12 +17,17 @@ from ..agent.state import AgentState
 from ..types._events import AgentAsToolStreamEvent, ToolInterruptEvent, ToolResultEvent
 from ..types.content import Messages
 from ..types.interrupt import InterruptResponseContent
-from ..types.tools import AgentTool, ToolGenerator, ToolSpec, ToolUse
+from ..types.tools import AgentTool, ToolGenerator, ToolResultContent, ToolSpec, ToolUse
 
 if TYPE_CHECKING:
     from .agent import Agent
 
 logger = logging.getLogger(__name__)
+
+DELEGATION_DESCRIPTION_SUFFIX = (
+    " Calling this tool will return its response directly to the user as the final answer."
+    " It should be the only tool called in the turn."
+)
 
 
 class _AgentAsTool(AgentTool):
@@ -43,6 +48,9 @@ class _AgentAsTool(AgentTool):
         # Preserve context across invocations
         tool = researcher.as_tool(preserve_context=True)
 
+        # Delegation: sub-agent's response becomes the final answer
+        tool = researcher.as_tool(delegate=True)
+
         writer = Agent(name="writer", tools=[tool])
         writer("Write about AI agents")
         ```
@@ -55,6 +63,7 @@ class _AgentAsTool(AgentTool):
         name: str,
         description: str | None = None,
         preserve_context: bool = False,
+        delegate: bool = False,
     ) -> None:
         r"""Initialize the agent-as-tool adapter.
 
@@ -68,13 +77,20 @@ class _AgentAsTool(AgentTool):
                 values they had at construction time before each call, ensuring every
                 invocation starts from the same baseline regardless of any external
                 interactions with the agent. Defaults to False.
+            delegate: When True, the orchestrator treats this tool's result as the final
+                response and exits without an additional model call. The tool's description
+                is automatically suffixed with an instruction telling the model that this
+                tool should be the only tool called in the turn. Defaults to False.
         """
         super().__init__()
         self._agent = agent
         self._tool_name = name
+        self._delegate = delegate
         self._description = (
             description or agent.description or f"Use the {name} agent as a tool by providing a natural language input"
         )
+        if delegate:
+            self._description += DELEGATION_DESCRIPTION_SUFFIX
         self._preserve_context = preserve_context
 
         # When preserve_context=False, we snapshot the agent's initial state so we can
@@ -100,6 +116,11 @@ class _AgentAsTool(AgentTool):
     def agent(self) -> Agent:
         """The wrapped agent instance."""
         return self._agent
+
+    @property
+    def delegate(self) -> bool:
+        """Get whether this tool uses delegation semantics."""
+        return self._delegate
 
     @property
     def tool_name(self) -> str:
@@ -222,7 +243,34 @@ class _AgentAsTool(AgentTool):
                     {
                         "toolUseId": tool_use_id,
                         "status": "success",
-                        "content": [{"json": result.structured_output.model_dump()}],
+                        "content": [{"json": result.structured_output.model_dump(mode="json")}],
+                    }
+                )
+            elif self._delegate:
+                # Copy content blocks verbatim; falls back to str(result) minus trailing \n.
+                content = result.message.get("content", [])
+                tool_result_content: list[ToolResultContent] = []
+                for block in content:
+                    if isinstance(block, dict):
+                        if "text" in block:
+                            tool_result_content.append(ToolResultContent(text=block["text"]))
+                        elif "json" in block:
+                            tool_result_content.append(ToolResultContent(json=block["json"]))
+                        elif "citationsContent" in block:
+                            cited = [
+                                inner["text"]
+                                for inner in block["citationsContent"].get("content", [])
+                                if isinstance(inner, dict) and "text" in inner
+                            ]
+                            if cited:
+                                tool_result_content.append(ToolResultContent(text="\n".join(cited)))
+                if not tool_result_content:
+                    tool_result_content = [ToolResultContent(text=str(result).rstrip("\n"))]
+                yield ToolResultEvent(
+                    {
+                        "toolUseId": tool_use_id,
+                        "status": "success",
+                        "content": tool_result_content,
                     }
                 )
             else:

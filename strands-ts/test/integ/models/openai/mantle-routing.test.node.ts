@@ -6,8 +6,9 @@
  * `OPENAI_PATH_MODEL_PREFIXES` in `mantle.ts` goes stale whenever Mantle onboards a model.
  * For every model in the live catalog, this test asserts that the resolved path serves
  * it, probing the other path only on failure to distinguish misrouted from unserved ids.
- * Only HTTP 200 and 400 count as answers; any other status is retried and, if it
- * persists, fails the test as undetermined rather than passing as "no drift".
+ * Only HTTP 200 and 400 count as answers; any other status is retried and, if it persists,
+ * fails the test as undetermined. The integration-test retry policy gives transient
+ * external-service failures one more sweep before they hold the gate.
  *
  * Failure means the table needs updating, not that the SDK is broken for existing models.
  */
@@ -180,23 +181,4 @@ describe.skipIf(bedrock.skip)('Bedrock Mantle base-path routing', () => {
         'NOT_OPENAI_COMPATIBLE_PREFIXES'
     ).toEqual({})
   }, 600_000)
-
-  it.for(['xai.grok-4.3', 'google.gemma-4-31b', 'google.gemma-3-27b-it', 'openai.gpt-oss-120b'])(
-    'serves %s from the resolved base path',
-    { timeout: 240_000 },
-    async (modelId, ctx) => {
-      const token = await mintToken()
-      const models = await listModels(token)
-      if (models === null) {
-        ctx.skip('account lacks bedrock-mantle:ListModels')
-        return
-      }
-      if (!models.includes(modelId)) {
-        ctx.skip(`${modelId} is not in the ${REGION} catalog`)
-        return
-      }
-
-      expect(await serves(resolveMantleBasePath(modelId), modelId, token)).toBe(true)
-    }
-  )
 })

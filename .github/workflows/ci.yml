@@ -25,7 +25,7 @@ jobs:
       pr-metrics: ${{ steps.filter.outputs.pr-metrics }}
     steps:
       - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4
         id: filter
         with:
           # `**/!(*.md)` excludes docs-only changes from the SDK test matrices; keep it an
@@ -37,7 +37,6 @@ jobs:
               - '.github/workflows/ci.yml'
             typescript:
               - 'strands-ts/**/!(*.md)'
-              - 'strandly/**'
               - 'package.json'
               - 'package-lock.json'
               - '.github/workflows/typescript-*'

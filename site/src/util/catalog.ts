@@ -4,6 +4,7 @@
  */
 
 import type { CatalogEntryData } from '../content.config'
+import { isNew } from './new-badge'
 
 export interface CatalogStats {
   stars?: number
@@ -19,6 +20,7 @@ export interface CatalogCardModel {
   name: string
   description: string
   integrationType: CatalogEntryData['integrationType']
+  maintainedBy: CatalogEntryData['maintainedBy']
   sdk: 'agents' | 'evals'
   languages: ('python' | 'typescript')[]
   href: string
@@ -31,9 +33,6 @@ export interface CatalogCardModel {
   stars?: number
   downloads?: number
 }
-
-/** Window (in days) during which an entry carries the derived "new" badge. */
-export const NEW_BADGE_DAYS = 30
 
 export function toCardModel(
   id: string,
@@ -70,8 +69,7 @@ export function toCardModel(
   const maintainer = new URL(data.github).pathname.split('/')[1] ?? ''
 
   const badges: string[] = [...data.badges]
-  const ageDays = (buildDate.getTime() - data.addedDate.getTime()) / 86_400_000
-  if (ageDays >= 0 && ageDays < NEW_BADGE_DAYS) badges.push('new')
+  if (isNew(data.addedDate, buildDate)) badges.push('new')
 
   // Primary link priority: on-site docs page, then the integration's own
   // Strands instructions page, then the bare GitHub repo.
@@ -84,6 +82,7 @@ export function toCardModel(
     name: data.name,
     description: data.description,
     integrationType: data.integrationType,
+    maintainedBy: data.maintainedBy,
     sdk: data.sdk,
     languages,
     href: docsHref ?? data.docsUrl ?? data.github,

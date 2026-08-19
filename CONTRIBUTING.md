@@ -212,12 +212,21 @@ bucket, so write as many as the change deserves.
 
 **`complexity/*`** reports the [cognitive complexity](https://www.sonarsource.com/docs/CognitiveComplexity.pdf)
 of the most complex function your diff touches — roughly, how hard the control
-flow is to hold in your head. It scores only the functions you actually changed,
-so an existing hotspot elsewhere in a file you edited will not count against
-you. `complexity/high` (above 25) is a hint that a function may be worth
-splitting, not a rule; sometimes a complex function is the honest solution.
+flow is to hold in your head. It scores only the functions you actually
+changed, and a touched function counts only if your change *increased* its
+score over the merge base, so pre-existing complexity is never billed to you;
+a PR that touches functions without increasing any lands at `complexity/low`.
+`complexity/high` (above 25) is a hint
+that a function may be worth splitting, not a rule; sometimes a complex
+function is the honest solution.
 
 A docs-only or test-only PR touches no SDK source and gets no complexity label.
+
+The labels exist because review attention is the scarcest resource this
+project has: they let maintainers triage which PRs need an unhurried senior
+read, and they give you the same signal locally before a reviewer sees it. The
+reasoning, the scoring model, and the practices that keep code under the
+thresholds live in [team/COMPLEXITY.md](./team/COMPLEXITY.md).
 
 ## Using AI Tools
 

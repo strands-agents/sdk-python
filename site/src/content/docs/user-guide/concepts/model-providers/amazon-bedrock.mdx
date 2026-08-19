@@ -279,7 +279,7 @@ Common configuration parameters include:
 - `temperature` - Controls randomness (higher = more random)
 - `maxTokens` - Maximum number of tokens to generate
 - `stream` - Enable/disable streaming mode
-- `cacheConfig` - Enable prompt caching with `{ strategy: 'auto' }` or `{ strategy: 'anthropic' }`
+- `cacheConfig` - Enable prompt caching with `{ strategy: 'auto' }`, or `{ messagesTTL: false }` to cache tool definitions only
 - `region` - AWS region to use
 - `apiKey` - Bedrock API key for bearer token authentication (alternative to SigV4 signing)
 - `clientConfig` - AWS SDK client configuration
@@ -541,7 +541,7 @@ When `guardLatestUserMessage: true`, only the most recent user message is sent t
 
 Strands supports caching system prompts, tools, and messages to improve performance and reduce costs. Caching allows you to reuse parts of previous requests, which can significantly reduce token usage and latency.
 
-When you enable prompt caching, Amazon Bedrock creates a cache composed of **cache checkpoints**. These are markers that define the contiguous subsection of your prompt that you wish to cache. Cached content must remain unchanged between requests - any alteration invalidates the cache.
+When you enable prompt caching, Amazon Bedrock creates a cache composed of **cache points**. These are markers that define the contiguous subsection of your prompt that you wish to cache. Cached content must remain unchanged between requests - any alteration invalidates the cache.
 
 Prompt caching is supported for Anthropic Claude and Amazon Nova models on Bedrock. Each model has a minimum token requirement (e.g., 1,024 tokens for Claude Sonnet, 4,096 tokens for Claude Haiku), and cached content expires after 5 minutes of inactivity. Cache writes cost more than regular input tokens, but cache reads cost significantly less - see [Amazon Bedrock pricing](https://aws.amazon.com/bedrock/pricing/) for model-specific rates.
 
@@ -550,6 +550,8 @@ For complete details on supported models, token requirements, and cache field su
 #### System Prompt Caching
 
 Cache system prompts that remain static across multiple requests. This is useful when your system prompt contains no variables, timestamps, or dynamic content, exceeds the minimum cacheable token threshold for your model, and you make multiple requests with the same system prompt.
+
+A system prompt cache point you place by hand inherits the TTL you configured, so setting one `ttl` gives every cache point in the request the same duration. Bedrock requires TTLs to be non-increasing across the tool definitions, the system prompt, and the messages, and rejects a request where a longer TTL follows a shorter one.
 
 <Tabs>
 <Tab label="Python">
@@ -625,7 +627,17 @@ print(f"Cache read tokens: {response2.metrics.accumulated_usage.get('cacheReadIn
 </Tab>
 <Tab label="TypeScript">
 
-In TypeScript, tool caching is enabled through `cacheConfig`. When `cacheConfig` is set, the SDK automatically appends a cache point after the tool definitions in each request. There is no separate `cacheTools` option — `cacheConfig` handles both tool and message caching together.
+Setting `cacheConfig` appends a cache point after the tool definitions in each request. The same `cacheConfig` also caches the conversation, and `toolsTTL` and `messagesTTL` control the two independently:
+
+| Configuration | Caches |
+|---------------|--------|
+| `{}` | tool definitions and conversation |
+| `{ messagesTTL: false }` | tool definitions only |
+| `{ toolsTTL: false }` | conversation only |
+| `{ ttl: '1h' }` | both, with a one-hour TTL |
+| `{ ttl: '1h', messagesTTL: '5m' }` | tool definitions at one hour, conversation at five minutes |
+
+Pass a TTL to set that duration, or `false` to turn that part off. A `ttl` on `cacheConfig` applies to both, and either field overrides it for its own part.
 
 ```typescript
 --8<-- "user-guide/concepts/model-providers/amazon-bedrock.ts:tool_caching_full"
@@ -636,6 +648,10 @@ In TypeScript, tool caching is enabled through `cacheConfig`. When `cacheConfig`
 #### Messages Caching
 
 Messages caching allows you to reuse cached conversation context across multiple requests. By default, message caching is not enabled. To enable it, choose Option A for automatic cache management in agent workflows, or Option B for manual control over cache placement.
+
+The two compose. With automatic placement enabled, a cache point you place yourself in the last user message is kept where you put it, and automatic placement is suspended for that message. Cache points in earlier messages are removed, so they never accumulate one per turn.
+
+Place your cache point *ahead* of content that changes on every call, such as retrieved context or a timestamp. A cache point after that content puts it inside the cached prefix, so every request writes a new entry and none ever reads one. Bedrock also needs something ahead of the point to cache: a point in the first block of a message is dropped.
 
 **Option A: Automatic Cache Strategy (Claude models only)**
 
@@ -974,6 +990,105 @@ const model = new BedrockModel({
   modelId: 'global.anthropic.claude-sonnet-4-6',
   useNativeTokenCount: true,
 })
+```
+</Tab>
+</Tabs>
+
+### OpenAI-Compatible Endpoints (Mantle)
+
+Mantle is not a separate service or model catalog: it is Amazon Bedrock's second
+endpoint family,
+[`bedrock-mantle`](https://docs.aws.amazon.com/bedrock/latest/userguide/bedrock-mantle.html),
+which serves Bedrock-hosted models through OpenAI-compatible APIs. The two families
+serve different, overlapping model sets: many models are only on the standard
+`bedrock-runtime` endpoint that `BedrockModel` uses, some model lines are only on
+`bedrock-mantle`, and some are on both. AWS lists which endpoint serves each model in
+[endpoint availability by model](https://docs.aws.amazon.com/bedrock/latest/userguide/models-endpoint-availability.html).
+
+Pick your provider by where the model is served. When it is on `bedrock-runtime`, use
+`BedrockModel` as described on the rest of this page (AWS recommends that endpoint
+when a model is on both). When it is served through Mantle, connect with the SDK's
+[OpenAI Responses provider](./openai-responses) instead, in one of the two ways below.
+
+#### Connecting with AWS Credentials
+
+Pass <Syntax py="bedrock_mantle_config" ts="bedrockMantleConfig" /> and the provider
+derives the endpoint from your region, routes the model to the correct Mantle base
+path, and mints short-lived bearer tokens from your AWS credentials (via the
+standard credential chain), refreshing them so long-running agents survive token
+expiry:
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.models.openai_responses import OpenAIResponsesModel
+
+model = OpenAIResponsesModel(
+    model_id="openai.gpt-oss-120b",
+    bedrock_mantle_config={"region": "us-east-1"},
+)
+
+agent = Agent(model=model)
+response = agent("What is 2+2?")
+print(response)
+```
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/model-providers/amazon-bedrock_imports.ts:mantle_config_imports"
+
+--8<-- "user-guide/concepts/model-providers/amazon-bedrock.ts:mantle_config"
+```
+
+Requires the optional dependency: `npm install @aws/bedrock-token-generator`
+</Tab>
+</Tabs>
+
+Omit the region to resolve it from your AWS environment. The config also accepts AWS
+credentials to forward to the token generator
+(<Syntax py="credentials_provider" ts="credentials" />, a
+<Syntax py="botocore CredentialProvider" ts="static identity or provider function" plain />)
+and a token-lifetime override (<Syntax py="expiry" ts="expiresInSeconds" />). In
+Python, `boto_session` can also supply the region from a configured profile.
+
+#### Connecting with a Bedrock API Key
+
+Authenticate with a
+[Bedrock API key](https://docs.aws.amazon.com/bedrock/latest/userguide/api-key-management.html)
+and point the client at your region's Mantle endpoint yourself. Note that some model
+lines are served from `/openai/v1` rather than `/v1`; the config-based approach above
+picks the right path for you.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.models.openai_responses import OpenAIResponsesModel
+
+region = "us-east-1"
+model = OpenAIResponsesModel(
+    model_id="openai.gpt-oss-120b",
+    client_args={
+        "api_key": "<BEDROCK_API_KEY>",
+        "base_url": f"https://bedrock-mantle.{region}.api.aws/v1",
+    },
+)
+
+agent = Agent(model=model)
+response = agent("What is 2+2?")
+print(response)
+```
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/model-providers/amazon-bedrock_imports.ts:bedrock_mantle_imports"
+
+--8<-- "user-guide/concepts/model-providers/amazon-bedrock.ts:bedrock_mantle"
 ```
 </Tab>
 </Tabs>

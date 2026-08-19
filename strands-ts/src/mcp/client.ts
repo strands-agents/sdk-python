@@ -380,6 +380,15 @@ export class McpClient {
           description: toolSpec.description || `Tool which performs ${toolSpec.name}`,
           inputSchema: toolSpec.inputSchema as JSONSchema,
           ...(toolSpec.outputSchema !== undefined && { outputSchema: toolSpec.outputSchema as JSONSchema }),
+          // Pass through only the annotation keys the MCP SDK's Zod schema recognizes
+          // (title, readOnlyHint, destructiveHint, idempotentHint, openWorldHint). The SDK strips
+          // unknown keys before this code runs, so new annotation vocabulary won't surface here
+          // until the SDK dependency updates. The MCP spec treats these as untrusted hints.
+          // An empty annotations object is treated the same as no annotations.
+          ...(toolSpec.annotations !== undefined &&
+            Object.keys(toolSpec.annotations).length > 0 && {
+              annotations: toolSpec.annotations,
+            }),
           client: this,
         })
         this._serverToolNames.set(tool, toolSpec.name)

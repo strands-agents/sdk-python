@@ -21,28 +21,13 @@ Example Usage:
 """
 
 import warnings
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from typing_extensions import deprecated
-
+from ._bash import _RENAME_RATIONALE, make_bash  # noqa: F401  deprecated tool, kept importable until v2.0.0
 from .file_editor import file_editor, make_file_editor
 from .http_request import http_request, make_http_request
 from .shell import make_shell, shell
 from .sleep import make_sleep, sleep
-
-if TYPE_CHECKING:
-    from ..tools.decorator import DecoratedFunctionTool
-
-_RENAME_RATIONALE = (
-    "The tool routes commands through the sandbox, which runs sh or the remote login shell "
-    "rather than bash specifically."
-)
-
-
-@deprecated(f"make_bash is deprecated and will be removed in v2.0.0. Use make_shell instead. {_RENAME_RATIONALE}")
-def make_bash(**kwargs: Any) -> "DecoratedFunctionTool":
-    """Deprecated alias for :func:`make_shell`."""
-    return make_shell(**kwargs)
 
 
 def __getattr__(name: str) -> Any:
@@ -54,7 +39,9 @@ def __getattr__(name: str) -> Any:
             DeprecationWarning,
             stacklevel=2,
         )
-        return shell
+        from ._bash import bash
+
+        return bash
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 

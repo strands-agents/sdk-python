@@ -158,3 +158,31 @@ Always select the most appropriate tool based on the user's query.`,
 }
 
 void orchestratorExample
+
+async function delegationBasicExample() {
+  // --8<-- [start:delegation_basic]
+  const BillingResponseSchema = z.object({
+    summary: z.string(),
+    refundAmount: z.number(),
+  })
+
+  const billingAgent = new Agent({
+    name: 'billing_expert',
+    description: 'Answers billing questions: charges, refunds, and invoices.',
+    systemPrompt: 'You handle billing questions with precision.',
+    structuredOutputSchema: BillingResponseSchema,
+    printer: false,
+  })
+
+  const orchestrator = new Agent({
+    systemPrompt: `Route billing questions to billing_expert.
+Answer general questions yourself.`,
+    tools: [billingAgent.asTool({ delegate: true })],
+  })
+
+  const result = await orchestrator.invoke('Why was I charged twice?')
+  // result contains the billing agent's structured JSON response, unchanged
+  // --8<-- [end:delegation_basic]
+  void result
+}
+void delegationBasicExample
