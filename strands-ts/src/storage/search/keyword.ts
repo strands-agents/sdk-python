@@ -31,7 +31,7 @@ export function tokenOverlapScore(queryTokens: Set<string>, content: string): nu
  *
  * @example
  * ```typescript
- * import { KeywordSearchStrategy } from '@strands-agents/sdk/storage'
+ * import { KeywordSearchStrategy } from '@strands-agents/sdk/storage/search'
  *
  * const results = await KeywordSearchStrategy.search(storage, 'dark mode toggle')
  * ```

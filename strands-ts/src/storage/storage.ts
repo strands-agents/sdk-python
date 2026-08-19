@@ -58,7 +58,11 @@ export function normalizePrefix(prefix: string): string {
 export interface StorageSearchResult {
   /** Storage key of the matched item. */
   key: string
-  /** Backend-specific relevance score (higher is more relevant). */
+  /**
+   * Relevance score, normalized so that higher values indicate greater relevance.
+   * Backends using distance-based scoring (e.g. vector distance) must invert to
+   * similarity before returning results.
+   */
   score: number
   /** Stored bytes, present only when the backend includes them. */
   data?: Uint8Array

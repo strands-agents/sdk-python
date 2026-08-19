@@ -224,19 +224,21 @@ export class FileMemoryStore implements MemoryStore {
 
     // Serialize writes per key to prevent lost-update from concurrent read-modify-write
     const prev = this._writeLocks.get(canonicalKey) ?? Promise.resolve('')
-    const current = prev.then(async () => {
-      const existing = await this._storage.read(canonicalKey)
-      let merged: string
-      if (existing) {
-        const existingContent = decoder.decode(existing)
-        const newFacts = lines.slice(1).join('\n').trim()
-        merged = newFacts ? `${existingContent.trimEnd()}\n${newFacts}` : existingContent
-      } else {
-        merged = content
-      }
-      await this._storage.write(canonicalKey, encoder.encode(merged))
-      return canonicalKey
-    })
+    const current = prev
+      .catch(() => {})
+      .then(async () => {
+        const existing = await this._storage.read(canonicalKey)
+        let merged: string
+        if (existing) {
+          const existingContent = decoder.decode(existing)
+          const newFacts = lines.slice(1).join('\n').trim()
+          merged = newFacts ? `${existingContent.trimEnd()}\n${newFacts}` : existingContent
+        } else {
+          merged = content
+        }
+        await this._storage.write(canonicalKey, encoder.encode(merged))
+        return canonicalKey
+      })
     this._writeLocks.set(canonicalKey, current)
     try {
       return await current
