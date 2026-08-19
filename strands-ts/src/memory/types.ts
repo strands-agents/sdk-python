@@ -168,9 +168,8 @@ export interface MemoryStore extends MemoryStoreConfig {
    * counterpart to {@link getTools} for what a tool cannot express, such as a `ContextInjector`.
    *
    * Called after {@link initialize}; the manager initializes each plugin during `initAgent`, which is what
-   * makes its hooks and middleware live. Independent of {@link MemoryManagerConfig.injection}, which governs
-   * only the manager's own search-based injection. A returned plugin's own {@link Plugin.getTools} is
-   * ignored — use {@link getTools} instead.
+   * makes its hooks and middleware live. A returned plugin's own {@link Plugin.getTools} is ignored — use
+   * {@link getTools} instead.
    *
    * @returns Array of plugins to register with the agent
    */

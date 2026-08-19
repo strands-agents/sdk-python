@@ -26,6 +26,8 @@ import { escapeXmlAttr, escapeXmlText } from '../../injection/xml.js'
  * @param getListing - Supplies the listing and total file count, once per injected turn; `files.length`
  *   is below `total` when the store capped it
  * @returns A {@link ContextInjector} that injects the listing
+ *
+ * @internal
  */
 export function createProgressiveDisclosureInjector(
   storeName: string,
@@ -60,6 +62,8 @@ export function createProgressiveDisclosureInjector(
  * @param storeName - The store's name, which names the tool
  * @param readFile - Reads one file's body by path, applying the store's own path rules
  * @returns The read tool, ready to register
+ *
+ * @internal
  */
 export function createReadTool(storeName: string, readFile: (path: string) => Promise<string>): Tool {
   return tool({
