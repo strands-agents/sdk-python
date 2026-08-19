@@ -29,6 +29,8 @@ import { EmergencyTruncateStrategy, Offload } from './strategies/offload/index.j
 export class ContextManager implements Plugin {
   readonly name = 'strands:context-manager'
 
+  private static readonly _claimed = new WeakMap<LocalAgent, ContextManager>()
+
   private readonly _strategies: ContextStrategy[]
 
   constructor(config?: ContextManagerConfig) {
@@ -42,6 +44,13 @@ export class ContextManager implements Plugin {
   }
 
   initAgent(agent: LocalAgent): void {
+    const existing = ContextManager._claimed.get(agent)
+    if (existing && existing !== this) {
+      logger.warn('duplicate ContextManager detected, this instance will be ignored')
+      return
+    }
+    ContextManager._claimed.set(agent, this)
+
     for (const strategy of this._strategies) {
       strategy.init?.(agent)
     }

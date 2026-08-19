@@ -607,28 +607,15 @@ export class Agent implements LocalAgent, InvokableAgent {
     //   guards on `event.retry`, so a user hook that already set it short-circuits
     //   the strategy regardless of registration order.
     const hasOffloader = (config?.plugins ?? []).some((p) => p.name === 'strands:context-offloader')
-    const hasContextManager = (config?.plugins ?? []).some((p) => p.name === 'strands:context-manager')
-
-    if (hasContextManager && config?.contextManager && !(config.contextManager instanceof ContextManager)) {
-      logger.warn(
-        'ContextManager found in plugins array while contextManager param is also set, the param takes precedence'
-      )
-    }
-
     // Always register AgentDelegation so delegation semantics work regardless of
     // when a delegate tool is added (construction, plugin getTools, MCP, runtime).
     // The plugin is a no-op when no delegation tools fire.
     const hasAgentDelegation = (config?.plugins ?? []).some((p) => p.name === 'strands:agent-delegation')
 
-    const userPlugins =
-      hasContextManager && config?.contextManager instanceof ContextManager
-        ? (config.plugins ?? []).filter((p) => p.name !== 'strands:context-manager')
-        : (config?.plugins ?? [])
-
     this._pluginRegistry = new PluginRegistry([
       this._conversationManager,
       ...retryStrategies,
-      ...userPlugins,
+      ...(config?.plugins ?? []),
       ...(!hasAgentDelegation ? [new AgentDelegation()] : []),
       ...((config?.contextManager === 'auto' || config?.contextManager === 'agentic') && !hasOffloader
         ? [
@@ -642,7 +629,10 @@ export class Agent implements LocalAgent, InvokableAgent {
           ]
         : []),
       ...(this.memoryManager ? [this.memoryManager] : []),
-      ...(config?.contextManager instanceof ContextManager ? [config.contextManager] : []),
+      ...(config?.contextManager instanceof ContextManager &&
+      !(config.plugins ?? []).some((p) => p.name === 'strands:context-manager')
+        ? [config.contextManager]
+        : []),
       ...(config?.sessionManager ? [config.sessionManager] : []),
       new ModelPlugin(this.model),
     ])
