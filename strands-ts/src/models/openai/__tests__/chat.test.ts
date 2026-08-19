@@ -618,8 +618,6 @@ describe('OpenAIModel', () => {
       })
     })
 
-    // Regression: the TS Chat path dropped prompt_tokens_details.cached_tokens, so cache reads were
-    // invisible in TS Chat usage while Python OpenAI and the TS Responses path already surfaced them.
     it('surfaces cacheReadInputTokens from prompt_tokens_details', async () => {
       const mockClient = createMockClient(async function* () {
         yield {
