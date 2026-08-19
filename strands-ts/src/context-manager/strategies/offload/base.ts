@@ -179,9 +179,9 @@ export function collectRemovableWithPair(messages: Message[], index: number): Me
 
 /**
  * Collects removable messages (with their tool pairs), then splices them from the array.
- * Returns the number of messages removed.
+ * Returns the number of messages removed and the lowest index that was removed.
  */
-export function spliceWithPairs(messages: Message[], toRemove: Message[]): number {
+export function spliceWithPairs(messages: Message[], toRemove: Message[]): { removed: number; lowestIndex: number } {
   const toSplice = new Set<Message>()
   for (const message of toRemove) {
     const index = messages.indexOf(message)
@@ -192,13 +192,15 @@ export function spliceWithPairs(messages: Message[], toRemove: Message[]): numbe
   }
 
   let removed = 0
+  let lowestIndex = messages.length
   for (const message of toSplice) {
     const index = messages.indexOf(message)
     if (index === -1) continue
+    if (index < lowestIndex) lowestIndex = index
     messages.splice(index, 1)
     removed++
   }
-  return removed
+  return { removed, lowestIndex }
 }
 
 /**
@@ -350,17 +352,13 @@ export abstract class BaseOffloadStrategy implements ContextStrategy {
     const targetRemoval = Math.max(1, Math.floor(eligible.length * this._removalRatio))
     const toRemove = eligible.slice(0, targetRemoval)
 
-    const insertIndex = Math.max(1, messages.indexOf(toRemove[0]!))
-    const removed = spliceWithPairs(messages, toRemove)
+    const { removed, lowestIndex } = spliceWithPairs(messages, toRemove)
     if (removed === 0) return false
 
     const marker = this._makeRemovalMarker(removed)
     if (marker) {
-      messages.splice(
-        Math.min(insertIndex, messages.length),
-        0,
-        new Message({ role: 'user', content: [new TextBlock(marker)] })
-      )
+      const insertIndex = Math.max(1, Math.min(lowestIndex, messages.length))
+      messages.splice(insertIndex, 0, new Message({ role: 'user', content: [new TextBlock(marker)] }))
     }
 
     repairAlternation(messages)

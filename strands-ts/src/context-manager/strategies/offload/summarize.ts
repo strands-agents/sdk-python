@@ -92,18 +92,17 @@ export class SummarizeStrategy extends BaseOffloadStrategy {
       ],
     })
 
-    // Record insertion point before removing (position of the first summarized message)
-    const insertIndex = Math.max(1, messages.indexOf(safe[0]!))
-
-    // Remove summarized messages individually (they may not be contiguous)
+    // Remove summarized messages, tracking the lowest removal point for insertion
+    let lowestIndex = messages.length
     for (const message of safe) {
       const index = messages.indexOf(message)
-      if (index !== -1) messages.splice(index, 1)
+      if (index === -1) continue
+      if (index < lowestIndex) lowestIndex = index
+      messages.splice(index, 1)
     }
 
-    // Insert summary where the first summarized message was
-    const clampedInsert = Math.min(insertIndex, messages.length)
-    messages.splice(clampedInsert, 0, summaryMessage)
+    const insertIndex = Math.max(1, Math.min(lowestIndex, messages.length))
+    messages.splice(insertIndex, 0, summaryMessage)
 
     repairAlternation(messages)
     logger.debug(`summarized=<${safe.length}>, tokens=<${totalTokens}> | batched summarization complete`)

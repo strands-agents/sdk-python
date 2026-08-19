@@ -72,16 +72,12 @@ export class TruncateStrategy extends BaseOffloadStrategy {
 
     if (middleMessages.length === 0) return false
 
-    const insertIndex = headKeep > 0 ? messages.indexOf(headMessages[headKeep - 1]!) + 1 : 1
-    const removed = spliceWithPairs(messages, middleMessages)
+    const { removed, lowestIndex } = spliceWithPairs(messages, middleMessages)
     if (removed === 0) return false
 
     const marker = this._makeRemovalMarker(removed)
-    messages.splice(
-      Math.min(insertIndex, messages.length),
-      0,
-      new Message({ role: 'user', content: [new TextBlock(marker)] })
-    )
+    const insertIndex = Math.max(1, Math.min(lowestIndex, messages.length))
+    messages.splice(insertIndex, 0, new Message({ role: 'user', content: [new TextBlock(marker)] }))
 
     repairAlternation(messages)
     return true

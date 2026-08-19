@@ -86,12 +86,11 @@ export class ContextManager implements Plugin {
   private async _runStrategies(agent: LocalAgent, precomputedInputTokens?: number): Promise<boolean> {
     const messages = agent.messages
     const inputTokens = precomputedInputTokens ?? (await agent.model.countTokens(messages))
-    const utilization = agent.model.estimateUtilization(inputTokens)
 
     const strategyContext: ContextState = {
       messages,
       agent,
-      utilization,
+      utilization: agent.model.estimateUtilization(inputTokens),
     }
 
     let anyActed = false
@@ -100,6 +99,7 @@ export class ContextManager implements Plugin {
         const acted = await strategy.apply(strategyContext)
         if (acted) {
           anyActed = true
+          strategyContext.utilization = agent.model.estimateUtilization(await agent.model.countTokens(messages))
           logger.debug(`strategy=<${strategy.name}>, agentId=<${agent.id}> | strategy applied`)
         }
       } catch (error) {

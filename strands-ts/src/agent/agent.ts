@@ -539,7 +539,11 @@ export class Agent implements LocalAgent, InvokableAgent {
     this.name = config?.name ?? DEFAULT_AGENT_NAME
     this.id = config?.id ?? DEFAULT_AGENT_ID
     if (config?.description !== undefined) this.description = config.description
-    this.contextManager = config?.contextManager instanceof ContextManager ? config.contextManager : undefined
+    this.contextManager =
+      config?.contextManager instanceof ContextManager &&
+      !(config.plugins ?? []).some((p) => p.name === 'strands:context-manager')
+        ? config.contextManager
+        : ((config?.plugins ?? []).find((p) => p.name === 'strands:context-manager') as ContextManager | undefined)
     this.sessionManager = config?.sessionManager
     this.storage = config?.storage
     this.memoryManager =
