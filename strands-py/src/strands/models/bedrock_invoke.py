@@ -57,6 +57,13 @@ def _unsupported_block(block: Mapping[str, Any]) -> TypeError:
     return TypeError(f"content_type=<{next(iter(block), None)}> | unsupported type")
 
 
+def _tool_result_text(block: Mapping[str, Any]) -> str:
+    """Return supported tool-result text, rejecting blocks this provider cannot put on the wire."""
+    if "text" not in block:
+        raise _unsupported_block(block)
+    return cast(str, block["text"])
+
+
 def _latency_ms(start_time: float) -> int:
     return int((time.perf_counter() - start_time) * 1000)
 
@@ -216,11 +223,7 @@ class BedrockInvokeModel(BedrockModel):
                     )
                 elif "toolResult" in block:
                     tr = block["toolResult"]
-                    rc: list[dict[str, Any]] = [
-                        {"type": "text", "text": rb["text"] if "text" in rb else json.dumps(rb["json"])}
-                        for rb in tr["content"]
-                        if "text" in rb or "json" in rb
-                    ]
+                    rc: list[dict[str, Any]] = [{"type": "text", "text": _tool_result_text(rb)} for rb in tr["content"]]
                     entry: dict[str, Any] = {"type": "tool_result", "tool_use_id": tr["toolUseId"], "content": rc}
                     if tr.get("status") == "error":
                         entry["is_error"] = True
@@ -277,7 +280,7 @@ class BedrockInvokeModel(BedrockModel):
                     tool_calls.append({"id": tu["toolUseId"], "type": "function", "function": fn})
                 elif "toolResult" in block:
                     tr = block["toolResult"]
-                    chunks = [c["text"] if "text" in c else json.dumps(c.get("json", "")) for c in tr["content"]]
+                    chunks = [_tool_result_text(result_content) for result_content in tr["content"]]
                     tool_results.append({"role": "tool", "tool_call_id": tr["toolUseId"], "content": "".join(chunks)})
                 else:
                     raise _unsupported_block(block)
@@ -319,8 +322,18 @@ class BedrockInvokeModel(BedrockModel):
 
     # ----- response translation
 
-    _ANTHROPIC_STOP = {"tool_use": "tool_use", "max_tokens": "max_tokens", "stop_sequence": "stop_sequence"}
-    _OPENAI_STOP = {"tool_calls": "tool_use", "length": "max_tokens", "stop": "end_turn"}
+    _ANTHROPIC_STOP = {
+        "tool_use": "tool_use",
+        "max_tokens": "max_tokens",
+        "stop_sequence": "stop_sequence",
+        "refusal": "content_filtered",
+    }
+    _OPENAI_STOP = {
+        "tool_calls": "tool_use",
+        "length": "max_tokens",
+        "stop": "end_turn",
+        "content_filter": "content_filtered",
+    }
 
     @classmethod
     def _map_anthropic_stop(cls, reason: str | None) -> str:

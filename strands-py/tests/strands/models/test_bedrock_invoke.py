@@ -278,12 +278,12 @@ def test_format_openai_request_tool_calls_and_results():
 
 
 def test_format_anthropic_request_tool_result_success_omits_is_error(model):
-    """``is_error`` marks a failed tool result only, and a json result is serialized to text."""
-    tr = {"toolUseId": "tu1", "status": "success", "content": [{"json": {"ok": True}}]}
+    """``is_error`` marks failed tool results only."""
+    tr = {"toolUseId": "tu1", "status": "success", "content": [{"text": "ok"}]}
     req = model._format_anthropic_request([{"role": "user", "content": [{"toolResult": tr}]}], None, None, None)
     block = req["messages"][0]["content"][0]
     assert "is_error" not in block
-    assert block["content"] == [{"type": "text", "text": json.dumps({"ok": True})}]
+    assert block["content"] == [{"type": "text", "text": "ok"}]
 
 
 def test_format_openai_request_omits_tool_choice_when_unset():
@@ -412,6 +412,38 @@ def test_format_openai_request_all_unsupported_blocks_does_not_drop_message():
     ]
     with pytest.raises(TypeError, match="unsupported type"):
         m._format_openai_request(msgs, None, None, None)
+
+
+@pytest.mark.parametrize("family", ["anthropic", "openai"])
+@pytest.mark.parametrize(
+    "result_content",
+    [
+        {"json": {"ok": True}},
+        {"image": {"format": "png", "source": {"bytes": b"\x89PNG\r\n"}}},
+        {"document": {"format": "pdf", "name": "doc", "source": {"bytes": b"%PDF-"}}},
+    ],
+)
+def test_format_request_rejects_non_text_tool_result(model, family, result_content):
+    """Both request families accept text-only tool-result content."""
+    model.update_config(model_family=family)
+    tool_result = {"toolUseId": "tu1", "status": "success", "content": [result_content]}
+    messages = [{"role": "user", "content": [{"toolResult": tool_result}]}]
+
+    exp_content_type = next(iter(result_content))
+    with pytest.raises(TypeError, match=rf"content_type=<{exp_content_type}> \| unsupported type"):
+        model._format_invoke_request(messages, None, None, None)
+
+
+@pytest.mark.parametrize(
+    "family, reason",
+    [("anthropic", "refusal"), ("openai", "content_filter")],
+)
+def test_map_stop_reason_content_filtered(family, reason):
+    mapper = BedrockInvokeModel._map_anthropic_stop if family == "anthropic" else BedrockInvokeModel._map_openai_stop
+
+    tru_stop_reason = mapper(reason)
+    exp_stop_reason = "content_filtered"
+    assert tru_stop_reason == exp_stop_reason
 
 
 # ---- unsupported inherited methods
