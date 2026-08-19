@@ -51,7 +51,7 @@ import inspect
 import logging
 from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
 from ..._middleware.stages import InvokeModelStage
 from ...hooks.events import AfterInvocationEvent, AfterModelCallEvent, BeforeInvocationEvent
@@ -69,18 +69,43 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+ModelModality: TypeAlias = Literal["text", "image", "audio", "video", "document"]
+
+
+@dataclass(frozen=True)
+class CandidateMetadata:
+    """Typed facts available to routing strategies.
+
+    Every field is optional. ``None`` means unknown, while ``False`` explicitly means a feature is unsupported.
+    Metadata may be sent to a classifier model, so it must not contain secrets.
+    """
+
+    provider: str | None = None
+    model_id: str | None = None
+    input_modalities: tuple[ModelModality, ...] | None = None
+    output_modalities: tuple[ModelModality, ...] | None = None
+    context_window_limit: int | None = None
+    max_output_tokens: int | None = None
+    supports_tool_use: bool | None = None
+    supports_parallel_tool_use: bool | None = None
+    supports_structured_output: bool | None = None
+    supports_reasoning: bool | None = None
+    supports_system_prompt: bool | None = None
+
 
 @dataclass(frozen=True)
 class RoutingCandidate:
-    """A routing candidate: a model with an optional name and description.
+    """A model or model group with optional classifier-facing evidence.
 
-    ``model`` may be a nested ``ModelRouter``, which contributes one candidate: its strategy picks
-    from its own candidates, and the group performs no internal failover.
+    ``model`` may be a nested ``ModelRouter``, which contributes one opaque candidate. Its strategy selects from its
+    own candidates, and the group performs no internal failover. Candidate metadata may cross the classifier model's
+    provider boundary and must not contain secrets.
     """
 
     model: Model | ModelRouter
     name: str | None = None
     description: str | None = None
+    metadata: CandidateMetadata | None = field(default=None, kw_only=True)
 
 
 _ROUTING_KEY_PREFIX = "strands:model_routing"
@@ -119,9 +144,9 @@ class ModelRouter(Plugin):
 
         Args:
             models: The models to route among, as a sequence. Each is a ``Model``, a nested
-                ``ModelRouter``, or a ``RoutingCandidate`` wrapping one with a name and description.
-                The first is the router's default, used when a strategy declines, and each is
-                normalized into the ``RoutingCandidate`` a strategy chooses from.
+                ``ModelRouter``, or a ``RoutingCandidate`` wrapping one with a name, description, and typed metadata.
+                The first is the router's default, used when a strategy declines, and each is normalized into the
+                ``RoutingCandidate`` a strategy chooses from.
             strategy: Chooses the candidate for each model call, and is asked again after a failed
                 call. Defaults to ``FallbackStrategy``, which prefers the candidate with the fewest
                 recorded failures and breaks ties by declaration order, so an invocation with no

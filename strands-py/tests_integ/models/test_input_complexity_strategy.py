@@ -8,7 +8,7 @@ import pytest
 from typing_extensions import override
 
 from strands import Agent
-from strands.models import BedrockModel, InputComplexityStrategy, ModelRouter
+from strands.models import BedrockModel, CandidateMetadata, InputComplexityStrategy, ModelRouter, RoutingCandidate
 from strands.types.exceptions import ModelThrottledException
 from strands.types.streaming import StreamEvent
 from tests_integ.conftest import retry_on_flaky
@@ -58,14 +58,24 @@ class _InvocationTrackingBedrockModel(BedrockModel):
 def test_agent_invokes_only_expected_model_for_request_complexity(
     caplog, user_prompt, expected_model_id, candidate_model_ids
 ):
-    """The default classifier invokes exactly the appropriate candidate, independent of declaration order."""
+    """The explicit classifier invokes exactly the appropriate candidate, independent of declaration order."""
     invoked_candidate_model_ids: list[str] = []
     candidate_models = [
-        _InvocationTrackingBedrockModel(model_id, invoked_candidate_model_ids) for model_id in candidate_model_ids
+        RoutingCandidate(
+            _InvocationTrackingBedrockModel(model_id, invoked_candidate_model_ids),
+            metadata=CandidateMetadata(provider="bedrock", model_id=model_id),
+        )
+        for model_id in candidate_model_ids
     ]
+    classifier_model = BedrockModel(
+        model_id=_HAIKU_MODEL_ID,
+        max_tokens=64,
+        streaming=False,
+        temperature=0,
+    )
     router = ModelRouter(
         models=candidate_models,
-        strategy=InputComplexityStrategy(),
+        strategy=InputComplexityStrategy(classifier_model),
     )
     agent = Agent(model=router, load_tools_from_directory=False)
 
@@ -77,6 +87,6 @@ def test_agent_invokes_only_expected_model_for_request_complexity(
     assert invoked_candidate_model_ids == [expected_model_id], (
         "Live model routing was inconclusive: expected exactly one invocation of the selected candidate"
     )
-    assert not any("classification failed" in record.getMessage() for record in caplog.records), (
+    assert not any("classification declined" in record.getMessage() for record in caplog.records), (
         "Live model routing was inconclusive: classification degraded"
     )

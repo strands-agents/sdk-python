@@ -11,6 +11,7 @@ from strands import Agent, Plugin
 from strands.event_loop._retry import ModelRetryStrategy
 from strands.models import BedrockModel
 from strands.models.routing import (
+    CandidateMetadata,
     ModelRouter,
     RoutingAttempt,
     RoutingCandidate,
@@ -89,8 +90,10 @@ def test_routing_surface_is_re_exported_from_strands_models():
     import strands.models as models
 
     for symbol in (
+        "CandidateMetadata",
         "FallbackStrategy",
         "InputComplexityStrategy",
+        "ModelModality",
         "ModelRouter",
         "RoutingCandidate",
         "RoutingContext",
@@ -146,14 +149,21 @@ def test_a_provider_whose_config_raises_neither_masks_a_guard_nor_breaks_routing
     assert _candidate_label(router.candidates[1]) == "_ThrowingConfigModel"
 
 
-def test_routing_candidate_metadata_is_preserved():
-    m = _model()
-    router = ModelRouter(models=[RoutingCandidate(model=m, name="routine", description="simple tasks")])
+def test_routing_candidate_metadata_is_preserved_without_changing_positional_construction():
+    model = _model()
+    metadata = CandidateMetadata(
+        provider="private",
+        model_id="reasoner-v2",
+        input_modalities=("text", "image"),
+        context_window_limit=200_000,
+        supports_tool_use=True,
+        supports_reasoning=True,
+    )
+    router = ModelRouter(models=[RoutingCandidate(model, "routine", "simple tasks", metadata=metadata)])
 
-    candidate = router.candidates[0]
-    tru_metadata = (candidate.model, candidate.name, candidate.description)
-    exp_metadata = (m, "routine", "simple tasks")
-    assert tru_metadata == exp_metadata
+    tru_candidate = router.candidates[0]
+    exp_candidate = RoutingCandidate(model, "routine", "simple tasks", metadata=metadata)
+    assert tru_candidate == exp_candidate
 
 
 @pytest.mark.parametrize(
