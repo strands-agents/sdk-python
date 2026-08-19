@@ -39,17 +39,11 @@ export class SummarizeStrategy extends BaseOffloadStrategy {
     return new SummarizeStrategy(this._target, this._config, conditions)
   }
 
-  override init(agent: LocalAgent): void {
-    if (this._utilizationThreshold !== undefined) return
-    super.init(agent)
-  }
-
   override async apply(context: ContextState): Promise<boolean> {
     if (!this._resolveModel(context.agent)) {
       logger.warn('no model available for summarization')
       return false
     }
-    if (context.messages.length === 0) return false
     return super.apply(context)
   }
 

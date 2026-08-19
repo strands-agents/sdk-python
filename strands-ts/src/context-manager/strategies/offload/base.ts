@@ -157,19 +157,19 @@ export function collectRemovableWithPair(messages: Message[], index: number): Me
 
   const result: Message[] = [message]
 
-  const hasToolResult = message.content.some((block) => block.type === 'toolResultBlock')
+  const hasToolResult = message.content.some((block) => block instanceof ToolResultBlock)
   if (hasToolResult) {
     const prev = messages[index - 1]
-    if (prev && prev.content.some((block) => block.type === 'toolUseBlock')) {
+    if (prev && prev.content.some((block) => block instanceof ToolUseBlock)) {
       if (index - 1 > 0) result.push(prev)
       else return []
     }
   }
 
-  const hasToolUse = message.content.some((block) => block.type === 'toolUseBlock')
+  const hasToolUse = message.content.some((block) => block instanceof ToolUseBlock)
   if (hasToolUse && index < messages.length - 1) {
     const next = messages[index + 1]
-    if (next && next.content.some((block) => block.type === 'toolResultBlock')) {
+    if (next && next.content.some((block) => block instanceof ToolResultBlock)) {
       result.push(next)
     }
   }
