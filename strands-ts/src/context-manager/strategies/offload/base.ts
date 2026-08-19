@@ -86,16 +86,17 @@ export function toolMatchesTarget(
   toolFilter: Set<string> | undefined,
   excludeFilter: Set<string> | undefined
 ): boolean {
+  if (target === '*') return true
   if (target === 'toolResults') return block.status === 'success'
   if (target === 'toolResultErrors') return block.status === 'error'
 
   const toolName = toolNameMap.get(block.toolUseId)
-  if (!toolName) return toolFilter === undefined && excludeFilter === undefined
+  if (!toolName) return false
 
   if (excludeFilter) return !excludeFilter.has(toolName)
   if (toolFilter) return toolFilter.has(toolName)
 
-  return true
+  return false
 }
 
 export function targetMatchesMessage(target: OffloadTarget | undefined, message: Message): boolean {
