@@ -1060,7 +1060,7 @@ class BedrockModel(Model):
         content_type = next(iter(content), None)
         raise TypeError(f"content_type=<{content_type}> | unsupported type")
 
-    def _has_blocked_guardrail(self, guardrail_data: dict[str, Any] | None, stop_reason: str | None) -> bool:
+    def _should_redact_guardrail_content(self, guardrail_data: dict[str, Any] | None, stop_reason: str | None) -> bool:
         """Check whether a guardrail blocked content and redaction should occur.
 
         Args:
@@ -1347,7 +1347,7 @@ class BedrockModel(Model):
                     if "messageStop" in chunk:
                         stop_reason = chunk["messageStop"].get("stopReason")
 
-                    if not redaction_emitted and self._has_blocked_guardrail(guardrail_data, stop_reason):
+                    if not redaction_emitted and self._should_redact_guardrail_content(guardrail_data, stop_reason):
                         for event in self._generate_redaction_events():
                             callback(event)
                         redaction_emitted = True
@@ -1359,7 +1359,7 @@ class BedrockModel(Model):
                     callback(event)
 
                 guardrail_data = response.get("trace", {}).get("guardrail")
-                if self._has_blocked_guardrail(guardrail_data, response.get("stopReason")):
+                if self._should_redact_guardrail_content(guardrail_data, response.get("stopReason")):
                     for event in self._generate_redaction_events():
                         callback(event)
 

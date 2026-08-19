@@ -1580,6 +1580,52 @@ async def test_stream_guardrails_redacts_without_trace_non_streaming(bedrock_cli
 
 
 @pytest.mark.asyncio
+async def test_stream_guardrails_redacts_exactly_once_across_metadata_events(
+    bedrock_client, model, messages, alist
+):
+    """Redaction fires at most once even when Bedrock emits multiple metadata events.
+
+    Exercises the redaction_emitted guard. Guards against
+    https://github.com/strands-agents/harness-sdk/issues/3612.
+    """
+    message_stop_event = {"messageStop": {"stopReason": "guardrail_intervened"}}
+    metadata_event = {"metadata": {"usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}}}
+    bedrock_client.converse_stream.return_value = {
+        "stream": [message_stop_event, metadata_event, metadata_event]
+    }
+
+    response = model.stream(messages)
+
+    tru_chunks = await alist(response)
+    exp_chunks = [
+        {"redactContent": {"redactUserContentMessage": "[User input redacted.]"}},
+        message_stop_event,
+        metadata_event,
+        metadata_event,
+    ]
+
+    assert tru_chunks == exp_chunks
+
+
+@pytest.mark.asyncio
+async def test_stream_non_guardrail_stop_reason_doesnt_redact(bedrock_client, model, messages, alist):
+    """A non-guardrail_intervened stop reason with no trace must not trigger redaction.
+
+    Guards against https://github.com/strands-agents/harness-sdk/issues/3612.
+    """
+    message_stop_event = {"messageStop": {"stopReason": "end_turn"}}
+    metadata_event = {"metadata": {"usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}}}
+    bedrock_client.converse_stream.return_value = {"stream": [message_stop_event, metadata_event]}
+
+    response = model.stream(messages)
+
+    tru_chunks = await alist(response)
+    exp_chunks = [message_stop_event, metadata_event]
+
+    assert tru_chunks == exp_chunks
+
+
+@pytest.mark.asyncio
 async def test_stream_output_no_guardrail_redact(
     bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist
 ):
