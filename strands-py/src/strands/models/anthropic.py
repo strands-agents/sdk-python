@@ -384,9 +384,9 @@ class AnthropicModel(Model):
         tool_specs: list[ToolSpec] | None = None,
         system_prompt: str | None = None,
         tool_choice: ToolChoice | None = None,
+        dynamic_trailing_blocks: int = 0,
         *,
         system_prompt_content: list[SystemContentBlock] | None = None,
-        dynamic_trailing_blocks: int = 0,
     ) -> dict[str, Any]:
         """Format an Anthropic streaming request.
 
@@ -395,9 +395,9 @@ class AnthropicModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: Plain string system prompt. Ignored when system_prompt_content is provided.
             tool_choice: Selection strategy for tool invocation.
-            system_prompt_content: Structured system prompt content blocks, which can carry a cache point.
             dynamic_trailing_blocks: How many trailing blocks of the last user message are rebuilt on
                 every call, so the cache point stays ahead of them.
+            system_prompt_content: Structured system prompt content blocks, which can carry a cache point.
 
         Returns:
             An Anthropic streaming request.

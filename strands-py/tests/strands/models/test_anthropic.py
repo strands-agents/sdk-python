@@ -2273,18 +2273,18 @@ class TestPromptCaching:
         assert swapped == [("system", "text", {"type": "ephemeral"})]
         assert "stripped an extra system cache point" in caplog.text
 
-    def test_tool_choice_stays_positional_fourth(self, model, messages, tool_specs):
-        """tool_choice keeps its fourth positional slot so an existing positional call still routes it
-        there; only system_prompt_content and dynamic_trailing_blocks are keyword-only."""
-        request = model.format_request(messages, tool_specs, "SYSTEM", {"any": {}})
+    def test_tool_choice_and_dynamic_trailing_blocks_stay_positional(self, model, messages, tool_specs):
+        """tool_choice and dynamic_trailing_blocks keep their released positional slots so an existing
+        positional call still routes them; only system_prompt_content is keyword-only."""
+        request = model.format_request(messages, tool_specs, "SYSTEM", {"any": {}}, 1)
 
         assert request["tool_choice"] == {"type": "any"}
 
     def test_system_prompt_content_is_keyword_only(self, model, messages, tool_specs):
-        """system_prompt_content is keyword-only so a fifth positional argument fails loudly rather than
+        """system_prompt_content is keyword-only so a sixth positional argument fails loudly rather than
         landing silently in it."""
         with pytest.raises(TypeError):
-            model.format_request(messages, tool_specs, "SYSTEM", {"any": {}}, [{"text": "ctx"}])
+            model.format_request(messages, tool_specs, "SYSTEM", {"any": {}}, 1, [{"text": "ctx"}])
 
     def test_untimed_cache_tools_inherits_cache_config_ttl(self, model, messages, tool_specs):
         """Mirrors the Bedrock tools point: an untimed cache_tools inherits cache_config.ttl so it is not
