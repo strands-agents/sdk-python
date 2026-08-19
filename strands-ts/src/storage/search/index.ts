@@ -9,4 +9,4 @@
  */
 
 export type { SearchStrategy } from './types.js'
-export { KeywordSearchStrategy, tokenize, tokenOverlapScore } from './keyword.js'
+export { KeywordSearchStrategy } from './keyword.js'
