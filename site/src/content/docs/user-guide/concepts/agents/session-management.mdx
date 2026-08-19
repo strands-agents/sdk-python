@@ -500,11 +500,11 @@ Session management is designed around a single live writer per conversation: the
 
 ### One Conversation per Session
 
-Give each conversation its own session ID. Several agents can share one session ID as long as their agent IDs differ: the session acts as a namespace, and each agent keeps its own messages and state inside it. A single agent instance processes one invocation at a time by default, as described in [Concurrent Invocations](./agent-loop.md#concurrent-invocations).
+Give each conversation its own session ID. Several agents can share one session ID as long as their agent IDs differ: the session acts as a namespace, and each agent keeps its own messages and state inside it. A single agent instance processes one invocation at a time by default and rejects overlap, as described in [Concurrent Invocations](./agent-loop.md#concurrent-invocations).
 
 ### Create an Agent per Conversation
 
-Constructing an agent is cheap, since it wires up tools, hooks, and plugins, and makes no model call. Build one per request, invoke it, and let it go out of scope. An agent binds to its session once, at construction in Python (which restores the stored history there) and on first invocation in TypeScript, so a long-lived agent shared across conversations cannot switch between them. The model provider is the part worth reusing: providers such as `BedrockModel` build their client in the constructor, so create the provider once per process and pass the same instance to every agent.
+Constructing an agent is cheap: it wires up tools, hooks, and plugins locally and makes no model call. Build one per request, invoke it, and let it go out of scope. An agent binds to one session for its lifetime: in Python at construction, which restores the stored history there, and in TypeScript on the first invocation. The model provider is the part worth reusing: providers such as `BedrockModel` build their client in the constructor, so create the provider once per process and pass the same instance to every agent.
 
 ### Serializing Access to a Shared Session
 
@@ -512,10 +512,10 @@ When requests for one session ID can arrive at the same time, as with an AWS Lam
 
 ### Common Failure Modes
 
-The built-in session managers take no distributed lock, and the single-instance invocation guard is in-process, so neither can detect a second writer running elsewhere. The patterns that corrupt history, silently in both cases:
+The built-in session managers take no distributed lock, and the single-instance invocation guard is in-process, so neither can detect a second writer running elsewhere. Two patterns result:
 
-- **Two live agents addressing the same session ID and agent ID.** The default IDs (<Syntax py='agent_id="default"' ts="id: 'agent'" />) make this easy to do by accident. Overlapping invocations overwrite each other's turns; sequential ones merge two conversations into one history. Python raises `SessionException` only when both agents share one session manager instance.
-- **Reusing one session ID across concurrent executions without serializing them.** A retried AWS Lambda event or two open browser tabs each build their own agent, and both write the same keys.
+- **Two live agents addressing the same session ID and agent ID.** The default IDs (<Syntax py='agent_id="default"' ts="id: 'agent'" />) make this easy to do by accident, including across separate executions that each build their own agent. Overlapping invocations overwrite each other's turns, sequential ones merge two conversations into one history, and neither call errors; Python's `SessionException` fires only when both agents share one session manager instance.
+- **Two callers creating the same session at the same time.** Session creation is a check followed by a write, not an atomic operation, so simultaneous cold starts on a new session ID either both succeed, with the later write winning, or the loser raises `SessionException`.
 
 ## Session Persistence Best Practices
 
