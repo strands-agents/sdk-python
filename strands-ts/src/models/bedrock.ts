@@ -501,7 +501,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
     if (!this._shouldEnableCaching()) {
       return false
     }
-    if (this._config.cacheConfig?.systemTTL === false) {
+    if (this._config.cacheConfig?.systemPromptTTL === false) {
       return false
     }
     if (!system || system.length === 0) {
@@ -522,10 +522,10 @@ export class BedrockModel extends Model<BedrockModelConfig> {
       return
     }
     const cacheConfig = this._config.cacheConfig
-    const systemSection = resolveCacheSection(cacheConfig?.systemTTL, cacheConfig?.ttl)
+    const systemSection = resolveCacheSection(cacheConfig?.systemPromptTTL, cacheConfig?.ttl)
     let ttl = systemSection.ttl
 
-    if (ttl && typeof cacheConfig?.systemTTL !== 'string') {
+    if (ttl && typeof cacheConfig?.systemPromptTTL !== 'string') {
       const toolsPoint = request.toolConfig?.tools?.find((tool) => 'cachePoint' in tool)
       if (toolsPoint && 'cachePoint' in toolsPoint && toolsPoint.cachePoint?.ttl !== ttl) {
         ttl = undefined

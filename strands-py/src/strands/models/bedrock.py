@@ -419,7 +419,7 @@ class BedrockModel(Model):
 
         Bedrock rejects a TTL that exceeds an earlier cache point's, in the order toolConfig, system,
         messages. Filling the system point in keeps it from sitting at the default between two configured
-        points. A TTL the caller wrote on the point is left as written. An explicit ``cache_config.system_ttl``
+        points. A TTL the caller wrote on the point is left as written. An explicit ``cache_config.system_prompt_ttl``
         string is honored as written.
 
         Args:
@@ -432,13 +432,13 @@ class BedrockModel(Model):
         ttl: str | None = None
         cache_config = self.config.get("cache_config")
         if cache_config and self._cache_strategy == "anthropic":
-            system_ttl = cache_config.system_ttl
-            section_ttl = system_ttl if isinstance(system_ttl, str) else cache_config.ttl
+            system_prompt_ttl = cache_config.system_prompt_ttl
+            section_ttl = system_prompt_ttl if isinstance(system_prompt_ttl, str) else cache_config.ttl
             if section_ttl:
                 tools_ttl_differs = bool(tools_cache_point) and (
                     tools_cache_point[0]["cachePoint"].get("ttl") != section_ttl
                 )
-                if isinstance(system_ttl, str) or not tools_ttl_differs:
+                if isinstance(system_prompt_ttl, str) or not tools_ttl_differs:
                     ttl = section_ttl
 
         normalized: list[SystemContentBlock] = []
@@ -472,7 +472,7 @@ class BedrockModel(Model):
             return False
 
         cache_config = self.config.get("cache_config")
-        if not cache_config or cache_config.system_ttl is False:
+        if not cache_config or cache_config.system_prompt_ttl is False:
             return False
 
         if not system_blocks:

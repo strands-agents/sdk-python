@@ -143,7 +143,7 @@ class CacheConfig:
             checkpoint TTLs to be non-increasing across toolConfig, system and messages, and rejects a
             longer TTL that follows a shorter one. This TTL also fills in for a cache point that carries
             none of its own.
-        system_ttl: Cache the system prompt, auto-injecting a cache point at its end so repeated calls with
+        system_prompt_ttl: Cache the system prompt, auto-injecting a cache point at its end so repeated calls with
             the same static system prefix hit the cache. A TTL string (e.g. "1h") sets this section's own
             duration and is honored as written; True derives the duration from ``ttl``; False disables it.
             A hand-placed system cache point is honored rather than doubled.
@@ -151,7 +151,7 @@ class CacheConfig:
 
     strategy: Literal["auto", "anthropic"] = "auto"
     ttl: str | None = None
-    system_ttl: bool | str = True
+    system_prompt_ttl: bool | str = True
 
 
 @dataclass

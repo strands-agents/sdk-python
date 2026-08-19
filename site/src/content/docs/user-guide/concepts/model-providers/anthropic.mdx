@@ -259,8 +259,8 @@ Cache activity is reported in the usage metrics, in the same fields Bedrock uses
 <Tabs>
 <Tab label="Python">
 
-`cache_config` caches the system prompt and the conversation; set `system_ttl=False` to
-leave the system prompt uncached, or a TTL string (`system_ttl="1h"`) to give it its own
+`cache_config` caches the system prompt and the conversation; set `system_prompt_ttl=False` to
+leave the system prompt uncached, or a TTL string (`system_prompt_ttl="1h"`) to give it its own
 duration. `cache_tools` caches the tool definitions and works on its own, so tool
 definitions can be cached without caching the conversation. Passing a plain string
 (`"default"`) only switches it on: the value is not a TTL. Use `CacheToolsConfig(ttl=...)`
@@ -271,7 +271,7 @@ to set one.
 <Tab label="TypeScript">
 
 One `cacheConfig` covers the tool definitions, the system prompt, and the conversation,
-with `toolsTTL`, `systemTTL`, and `messagesTTL` controlling them independently (set one
+with `toolsTTL`, `systemPromptTTL`, and `messagesTTL` controlling them independently (set one
 to `false` to leave that part uncached). The shape and the per-field behavior are the
 same as on [Amazon Bedrock](./amazon-bedrock#tool-caching), so a configuration survives
 a provider switch unchanged.

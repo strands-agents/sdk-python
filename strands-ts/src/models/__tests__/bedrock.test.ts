@@ -3041,8 +3041,8 @@ describe('BedrockModel', () => {
       expect(call?.system).toStrictEqual([{ text: 'static prompt' }, { cachePoint: { type: 'default', ttl: '1h' } }])
     })
 
-    it('does not inject a system cache point when systemTTL is false', async () => {
-      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto', systemTTL: false } })
+    it('does not inject a system cache point when systemPromptTTL is false', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto', systemPromptTTL: false } })
       const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
       const options: StreamOptions = { systemPrompt: 'static prompt' }
 
@@ -3052,8 +3052,8 @@ describe('BedrockModel', () => {
       expect(call?.system).toStrictEqual([{ text: 'static prompt' }])
     })
 
-    it('fills a caller-placed system point from ttl when systemTTL is false', async () => {
-      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto', ttl: '1h', systemTTL: false } })
+    it('fills a caller-placed system point from ttl when systemPromptTTL is false', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto', ttl: '1h', systemPromptTTL: false } })
       const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
       const options: StreamOptions = {
         systemPrompt: [new TextBlock('static prompt'), new CachePointBlock({ cacheType: 'default' })],
@@ -3065,8 +3065,8 @@ describe('BedrockModel', () => {
       expect(call?.system).toStrictEqual([{ text: 'static prompt' }, { cachePoint: { type: 'default', ttl: '1h' } }])
     })
 
-    it('emits an explicit systemTTL as written, above a shorter tools point', async () => {
-      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto', systemTTL: '1h', toolsTTL: '5m' } })
+    it('emits an explicit systemPromptTTL as written, above a shorter tools point', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto', systemPromptTTL: '1h', toolsTTL: '5m' } })
       const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
       const options: StreamOptions = {
         systemPrompt: 'static prompt',
@@ -3079,8 +3079,8 @@ describe('BedrockModel', () => {
       expect(call?.system).toStrictEqual([{ text: 'static prompt' }, { cachePoint: { type: 'default', ttl: '1h' } }])
     })
 
-    it('carries an explicit systemTTL into the appended cache point without a shared ttl', async () => {
-      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto', systemTTL: '1h' } })
+    it('carries an explicit systemPromptTTL into the appended cache point without a shared ttl', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto', systemPromptTTL: '1h' } })
       const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
       const options: StreamOptions = { systemPrompt: 'static prompt' }
 

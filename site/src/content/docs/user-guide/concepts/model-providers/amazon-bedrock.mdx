@@ -551,7 +551,7 @@ For complete details on supported models, token requirements, and cache field su
 
 Cache system prompts that remain static across multiple requests. This is useful when your system prompt contains no variables, timestamps, or dynamic content, exceeds the minimum cacheable token threshold for your model, and you make multiple requests with the same system prompt.
 
-With <Syntax py="cache_config" ts="cacheConfig" /> set to the `auto` (or `anthropic`) strategy, Strands caches the system prompt **by default**: it appends a cache point at the end of the system prompt on every request, so repeated calls with the same static system prefix (including fresh agents that share a system prompt) read it from cache. To opt out and leave the system prompt uncached (for example, when it changes on every call), set <Syntax py="system_ttl=False" ts="systemTTL: false" />. This disables only the auto-injected system point, and tool and message caching are unaffected. A cache point you place by hand anywhere in the system prompt is honored as-is, and no second point is added.
+With <Syntax py="cache_config" ts="cacheConfig" /> set to the `auto` (or `anthropic`) strategy, Strands caches the system prompt **by default**: it appends a cache point at the end of the system prompt on every request, so repeated calls with the same static system prefix (including fresh agents that share a system prompt) read it from cache. A system prompt that changes on every request never produces a cache read, so the added cache write is a small extra cost with no offsetting saving; opt out by setting <Syntax py="system_prompt_ttl=False" ts="systemPromptTTL: false" /> when the system prompt is dynamic. This disables only the auto-injected system point, and tool and message caching are unaffected. A cache point you place by hand anywhere in the system prompt is honored as-is, and no second point is added.
 
 The auto-injected system cache point inherits the TTL you configured, so setting one `ttl` gives every cache point in the request the same duration. Bedrock requires TTLs to be non-increasing across the tool definitions, the system prompt, and the messages, and rejects a request where a longer TTL follows a shorter one.
 
@@ -631,14 +631,14 @@ print(f"Cache read tokens: {response2.metrics.accumulated_usage.get('cacheReadIn
 </Tab>
 <Tab label="TypeScript">
 
-Setting `cacheConfig` appends a cache point after the tool definitions in each request. The same `cacheConfig` also caches the system prompt and the conversation, and `toolsTTL`, `systemTTL`, and `messagesTTL` control the three independently:
+Setting `cacheConfig` appends a cache point after the tool definitions in each request. The same `cacheConfig` also caches the system prompt and the conversation, and `toolsTTL`, `systemPromptTTL`, and `messagesTTL` control the three independently:
 
 | Configuration | Caches |
 |---------------|--------|
 | `{}` | tool definitions, system prompt, and conversation |
 | `{ messagesTTL: false }` | tool definitions and system prompt |
 | `{ toolsTTL: false }` | system prompt and conversation |
-| `{ systemTTL: false }` | tool definitions and conversation |
+| `{ systemPromptTTL: false }` | tool definitions and conversation |
 | `{ ttl: '1h' }` | all three, with a one-hour TTL |
 | `{ ttl: '1h', messagesTTL: '5m' }` | tool definitions and system prompt at one hour, conversation at five minutes |
 

@@ -2186,16 +2186,16 @@ class TestPromptCaching:
 
         assert request["system"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
 
-    def test_system_ttl_false_leaves_the_system_prompt_uncached(self, model, messages):
-        model.update_config(cache_config=CacheConfig(strategy="auto", system_ttl=False))
+    def test_system_prompt_ttl_false_leaves_the_system_prompt_uncached(self, model, messages):
+        model.update_config(cache_config=CacheConfig(strategy="auto", system_prompt_ttl=False))
 
         request = model.format_request(messages, system_prompt="static prompt")
 
         assert request["system"] == "static prompt"
 
-    def test_system_ttl_string_sets_the_section_duration(self, model, messages):
-        """A system_ttl string sets the system section's own duration rather than deriving from the shared ttl."""
-        model.update_config(cache_config=CacheConfig(strategy="auto", ttl="5m", system_ttl="1h"))
+    def test_system_prompt_ttl_string_sets_the_section_duration(self, model, messages):
+        """A system_prompt_ttl string sets the system section's own duration rather than deriving from shared ttl."""
+        model.update_config(cache_config=CacheConfig(strategy="auto", ttl="5m", system_prompt_ttl="1h"))
 
         request = model.format_request(messages, system_prompt="static prompt")
 

@@ -459,8 +459,9 @@ class AnthropicModel(Model):
             managed_ttl: str | None = None
             auto_inject = False
         else:
-            managed_ttl = cache_config.system_ttl if isinstance(cache_config.system_ttl, str) else cache_config.ttl
-            auto_inject = cache_config.system_ttl is not False
+            system_prompt_ttl = cache_config.system_prompt_ttl
+            managed_ttl = system_prompt_ttl if isinstance(system_prompt_ttl, str) else cache_config.ttl
+            auto_inject = system_prompt_ttl is not False
 
         if system_prompt_content is None:
             if not system_prompt:

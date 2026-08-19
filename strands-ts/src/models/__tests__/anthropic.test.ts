@@ -1455,18 +1455,24 @@ describe('AnthropicModel', () => {
       expect(captured.request.system[1].cache_control).toEqual({ type: 'ephemeral' })
     })
 
-    it('carries systemTTL into the auto-injected system cache point', async () => {
+    it('carries systemPromptTTL into the auto-injected system cache point', async () => {
       const { captured, mockClient } = setupCapture()
-      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto', systemTTL: '1h' } })
+      const provider = new AnthropicModel({
+        client: mockClient,
+        cacheConfig: { strategy: 'auto', systemPromptTTL: '1h' },
+      })
 
       await collectIterator(provider.stream([userMessage('Hi')], { systemPrompt: 'static prompt' }))
 
       expect(captured.request.system[0].cache_control).toEqual({ type: 'ephemeral', ttl: '1h' })
     })
 
-    it('does not auto-inject a system cache point when systemTTL is false', async () => {
+    it('does not auto-inject a system cache point when systemPromptTTL is false', async () => {
       const { captured, mockClient } = setupCapture()
-      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto', systemTTL: false } })
+      const provider = new AnthropicModel({
+        client: mockClient,
+        cacheConfig: { strategy: 'auto', systemPromptTTL: false },
+      })
 
       await collectIterator(provider.stream([userMessage('Hi')], { systemPrompt: 'static prompt' }))
 

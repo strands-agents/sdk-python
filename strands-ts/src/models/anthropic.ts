@@ -319,7 +319,7 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
   }
 
   /** Resolves a cache section, disabled when `cacheConfig` is unset or its strategy is unknown. */
-  private _cacheSection(section: 'toolsTTL' | 'messagesTTL' | 'systemTTL'): ResolvedCacheSection {
+  private _cacheSection(section: 'toolsTTL' | 'messagesTTL' | 'systemPromptTTL'): ResolvedCacheSection {
     const cacheConfig = this._config.cacheConfig
     if (!cacheConfig) {
       return { enabled: false }
@@ -371,7 +371,7 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
    * @returns The API system value (string or text blocks), or undefined when nothing cacheable remains.
    */
   private _formatSystemPrompt(systemPrompt: SystemPrompt): string | Anthropic.TextBlockParam[] | undefined {
-    const systemCache = this._cacheSection('systemTTL')
+    const systemCache = this._cacheSection('systemPromptTTL')
 
     if (typeof systemPrompt === 'string') {
       if (!systemCache.enabled) return systemPrompt

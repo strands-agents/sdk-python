@@ -104,7 +104,7 @@ export interface CacheConfig {
    *
    * @defaultValue true
    */
-  systemTTL?: boolean | CacheTTL
+  systemPromptTTL?: boolean | CacheTTL
 
   /**
    * Cache the conversation prefix, on the last user message. A TTL sets this section's duration;
