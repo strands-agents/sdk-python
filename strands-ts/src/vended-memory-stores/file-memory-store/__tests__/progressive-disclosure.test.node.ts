@@ -180,7 +180,7 @@ describe('FileMemoryStore progressive disclosure', () => {
 
       expect(await renderInjectedListing(store)).toBe(
         '<memory-files>\n' +
-          'You have these memory files from previous conversations. Read any whose description looks relevant to the current request with read_test_store_file before answering — the descriptions below are summaries, not the content.\n' +
+          'You have these memory files from previous conversations. Read any whose description looks relevant to the current request with read_test_store_file before answering — each description is a one-line summary, so read the file for its full content.\n' +
           '\n' +
           '<file path="facts/deploys.md">Release cadence</file>\n' +
           '<file path="facts/ui.md">UI preference</file>\n' +

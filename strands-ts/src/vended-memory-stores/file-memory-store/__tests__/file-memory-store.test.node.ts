@@ -92,6 +92,22 @@ describe('FileMemoryStore', () => {
       expect(await storage.read('memory/scoped/facts/dark-mode.md')).not.toBeNull()
       expect(await storage.read('memory/scoped/memory/scoped/facts/dark-mode.md')).toBeNull()
     })
+
+    it('rejects a name too long for the derived read tool name', () => {
+      // read_<name>_file must fit the tool registry's 64-char cap, so name is capped at 54.
+      expect(() => new FileMemoryStore({ name: 'a'.repeat(55), storage })).toThrow(RangeError)
+      expect(() => new FileMemoryStore({ name: 'a'.repeat(54), storage })).not.toThrow()
+    })
+
+    it('rejects a name with no letter or digit, which would sanitize to a contentless read__file', () => {
+      for (const name of ['', '   ', '...']) {
+        expect(() => new FileMemoryStore({ name, storage })).toThrow(RangeError)
+      }
+    })
+
+    it('skips the name check when progressive disclosure is off, since no tool name is derived', () => {
+      expect(() => new FileMemoryStore({ name: 'a'.repeat(80), storage, progressiveDisclosure: false })).not.toThrow()
+    })
   })
 
   describe('add', () => {

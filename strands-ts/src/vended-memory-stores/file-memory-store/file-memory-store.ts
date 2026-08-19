@@ -120,8 +120,9 @@ function canonicalizeKnowledgePath(path: string): string {
  * markdown files with YAML frontmatter under a `memory/` storage namespace.
  *
  * Retrieval is by progressive disclosure: the store injects the file listing each turn and registers
- * a read tool named after it, so the model judges what is relevant and pulls only that. Pair with
- * `injection: false` on the manager; `search_memory` stays the fallback for searching inside bodies.
+ * a read tool named after it, so the model judges what is relevant and pulls only that. It composes with
+ * the manager's `injection`: keep it on (the default) for higher quality, or set `injection: false` for
+ * lower cost. `search_memory` searches inside bodies.
  *
  * The storage backend defaults to {@link LocalFileStorage} when no custom {@link Storage}
  * implementation is provided. Keys are auto-scoped under `memory/<name>/`, isolating the store from
@@ -168,6 +169,13 @@ export class FileMemoryStore implements MemoryStore {
     if (config.maxSearchResults !== undefined) this.maxSearchResults = config.maxSearchResults
     if (config.extraction !== undefined) this.extraction = config.extraction
     this._progressiveDisclosure = config.progressiveDisclosure ?? true
+    // Fail at construction, not agent-wide at first invoke(): name derives the read tool name, capped
+    // to fit the registry's 64-char limit.
+    if (this._progressiveDisclosure && (!/[a-zA-Z0-9]/.test(this.name) || this.name.length > 54)) {
+      throw new RangeError(
+        `FileMemoryStore: name must contain a letter or digit and be at most 54 characters (got ${JSON.stringify(config.name)}); it derives the read tool name`
+      )
+    }
     this._maxListedFiles = config.maxListedFiles ?? DEFAULT_MAX_LISTED_FILES
     this._storage = this._resolveStorage(config.storage ?? new LocalFileStorage())
   }

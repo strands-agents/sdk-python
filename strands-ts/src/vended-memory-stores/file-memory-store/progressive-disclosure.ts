@@ -44,7 +44,7 @@ export function createProgressiveDisclosureInjector(
       const truncationNote = truncated
         ? ` Only the first ${files.length} of ${total} memory files are shown; the rest are not in this listing.`
         : ''
-      const instruction = `You have these memory files from previous conversations. Read any whose description looks relevant to the current request with ${readToolName(storeName)} before answering — the descriptions below are summaries, not the content.${truncationNote}`
+      const instruction = `You have these memory files from previous conversations. Read any whose description looks relevant to the current request with ${readToolName(storeName)} before answering — each description is a one-line summary, so read the file for its full content.${truncationNote}`
       const lines = files.map(
         (file) => `<file path="${escapeXmlAttr(flatten(file.path))}">${escapeXmlText(flatten(file.description))}</file>`
       )
