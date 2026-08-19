@@ -63,7 +63,7 @@ def convert_input_to_message(prompt: AgentInput) -> A2AMessage:
                         message_id=message_id,
                     )
         else:
-            parts = convert_content_blocks_to_parts(prompt)  # type: ignore[arg-type]
+            parts = convert_content_blocks_to_parts(prompt)
             return A2AMessage(
                 kind="message",
                 role=Role.user,
