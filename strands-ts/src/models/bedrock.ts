@@ -662,13 +662,31 @@ export class BedrockModel extends Model<BedrockModelConfig> {
         // Stream the response
         if (response.stream) {
           let lastStopReason: string | undefined
+          let redactionEmitted = false
           for await (const chunk of response.stream) {
             // Map Bedrock events to SDK events
             const result = this._mapStreamedBedrockEventToSDKEvent(chunk, lastStopReason)
             lastStopReason = result.stopReason
+            // Redaction keys off the stop reason (see _generateRedactionEvents), but the guardrail
+            // trace only arrives with the metadata event. Emit exactly once, on the first metadata
+            // event that follows a guardrail_intervened stop reason.
+            if (
+              !redactionEmitted &&
+              result.guardrailData &&
+              lastStopReason === 'guardrail_intervened' &&
+              this._config.guardrailConfig
+            ) {
+              redactionEmitted = true
+              yield* this._generateRedactionEvents(result.guardrailData)
+            }
             for (const event of result.events) {
               yield event
             }
+          }
+
+          // Guardrail intervened but no metadata event carried a trace: still redact.
+          if (!redactionEmitted && lastStopReason === 'guardrail_intervened' && this._config.guardrailConfig) {
+            yield* this._generateRedactionEvents({})
           }
         }
       } else {
@@ -1574,14 +1592,16 @@ export class BedrockModel extends Model<BedrockModelConfig> {
    *
    * @param chunk - Bedrock event chunk
    * @param lastStopReason - Stop reason from previous messageStop event
-   * @returns Object containing events array and optional stopReason
+   * @returns Object containing events array, optional stopReason, and the guardrail trace
+   *   assessment when the chunk is a metadata event (redaction is driven by the caller)
    */
   private _mapStreamedBedrockEventToSDKEvent(
     chunk: ConverseStreamOutput,
     lastStopReason?: string
-  ): { events: ModelStreamEvent[]; stopReason?: string } {
+  ): { events: ModelStreamEvent[]; stopReason?: string; guardrailData?: GuardrailTraceAssessment } {
     const events: ModelStreamEvent[] = []
     let stopReason = lastStopReason
+    let guardrailData: GuardrailTraceAssessment | undefined
 
     // Extract the event type key
     const eventType = ensureDefined(Object.keys(chunk)[0], 'eventType') as keyof ConverseStreamOutput
@@ -1744,13 +1764,8 @@ export class BedrockModel extends Model<BedrockModelConfig> {
           event.trace = data.trace
         }
 
-        // Redaction keys off the stop reason, not the trace: `trace: 'disabled'` still reports
-        // `guardrail_intervened` but carries no assessment, and blocked content must still be redacted.
-        if (this._config.guardrailConfig && lastStopReason === 'guardrail_intervened') {
-          for (const redactionEvent of this._generateRedactionEvents(data.trace?.guardrail ?? {})) {
-            events.push(redactionEvent)
-          }
-        }
+        // Surface the guardrail trace so stream() can drive redaction once across the whole stream.
+        guardrailData = data.trace?.guardrail ?? {}
 
         events.push(event)
         break
@@ -1772,7 +1787,11 @@ export class BedrockModel extends Model<BedrockModelConfig> {
         break
     }
 
-    return stopReason !== undefined ? { events, stopReason } : { events }
+    return {
+      events,
+      ...(stopReason !== undefined && { stopReason }),
+      ...(guardrailData !== undefined && { guardrailData }),
+    }
   }
 
   /**

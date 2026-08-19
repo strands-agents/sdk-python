@@ -4299,6 +4299,67 @@ describe('BedrockModel', () => {
           inputRedaction: { replaceContent: '[User input redacted.]' },
         })
       })
+
+      it('emits redaction events when guardrail_intervened but no metadata event arrives', async () => {
+        // Guards against https://github.com/strands-agents/harness-sdk/issues/3612: the guardrail
+        // trace normally arrives with metadata, but redaction keys off the stop reason and must still
+        // occur when the stream ends without any metadata event.
+        setupMockSend(async function* () {
+          yield { messageStart: { role: 'assistant' } }
+          yield { contentBlockStart: {} }
+          yield { contentBlockDelta: { delta: { text: 'Hello' } } }
+          yield { contentBlockStop: {} }
+          yield { messageStop: { stopReason: 'guardrail_intervened' } }
+        })
+
+        const provider = new BedrockModel({
+          guardrailConfig: {
+            guardrailIdentifier: 'my-guardrail-id',
+            guardrailVersion: '1',
+          },
+        })
+        const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+        const events = await collectIterator(provider.stream(messages))
+
+        const redactEvents = events.filter((e) => e.type === 'modelRedactionEvent')
+        expect(redactEvents).toStrictEqual([
+          {
+            type: 'modelRedactionEvent',
+            inputRedaction: { replaceContent: '[User input redacted.]' },
+          },
+        ])
+      })
+
+      it('emits redaction events exactly once across multiple metadata events', async () => {
+        // Guards against https://github.com/strands-agents/harness-sdk/issues/3612: Bedrock may emit
+        // more than one metadata event, and redaction must not be duplicated.
+        setupMockSend(async function* () {
+          yield { messageStart: { role: 'assistant' } }
+          yield { contentBlockStart: {} }
+          yield { contentBlockDelta: { delta: { text: 'Hello' } } }
+          yield { contentBlockStop: {} }
+          yield { messageStop: { stopReason: 'guardrail_intervened' } }
+          yield { metadata: { usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 } } }
+          yield { metadata: { usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 } } }
+        })
+
+        const provider = new BedrockModel({
+          guardrailConfig: {
+            guardrailIdentifier: 'my-guardrail-id',
+            guardrailVersion: '1',
+          },
+        })
+        const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+        const events = await collectIterator(provider.stream(messages))
+
+        const redactEvents = events.filter((e) => e.type === 'modelRedactionEvent')
+        expect(redactEvents).toStrictEqual([
+          {
+            type: 'modelRedactionEvent',
+            inputRedaction: { replaceContent: '[User input redacted.]' },
+          },
+        ])
+      })
     })
 
     describe('redaction event generation', () => {
