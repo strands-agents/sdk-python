@@ -83,8 +83,8 @@ export function toolMatchesTarget(
   block: ToolResultBlock,
   target: OffloadTarget,
   toolNameMap: Map<string, string>,
-  toolFilter: Set<string> | undefined,
-  excludeFilter: Set<string> | undefined
+  toolIncludeFilter: Set<string> | undefined,
+  toolExcludeFilter: Set<string> | undefined
 ): boolean {
   if (target === '*') return true
   if (target === 'toolResults') return block.status === 'success'
@@ -93,8 +93,8 @@ export function toolMatchesTarget(
   const toolName = toolNameMap.get(block.toolUseId)
   if (!toolName) return false
 
-  if (excludeFilter) return !excludeFilter.has(toolName)
-  if (toolFilter) return toolFilter.has(toolName)
+  if (toolExcludeFilter) return !toolExcludeFilter.has(toolName)
+  if (toolIncludeFilter) return toolIncludeFilter.has(toolName)
 
   return false
 }
@@ -110,8 +110,8 @@ export function messageMatchesTarget(
   message: Message,
   target: OffloadTarget | undefined,
   toolNameMap: Map<string, string>,
-  toolFilter: Set<string> | undefined,
-  excludeFilter: Set<string> | undefined
+  toolIncludeFilter: Set<string> | undefined,
+  toolExcludeFilter: Set<string> | undefined
 ): boolean {
   if (targetMatchesMessage(target, message)) return true
   if (!target) return false
@@ -120,7 +120,7 @@ export function messageMatchesTarget(
   if (message.role !== 'user') return false
   for (const block of message.content) {
     if (block instanceof ToolResultBlock) {
-      if (toolMatchesTarget(block, target, toolNameMap, toolFilter, excludeFilter)) return true
+      if (toolMatchesTarget(block, target, toolNameMap, toolIncludeFilter, toolExcludeFilter)) return true
     }
   }
   return false
@@ -135,11 +135,11 @@ export function getOldestMatches(
   target: OffloadTarget | undefined,
   count: number,
   toolNameMap: Map<string, string>,
-  toolFilter: Set<string> | undefined,
-  excludeFilter: Set<string> | undefined
+  toolIncludeFilter: Set<string> | undefined,
+  toolExcludeFilter: Set<string> | undefined
 ): Message[] {
   const matching = messages.filter((message) =>
-    messageMatchesTarget(message, target, toolNameMap, toolFilter, excludeFilter)
+    messageMatchesTarget(message, target, toolNameMap, toolIncludeFilter, toolExcludeFilter)
   )
   if (count >= matching.length) return []
   return matching.slice(0, -count)
