@@ -254,15 +254,25 @@ class BidiConnectionRestartEvent(TypedEvent):
     Parameters:
         reason: What triggered the restart ("timeout" reactively, "scheduled" proactively).
         timeout_error: The model's timeout error on the reactive path; None when scheduled.
+        turn_interrupted: True if the restart cut an in-progress or owed turn (the alignment
+            wait could not complete it before the deadline, or a timeout struck mid-turn). The
+            provider replays history as context, so that turn will not be answered on its own —
+            an app can re-prompt or notify the user when this is set.
     """
 
-    def __init__(self, reason: Literal["timeout", "scheduled"], timeout_error: "BidiModelTimeoutError | None" = None):
+    def __init__(
+        self,
+        reason: Literal["timeout", "scheduled"],
+        timeout_error: "BidiModelTimeoutError | None" = None,
+        turn_interrupted: bool = False,
+    ):
         """Initialize connection restart event."""
         super().__init__(
             {
                 "type": "bidi_connection_restart",
                 "reason": reason,
                 "timeout_error": timeout_error,
+                "turn_interrupted": turn_interrupted,
             }
         )
 
@@ -275,6 +285,11 @@ class BidiConnectionRestartEvent(TypedEvent):
     def timeout_error(self) -> "BidiModelTimeoutError | None":
         """Model timeout error on the reactive path; None when scheduled."""
         return cast("BidiModelTimeoutError | None", self["timeout_error"])
+
+    @property
+    def turn_interrupted(self) -> bool:
+        """True if the restart cut an in-progress or owed turn that will not be answered."""
+        return cast(bool, self["turn_interrupted"])
 
 
 class BidiConnectionWarningEvent(TypedEvent):

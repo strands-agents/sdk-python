@@ -48,9 +48,12 @@ class BidiConnectionConfig(TypedDict, total=False):
     declared.
 
     Attributes:
-        max_connection_s: Provider's connection time limit in seconds.
+        max_connection_s: Provider's connection time limit in seconds. Must be larger than
+            ``reconnect_margin_s``, otherwise the reconnect deadline collapses to zero.
         reconnect_margin_s: Seconds before ``max_connection_s`` at which to reconnect
-            (default 60). Reconnect fires at ``max_connection_s - reconnect_margin_s``.
+            (default 60). Reconnect fires at ``max_connection_s - reconnect_margin_s``. The
+            turn-alignment wait consumes part of this margin, so a margin of only a few seconds
+            leaves no room to align the swap to a turn boundary (the swap fires immediately).
         auto_reconnect: Whether the loop reconnects automatically (default True).
     """
 

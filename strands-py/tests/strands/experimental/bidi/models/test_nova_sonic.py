@@ -361,10 +361,24 @@ async def test_proactive_reconnect_end_to_end_through_agent(model_id, boto_sessi
     mock_stream.await_output = AsyncMock(return_value=(None, output))
 
     model = BidiNovaSonicModel(model_id=model_id, client_config={"boto_session": boto_session})
-    # Shrink the deadline so the proactive timer fires immediately: max(1 - 1, 0) = 0.
-    model.connection_config = {"max_connection_s": 1.0, "reconnect_margin_s": 1.0}
+    # A small-but-valid deadline (2 - 1 = 1s); the injected clock below fires it without wall time.
+    model.connection_config = {"max_connection_s": 2.0, "reconnect_margin_s": 1.0}
 
     agent = BidiAgent(model=model, system_prompt="You are helpful")
+
+    # Drive the timer without wall time: the first cycle's sleeps return immediately, the re-armed
+    # cycle after the swap parks, so exactly one proactive reconnect fires.
+    sleep_count = 0
+
+    async def fake_sleep(_seconds):
+        nonlocal sleep_count
+        sleep_count += 1
+        if sleep_count > 2:
+            await asyncio.Event().wait()
+        await asyncio.sleep(0)
+
+    agent._loop._reconnect_timer._sleep = fake_sleep
+
     await agent.start()
 
     first_connection_id = model._connection_id

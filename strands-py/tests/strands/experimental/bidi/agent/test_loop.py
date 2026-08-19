@@ -13,7 +13,9 @@ from strands.experimental.bidi.types.events import (
     BidiConnectionRestartEvent,
     BidiConnectionWarningEvent,
     BidiTextInputEvent,
+    BidiUsageEvent,
 )
+from strands.experimental.hooks.events import BidiBeforeConnectionRestartEvent
 from strands.types._events import ToolResultEvent, ToolResultMessageEvent, ToolUseStreamEvent
 
 
@@ -109,28 +111,47 @@ async def test_bidi_agent_loop_auto_reconnect_opt_out_surfaces_timeout(loop, age
 @pytest.mark.asyncio
 async def test_bidi_agent_loop_proactive_reconnect_before_deadline(loop, agent, agenerator):
     """A declared limit arms the timer, which emits a warning and reconnects proactively."""
-    # Deadline resolves to max(5 - 5, 0) = 0 and warning lead 0, so both fire immediately
-    # without waiting on wall time. The model produces no events on its own.
-    agent.model.connection_config = {"max_connection_s": 5.0, "reconnect_margin_s": 5.0}
+    agent.model.connection_config = {"max_connection_s": 10.0, "reconnect_margin_s": 5.0}
     agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
+
+    # Drive timing without wall time: the first cycle's sleeps return immediately; the re-armed
+    # cycle after the swap parks, so exactly one proactive reconnect fires.
+    sleep_count = 0
+
+    async def fake_sleep(_seconds):
+        nonlocal sleep_count
+        sleep_count += 1
+        if sleep_count > 2:
+            await asyncio.Event().wait()
+        await asyncio.sleep(0)
+
+    loop._reconnect_timer._sleep = fake_sleep
 
     await loop.start()
 
-    # The proactive timer enqueues a warning, then a scheduled restart event, then reconnects.
+    # The proactive timer enqueues a warning, then reconnects, then enqueues the scheduled event.
     warning = await loop._event_queue.get()
     assert isinstance(warning, BidiConnectionWarningEvent)
 
     restart = await loop._event_queue.get()
     assert isinstance(restart, BidiConnectionRestartEvent)
     assert restart.reason == "scheduled"
-
-    # Give the deadline callback a turn to run the reconnect.
-    for _ in range(10):
-        await asyncio.sleep(0)
-        if agent.model.reconnect.called:
-            break
+    assert restart.turn_interrupted is False  # swapped at an idle boundary, no turn cut
 
     agent.model.reconnect.assert_called()
+
+    await loop.stop()
+
+
+@pytest.mark.asyncio
+async def test_no_proactive_timer_when_margin_exceeds_limit(loop, agent, agenerator):
+    """max_connection_s <= reconnect_margin_s must not arm a zero-deadline hot reconnect loop."""
+    agent.model.connection_config = {"max_connection_s": 30.0, "reconnect_margin_s": 60.0}
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
+
+    await loop.start()
+
+    assert loop._reconnect_timer._task is None  # proactive disabled; reactive path remains
 
     await loop.stop()
 
@@ -256,13 +277,201 @@ async def test_reconnect_fences_superseded_reader_stream_close_error():
 
     # Proactive-style reconnect: reconnect() -> stop() closes the old stream, so the old
     # reader raises OSError. It is superseded, so that error must be dropped, not queued.
-    await loop._restart_connection(None)
+    await loop._restart_connection(None, loop._generation)
     assert model.reconnect_calls == 1
 
     second = BidiTextInputEvent(text="second")
     await model.emit(second)
     # The new connection's event arrives; a leaked OSError would have surfaced here instead.
     assert await loop._event_queue.get() is second
+
+    await loop.stop()
+
+
+@pytest.mark.asyncio
+async def test_stale_reader_event_does_not_corrupt_state_across_reconnect():
+    """A reader suspended in the full-queue put across a swap must not record its stale event.
+
+    Guards the generation re-check after the queue put: without it, a cumulative-usage provider
+    double-counts the old connection's running total onto the already-folded baseline.
+    """
+    model = _StreamModel()
+    model.usage_is_cumulative = True  # like Nova: usage events report a running total
+    agent = BidiAgent(model=model, system_prompt="hi")
+    loop = agent._loop
+
+    await loop.start()
+    loop._reconnect_timer.cancel()
+
+    await model.emit(BidiUsageEvent(input_tokens=60, output_tokens=40, total_tokens=100))
+    await model.emit(BidiUsageEvent(input_tokens=90, output_tokens=60, total_tokens=150))
+    for _ in range(30):
+        await asyncio.sleep(0)
+    # usage1 recorded; the reader is now suspended inside put(usage2) on the full queue.
+    assert loop._accumulated_total_tokens == 100
+
+    swap = asyncio.create_task(loop._restart_connection(None, loop._generation))
+    for _ in range(30):
+        await asyncio.sleep(0)
+    await loop._event_queue.get()  # drain, unblocking the old reader's put(usage2)
+    await swap
+    for _ in range(30):
+        await asyncio.sleep(0)
+
+    # The stale usage2 must not be recorded onto the new connection (no cumulative double count).
+    assert loop._accumulated_total_tokens == 100
+
+    await loop.stop()
+
+
+@pytest.mark.asyncio
+async def test_tool_result_not_sent_when_completed_during_reconnect(agenerator):
+    """A tool completing inside the reconnect window must not deliver its result to the new connection.
+
+    The gen re-check after the send gate reopens guards this; the window is opened by a
+    suspending before-restart hook (a public extension point).
+    """
+    order = []
+    release_tool = asyncio.Event()
+
+    @tool
+    async def slow_tool():
+        await release_tool.wait()
+        return "result"
+
+    model = unittest.mock.AsyncMock(spec=BidiModel)
+    model.connection_config = {}
+    model.send.side_effect = lambda event: order.append("send")
+    model.reconnect.side_effect = lambda *a, **k: order.append("reconnect")
+    model.receive = unittest.mock.Mock(return_value=agenerator([]))
+
+    agent = BidiAgent(model=model, tools=[slow_tool], system_prompt="hi")
+    loop = agent._loop
+    await loop.start()
+    loop._reconnect_timer.cancel()
+
+    async def drain():
+        while True:
+            await loop._event_queue.get()
+
+    drain_task = asyncio.create_task(drain())
+    tool_use = {"toolUseId": "t1", "name": "slow_tool", "input": {}}
+    tool_task = asyncio.create_task(loop._run_tool(tool_use, loop._generation))
+    for _ in range(10):
+        await asyncio.sleep(0)
+
+    async def before_restart_hook(event):
+        # Release the tool mid-reconnect: the gate is closed but the generation not yet bumped.
+        release_tool.set()
+        for _ in range(50):
+            await asyncio.sleep(0)
+
+    agent.hooks.add_callback(BidiBeforeConnectionRestartEvent, before_restart_hook)
+
+    await loop._restart_connection(None, loop._generation)
+    await asyncio.wait_for(tool_task, timeout=2)
+    drain_task.cancel()
+
+    assert "send" not in order, f"stale tool result sent to new connection: {order}"
+
+
+@pytest.mark.asyncio
+async def test_stale_reactive_restart_ignored_after_proactive_swap(agent, agenerator):
+    """A stale timeout restart (raised for an old generation) must not tear down the new connection."""
+    agent.model.connection_config = {}
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
+
+    loop = agent._loop
+    await loop.start()
+    loop._reconnect_timer.cancel()
+
+    stale_generation = loop._generation
+    await loop._restart_connection(None, loop._generation)  # a proactive swap advances the generation
+    assert loop._generation == stale_generation + 1
+    reconnects = agent.model.reconnect.call_count
+
+    await loop._restart_connection(BidiModelTimeoutError("stale"), stale_generation)
+    assert agent.model.reconnect.call_count == reconnects  # stale trigger ignored
+
+    await loop.stop()
+
+
+@pytest.mark.asyncio
+async def test_deadline_callback_does_not_reconnect_after_stop(agent, agenerator):
+    """A proactive deadline callback in flight during stop() must not reconnect the model."""
+    agent.model.connection_config = {"max_connection_s": 480.0, "reconnect_margin_s": 65.0}
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
+
+    loop = agent._loop
+    await loop.start()
+    loop._reconnect_timer.cancel()
+
+    loop._response_active = True  # mid-turn: the callback waits for the boundary
+    loop._update_turn_state()
+
+    deadline_task = asyncio.create_task(loop._on_reconnect_deadline())
+    for _ in range(10):
+        await asyncio.sleep(0)
+
+    await loop.stop()  # stop() releases the boundary wait; the callback no-ops on _started
+    await asyncio.wait_for(deadline_task, timeout=2)
+
+    agent.model.reconnect.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_send_user_text_marks_turn_awaiting_response(loop, agent, agenerator):
+    """A user text turn owes a reply, so it holds the turn boundary like a finished audio turn."""
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
+    await loop.start()
+
+    await loop.send(BidiTextInputEvent(text="hello", role="user"))
+    assert loop._awaiting_response is True
+    assert not loop._turn_complete.is_set()  # a proactive reconnect would now wait
+
+    await loop.stop()
+
+
+@pytest.mark.asyncio
+async def test_send_assistant_text_does_not_mark_awaiting_response(loop, agent, agenerator):
+    """Injected assistant context is not an owed user turn and must not hold the boundary."""
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
+    await loop.start()
+
+    await loop.send(BidiTextInputEvent(text="injected context", role="assistant"))
+    assert loop._awaiting_response is False
+    assert loop._turn_complete.is_set()
+
+    await loop.stop()
+
+
+@pytest.mark.asyncio
+async def test_forced_swap_flags_interrupted_turn(agent, agenerator):
+    """A swap forced while a turn is owed sets turn_interrupted so the app can re-prompt."""
+    # Margin == headroom -> aligned wait bound is 0, so an in-progress turn forces the swap.
+    agent.model.connection_config = {"reconnect_margin_s": 5.0}
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
+    loop = agent._loop
+    await loop.start()
+    loop._reconnect_timer.cancel()
+
+    loop._response_active = True  # a turn is in progress and will not complete in time
+    loop._update_turn_state()
+
+    restarts = []
+
+    async def drain():
+        while True:
+            event = await loop._event_queue.get()
+            if isinstance(event, BidiConnectionRestartEvent):
+                restarts.append(event)
+
+    drain_task = asyncio.create_task(drain())
+    await loop._on_reconnect_deadline()
+    await asyncio.sleep(0)
+    drain_task.cancel()
+
+    assert restarts and restarts[-1].turn_interrupted is True
 
     await loop.stop()
 
@@ -310,8 +519,8 @@ async def test_bidi_agent_loop_restart_hook_reports_reason(loop, agent, agenerat
     await loop.start()
 
     timeout_error = BidiModelTimeoutError("boom")
-    await loop._restart_connection(timeout_error)
-    await loop._restart_connection(None)
+    await loop._restart_connection(timeout_error, loop._generation)
+    await loop._restart_connection(None, loop._generation)
 
     assert before_events[0] == ("timeout", timeout_error)
     assert before_events[1] == ("scheduled", None)
@@ -338,14 +547,14 @@ async def test_bidi_agent_loop_reconnect_is_reentrancy_guarded(loop, agent, agen
 
     await loop.start()
 
-    first = asyncio.create_task(loop._restart_connection(None))
+    first = asyncio.create_task(loop._restart_connection(None, loop._generation))
     for _ in range(10):
         await asyncio.sleep(0)
         if reconnect_calls == 1:
             break
 
     # First reconnect is now suspended mid-flight, still holding the guard.
-    await loop._restart_connection(None)
+    await loop._restart_connection(None, loop._generation)
     assert reconnect_calls == 1
 
     release.set()
@@ -362,7 +571,7 @@ async def test_bidi_agent_loop_proactive_reconnect_completes_when_reconnect_susp
     Guards against the timer cancelling the very task running its deadline callback: with a
     reconnect that actually suspends, a self-cancel would abort the swap and leave the gate closed.
     """
-    agent.model.connection_config = {"max_connection_s": 5.0, "reconnect_margin_s": 5.0}
+    agent.model.connection_config = {"max_connection_s": 10.0, "reconnect_margin_s": 5.0}
     agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
 
     reconnect_done = False
@@ -373,6 +582,18 @@ async def test_bidi_agent_loop_proactive_reconnect_completes_when_reconnect_susp
         reconnect_done = True
 
     agent.model.reconnect = suspending_reconnect
+
+    # Drive timing without wall time: the first cycle fires immediately, the re-armed cycle parks.
+    sleep_count = 0
+
+    async def fake_sleep(_seconds):
+        nonlocal sleep_count
+        sleep_count += 1
+        if sleep_count > 2:
+            await asyncio.Event().wait()
+        await asyncio.sleep(0)
+
+    loop._reconnect_timer._sleep = fake_sleep
 
     await loop.start()
 
