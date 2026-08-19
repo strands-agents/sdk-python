@@ -59,6 +59,7 @@ export class ContextManager implements Plugin {
       await this._runStrategies(event.agent, event.projectedInputTokens)
     })
 
+    // Assumes sequential invocations on this agent (no concurrent calls)
     let overflowRetries = 0
     agent.addHook(AfterModelCallEvent, async (event) => {
       if (!(event.error instanceof ContextWindowOverflowError)) {

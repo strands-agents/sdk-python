@@ -58,22 +58,6 @@ export interface OffloadStrategyBuilder extends ContextStrategy {
 
 // --- Shared helpers ---
 
-const CHARS_PER_TOKEN = 4
-
-/** Cheap char-based token estimate for per-block threshold checks. */
-function estimateBlockTokens(block: ContentBlock): number {
-  if (block instanceof TextBlock) return Math.ceil(block.text.length / CHARS_PER_TOKEN)
-  if (block instanceof ToolResultBlock) {
-    let chars = 0
-    for (const item of block.content) {
-      if (item instanceof TextBlock) chars += item.text.length
-      else chars += JSON.stringify(item).length
-    }
-    return Math.ceil(chars / CHARS_PER_TOKEN)
-  }
-  return 0
-}
-
 function finiteOrUndefined(value: number | undefined): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : undefined
 }
@@ -414,7 +398,7 @@ export abstract class BaseOffloadStrategy implements ContextStrategy {
       const block = message.content[blockIndex]!
       if (!this._blockMatchesTarget(block, message, toolNameMap)) continue
 
-      const tokens = estimateBlockTokens(block)
+      const tokens = await agent.model.countTokens([new Message({ role: message.role, content: [block] })])
       if (tokens <= effectiveThreshold) continue
 
       const replacement = await this._replaceBlock(block as TextBlock | ToolResultBlock, tokens, message, agent)
@@ -429,8 +413,8 @@ export abstract class BaseOffloadStrategy implements ContextStrategy {
   }
 
   /** Collect eligible messages for message-level operations, respecting preserveRecent, head-pin, and threshold. */
-  protected _getEligibleMessages(context: ContextState): Message[] {
-    const { messages } = context
+  protected async _getEligibleMessages(context: ContextState): Promise<Message[]> {
+    const { messages, agent } = context
     const toolNameMap = buildToolNameMap(messages)
 
     let candidates: Message[]
@@ -459,7 +443,7 @@ export abstract class BaseOffloadStrategy implements ContextStrategy {
       for (const block of message.content) {
         if (!this._blockMatchesTarget(block, message, toolNameMap)) continue
 
-        const tokens = estimateBlockTokens(block)
+        const tokens = await agent.model.countTokens([new Message({ role: message.role, content: [block] })])
         if (tokens > this._threshold!) {
           hasOversize = true
           break
