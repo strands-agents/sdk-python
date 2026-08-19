@@ -40,7 +40,7 @@ export class SummarizeStrategy extends BaseOffloadStrategy {
   }
 
   override init(agent: LocalAgent): void {
-    if (this._utilization !== undefined) return
+    if (this._utilizationThreshold !== undefined) return
     super.init(agent)
   }
 

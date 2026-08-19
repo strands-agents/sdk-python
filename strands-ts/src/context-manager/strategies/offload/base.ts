@@ -402,7 +402,7 @@ export abstract class BaseOffloadStrategy implements ContextStrategy {
       const tokens = await agent.model.countTokens([new Message({ role: message.role, content: [block] })])
       if (tokens <= effectiveThreshold) continue
 
-      const replacement = await this._replaceBlock(block, tokens, message, agent)
+      const replacement = await this._replaceBlock(block as TextBlock | ToolResultBlock, tokens, message, agent)
       if (replacement && replacement !== block) {
         // Intentional in-place mutation: per-block replacement shrinks existing message content
         // rather than constructing a new Message (unlike message-level removal which uses new objects).
