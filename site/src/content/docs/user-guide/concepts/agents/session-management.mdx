@@ -496,15 +496,11 @@ Both file and S3 backends use the same key structure:
 
 ## Sessions, Agents, and Concurrency
 
-A session manager assumes it is the only writer for its key: the session ID plus the agent ID (<Syntax py="agent_id" ts="id" />), or the orchestrator ID for a Graph or Swarm. Lost or interleaved conversation history almost always traces back to that assumption breaking.
+Session management is designed around a single live writer per conversation: the session ID plus the agent ID (<Syntax py="agent_id" ts="id" />), or the orchestrator ID for a Graph or Swarm, address one conversation thread in storage.
 
 ### One Conversation per Session
 
-Give each conversation its own session ID. Several agents can share one session ID as long as their agent IDs differ, since each agent keeps its own messages and state inside the session. What corrupts data is two live agents addressing the same session ID *and* agent ID, which the default IDs (<Syntax py='agent_id="default"' ts="id: 'agent'" />) make easy to do by accident.
-
-Only Python catches part of this: handing one session manager to two agents with the same agent ID raises `SessionException`. Nothing catches two agents that each hold their own session manager, whether that is a second AWS Lambda execution or a server that builds a manager per request, and neither call errors. Their invocations either overlap, and one agent's turn is overwritten, or they do not, and the second agent restores the first one's messages and appends to them, leaving one history that holds two conversations.
-
-A single agent instance rejects overlapping invocations by default, described in [Concurrent Invocations](./agent-loop.md#concurrent-invocations), but that guard is in-process: it sees nothing running anywhere else.
+Give each conversation its own session ID. Several agents can share one session ID as long as their agent IDs differ: the session acts as a namespace, and each agent keeps its own messages and state inside it. A single agent instance processes one invocation at a time by default, as described in [Concurrent Invocations](./agent-loop.md#concurrent-invocations).
 
 ### Create an Agent per Conversation
 
@@ -512,9 +508,14 @@ Constructing an agent is cheap, since it wires up tools, hooks, and plugins, and
 
 ### Serializing Access to a Shared Session
 
-When two invocations for one session ID can overlap, the lock has to live outside Strands, because no built-in session manager takes one. AWS Lambda is where this surfaces most often: a retried or duplicated event starts a second execution with the same session ID, and both executions write the same keys. Queue redelivery and a double-submitted form produce the same race.
+When requests for one session ID can arrive at the same time, as with an AWS Lambda retry, queue redelivery, or a double-submitted form, serialize them before they reach the agent. Take a distributed lock keyed by the session ID before constructing the agent, release it after the invocation completes, and give it a TTL so a crashed holder cannot block the session forever. A conditional write on a DynamoDB item and `SET key value NX PX` in Redis both do the job. Where the work does not have to be synchronous, a FIFO queue partitioned by session ID (in Amazon SQS, the session ID becomes the message group ID) serializes the requests instead.
 
-Take a distributed lock keyed by the session ID before constructing the agent, release it after the invocation, and give it a TTL so a crashed holder cannot block the session forever. A conditional write on a DynamoDB item and `SET key value NX PX` in Redis both do the job. Where the work does not have to be synchronous, a FIFO queue partitioned by session ID (in Amazon SQS, the session ID becomes the message group ID) serializes the requests instead of racing them.
+### Common Failure Modes
+
+The built-in session managers take no distributed lock, and the single-instance invocation guard is in-process, so neither can detect a second writer running elsewhere. The patterns that corrupt history, silently in both cases:
+
+- **Two live agents addressing the same session ID and agent ID.** The default IDs (<Syntax py='agent_id="default"' ts="id: 'agent'" />) make this easy to do by accident. Overlapping invocations overwrite each other's turns; sequential ones merge two conversations into one history. Python raises `SessionException` only when both agents share one session manager instance.
+- **Reusing one session ID across concurrent executions without serializing them.** A retried AWS Lambda event or two open browser tabs each build their own agent, and both write the same keys.
 
 ## Session Persistence Best Practices
 
