@@ -268,7 +268,7 @@ export abstract class BaseOffloadStrategy implements ContextStrategy {
 
   protected readonly _target: OffloadTarget | undefined
   protected readonly _threshold: number | undefined
-  protected readonly _utilization: number | undefined
+  protected readonly _utilizationThreshold: number | undefined
   protected readonly _preserveRecent: number
   protected readonly _removalRatio: number = 0.3
   protected readonly _includeFilter: Set<string> | undefined
@@ -281,7 +281,7 @@ export abstract class BaseOffloadStrategy implements ContextStrategy {
 
     this._target = target
     this._threshold = finiteOrUndefined(conditions?.threshold)
-    this._utilization = finiteOrUndefined(conditions?.utilization)
+    this._utilizationThreshold = finiteOrUndefined(conditions?.utilization)
     this._preserveRecent = Math.floor(finiteOrUndefined(conditions?.preserveRecent) ?? 0)
 
     const resolved = resolveToolFilter(target)
@@ -291,7 +291,7 @@ export abstract class BaseOffloadStrategy implements ContextStrategy {
 
   /** Whether this strategy operates at message-level (batch) vs per-block. */
   protected get _isMessageLevel(): boolean {
-    return this._utilization !== undefined
+    return this._utilizationThreshold !== undefined
   }
 
   init(agent: LocalAgent): void {
@@ -306,7 +306,7 @@ export abstract class BaseOffloadStrategy implements ContextStrategy {
 
   async apply(context: ContextState): Promise<boolean> {
     if (this._isMessageLevel) {
-      if (context.utilization < this._utilization!) return false
+      if (context.utilization < this._utilizationThreshold!) return false
       return this._applyPerMessage(context)
     }
 
