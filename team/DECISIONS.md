@@ -210,10 +210,10 @@ When handling input, the SDK distinguishes two "no value" states:
 - **`null` means explicit removal.** The user is deliberately opting a field out. When plumbing information through to a downstream service, a `null` field SHOULD be removed from the request — not sent as `null`, and not replaced with an SDK default.
 - **`undefined` (or an absent field) means the default case.** The SDK is free to apply its own logic for sensible defaults — which may itself be to omit the field.
 
-In Python, which has no `undefined`, an absent key plays the `undefined` role and, for inputs plumbed through to a downstream service, an explicit `None` plays `null`. This does not reinterpret parameters where `None` already means "unspecified" — `Agent(model=None)` still applies the default model.
+In Python, which has no `undefined`, an absent key plays the `undefined` role and, for inputs plumbed through to a downstream service, an explicit `None` SHOULD be treated as `null`. This does not reinterpret parameters where `None` already means "unspecified" — `Agent(model=None)` still applies the default model.
 
 ### Rationale
 
 Users need a way to say "don't send this field at all" that is distinct from "I didn't specify this field." Collapsing the two either makes SDK-managed defaults impossible to opt out of, or forces the SDK to treat every unspecified field as a deliberate removal.
 
-For example, the TypeScript `OpenAIModel` manages `stream_options: { include_usage: true }` on streaming requests, but Cohere's OpenAI-compatibility endpoint rejects the field entirely. [#3872](https://github.com/strands-agents/harness-sdk/pull/3872) applies this decision: an explicit `params.stream_options: null` omits the field from the wire request, while leaving it undefined keeps the managed default.
+For example, the TypeScript `OpenAIModel` manages `stream_options: { include_usage: true }` on streaming requests, but some OpenAI-compatible endpoints — e.g. Cohere's Compatibility API — reject the field entirely. [#3872](https://github.com/strands-agents/harness-sdk/pull/3872) applies this decision: an explicit `params.stream_options: null` omits the field from the wire request, while leaving it undefined keeps the managed default.
