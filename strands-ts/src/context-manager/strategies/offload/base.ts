@@ -231,8 +231,6 @@ export function repairAlternation(messages: Message[]): void {
  * An additional `!` prefix excludes (e.g. `'!tool::bash'`).
  */
 export function resolveToolFilter(target: OffloadTarget | undefined): { include?: Set<string>; exclude?: Set<string> } {
-  if (target === undefined || target === '*') return {}
-  if (typeof target === 'string') return {}
   if (!Array.isArray(target)) return {}
 
   const TOOL_PREFIX = 'tool::'
