@@ -330,7 +330,8 @@ export class FileMemoryStore implements MemoryStore {
    * Add a knowledge entry to the store.
    *
    * Writes a markdown file with YAML frontmatter. By default writes to `facts/` within the store's
-   * namespace. Pass `metadata.path` to write to a custom location.
+   * namespace. Pass `metadata.path` to write to a custom location — the key is lowercased, so
+   * `Projects/Roadmap.md` and `projects/roadmap.md` address the same file.
    *
    * @param content - The knowledge content to store
    * @param metadata - Optional metadata: `title`, `description`, and `path` (custom target path)

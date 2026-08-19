@@ -48,7 +48,7 @@ export function createProgressiveDisclosureInjector(
       const lines = files.map(
         (file) => `<file path="${escapeXmlAttr(flatten(file.path))}">${escapeXmlText(flatten(file.description))}</file>`
       )
-      return `<memory-files>\n${instruction}\n\n${lines.join('\n')}\n</memory-files>`
+      return `<memory-files store="${escapeXmlAttr(storeName)}">\n${instruction}\n\n${lines.join('\n')}\n</memory-files>`
     },
   })
 }
@@ -75,7 +75,9 @@ export function createReadTool(storeName: string, readFile: (path: string) => Pr
         .string()
         .describe('Exact path of the file to read, as shown in the memory file listing (e.g. "facts/testing.md").'),
     }),
-    callback: async (input) => ({ content: await readFile(input.path) }) as JSONValue,
+    // A legitimately empty body (an entry added with no content) reads back as '', which is
+    // indistinguishable from a failed call; the sentinel marks it as a successful read of an empty file.
+    callback: async (input) => ({ content: (await readFile(input.path)) || '(this file is empty)' }) as JSONValue,
   })
 }
 

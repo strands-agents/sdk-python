@@ -169,7 +169,7 @@ describe('FileMemoryStore progressive disclosure', () => {
 
       expect(agent.toolRegistry.get('read_test_store_file')).toBeDefined()
       // The injected listing is ephemeral, so it must not have persisted into durable history.
-      expect(JSON.stringify(agent.messages)).not.toContain('<memory-files>')
+      expect(JSON.stringify(agent.messages)).not.toContain('<memory-files')
     })
   })
 
@@ -179,7 +179,7 @@ describe('FileMemoryStore progressive disclosure', () => {
       await store.add('Deploys run on Fridays', { title: 'deploys', description: 'Release cadence' })
 
       expect(await renderInjectedListing(store)).toBe(
-        '<memory-files>\n' +
+        '<memory-files store="test-store">\n' +
           'You have these memory files from previous conversations. Read any whose description looks relevant to the current request with read_test_store_file before answering — each description is a one-line summary, so read the file for its full content.\n' +
           '\n' +
           '<file path="facts/deploys.md">Release cadence</file>\n' +
@@ -325,6 +325,14 @@ describe('FileMemoryStore progressive disclosure', () => {
 
       expect(await readTool(store).invoke({ path: 'facts/ui.md' })).toStrictEqual({
         content: 'User prefers dark mode',
+      })
+    })
+
+    it('marks an empty-body file as empty, so its read is not mistaken for a failed call', async () => {
+      await store.add('', { title: 'roadmap', description: 'Q3 roadmap' })
+
+      expect(await readTool(store).invoke({ path: 'facts/roadmap.md' })).toStrictEqual({
+        content: '(this file is empty)',
       })
     })
 
