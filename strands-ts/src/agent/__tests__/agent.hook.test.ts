@@ -1780,4 +1780,20 @@ describe('Agent Hooks Integration', () => {
       expect(queue).toHaveLength(0)
     })
   })
+
+  describe('plugin initialization failure', () => {
+    it('keeps a plugin initialization failure fail-closed across retries', async () => {
+      const initializationError = new Error('plugin initialization failed')
+      const plugin: Plugin = {
+        name: 'failing-plugin',
+        initAgent: () => {
+          throw initializationError
+        },
+      }
+      const agent = new Agent({ model: new MockMessageModel(), plugins: [plugin] })
+
+      await expect(agent.initialize()).rejects.toBe(initializationError)
+      await expect(agent.initialize()).rejects.toBe(initializationError)
+    })
+  })
 })
