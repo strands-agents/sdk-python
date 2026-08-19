@@ -99,8 +99,8 @@ export interface CacheConfig {
 
   /**
    * Cache the system prompt, auto-injecting a cache point at its end so repeated calls with the same
-   * static system prefix hit the cache. A TTL sets this section's duration; `false` disables it. A
-   * hand-placed system cache point is honored rather than doubled.
+   * static system prefix hit the cache. A TTL sets this section's duration; `true` (the default) reads
+   * the value from `ttl`; `false` disables systemPrompt cache injection.
    *
    * @defaultValue true
    */
