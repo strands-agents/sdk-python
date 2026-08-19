@@ -1,71 +1,82 @@
-/** Background task lifecycle statuses. @internal */
-export const TASK_STATUSES = ['queued', 'working', 'paused', 'completed', 'failed', 'cancelled'] as const
+import type { InterruptStateData } from '../../interrupt.js'
+import type { ToolResultBlockData } from '../../types/messages.js'
 
 /** Background task lifecycle status. @internal */
-export type TaskStatus = (typeof TASK_STATUSES)[number]
+export type TaskStatus = 'queued' | 'working' | 'paused' | 'completed' | 'failed' | 'cancelled'
 
-/** Configuration for bounded in-process task execution. @internal */
-export interface InProcessTaskEngineConfig<Descriptor, Result, State> {
+/** Background task failure category. @internal */
+export type TaskFailureType = 'toolError' | 'executionError' | 'timeout'
+
+/** Identifies the approved tool execution owned by an in-process task. @internal */
+export interface InProcessTaskDescriptor {
+  /** Identifier of the tool use. */
+  readonly toolUseId: string
+  /** Name of the tool to execute. */
+  readonly toolName: string
+  /** Identifier of the manager-owned live execution state. */
+  readonly invocationStateId: string
+}
+
+/** Options and callbacks for bounded in-process task execution. @internal */
+export interface InProcessTaskEngineOptions {
   /** Maximum number of task executions that may run concurrently. */
   readonly maxConcurrency: number
   /** Per-execution timeout in milliseconds, or `Infinity` to disable timeouts. */
   readonly timeout: number
-  /** Executes one task. */
-  readonly execute: (
-    context: InProcessTaskExecutionContext<Descriptor, State>
-  ) => Promise<TaskExecutionOutcome<Result, State>>
-  /** Synchronously updates manager-owned state before commit; must not re-enter the engine, and throwing stops it. */
-  readonly onTaskUpdated: (task: StoredInProcessTask<Descriptor, Result, State>) => void
+  /** Runs one task execution and returns whether it completed, paused, or failed. */
+  readonly execute: (context: InProcessTaskExecutionContext) => Promise<TaskExecutionOutcome>
+  /** Receives committed task updates without blocking or failing the engine. */
+  readonly onTaskUpdated: (task: InProcessTaskRecord) => void
 }
 
 /** Context supplied to one in-process task execution. @internal */
-export interface InProcessTaskExecutionContext<Descriptor, State> {
+export interface InProcessTaskExecutionContext {
   /** Identifier of the logical task. */
   readonly taskId: string
-  /** Snapshot of the submitted execution descriptor. */
-  readonly descriptor: Descriptor
+  /** Submitted execution descriptor. */
+  readonly descriptor: InProcessTaskDescriptor
   /** Execution state supplied when resuming a paused task. */
-  readonly state?: Exclude<State, undefined>
+  readonly state?: InterruptStateData
   /** Signal aborted when this execution should stop. */
   readonly cancelSignal: AbortSignal
 }
 
 /** Outcome returned by one in-process task execution. @internal */
-export type TaskExecutionOutcome<Result, State> =
+export type TaskExecutionOutcome =
   | {
       readonly status: 'completed'
-      readonly result: Exclude<Result, undefined>
+      readonly result: ToolResultBlockData
     }
   | {
       readonly status: 'paused'
-      readonly state: Exclude<State, undefined>
+      readonly state: InterruptStateData
     }
   | {
       readonly status: 'failed'
       readonly failure: {
-        readonly type: string
+        readonly type: TaskFailureType
         readonly message: string
       }
-      readonly result?: Exclude<Result, undefined>
+      readonly result?: ToolResultBlockData
     }
 
-/** Engine-owned in-process task record. @internal */
-export interface StoredInProcessTask<Descriptor, Result, State> {
+/** In-process task record. @internal */
+export interface InProcessTaskRecord {
   /** Identifier of the logical task. */
   readonly taskId: string
   /** Optional key used to deduplicate task admission. */
   readonly idempotencyKey?: string
-  /** Snapshot of the submitted execution descriptor. */
-  readonly descriptor: Descriptor
+  /** Submitted execution descriptor. */
+  readonly descriptor: InProcessTaskDescriptor
   /** Current task lifecycle status. */
   status: TaskStatus
   /** Execution state, required while paused and retained while resuming. */
-  state?: Exclude<State, undefined>
+  state?: InterruptStateData
   /** Execution result, required while completed and optional while failed. */
-  result?: Exclude<Result, undefined>
+  result?: ToolResultBlockData
   /** Failure details recorded when the task fails. */
   failure?: {
-    readonly type: string
+    readonly type: TaskFailureType
     readonly message: string
   }
   /** ISO-8601 creation timestamp. */

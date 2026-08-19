@@ -1,131 +1,106 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
+  createDescriptor,
   createEngine,
+  createResult,
+  createState,
   deferred,
   expectTask,
-  initialize,
-  shutdownEngines,
-  waitForStatus,
+  getStateValue,
 } from './engine-test-helpers.js'
 import type { TestOutcome } from './engine-test-helpers.js'
 
-afterEach(shutdownEngines)
-
 describe('InProcessTaskEngine', () => {
   describe('waiting and transitions', () => {
-    it('cancels observations without cancelling work', async () => {
+    it('cancels idle observation without cancelling work', async () => {
       const finish = deferred<TestOutcome>()
-      const engine = initialize(createEngine(async () => finish.promise))
-      const task = engine.submit({ descriptor: { value: 'work' } })
-      const taskController = new AbortController()
+      const engine = createEngine(async () => finish.promise)
+      const task = engine.submit({ descriptor: createDescriptor('work') })
       const idleController = new AbortController()
-      const taskWaiting = engine.wait(task.taskId, { cancelSignal: taskController.signal })
       const idleWaiting = engine.waitForIdle({ cancelSignal: idleController.signal })
 
-      taskController.abort(null)
       idleController.abort(new Error('stop idle observation'))
-      await expect(taskWaiting).rejects.toMatchObject({ name: 'AbortError' })
       await expect(idleWaiting).rejects.toThrow('stop idle observation')
       expectTask(engine.get(task.taskId), task, {
         status: 'working',
       })
 
-      finish.resolve({ status: 'completed', result: { value: 'done' } })
-      await engine.wait(task.taskId)
+      finish.resolve({ status: 'completed', result: createResult('done') })
+      await engine.waitForIdle()
     })
 
-    it('pauses, persists state, and resumes execution', async () => {
-      const engine = initialize(
-        createEngine(async ({ state }) =>
-          state
-            ? { status: 'completed', result: { value: state.phase } }
-            : { status: 'paused', state: { phase: 'waiting' } }
-        )
+    it('pauses, updates state, and resumes execution', async () => {
+      const engine = createEngine(async ({ state }) =>
+        state
+          ? { status: 'completed', result: createResult(getStateValue(state)) }
+          : { status: 'paused', state: createState('waiting') }
       )
-      const task = engine.submit({ descriptor: { value: 'work' } })
-      const paused = await engine.wait(task.taskId)
-      expectTask(paused, task, {
+      const task = engine.submit({ descriptor: createDescriptor('work') })
+      await engine.waitForIdle()
+      expectTask(engine.get(task.taskId), task, {
         status: 'paused',
-        state: { phase: 'waiting' },
+        state: createState('waiting'),
       })
       expectTask(
-        engine.resume(task.taskId, () => ({ state: { phase: 'still waiting' }, ready: false })),
+        engine.resume(task.taskId, () => ({ state: createState('still waiting'), ready: false })),
         task,
-        { status: 'paused', state: { phase: 'still waiting' } }
+        { status: 'paused', state: createState('still waiting') }
       )
       engine.resume(task.taskId, (state) => ({ state, ready: true }))
-      expectTask(await engine.wait(task.taskId), task, {
+      await engine.waitForIdle()
+      expectTask(engine.get(task.taskId), task, {
         status: 'completed',
-        result: { value: 'still waiting' },
+        result: createResult('still waiting'),
       })
     })
 
-    it('cancels running work, wakes waiters, and removes after execution settles', async () => {
+    it('cancels running work and removes it before execution settles', async () => {
       const finish = deferred<TestOutcome>()
       let executionSignal: AbortSignal | undefined
-      const engine = initialize(
-        createEngine(async ({ cancelSignal }) => {
-          executionSignal = cancelSignal
-          return finish.promise
-        })
-      )
-      const task = engine.submit({ descriptor: { value: 'work' } })
-      await waitForStatus(engine, task.taskId, 'working')
-      const waiting = engine.wait(task.taskId)
-
-      engine.cancel(task.taskId, { reason: 'Stop work' })
-      expect(executionSignal?.reason).toBe('Stop work')
-      expectTask(await waiting, task, {
-        status: 'cancelled',
+      const engine = createEngine(async ({ cancelSignal }) => {
+        executionSignal = cancelSignal
+        return finish.promise
       })
+      const task = engine.submit({ descriptor: createDescriptor('work') })
+
+      expectTask(engine.cancel(task.taskId, { reason: 'Stop work' }), task, { status: 'cancelled' })
+      expect(executionSignal?.reason).toBe('Stop work')
       engine.remove(task.taskId)
       expect(engine.get(task.taskId)).toBeUndefined()
       expect(() => engine.cancel(task.taskId, { reason: 'Again' })).toThrow(
         `Background task '${task.taskId}' was not found`
       )
-      finish.resolve({ status: 'completed', result: { value: 'late' } })
-      await engine.shutdown({ timeout: 1_000 })
+      finish.resolve({ status: 'completed', result: createResult('late') })
+      await engine.waitForIdle()
     })
 
     it('cancels queued work without executing it', async () => {
       const finish = deferred<TestOutcome>()
       const executions: string[] = []
-      const engine = initialize(
-        createEngine(
-          async ({ descriptor }) => {
-            executions.push(descriptor.value)
-            return finish.promise
-          },
-          { maxConcurrency: 1 }
-        )
+      const engine = createEngine(
+        async ({ descriptor }) => {
+          executions.push(descriptor.toolName)
+          return finish.promise
+        },
+        { maxConcurrency: 1 }
       )
-      const running = engine.submit({ descriptor: { value: 'running' } })
-      await waitForStatus(engine, running.taskId, 'working')
-      const queued = engine.submit({ descriptor: { value: 'queued' } })
+      engine.submit({ descriptor: createDescriptor('running') })
+      const queued = engine.submit({ descriptor: createDescriptor('queued') })
 
       expectTask(engine.cancel(queued.taskId, { reason: 'No longer needed' }), queued, {
         status: 'cancelled',
       })
-      finish.resolve({ status: 'completed', result: { value: 'done' } })
+      finish.resolve({ status: 'completed', result: createResult('done') })
       await engine.waitForIdle()
       expect(executions).toEqual(['running'])
     })
 
-    it('rejects invalid timer configuration without stopping work', async () => {
-      const complete = async (): Promise<TestOutcome> => ({ status: 'completed', result: { value: 'done' } })
+    it('rejects invalid execution configuration', () => {
+      const complete = async (): Promise<TestOutcome> => ({ status: 'completed', result: createResult('done') })
       expect(() => createEngine(complete, { maxConcurrency: 0 })).toThrow('maxConcurrency must be a positive')
       expect(() => createEngine(complete, { timeout: 0 })).toThrow('timeout must be a positive')
       expect(() => createEngine(complete, { timeout: 2 ** 31 - 1 })).not.toThrow()
       expect(() => createEngine(complete, { timeout: 2 ** 31 })).toThrow('timeout must be at most')
-
-      const finish = deferred<TestOutcome>()
-      const engine = initialize(createEngine(async () => finish.promise))
-      const task = engine.submit({ descriptor: { value: 'work' } })
-      await waitForStatus(engine, task.taskId, 'working')
-      finish.resolve({ status: 'completed', result: { value: 'done' } })
-      await engine.wait(task.taskId)
-      await expect(engine.shutdown({ timeout: 0 })).rejects.toThrow('shutdown timeout must be a positive')
-      await expect(engine.shutdown({ timeout: 2 ** 31 })).rejects.toThrow('shutdown timeout must be at most')
     })
   })
 })
