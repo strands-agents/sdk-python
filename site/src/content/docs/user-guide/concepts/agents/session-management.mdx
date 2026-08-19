@@ -506,13 +506,12 @@ Give each conversation its own session ID. Several agents can share one session 
 
 Constructing an agent is cheap: it wires up tools, hooks, and plugins locally and makes no model call. Build one per request, invoke it, and let it go out of scope. The model provider is the part worth reusing: providers such as `BedrockModel` build their client in the constructor, so create the provider once per process and pass the same instance to every agent.
 
-
 ### Common Failure Modes
 
 The built-in session managers take no distributed lock, and the single-instance invocation guard is in-process, so neither can detect a second writer running elsewhere. Two patterns result:
 
-- **Two live agents addressing the same session ID and agent ID.** The default IDs (<Syntax py='agent_id="default"' ts="id: 'agent'" />) make this easy to do by accident, including across separate executions that each build their own agent. Overlapping invocations overwrite each other's turns, sequential ones merge two conversations into one history, and neither call errors; Python's `SessionException` fires only when both agents share one session manager instance.
-- **Two callers creating the same session at the same time.** Session creation is a check followed by a write, not an atomic operation, so simultaneous cold starts on a new session ID can both succeed, with the later write winning; in Python the loser can instead raise `SessionException`.
+- **Two live agents addressing the same session ID and agent ID.** The default IDs (<Syntax py='agent_id="default"' ts="id: 'agent'" />) make this easy to do by accident, including across separate executions that each build their own agent. Overlapping invocations overwrite each other's turns, sequential ones merge two conversations into one history, and neither call errors.
+- **Two callers creating the same session at the same time.** Session creation is a check followed by a write, not an atomic operation, so simultaneous cold starts on a new session ID can both succeed, with the later write winning.
 
 ## Session Persistence Best Practices
 
