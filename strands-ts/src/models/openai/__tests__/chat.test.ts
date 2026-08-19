@@ -349,9 +349,9 @@ describe('OpenAIModel', () => {
     it('warns on updateConfig when params contains provider-managed keys', () => {
       const model = new OpenAIModel({ api: 'chat', client: {} as OpenAI })
       const warnSpy = vi.spyOn(logger, 'warn')
-      model.updateConfig({ params: { stream_options: { include_usage: false } } })
+      model.updateConfig({ params: { stream: false } })
       expect(warnSpy).toHaveBeenCalledTimes(1)
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("'stream_options'"))
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("'stream'"))
       warnSpy.mockRestore()
     })
 
@@ -362,7 +362,7 @@ describe('OpenAIModel', () => {
       warnSpy.mockRestore()
     })
 
-    it('provider-managed fields in params are overridden and cannot take effect', async () => {
+    it('overrides managed fields while passing through set params', async () => {
       const captured: { request: any } = { request: null }
       const mockClient = createMockClientWithCapture(captured)
       const warnSpy = vi.spyOn(logger, 'warn')
@@ -381,7 +381,8 @@ describe('OpenAIModel', () => {
       await collectIterator(provider.stream(messages))
       expect(captured.request.model).toBe('gpt-5.4')
       expect(captured.request.stream).toBe(true)
-      expect(captured.request.stream_options).toEqual({ include_usage: true })
+      // stream_options is a set param and passes through.
+      expect(captured.request.stream_options).toEqual({ include_usage: false })
       expect(Array.isArray(captured.request.messages)).toBe(true)
       expect(captured.request.messages[0]).toEqual({ role: 'user', content: [{ type: 'text', text: 'Hi' }] })
       warnSpy.mockRestore()
