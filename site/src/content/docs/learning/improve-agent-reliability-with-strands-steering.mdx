@@ -1,0 +1,161 @@
+---
+title: "Lesson 7: Improve Agent Reliability with Strands Steering"
+description: "System prompts set the agent's general personality and rules, but they're blunt. You can't easily say 'only for this next tool call, format the output as JSON' or 'when the user mentions billing, always check their account status first' without bloating the prompt with conditionals the model has to parse every single turn."
+redirectFrom:
+  - docs/community/learning/lesson7-improve-agent-reliability-with-strands-steering
+---
+
+<YouTube id="5rwTCUFV4Ak" title="Lesson 7: Improve Agent Reliability with Strands Steering" />
+*[Watch on YouTube](https://www.youtube.com/watch?v=5rwTCUFV4Ak&list=PLDzwjhH-4yhU&index=7)*
+
+*Code for this lesson can be found
+[**here**](https://github.com/aws-samples/sample-building-with-strands-course/tree/main/samples/07-steering).*
+
+### Introduction: The Problem of Drift in Agent Systems
+
+In the last lesson, we built a customer service agent with skills for refunds, order
+tracking, and account troubleshooting. It works, but if you run it enough times, you'll
+eventually notice something frustrating: The agent doesn't always follow directions
+consistently.
+
+Sometimes it processes a refund without first checking whether the order is actually
+eligible. Other times, it skips looking up the order history entirely and just guesses.
+And sometimes, the response tone is far too casual for a customer support interaction.
+
+This is one of the big challenges when building AI agents. Instructions can be there in
+the prompt and still not reliably be followed. As prompts and conversation history grow,
+important guidance can become less effective or get lost in the context window entirely.
+This is one of the reasons agent systems drift from expected behavior over time,
+especially for long-running tasks.
+
+One option is to abandon the model-driven approach entirely and hardcode every workflow
+into a deterministic graph. That can work for very rigid "happy path" systems, but the
+moment a user asks something unexpected, the workflow starts breaking down because it
+wasn't designed for that scenario.
+
+That's one of the reasons Strands takes a model-driven approach. You still want the
+adaptability and reasoning capabilities of the model. But how do you keep that flexibility
+while still having the reliability and control you need for a production system?
+
+### What is Steering?
+
+One pattern you can use to improve reliability is steering. Steering gives you a way to
+inspect and influence agent behavior while the agent is running.
+
+Steering is implemented as a plugin and relies on hooks under the hood. At specific points
+in the agent loop, steering logic evaluates the agent's behavior and returns one of three
+outcomes:
+
+* **Proceed:** Allows execution to continue normally.
+* **Guide:** Injects corrective feedback into the loop so the agent can self-correct.
+* **Interrupt:** Pauses execution entirely and hands control back to your application or a
+  human operator (using the same interrupt system we saw earlier with hooks).
+
+Let's add steering to our customer service agent. We will explore two kinds of steering:
+deterministic steering around tool usage, and LLM-based steering for evaluating model
+responses.
+
+### Deterministic Steering Around Tool Usage
+
+First up is tool steering. We have built a refund workflow handler. This is a
+deterministic steering handler that enforces the order of operations before a refund can
+be processed. It extends the `SteeringHandler` class, and the main logic lives inside
+`steer_before_tool`.
+
+Every time the agent attempts to call a tool, this handler runs. For anything other than
+`process_refund`, it simply returns `proceed` and gets out of the way. But when the agent
+attempts to process a refund, the handler starts evaluating what has already happened
+inside the loop.
+
+It does this by using an events ledger provided by Strands. The ledger automatically
+tracks tool calls, inputs, outputs, and execution status throughout the agent lifecycle.
+Steering handlers can inspect that history to make decisions based on the full execution
+context.
+
+The handler validates that the required workflow steps happened in the correct order and
+that the refund request actually matches the underlying order data. This gives us a
+deterministic verification layer inside an otherwise model-driven loop. Even if the model
+hallucinates a refund amount or skips steps, the refund tool cannot execute unless the
+requirements are satisfied.
+
+Agents do hallucinate parameters, so this is important. When the handler returns `guide`,
+the tool call gets cancelled, and the feedback is injected back into the loop as
+additional context. The model reads the corrective guidance, adjusts its behavior, and
+tries again. In practice, models respond much more reliably to timely, corrective feedback
+than to large, static prompts filled with instructions that they saw several turns ago.
+
+### Model Steering and Multi-Agent Evaluation
+
+Now let's look at the second kind of steering, which is model steering. This is useful for
+situations where the rules are difficult to express as deterministic code.
+
+We have built a tone guardrail handler, which extends the `LLMSteeringHandler` base class.
+Instead of deterministic logic, this handler spins up a second agent that acts as a judge.
+Every time the customer service agent generates a response, the steering agent evaluates
+its communication policies defined in the steering prompt.
+
+This is one of the simplest examples of a multi-agent system. The main customer service
+agent performs the task, while a second agent evaluates the output before it reaches the
+user. The steering agent checks for things like overpromising, failing to acknowledge
+customer frustration, or offering compensation outside of the allowed workflow. These are
+nuanced decisions that are difficult to validate reliably with simple `if/else`
+statements.
+
+If the steering agent determines the response violates policy, it returns `guide` with
+corrective feedback. The original response gets discarded before the customer ever sees
+it, and the customer service agent gets another opportunity to generate a better response.
+You can also configure retry limits so the system doesn't loop forever trying to
+regenerate responses.
+
+This pattern is powerful because the steering agent doesn't have to use the same model as
+the primary agent. It's a totally separate agent with its own isolated context window. In
+some systems, you might even intentionally use a different model provider for
+verification, so generation and evaluation aren't relying on the same exact model behavior
+or training patterns. You might also choose a model specifically optimized for critique,
+policy enforcement, or structured evaluation tasks.
+
+This can be very powerful, but the trade-off for this pattern is token consumption and
+latency because every steering pass adds another model invocation to the loop. But for
+important workflows, the reliability gains are often worth it.
+
+### Integrating Steering Handlers into the Agent
+
+Now, let's wire these steering handlers into our customer service agent. When we create
+the agent, we compose both steering handlers alongside the skills plugin from the previous
+lesson:
+
+* The **skills plugin** handles workflow instruction loading.
+* The **refund steering handler** enforces deterministic workflow requirements.
+* The **tone steering handler** evaluates communication quality before responses reach the
+  customer.
+
+Let's run it and see what happens.
+
+I'll say, *"Help me return my order for customer order C10001."* We can see the agent is
+calling the tools to look up the customer. It's loading the skills, and then we have some
+output from our tone steering handler. It's evaluating the agent's response, and it comes
+back that it was approved. It does this for every turn of that agent loop. After the
+steering handler is done evaluating, it approves that final response.
+
+I can then follow up and say, *"I want to return the headphones."* It asks me if I want to
+confirm that, and I will say yes. We can again see all of that steering output right here
+in the command line.
+
+And now we can also see that it calls the `process_refund` tool, and it's checking to
+ensure that the order of operations is correct. That's our deterministic steering handler
+executing there.
+
+Now this is done, and I'll just type `exit`.
+
+### What's Next?
+
+If you step back and look at what we've assembled across these last few lessons—models,
+tools, MCP integrations, hooks, plugins, skills, and now steering—we're gradually
+building out a full agent harness around the model.
+
+But there's another problem we still haven't addressed: For long-running tasks or
+conversations, your agent is going to hit the context window limit and throw an error.
+
+In the next lesson, we'll tackle that problem with conversation managers.
+
+*Learn more: [Steering (Plugins)](/docs/user-guide/concepts/plugins/steering/)*

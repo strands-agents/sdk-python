@@ -634,9 +634,7 @@ class TestRetrievalToolSearch:
     @pytest.mark.asyncio
     async def test_raises_for_missing_reference(self, plugin, tool_context):
         with pytest.raises(ValueError, match="reference not found: nonexistent"):
-            await plugin.retrieve_offloaded_content(
-                reference="nonexistent", pattern="test", tool_context=tool_context
-            )
+            await plugin.retrieve_offloaded_content(reference="nonexistent", pattern="test", tool_context=tool_context)
 
     @pytest.mark.asyncio
     async def test_searches_json_content(self, plugin, storage, tool_context):
@@ -722,9 +720,7 @@ class TestRetrievalToolSearch:
         content = "\n".join(f"line {i + 1}" for i in range(20))
         ref = await storage.store("k1", content.encode("utf-8"), "text/plain")
 
-        result = await plugin.retrieve_offloaded_content(
-            reference=ref, context_lines=10, tool_context=tool_context
-        )
+        result = await plugin.retrieve_offloaded_content(reference=ref, context_lines=10, tool_context=tool_context)
 
         assert "[Lines 1-10 of 20]" in result
         assert "line 1" in result
@@ -1112,9 +1108,7 @@ class TestUnifiedStorage:
             "actively-retrieved entry must survive eviction for unified Storage backends"
         )
         # And remains retrievable
-        content_again = await plugin.retrieve_offloaded_content(
-            reference=ref, tool_context=tool_context
-        )
+        content_again = await plugin.retrieve_offloaded_content(reference=ref, tool_context=tool_context)
         assert "hello world" in content_again
 
     @pytest.mark.asyncio

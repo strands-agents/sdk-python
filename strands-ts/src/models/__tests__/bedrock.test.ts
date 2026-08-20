@@ -2564,6 +2564,113 @@ describe('BedrockModel', () => {
       })
     })
 
+    describe('per-call trailing blocks', () => {
+      const lastContent = (): unknown[] => mockConverseStreamCommand.mock.lastCall?.[0]?.messages?.[0]?.content ?? []
+
+      it('places the cache point ahead of the per-call tail', () => {
+        const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
+        const messages = [
+          new Message({ role: 'user', content: [new TextBlock('durable ask'), new TextBlock('per-call')] }),
+        ]
+
+        collectIterator(provider.stream(messages, { dynamicTrailingBlocks: 1 }))
+
+        expect(lastContent()).toStrictEqual([
+          { text: 'durable ask' },
+          { cachePoint: { type: 'default' } },
+          { text: 'per-call' },
+        ])
+      })
+
+      it('places the cache point ahead of every block of a multi-block tail', () => {
+        const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
+        const messages = [
+          new Message({
+            role: 'user',
+            content: [new TextBlock('durable ask'), new TextBlock('injected'), new TextBlock('status')],
+          }),
+        ]
+
+        collectIterator(provider.stream(messages, { dynamicTrailingBlocks: 2 }))
+
+        expect(lastContent()).toStrictEqual([
+          { text: 'durable ask' },
+          { cachePoint: { type: 'default' } },
+          { text: 'injected' },
+          { text: 'status' },
+        ])
+      })
+
+      it('appends the cache point at the end when no per-call tail is marked', () => {
+        const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
+        const messages = [new Message({ role: 'user', content: [new TextBlock('a'), new TextBlock('b')] })]
+
+        collectIterator(provider.stream(messages))
+
+        expect(lastContent()).toStrictEqual([{ text: 'a' }, { text: 'b' }, { cachePoint: { type: 'default' } }])
+      })
+
+      it('skips the cache point when the whole message is per-call content', () => {
+        const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
+        const messages = [new Message({ role: 'user', content: [new TextBlock('per-call only')] })]
+
+        collectIterator(provider.stream(messages, { dynamicTrailingBlocks: 1 }))
+
+        expect(lastContent()).toStrictEqual([{ text: 'per-call only' }])
+      })
+
+      it('steps a per-call boundary back over a directly preceding non-PDF document', () => {
+        const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
+        const messages = [
+          new Message({
+            role: 'user',
+            content: [
+              new TextBlock('analyze this'),
+              new DocumentBlock({ name: 'readme', format: 'md', source: { bytes: new Uint8Array([1]) } }),
+              new TextBlock('per-call'),
+            ],
+          }),
+        ]
+
+        collectIterator(provider.stream(messages, { dynamicTrailingBlocks: 1 }))
+
+        // Bedrock rejects a cache point directly after a non-PDF document; the per-call path is routed
+        // through the same honor logic, so the same step-back applies.
+        expect(lastContent()).toStrictEqual([
+          { text: 'analyze this' },
+          { cachePoint: { type: 'default' } },
+          { document: { name: 'readme', format: 'md', source: { bytes: new Uint8Array([1]) } } },
+          { text: 'per-call' },
+        ])
+      })
+
+      it('applies the configured messages TTL to a per-call boundary', () => {
+        const provider = new BedrockModel({ cacheConfig: { strategy: 'auto', messagesTTL: '1h' } })
+        const messages = [
+          new Message({ role: 'user', content: [new TextBlock('durable ask'), new TextBlock('per-call')] }),
+        ]
+
+        collectIterator(provider.stream(messages, { dynamicTrailingBlocks: 1 }))
+
+        expect(lastContent()).toStrictEqual([
+          { text: 'durable ask' },
+          { cachePoint: { type: 'default', ttl: '1h' } },
+          { text: 'per-call' },
+        ])
+      })
+
+      it('emits no cache point for a per-call tail when caching is not configured', () => {
+        const provider = new BedrockModel({})
+        const messages = [
+          new Message({ role: 'user', content: [new TextBlock('durable ask'), new TextBlock('per-call')] }),
+        ]
+
+        collectIterator(provider.stream(messages, { dynamicTrailingBlocks: 1 }))
+
+        expect(lastContent()).toStrictEqual([{ text: 'durable ask' }, { text: 'per-call' }])
+      })
+    })
+
     it('inserts cache point before a non-PDF document block', async () => {
       const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
       const messages = [

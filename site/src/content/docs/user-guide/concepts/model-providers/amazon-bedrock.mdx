@@ -376,7 +376,7 @@ See the Amazon Bedrock documentation for [Supported models and model features](h
 
 ### Multimodal Support
 
-Some Bedrock models support multimodal inputs (Documents, Images, etc.). Here's how to use them:
+Some Bedrock models support multimodal inputs (documents, images, audio, etc.). Here's how to use them:
 
 <Tabs>
 <Tab label="Python">
@@ -422,7 +422,7 @@ For a complete list of input types, please refer to the [API Reference](@api/pyt
 
 #### S3 Location Support
 
-As an alternative to providing media content as bytes, Amazon Bedrock supports referencing documents, images, and videos stored in Amazon S3 directly. This is useful when working with large files or when your content is already stored in S3.
+As an alternative to providing media content as bytes, Amazon Bedrock supports referencing documents, images, videos, and audio stored in Amazon S3 directly. This is useful when working with large files or when your content is already stored in S3.
 
 :::note[IAM Permissions Required]
 
@@ -470,7 +470,7 @@ response = agent(
 
 :::tip[Supported Media Types]
 
-The same `location` pattern also works for images and videos.
+The same `location` pattern also works for images, videos, and audio.
 :::
 
 ### Guardrails
@@ -990,6 +990,105 @@ const model = new BedrockModel({
   modelId: 'global.anthropic.claude-sonnet-4-6',
   useNativeTokenCount: true,
 })
+```
+</Tab>
+</Tabs>
+
+### OpenAI-Compatible Endpoints (Mantle)
+
+Mantle is not a separate service or model catalog: it is Amazon Bedrock's second
+endpoint family,
+[`bedrock-mantle`](https://docs.aws.amazon.com/bedrock/latest/userguide/bedrock-mantle.html),
+which serves Bedrock-hosted models through OpenAI-compatible APIs. The two families
+serve different, overlapping model sets: many models are only on the standard
+`bedrock-runtime` endpoint that `BedrockModel` uses, some model lines are only on
+`bedrock-mantle`, and some are on both. AWS lists which endpoint serves each model in
+[endpoint availability by model](https://docs.aws.amazon.com/bedrock/latest/userguide/models-endpoint-availability.html).
+
+Pick your provider by where the model is served. When it is on `bedrock-runtime`, use
+`BedrockModel` as described on the rest of this page (AWS recommends that endpoint
+when a model is on both). When it is served through Mantle, connect with the SDK's
+[OpenAI Responses provider](./openai-responses) instead, in one of the two ways below.
+
+#### Connecting with AWS Credentials
+
+Pass <Syntax py="bedrock_mantle_config" ts="bedrockMantleConfig" /> and the provider
+derives the endpoint from your region, routes the model to the correct Mantle base
+path, and mints short-lived bearer tokens from your AWS credentials (via the
+standard credential chain), refreshing them so long-running agents survive token
+expiry:
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.models.openai_responses import OpenAIResponsesModel
+
+model = OpenAIResponsesModel(
+    model_id="openai.gpt-oss-120b",
+    bedrock_mantle_config={"region": "us-east-1"},
+)
+
+agent = Agent(model=model)
+response = agent("What is 2+2?")
+print(response)
+```
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/model-providers/amazon-bedrock_imports.ts:mantle_config_imports"
+
+--8<-- "user-guide/concepts/model-providers/amazon-bedrock.ts:mantle_config"
+```
+
+Requires the optional dependency: `npm install @aws/bedrock-token-generator`
+</Tab>
+</Tabs>
+
+Omit the region to resolve it from your AWS environment. The config also accepts AWS
+credentials to forward to the token generator
+(<Syntax py="credentials_provider" ts="credentials" />, a
+<Syntax py="botocore CredentialProvider" ts="static identity or provider function" plain />)
+and a token-lifetime override (<Syntax py="expiry" ts="expiresInSeconds" />). In
+Python, `boto_session` can also supply the region from a configured profile.
+
+#### Connecting with a Bedrock API Key
+
+Authenticate with a
+[Bedrock API key](https://docs.aws.amazon.com/bedrock/latest/userguide/api-key-management.html)
+and point the client at your region's Mantle endpoint yourself. Note that some model
+lines are served from `/openai/v1` rather than `/v1`; the config-based approach above
+picks the right path for you.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.models.openai_responses import OpenAIResponsesModel
+
+region = "us-east-1"
+model = OpenAIResponsesModel(
+    model_id="openai.gpt-oss-120b",
+    client_args={
+        "api_key": "<BEDROCK_API_KEY>",
+        "base_url": f"https://bedrock-mantle.{region}.api.aws/v1",
+    },
+)
+
+agent = Agent(model=model)
+response = agent("What is 2+2?")
+print(response)
+```
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/model-providers/amazon-bedrock_imports.ts:bedrock_mantle_imports"
+
+--8<-- "user-guide/concepts/model-providers/amazon-bedrock.ts:bedrock_mantle"
 ```
 </Tab>
 </Tabs>

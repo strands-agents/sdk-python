@@ -1,6 +1,7 @@
 import copy
 import logging
 import mimetypes
+import re
 import unittest.mock
 import warnings
 
@@ -191,6 +192,21 @@ def test_format_request_with_system_prompt(model, messages, model_id, max_tokens
                 "type": "document",
             },
         ),
+        # Text-file format delivered as plain text
+        (
+            {
+                "document": {"format": "csv", "name": "test doc", "source": {"bytes": b"a,b\n1,2"}},
+            },
+            {
+                "source": {
+                    "data": "a,b\n1,2",
+                    "media_type": "text/plain",
+                    "type": "text",
+                },
+                "title": "test doc",
+                "type": "document",
+            },
+        ),
     ],
 )
 def test_format_request_with_document(content, formatted_content, model, model_id, max_tokens):
@@ -215,6 +231,39 @@ def test_format_request_with_document(content, formatted_content, model, model_i
     }
 
     assert tru_request == exp_request
+
+
+# Guards against https://github.com/strands-agents/harness-sdk/issues/3789: formats Anthropic cannot
+# accept must raise client-side instead of being sent in a request shape the API rejects.
+@pytest.mark.parametrize("document_format", ["doc", "docx", "xls", "xlsx"])
+def test_format_request_with_unsupported_document_format(document_format, model):
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"document": {"format": document_format, "name": "test doc", "source": {"bytes": b"content"}}},
+            ],
+        },
+    ]
+
+    expected_message = f"content_type=<document>, format=<{document_format}> | unsupported format"
+    with pytest.raises(TypeError, match=re.escape(expected_message)):
+        model.format_request(messages)
+
+
+def test_format_request_with_non_utf8_text_document(model):
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"document": {"format": "csv", "name": "test doc", "source": {"bytes": b"caf\xe9"}}},
+            ],
+        },
+    ]
+
+    expected_message = "content_type=<document>, format=<csv> | document is not valid utf-8 text"
+    with pytest.raises(TypeError, match=re.escape(expected_message)):
+        model.format_request(messages)
 
 
 def test_format_request_with_image(model, model_id, max_tokens):
@@ -270,6 +319,21 @@ def test_format_request_with_webp_image_does_not_depend_on_mimetypes(model, mode
     tru_request = model.format_request(messages)
 
     assert tru_request["messages"][0]["content"][0]["source"]["media_type"] == "image/webp"
+
+
+# Guards against https://github.com/strands-agents/harness-sdk/issues/3789: formats Anthropic cannot
+# accept must raise client-side instead of being sent with a media type the API rejects.
+def test_format_request_with_unsupported_image_format(model):
+    messages = [
+        {
+            "role": "user",
+            "content": [{"image": {"format": "bmp", "source": {"bytes": b"bmpimage"}}}],
+        },
+    ]
+
+    expected_message = "content_type=<image>, format=<bmp> | unsupported format"
+    with pytest.raises(TypeError, match=re.escape(expected_message)):
+        model.format_request(messages)
 
 
 def test_format_request_with_reasoning(model, model_id, max_tokens):
@@ -2007,3 +2071,66 @@ class TestPromptCaching:
                 "content": [{"type": "text", "text": "again", "cache_control": {"type": "ephemeral", "ttl": "1h"}}],
             },
         ]
+
+    def test_dynamic_trailing_blocks_keeps_the_cache_point_ahead_of_per_call_content(self, model):
+        """The reusable prefix ends where per-call content begins, so the cache point precedes it."""
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        messages = [{"role": "user", "content": [{"text": "durable ask"}, {"text": "per-call"}]}]
+
+        request = model.format_request(messages, dynamic_trailing_blocks=1)
+
+        blocks = request["messages"][0]["content"]
+        assert [("cache_control" in block, block["text"]) for block in blocks] == [
+            (True, "durable ask"),
+            (False, "per-call"),
+        ]
+
+    def test_dynamic_trailing_blocks_covers_every_block_of_a_multi_block_tail(self, model):
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        messages = [{"role": "user", "content": [{"text": "durable ask"}, {"text": "injected"}, {"text": "status"}]}]
+
+        request = model.format_request(messages, dynamic_trailing_blocks=2)
+
+        blocks = request["messages"][0]["content"]
+        assert [("cache_control" in block, block["text"]) for block in blocks] == [
+            (True, "durable ask"),
+            (False, "injected"),
+            (False, "status"),
+        ]
+
+    def test_dynamic_trailing_blocks_skips_the_cache_point_when_nothing_durable_precedes_it(self, model):
+        """With no durable prefix there is nothing worth a cache point, so none is emitted."""
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        messages = [{"role": "user", "content": [{"text": "per-call only"}]}]
+
+        request = model.format_request(messages, dynamic_trailing_blocks=1)
+
+        assert self._breakpoints(request) == []
+
+    def test_dynamic_trailing_blocks_carries_the_configured_ttl(self, model):
+        model.update_config(cache_config=CacheConfig(strategy="auto", ttl="1h"))
+        messages = [{"role": "user", "content": [{"text": "durable ask"}, {"text": "per-call"}]}]
+
+        request = model.format_request(messages, dynamic_trailing_blocks=1)
+
+        assert self._breakpoints(request) == [("messages", 0, {"type": "ephemeral", "ttl": "1h"})]
+
+    def test_no_dynamic_trailing_blocks_places_the_cache_point_on_the_last_block(self, model):
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        messages = [{"role": "user", "content": [{"text": "durable ask"}, {"text": "also durable"}]}]
+
+        request = model.format_request(messages)
+
+        blocks = request["messages"][0]["content"]
+        assert [("cache_control" in block, block["text"]) for block in blocks] == [
+            (False, "durable ask"),
+            (True, "also durable"),
+        ]
+
+    def test_dynamic_trailing_blocks_emits_no_cache_point_without_cache_config(self, model):
+        """A per-call tail says where a cache point would go, never that one should exist."""
+        messages = [{"role": "user", "content": [{"text": "durable ask"}, {"text": "per-call"}]}]
+
+        request = model.format_request(messages, dynamic_trailing_blocks=1)
+
+        assert self._breakpoints(request) == []

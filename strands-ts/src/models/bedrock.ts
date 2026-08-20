@@ -703,7 +703,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
   private _formatRequest(messages: Message[], options?: StreamOptions): ConverseStreamCommandInput {
     const request: ConverseStreamCommandInput = {
       modelId: this._config.modelId,
-      messages: this._formatMessages(messages),
+      messages: this._formatMessages(messages, options?.dynamicTrailingBlocks ?? 0),
     }
 
     // Add system prompt
@@ -840,7 +840,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
    * @param messages - SDK messages
    * @returns Bedrock-formatted messages
    */
-  private _formatMessages(messages: Message[]): BedrockMessage[] {
+  private _formatMessages(messages: Message[], dynamicTrailingBlocks = 0): BedrockMessage[] {
     // Pre-compute the index of the last user message containing text/image content
     // This ensures guardContent wrapping is maintained across tool execution cycles
     const lastUserTextIdx = this._config.guardrailConfig?.guardLatestUserMessage
@@ -868,7 +868,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
       ? resolveCacheSection(cacheConfig?.messagesTTL, cacheConfig?.ttl)
       : { enabled: false }
     if (messagesCache.enabled) {
-      this._injectCachePoint(formattedMessages, messagesCache.ttl)
+      this._injectCachePoint(formattedMessages, messagesCache.ttl, dynamicTrailingBlocks)
     }
 
     return formattedMessages
@@ -965,7 +965,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
    * @param messages - List of messages to inject cache point into (modified in place)
    * @param ttl - TTL for the injected cache point. Falsy leaves the Bedrock default.
    */
-  private _injectCachePoint(messages: BedrockMessage[], ttl?: CacheTTL): void {
+  private _injectCachePoint(messages: BedrockMessage[], ttl?: CacheTTL, dynamicTrailingBlocks = 0): void {
     if (messages.length === 0) {
       return
     }
@@ -1012,7 +1012,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
         }
 
         if (placedIdxs.length > 0) {
-          // One boundary per message, so this change's budget footprint matches the strip it replaces.
+          // One boundary per message, so this message contributes a single cache point to the budget.
           // Extras are not worthless - a second point ahead of the per-call tail doubles the cached
           // prefix - but Bedrock allows only four cache points per request and the budget is shared
           // across toolConfig, system and messages. The SDK already spends up to two of them via
@@ -1041,6 +1041,21 @@ export class BedrockModel extends Model<BedrockModelConfig> {
         if (ttl) {
           // Bedrock validates TTL values server-side, so accept any string here.
           cachePoint.ttl = ttl as BedrockSdkCacheTTL
+        }
+
+        if (dynamicTrailingBlocks > 0) {
+          // Per-call content sits at the end, so the reusable prefix ends where that content begins.
+          // Routed through the honor path so the document rule and configured TTL apply identically.
+          const boundaryIdx = Math.max(0, content.length - dynamicTrailingBlocks)
+          if (boundaryIdx === 0) {
+            logger.debug(`msg_idx=<${lastUserIdx}> | skipped cache point, no durable prefix`)
+            return
+          }
+          content.splice(boundaryIdx, 0, { cachePoint })
+          // A false here means a leading document left no prefix to cache; automatic placement declines
+          // for the same reason, so there is nothing to fall back to.
+          this._honorPlacedCachePoint(content, boundaryIdx, lastUserIdx, ttl)
+          return
         }
 
         // Locate the first non-PDF document block

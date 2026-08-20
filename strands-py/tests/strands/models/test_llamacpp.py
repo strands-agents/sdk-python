@@ -562,17 +562,13 @@ def test_format_audio_content() -> None:
 
 
 def test_format_audio_content_default_format() -> None:
-    """Test audio content formatting uses wav as default format."""
+    """Test backward-compatible WAV default for untyped audio content."""
     model = LlamaCppModel()
 
-    audio_content = {
-        "audio": {"source": {"bytes": b"test audio"}}
-        # No format specified
-    }
+    audio_content = {"audio": {"source": {"bytes": b"test audio"}}}
 
     result = model._format_message_content(audio_content)
 
-    # Should default to wav
     assert result["input_audio"]["format"] == "wav"
 
 
