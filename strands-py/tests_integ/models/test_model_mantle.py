@@ -1,19 +1,23 @@
-"""Integration tests for OpenAI-compatible APIs on Bedrock Mantle.
+"""Integration tests for the OpenAI- and Anthropic-compatible APIs on Bedrock Mantle.
 
-Exercises the ``bedrock_mantle_config`` pathway on ``OpenAIModel`` (Chat Completions) and
-``OpenAIResponsesModel`` (Responses API) against the live
-``bedrock-mantle.<region>.api.aws/v1`` endpoint. Credentials come from the
-ambient AWS credential chain; no explicit API key is passed by the user.
+Exercises the ``bedrock_mantle_config`` pathway on ``OpenAIModel`` (Chat Completions),
+``OpenAIResponsesModel`` (Responses API), and ``AnthropicModel`` (Messages API) against the
+live ``bedrock-mantle.<region>.api.aws`` endpoint. Credentials come from the ambient AWS
+credential chain; no explicit API key is passed by the user.
 """
 
+import pydantic
 import pytest
 
 from strands import Agent
+from strands.models.anthropic import AnthropicModel
 from strands.models.openai import OpenAIModel
 from strands.models.openai_responses import OpenAIResponsesModel
 
 _REGION = "us-east-1"
 _MODEL_ID = "openai.gpt-oss-120b"
+_ANTHROPIC_MODEL_ID = "anthropic.claude-sonnet-5"
+_ANTHROPIC_MAX_TOKENS = 512
 
 
 @pytest.fixture
@@ -103,3 +107,53 @@ def test_reasoning_content_multi_turn(bedrock_mantle_config):
 
     # Second turn should not raise despite reasoningContent in message history
     agent("What about 3+3?")
+
+
+@pytest.fixture
+def anthropic_model(bedrock_mantle_config):
+    return AnthropicModel(
+        model_id=_ANTHROPIC_MODEL_ID,
+        max_tokens=_ANTHROPIC_MAX_TOKENS,
+        bedrock_mantle_config=bedrock_mantle_config,
+    )
+
+
+def test_anthropic_agent_invoke(anthropic_model):
+    """AnthropicModel reaches the Mantle Messages API via bedrock_mantle_config."""
+    agent = Agent(model=anthropic_model, system_prompt="Reply in one short sentence.", callback_handler=None)
+
+    result = agent("What is 2+2?")
+
+    assert "4" in str(result) or "four" in str(result).lower()
+
+
+def test_anthropic_structured_output(anthropic_model):
+    """Tool-based structured output works over Mantle, which rejects output_config.format."""
+
+    class Weather(pydantic.BaseModel):
+        time: str
+        weather: str
+
+    agent = Agent(model=anthropic_model, callback_handler=None)
+
+    result = agent("The time is 12:00 and the weather is sunny", structured_output_model=Weather)
+
+    assert result.structured_output == Weather(time="12:00", weather="sunny")
+
+
+@pytest.mark.asyncio
+async def test_anthropic_native_token_count(bedrock_mantle_config, caplog):
+    """The native count_tokens path answers from Mantle rather than falling back to estimation."""
+    model = AnthropicModel(
+        model_id=_ANTHROPIC_MODEL_ID,
+        max_tokens=_ANTHROPIC_MAX_TOKENS,
+        use_native_token_count=True,
+        bedrock_mantle_config=bedrock_mantle_config,
+    )
+
+    with caplog.at_level("DEBUG"):
+        count = await model.count_tokens([{"role": "user", "content": [{"text": "What is 2+2?"}]}])
+
+    assert count > 0
+    assert "native token count" in caplog.text
+    assert "falling back" not in caplog.text
