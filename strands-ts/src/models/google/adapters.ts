@@ -381,6 +381,8 @@ export function mapChunkToEvents(chunk: GenerateContentResponse, streamState: Go
     const cachedTokens = usageMetadata.cachedContentTokenCount
     if (typeof cachedTokens === 'number' && cachedTokens > 0) {
       streamState.cacheReadInputTokens = cachedTokens
+    } else {
+      delete streamState.cacheReadInputTokens
     }
   }
 

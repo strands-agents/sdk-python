@@ -405,6 +405,40 @@ describe('GoogleModel', () => {
       })
     })
 
+    it('clears cache-read tokens when a later usage chunk reports none', async () => {
+      const { provider, messages } = setupStreamTest(async function* () {
+        yield {
+          candidates: [{ content: { parts: [{ text: 'Hi' }] } }],
+          usageMetadata: {
+            promptTokenCount: 100,
+            candidatesTokenCount: 20,
+            cachedContentTokenCount: 25,
+            totalTokenCount: 120,
+          },
+        }
+        yield {
+          candidates: [{ finishReason: 'STOP' }],
+          usageMetadata: {
+            promptTokenCount: 100,
+            candidatesTokenCount: 20,
+            totalTokenCount: 120,
+          },
+        }
+      })
+
+      const events = await collectIterator(provider.stream(messages))
+
+      const metadataEvent = events.find((e) => e.type === 'modelMetadataEvent')
+      expect(metadataEvent).toEqual({
+        type: 'modelMetadataEvent',
+        usage: {
+          inputTokens: 100,
+          outputTokens: 20,
+          totalTokens: 120,
+        },
+      })
+    })
+
     it('clamps output to zero when totalTokenCount is below promptTokenCount', async () => {
       const { provider, messages } = setupStreamTest(async function* () {
         yield {

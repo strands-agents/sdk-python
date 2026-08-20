@@ -249,7 +249,7 @@ export class GoogleModel extends Model<GoogleModelConfig> {
           outputTokens: streamState.outputTokens,
           totalTokens: streamState.totalTokens,
         }
-        if (streamState.cacheReadInputTokens !== undefined && streamState.cacheReadInputTokens > 0) {
+        if (streamState.cacheReadInputTokens !== undefined) {
           usage.cacheReadInputTokens = streamState.cacheReadInputTokens
         }
         yield { type: 'modelMetadataEvent', usage }
