@@ -234,7 +234,7 @@ Post-model-call effects let the model run, then corrupt the final assistant resp
 
 | Effect | Description |
 | :------- | :------------ |
-| `MalformedJson` | Truncates JSON structures in the output (text, or structured-output tool input) |
+| `MalformedJson` | Truncates JSON-like final-text responses; with `structured_output_model`, injects one failed attempt and allows the corrected retry through |
 | `Confabulation` | Injects fabricated citations into the response text |
 | `SuccessFraming` | Prepends a confident success prefix; always applied last, composable with other post-model-call effects |
 
@@ -249,7 +249,7 @@ chaos_case = ChaosCase(
 )
 ```
 
-Post-model-call corruption applies only to the model's final response. Mid-turn tool dispatch messages are never corrupted, since mangling a live tool call would break the agent loop rather than test resilience. The one deliberate exception: `MalformedJson` also reaches structured-output tool calls (when the agent runs with `structured_output_model`), corrupting the structured payload the model produced. Other post-model-call effects skip these messages entirely.
+Post-model-call corruption applies only to the model's final response. Mid-turn tool dispatch messages are never corrupted, since mangling a live tool call would break the agent loop rather than test resilience. All toolUse messages remain unchanged; post-model-call effects never modify tool calls. `MalformedJson` truncates JSON-like final-text responses. When `structured_output_model` is used, it instead injects one failed structured-output attempt and allows the SDK's correction attempt through unchanged. A successful retry returns validated typed output.
 
 When a case mixes a pre-model-call and post-model-call effect (e.g. `[FullRefusal(), MalformedJson()]`), the pre-model-call effect wins: the model call is cancelled, and post-model-call effects are skipped rather than double-corrupting the injected turn.
 
