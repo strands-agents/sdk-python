@@ -94,6 +94,7 @@ import { AgentAsTool } from './agent-as-tool.js'
 import type { AgentAsToolOptions } from './agent-as-tool.js'
 import { ToolCaller } from './tool-caller.js'
 import type { ToolCallerProxy } from './tool-caller.js'
+import { continuations } from './continuation.js'
 
 import type { z } from 'zod'
 import { MemoryManager } from '../memory/memory-manager.js'
@@ -558,7 +559,7 @@ export class Agent implements LocalAgent, InvokableAgent {
     this._middlewareRegistry = new MiddlewareRegistry()
 
     if (config?.contextManager === 'agentic') {
-      this._middlewareRegistry.addInput(InvokeModelStage.Input, createTokenUsageMiddleware(this.model))
+      this._middlewareRegistry.addInput(InvokeModelStage.Input, createTokenUsageMiddleware())
     }
 
     // `undefined` (omitted) → install the default; `null`/`[]` → explicit opt-out.
@@ -1083,6 +1084,7 @@ export class Agent implements LocalAgent, InvokableAgent {
     options?: InvokeOptions
   ): AsyncGenerator<AgentStreamEvent, AgentResult, undefined> {
     this.acquireLock()
+    let continuationEvent: AfterInvocationEvent | undefined
     try {
       await this.initialize()
 
@@ -1117,6 +1119,11 @@ export class Agent implements LocalAgent, InvokableAgent {
           const message = new Message({ role: 'assistant', content: [new TextBlock(cancelText)] })
           yield this._appendMessage(message, invocationState)
           const afterEvent = new AfterInvocationEvent({ agent: this, invocationState })
+          await continuations.abandon(
+            continuationEvent,
+            new Error('Continuation was not incorporated into agent history')
+          )
+          continuationEvent = afterEvent
           await this._invokeCallbacks(afterEvent)
           yield afterEvent
           return new AgentResult({
@@ -1132,13 +1139,18 @@ export class Agent implements LocalAgent, InvokableAgent {
         let caughtError: Error | undefined
         const afterInvocationEvent = new AfterInvocationEvent({ agent: this, invocationState })
         try {
-          result = yield* this._streamWithMiddleware(currentArgs, resolvedOptions, invocationState)
+          result = yield* this._streamWithMiddleware(currentArgs, resolvedOptions, invocationState, continuationEvent)
         } catch (error) {
           caughtError = error as Error
         } finally {
           // AfterInvocationEvent always fires — even on error or consumer break. Outside middleware.
           // Invoke hooks (so .resume can be set) but don't yield in finally (yields in finally
           // suspend the generator on consumer break instead of completing cleanup).
+          await continuations.abandon(
+            continuationEvent,
+            new Error('Continuation was not incorporated into agent history')
+          )
+          continuationEvent = afterInvocationEvent
           await this._invokeCallbacks(afterInvocationEvent)
         }
 
@@ -1152,9 +1164,22 @@ export class Agent implements LocalAgent, InvokableAgent {
           throw caughtError
         }
 
-        // Resume only on a clean invocation — errors propagate above.
-        if (afterInvocationEvent.resume !== undefined) {
-          currentArgs = afterInvocationEvent.resume
+        const stopReason = result!.stopReason
+        const allowsContinuation = stopReason === 'endTurn' || stopReason === 'stopSequence'
+        if (!allowsContinuation && stopReason !== 'interrupt') {
+          await continuations.abandon(afterInvocationEvent, new Error(`Continuation abandoned after ${stopReason}`))
+        }
+
+        const hasContinuation =
+          (await continuations.prepare(
+            afterInvocationEvent,
+            (continuationArgs) => this._normalizeInput(continuationArgs),
+            stopReason
+          )) !== undefined
+        continuationEvent = hasContinuation ? afterInvocationEvent : undefined
+
+        if (hasContinuation || afterInvocationEvent.resume !== undefined) {
+          currentArgs = afterInvocationEvent.resume ?? []
           continue
         }
 
@@ -1166,10 +1191,13 @@ export class Agent implements LocalAgent, InvokableAgent {
             invocationState,
           })
         )
-
         return result!
       }
     } finally {
+      await continuations.abandon(
+        continuationEvent,
+        new Error('Agent stream closed before continuation input was incorporated into agent history')
+      )
       this._isInvoking = false
     }
   }
@@ -1181,7 +1209,8 @@ export class Agent implements LocalAgent, InvokableAgent {
   private async *_streamWithMiddleware(
     args: InvokeArgs,
     options: InvokeOptions,
-    invocationState: InvocationState
+    invocationState: InvocationState,
+    continuationEvent?: AfterInvocationEvent
   ): AsyncGenerator<AgentStreamEvent, AgentResult, undefined> {
     // Snapshot so a gate that re-reads its response after next() still resolves even if a tool cycle called deactivate().
     const interruptsSnapshot = { ...this._interruptState.interrupts }
@@ -1200,7 +1229,14 @@ export class Agent implements LocalAgent, InvokableAgent {
         AgentStreamStage,
         context,
         async function* (ctx: AgentStreamContext): AsyncGenerator<AgentStreamEvent, AgentStreamResult, undefined> {
-          const result = yield* self._streamCore(ctx.args, ctx.options)
+          const streamArgs = continuations.combine(continuationEvent, ctx.args, (continuationArgs) =>
+            self._normalizeInput(continuationArgs)
+          )
+          const result = yield* self._streamCore(
+            streamArgs,
+            ctx.options,
+            streamArgs === ctx.args ? undefined : continuationEvent
+          )
           return { result }
         }
       )
@@ -1243,9 +1279,10 @@ export class Agent implements LocalAgent, InvokableAgent {
    */
   private async *_streamCore(
     args: InvokeArgs,
-    options?: InvokeOptions
+    options?: InvokeOptions,
+    continuationEvent?: AfterInvocationEvent
   ): AsyncGenerator<AgentStreamEvent, AgentResult, undefined> {
-    const streamGenerator = this._stream(args, options)
+    const streamGenerator = this._stream(args, options, continuationEvent)
     let caughtError: Error | undefined
     let iterationResult: IteratorResult<AgentStreamEvent, AgentResult>
     try {
@@ -1413,7 +1450,8 @@ export class Agent implements LocalAgent, InvokableAgent {
    */
   private async *_stream(
     args: InvokeArgs,
-    options?: InvokeOptions
+    options?: InvokeOptions,
+    continuationEvent?: AfterInvocationEvent
   ): AsyncGenerator<AgentStreamEvent, AgentResult, undefined> {
     let currentArgs: InvokeArgs | undefined = args
     let result: AgentResult | undefined
@@ -1509,8 +1547,12 @@ export class Agent implements LocalAgent, InvokableAgent {
           // Normalize input and append user messages on first invocation only
           if (currentArgs !== undefined) {
             const messagesToAppend = this._normalizeInput(currentArgs)
-            for (const message of messagesToAppend) {
-              yield this._appendMessage(message, invocationState)
+            if (continuationEvent) {
+              yield* await this._appendContinuationMessages(messagesToAppend, continuationEvent, invocationState)
+            } else {
+              for (const message of messagesToAppend) {
+                yield this._appendMessage(message, invocationState)
+              }
             }
             currentArgs = undefined
           }
@@ -1985,9 +2027,23 @@ export class Agent implements LocalAgent, InvokableAgent {
         invocationState,
         ...(projectedInputTokens !== undefined && { projectedInputTokens }),
       })
-      yield beforeModelCallEvent
+      let modelContinuation: readonly Message[] | undefined
+      try {
+        yield beforeModelCallEvent
+        modelContinuation = await continuations.prepare(beforeModelCallEvent, (continuationArgs) =>
+          this._normalizeInput(continuationArgs)
+        )
+      } finally {
+        if (modelContinuation === undefined) {
+          await continuations.abandon(
+            beforeModelCallEvent,
+            new Error('Agent stream closed before continuation input was incorporated into agent history')
+          )
+        }
+      }
 
       if (beforeModelCallEvent.cancel) {
+        await continuations.abandon(beforeModelCallEvent, new Error('Continuation abandoned by BeforeModelCallEvent'))
         const cancelText =
           typeof beforeModelCallEvent.cancel === 'string' ? beforeModelCallEvent.cancel : 'model call denied by hook'
         const message = new Message({ role: 'assistant', content: [new TextBlock(cancelText)] })
@@ -2007,6 +2063,19 @@ export class Agent implements LocalAgent, InvokableAgent {
         }
 
         return { message, stopReason: 'endTurn' }
+      }
+
+      yield* await this._appendContinuationMessages(modelContinuation ?? [], beforeModelCallEvent, invocationState)
+
+      if (modelContinuation !== undefined) {
+        try {
+          projectedInputTokens = await this._estimateInputTokens(streamOptions)
+        } catch (error) {
+          projectedInputTokens = undefined
+          logger.debug(
+            `error=<${error}> | token estimation failed after continuation input, proceeding without estimate`
+          )
+        }
       }
 
       try {
@@ -2098,6 +2167,7 @@ export class Agent implements LocalAgent, InvokableAgent {
   ): AsyncGenerator<AgentStreamEvent, StreamAggregatedResult, undefined> {
     const context: InvokeModelContext = {
       agent: this,
+      model: this.model,
       messages: this.messages.map((msg) => msg.clone()),
       ...(this.systemPrompt !== undefined && { systemPrompt: cloneSystemPrompt(this.systemPrompt) }),
       toolSpecs: deepCopy(this._toolRegistry.list().map((tool) => tool.toolSpec)) as unknown as ToolSpec[],
@@ -2119,7 +2189,7 @@ export class Agent implements LocalAgent, InvokableAgent {
       InvokeModelStage,
       context,
       async function* (ctx: InvokeModelContext): AsyncGenerator<AgentStreamEvent, InvokeModelResult, undefined> {
-        const modelId = self.model.modelId
+        const modelId = ctx.model.modelId
         const modelSpan = self._tracer.startModelInvokeSpan({
           messages: ctx.messages as Message[],
           ...(modelId && { modelId }),
@@ -2139,7 +2209,7 @@ export class Agent implements LocalAgent, InvokableAgent {
             // Omitted when zero, so an ordinary call's options are unchanged.
             ...(ctx.dynamicTrailingBlocks ? { dynamicTrailingBlocks: ctx.dynamicTrailingBlocks } : {}),
           }
-          const gen = self._streamFromModel(ctx.messages as Message[], streamOptions, ctx.invocationState)
+          const gen = self._streamFromModel(ctx.model, ctx.messages as Message[], streamOptions, ctx.invocationState)
           let iterResult = await gen.next()
           while (!iterResult.done) {
             yield iterResult.value
@@ -2185,17 +2255,19 @@ export class Agent implements LocalAgent, InvokableAgent {
    * These are separate event classes because they represent different granularities
    * (partial deltas vs finished blocks). Both are yielded in the stream and hookable.
    *
+   * @param model - Model selected for this call
    * @param messages - Messages to send to the model
    * @param streamOptions - Options for streaming
    * @returns StreamAggregatedResult containing message, stop reason, and optional redaction message
    */
   private async *_streamFromModel(
+    model: Model,
     messages: Message[],
     streamOptions: StreamOptions,
     invocationState: InvocationState
   ): AsyncGenerator<AgentStreamEvent, StreamAggregatedResult, undefined> {
     messages = normalizeToolUseNames(messages)
-    const streamGenerator = this.model.streamAggregated(messages, streamOptions)
+    const streamGenerator = model.streamAggregated(messages, streamOptions)
     try {
       let result = await streamGenerator.next()
 
@@ -2439,6 +2511,38 @@ export class Agent implements LocalAgent, InvokableAgent {
   private _appendMessage(message: Message, invocationState: InvocationState): MessageAddedEvent {
     this.messages.push(message)
     return new MessageAddedEvent({ agent: this, message, invocationState })
+  }
+
+  private async _appendContinuationMessages(
+    messages: readonly Message[],
+    continuationEvent: AfterInvocationEvent | BeforeModelCallEvent,
+    invocationState: InvocationState
+  ): Promise<MessageAddedEvent[]> {
+    const events: MessageAddedEvent[] = []
+    for (const message of messages) {
+      const lastMessage = this.messages.at(-1)
+      if (lastMessage?.role !== message.role) {
+        events.push(this._appendMessage(message, invocationState))
+        continue
+      }
+
+      const appendedMessage = new Message({
+        role: message.role,
+        content: [...lastMessage.content, ...message.content],
+        trackingId: lastMessage.trackingId,
+        ...(lastMessage.metadata !== undefined && { metadata: lastMessage.metadata }),
+      })
+      this.messages[this.messages.length - 1] = appendedMessage
+
+      const messageEvent = new MessageAddedEvent({ agent: this, message: appendedMessage, invocationState })
+      if (events.at(-1)?.message === lastMessage) {
+        events[events.length - 1] = messageEvent
+      } else {
+        events.push(messageEvent)
+      }
+    }
+    await continuations.markAppended(continuationEvent)
+    return events
   }
 
   private _hasOpenUserTurn(): boolean {

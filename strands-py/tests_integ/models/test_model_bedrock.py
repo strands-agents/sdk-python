@@ -24,6 +24,12 @@ def _durable_prefix() -> str:
     return f"Dossier {uuid.uuid4()}. " + ("The subject prefers concise written answers. " * 600)
 
 
+@strands.tool
+def echo(value: str) -> str:
+    """Echo the given value back."""
+    return value
+
+
 @pytest.fixture
 def system_prompt():
     return "You are an AI assistant that uses & instead of ."
@@ -231,6 +237,25 @@ def test_invoke_multi_modal_input(streaming_agent, yellow_img):
     assert "yellow" in text
 
 
+def test_invoke_audio_input(pineapple_audio):
+    model = BedrockModel(
+        model_id="mistral.voxtral-small-24b-2507",
+        region_name="us-east-1",
+        temperature=0,
+        max_tokens=20,
+    )
+    agent = Agent(model=model, load_tools_from_directory=False)
+    content = [
+        {"text": "Transcribe the final word spoken in the audio. Output only that word."},
+        {"audio": {"format": "mp3", "source": {"bytes": pineapple_audio}}},
+    ]
+
+    result = agent(content)
+    text = result.message["content"][0]["text"].lower()
+
+    assert "pineapple" in text
+
+
 def test_document_citations(non_streaming_agent, letter_pdf):
     content: list[ContentBlock] = [
         {
@@ -386,8 +411,7 @@ def test_prompt_caching_with_5m_ttl(quiet_strands_logging):
 
 
 def test_prompt_caching_with_1h_ttl(quiet_strands_logging):
-    """Test prompt caching with 1 hour TTL and verify cache metrics.
-    """
+    """Test prompt caching with 1 hour TTL and verify cache metrics."""
     model = BedrockModel(
         model_id="us.anthropic.claude-haiku-4-5-20251001-v1:0",
         streaming=False,
@@ -596,9 +620,10 @@ def test_prompt_caching_cache_tools_ttl():
     )
 
     # The call must succeed — Bedrock must accept cachePoint.ttl on the toolConfig checkpoint
-    # without raising a ValidationException.
+    # without raising a ValidationException. The loop only returns on a terminal stop reason, so
+    # this proves completion without depending on the model emitting text.
     result = agent("Use the lookup_fact tool to look up 'python'.")
-    assert len(str(result)) > 0
+    assert result.stop_reason == "end_turn"
 
 
 def test_prompt_caching_cache_config_auto_with_ttl(quiet_strands_logging):
@@ -659,11 +684,6 @@ def test_prompt_caching_aligned_1h_ttl_across_checkpoints(quiet_strands_logging)
         {"text": "You are a helpful assistant."},
     ]
 
-    @strands.tool
-    def echo(value: str) -> str:
-        """Echo the given value back."""
-        return value
-
     agent = Agent(
         model=model,
         system_prompt=system_prompt_with_cache,
@@ -671,9 +691,38 @@ def test_prompt_caching_aligned_1h_ttl_across_checkpoints(quiet_strands_logging)
         load_tools_from_directory=False,
     )
 
-    # Must succeed without ValidationException on the non-increasing TTL rule
+    # Must succeed without ValidationException on the non-increasing TTL rule. The large context
+    # exceeds the cache minimum, so a cache write reliably confirms the request was accepted.
     result = agent("What is 2+2?")
-    assert len(str(result)) > 0
+    assert result.metrics.accumulated_usage.get("cacheWriteInputTokens", 0) > 0
+
+
+def test_prompt_caching_untimed_cache_tools_inherits_the_configured_ttl(quiet_strands_logging):
+    """An untimed cache_tools takes the Bedrock default, which a configured ttl on the message point exceeds.
+
+    Bedrock processes cache checkpoints in order toolConfig -> system -> messages and requires their TTLs
+    to be non-increasing. A bare-string cache_tools="default" emits no TTL, so the tools point sat at the
+    5m default while the auto-injected message point carried the configured 1h - an increasing sequence
+    Bedrock rejects. The tools point now inherits the configured ttl, keeping the sequence in step.
+    """
+    model = BedrockModel(
+        model_id=_CACHE_TTL_MODEL_ID,
+        streaming=False,
+        cache_tools="default",
+        cache_config=CacheConfig(strategy="auto", ttl="1h"),
+    )
+
+    agent = Agent(
+        model=model,
+        system_prompt=_durable_prefix(),
+        tools=[echo],
+        load_tools_from_directory=False,
+    )
+
+    # The durable prefix exceeds the cache minimum, so a cache write reliably confirms Bedrock
+    # accepted the aligned-TTL request without a ValidationException.
+    result = agent("What is 2+2?")
+    assert result.metrics.accumulated_usage.get("cacheWriteInputTokens", 0) > 0
 
 
 def test_bedrock_cache_point(quiet_strands_logging):

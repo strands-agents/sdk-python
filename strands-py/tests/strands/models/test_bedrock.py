@@ -2454,6 +2454,64 @@ def test_format_request_image_bytes_only(model, model_id):
     assert image_source == {"bytes": b"image_data"}
 
 
+def test_format_request_audio_bytes_only(model, model_id):
+    """Test that inline audio bytes are properly formatted."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "audio": {
+                        "format": "wav",
+                        "source": {"bytes": b"audio_data"},
+                    }
+                }
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+    audio_block = formatted_request["messages"][0]["content"][0]["audio"]
+
+    assert audio_block == {"format": "wav", "source": {"bytes": b"audio_data"}}
+
+
+def test_format_request_audio_s3_location(model, model_id):
+    """Test that an S3-backed audio block is properly formatted."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "audio": {
+                        "format": "wav",
+                        "source": {
+                            "location": {
+                                "type": "s3",
+                                "uri": "s3://my-bucket/audio.wav",
+                                "bucketOwner": "123456789012",
+                            }
+                        },
+                    }
+                }
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+    audio_block = formatted_request["messages"][0]["content"][0]["audio"]
+
+    assert audio_block == {
+        "format": "wav",
+        "source": {
+            "s3Location": {
+                "uri": "s3://my-bucket/audio.wav",
+                "bucketOwner": "123456789012",
+            }
+        },
+    }
+
+
 def test_format_request_document_s3_location(model, model_id):
     """Test that document with s3Location is properly formatted."""
     messages = [
@@ -2531,6 +2589,16 @@ def test_format_request_unsupported_location(model, caplog):
                 {
                     "image": {
                         "format": "png",
+                        "source": {
+                            "location": {
+                                "type": "other",
+                            },
+                        },
+                    }
+                },
+                {
+                    "audio": {
+                        "format": "wav",
                         "source": {
                             "location": {
                                 "type": "other",
@@ -3337,18 +3405,26 @@ async def test_format_request_with_guardrail_multiple_tool_results_same_message(
     assert formatted_messages[0]["content"][0]["guardContent"]["text"]["text"] == "Question requiring multiple tools"
 
 
-def test_cache_strategy_anthropic_for_claude(bedrock_client):
-    """Test that _cache_strategy returns 'anthropic' for Claude models."""
-    model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
+def test_cache_strategy_auto_maps_claude_to_anthropic(bedrock_client):
+    """Under strategy="auto", a Claude/Anthropic model id resolves to the anthropic strategy."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
     assert model._cache_strategy == "anthropic"
 
-    model2 = BedrockModel(model_id="anthropic.claude-3-haiku-20240307-v1:0")
+    model2 = BedrockModel(model_id="anthropic.claude-3-haiku-20240307-v1:0", cache_config=CacheConfig(strategy="auto"))
     assert model2._cache_strategy == "anthropic"
 
 
-def test_cache_strategy_none_for_non_claude(bedrock_client):
-    """Test that _cache_strategy returns None for unsupported models."""
-    model = BedrockModel(model_id="amazon.nova-pro-v1:0")
+def test_cache_strategy_auto_is_none_for_non_claude(bedrock_client):
+    """Under strategy="auto", a model without automatic caching support resolves to None."""
+    model = BedrockModel(model_id="amazon.nova-pro-v1:0", cache_config=CacheConfig(strategy="auto"))
+    assert model._cache_strategy is None
+
+
+def test_cache_strategy_is_none_without_cache_config(bedrock_client):
+    """A caching-capable model still resolves to no strategy until cache_config turns caching on."""
+    model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
     assert model._cache_strategy is None
 
 
@@ -4715,17 +4791,88 @@ def test_format_request_leaves_a_system_cache_point_alone_behind_a_shorter_tools
     assert tru_request["system"][1] == {"cachePoint": {"type": "default"}}
 
 
-def test_format_request_leaves_a_system_cache_point_alone_behind_an_untimed_tools_cache_point(
-    bedrock_client, messages, tool_spec
-):
-    """A tools cache point with no TTL takes the provider default, which the configured ttl may exceed."""
+def test_format_request_fills_the_configured_ttl_into_an_untimed_tools_cache_point(bedrock_client, messages, tool_spec):
+    """The tools point is first in Bedrock's order, so an untimed one takes the provider default that a
+    configured ttl on a later checkpoint would exceed. Filling it in keeps every checkpoint in step.
+    """
     _ = bedrock_client
     model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"), cache_tools="default")
     system_blocks = [{"text": "s"}, {"cachePoint": {"type": "default"}}]
 
     tru_request = model.format_request(messages, tool_specs=[tool_spec], system_prompt_content=system_blocks)
 
-    assert tru_request["system"][1] == {"cachePoint": {"type": "default"}}
+    assert tru_request["toolConfig"]["tools"][-1] == {"cachePoint": {"type": "default", "ttl": "1h"}}
+    assert tru_request["system"][1] == {"cachePoint": {"type": "default", "ttl": "1h"}}
+
+
+def test_format_request_fills_the_configured_ttl_into_an_untimed_cache_tools_config(
+    bedrock_client, messages, tool_spec
+):
+    """A CacheToolsConfig without a TTL is untimed just like the bare string, so it inherits the same fill-in."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"), cache_tools=CacheToolsConfig())
+
+    tru_point = model.format_request(messages, tool_specs=[tool_spec])["toolConfig"]["tools"][-1]
+
+    assert tru_point == {"cachePoint": {"type": "default", "ttl": "1h"}}
+
+
+def test_format_request_fills_an_empty_cache_tools_ttl_rather_than_shipping_it(bedrock_client, messages, tool_spec):
+    """A falsy TTL is not a TTL, so an empty one is filled in rather than sent as "", which Bedrock rejects."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"), cache_tools=CacheToolsConfig(ttl=""))
+
+    tru_point = model.format_request(messages, tool_specs=[tool_spec])["toolConfig"]["tools"][-1]
+
+    assert tru_point == {"cachePoint": {"type": "default", "ttl": "1h"}}
+
+
+def test_format_request_leaves_a_tools_cache_point_ttl_the_caller_wrote(bedrock_client, messages, tool_spec):
+    """A TTL the caller wrote on cache_tools is theirs; only an absent one is filled in."""
+    _ = bedrock_client
+    model = BedrockModel(
+        cache_config=CacheConfig(strategy="anthropic", ttl="1h"), cache_tools=CacheToolsConfig(ttl="5m")
+    )
+
+    tru_point = model.format_request(messages, tool_specs=[tool_spec])["toolConfig"]["tools"][-1]
+
+    assert tru_point == {"cachePoint": {"type": "default", "ttl": "5m"}}
+
+
+def test_format_request_leaves_a_tools_cache_point_alone_for_a_model_without_caching(
+    bedrock_client, messages, tool_spec
+):
+    """A config that never reaches the wire must not reach the tools point either."""
+    _ = bedrock_client
+    model = BedrockModel(
+        model_id="meta.llama3-70b-instruct-v1:0", cache_config=CacheConfig(ttl="1h"), cache_tools="default"
+    )
+
+    tru_point = model.format_request(messages, tool_specs=[tool_spec])["toolConfig"]["tools"][-1]
+
+    assert tru_point == {"cachePoint": {"type": "default"}}
+
+
+def test_format_request_leaves_a_tools_cache_point_alone_for_an_empty_configured_ttl(
+    bedrock_client, messages, tool_spec
+):
+    """An empty configured ttl is unconfigured, so it does not fill the tools point in."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl=""), cache_tools="default")
+
+    tru_point = model.format_request(messages, tool_specs=[tool_spec])["toolConfig"]["tools"][-1]
+
+    assert tru_point == {"cachePoint": {"type": "default"}}
+
+
+def test_format_request_leaves_a_tools_cache_point_alone_when_no_ttl_is_configured(bedrock_client, messages, tool_spec):
+    """Without a configured ttl there is nothing to inherit, so a bare cache_tools stays untimed."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"), cache_tools="default")
+
+    tru_point = model.format_request(messages, tool_specs=[tool_spec])["toolConfig"]["tools"][-1]
+
+    assert tru_point == {"cachePoint": {"type": "default"}}
 
 
 def test_format_request_applies_the_configured_ttl_behind_a_matching_tools_ttl(bedrock_client, messages, tool_spec):

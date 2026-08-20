@@ -21,6 +21,11 @@ navbar:
   - label: Examples
     href: /docs/examples/
     basePath: /docs/examples/
+  - label: Community
+    href: /community/
+    basePath:
+      - /community/
+      - /docs/learning/
   - label: Integrations
     href: /integrations/
     basePath:
@@ -303,6 +308,37 @@ sidebar:
               - docs/contribute/contributing/documentation
               - docs/contribute/contributing/feature-proposals
               - docs/contribute/contributing/extensions
+      # Feeds llms.txt lesson listing (src/pages/llms.txt.ts extractLinks); visual sidebar built by route-middleware.
+      - label: Learning
+        items:
+          - label: "Lesson 1: How Agents Really Work"
+            slug: docs/learning/how-agents-really-work
+          - label: "Lesson 2: Switching Model Providers"
+            slug: docs/learning/switching-model-providers
+          - label: "Lesson 3: Give Your Agent Tools Using MCP"
+            slug: docs/learning/give-your-agent-tools-using-mcp
+          - label: "Lesson 4: Adding Callbacks & Response Streaming"
+            slug: docs/learning/adding-callbacks-and-response-streaming
+          - label: "Lesson 5: Control Your Agent With Hooks"
+            slug: docs/learning/control-your-agent-with-hooks
+          - label: "Lesson 6: Agent Plugins & Skills"
+            slug: docs/learning/agent-plugins-and-skills
+          - label: "Lesson 7: Improve Agent Reliability With Strands Steering"
+            slug: docs/learning/improve-agent-reliability-with-strands-steering
+          - label: "Lesson 8: Context Engineering & Conversation Management"
+            slug: docs/learning/context-engineering-and-conversation-management
+          - label: "Lesson 9: Persistent Memory With Session Managers"
+            slug: docs/learning/persistent-memory-with-session-managers
+          - label: "Lesson 10: Multi-Agent Patterns: Agents as Tools"
+            slug: docs/learning/multi-agent-patterns-agents-as-tools
+          - label: "Lesson 11: Multi-Agent Patterns: Graph Workflows"
+            slug: docs/learning/multi-agent-patterns-graph-workflows
+          - label: "Lesson 12: Multi-Agent Patterns: Agent Swarms"
+            slug: docs/learning/multi-agent-patterns-agent-swarms
+          - label: "Lesson 13: Evaluating Agents"
+            slug: docs/learning/evaluating-agents
+          - label: "Lesson 14: Deploying Agents to the Cloud"
+            slug: docs/learning/deploying-agents-to-the-cloud
       - label: Labs
         items:
           - docs/labs
@@ -340,6 +376,7 @@ sidebar:
           - docs/integrations/model-providers/fireworksai
           - docs/integrations/model-providers/nebius-token-factory
           - docs/integrations/model-providers/nvidia-nim
+          - docs/integrations/model-providers/openrouter
           - docs/integrations/model-providers/sglang
           - docs/integrations/model-providers/vllm
           - docs/integrations/model-providers/mlx

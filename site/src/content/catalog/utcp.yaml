@@ -7,4 +7,4 @@ languages:
     package: strands-utcp
 github: https://github.com/universal-tool-calling-protocol/python-utcp
 docsPage: docs/integrations/tools/utcp
-addedDate: 2026-01-01
+addedDate: 2025-10-08
