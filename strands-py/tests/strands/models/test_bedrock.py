@@ -2454,6 +2454,64 @@ def test_format_request_image_bytes_only(model, model_id):
     assert image_source == {"bytes": b"image_data"}
 
 
+def test_format_request_audio_bytes_only(model, model_id):
+    """Test that inline audio bytes are properly formatted."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "audio": {
+                        "format": "wav",
+                        "source": {"bytes": b"audio_data"},
+                    }
+                }
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+    audio_block = formatted_request["messages"][0]["content"][0]["audio"]
+
+    assert audio_block == {"format": "wav", "source": {"bytes": b"audio_data"}}
+
+
+def test_format_request_audio_s3_location(model, model_id):
+    """Test that an S3-backed audio block is properly formatted."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "audio": {
+                        "format": "wav",
+                        "source": {
+                            "location": {
+                                "type": "s3",
+                                "uri": "s3://my-bucket/audio.wav",
+                                "bucketOwner": "123456789012",
+                            }
+                        },
+                    }
+                }
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+    audio_block = formatted_request["messages"][0]["content"][0]["audio"]
+
+    assert audio_block == {
+        "format": "wav",
+        "source": {
+            "s3Location": {
+                "uri": "s3://my-bucket/audio.wav",
+                "bucketOwner": "123456789012",
+            }
+        },
+    }
+
+
 def test_format_request_document_s3_location(model, model_id):
     """Test that document with s3Location is properly formatted."""
     messages = [
@@ -2531,6 +2589,16 @@ def test_format_request_unsupported_location(model, caplog):
                 {
                     "image": {
                         "format": "png",
+                        "source": {
+                            "location": {
+                                "type": "other",
+                            },
+                        },
+                    }
+                },
+                {
+                    "audio": {
+                        "format": "wav",
                         "source": {
                             "location": {
                                 "type": "other",
