@@ -78,6 +78,20 @@ class CandidateMetadata:
 
     Every field is optional. ``None`` means unknown, while ``False`` explicitly means a feature is unsupported.
     Classifier-based strategies may send provided values to the classifier provider. Do not include secrets.
+
+    Attributes:
+        provider: Provider identifier.
+        model_id: Provider-specific model identifier.
+        input_modalities: Exhaustive supported input modalities. Valid values are ``text``, ``image``, ``audio``,
+            ``video``, and ``document``; an omitted modality is unsupported when this tuple is provided.
+        output_modalities: Exhaustive supported output modalities using the same vocabulary as ``input_modalities``.
+        context_window_limit: Maximum supported context-window size in tokens.
+        max_output_tokens: Maximum supported output size in tokens.
+        supports_tool_use: Whether the model supports tool use.
+        supports_parallel_tool_use: Whether the model supports parallel tool use.
+        supports_structured_output: Whether the model supports structured output.
+        supports_reasoning: Whether the model supports reasoning features.
+        supports_system_prompt: Whether the model supports system prompts.
     """
 
     provider: str | None = None

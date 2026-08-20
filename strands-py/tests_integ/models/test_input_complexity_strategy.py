@@ -9,13 +9,13 @@ from tests_integ.conftest import retry_on_flaky
 
 _HAIKU_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 _NOVA_LITE_MODEL_ID = "us.amazon.nova-lite-v1:0"
-_NOVA_PRO_MODEL_ID = "amazon.nova-pro-v1:0"
+_NOVA_PRO_MODEL_ID = "us.amazon.nova-pro-v1:0"
 
 
 @retry_on_flaky(
-    "Live classifier decisions and Bedrock capacity can vary",
+    "Bedrock capacity may be transiently unavailable",
     max_attempts=2,
-    retry_on=[AssertionError, ModelThrottledException],
+    retry_on=[ModelThrottledException],
 )
 def test_model_router_selects_expected_model_from_three_candidates(caplog):
     """The public Agent entry point classifies and serves a request on the expected candidate."""
@@ -69,8 +69,8 @@ def test_model_router_selects_expected_model_from_three_candidates(caplog):
 
     assert result.stop_reason == "end_turn"
     assert str(result).strip()
-    assert any(
+    expected_log = (
         "strategy=<InputComplexityStrategy>, candidate=<advanced model>, "
-        "model=<BedrockModel/amazon.nova-pro-v1:0> | candidate selected" in record.getMessage()
-        for record in caplog.records
+        f"model=<BedrockModel/{_NOVA_PRO_MODEL_ID}> | candidate selected"
     )
+    assert any(expected_log in record.getMessage() for record in caplog.records)

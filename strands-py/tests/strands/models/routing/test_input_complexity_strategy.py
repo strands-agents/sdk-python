@@ -388,3 +388,15 @@ def test_agent_selects_opaque_nested_router():
 def test_constructor_rejects_non_model_classifier():
     with pytest.raises(TypeError, match="classifier_model must be a Model"):
         InputComplexityStrategy(object())
+
+
+@pytest.mark.parametrize("timeout", [None, "30", object(), True, False])
+def test_constructor_rejects_non_numeric_classifier_timeout(timeout):
+    with pytest.raises(TypeError, match="classifier_timeout must be a number"):
+        InputComplexityStrategy(_ClassifierModel(), classifier_timeout=timeout)
+
+
+@pytest.mark.parametrize("timeout", [0, -1, float("nan"), float("inf"), float("-inf")])
+def test_constructor_rejects_non_positive_or_non_finite_classifier_timeout(timeout):
+    with pytest.raises(ValueError, match="classifier_timeout must be finite and greater than zero"):
+        InputComplexityStrategy(_ClassifierModel(), classifier_timeout=timeout)

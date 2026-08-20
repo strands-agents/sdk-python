@@ -108,10 +108,17 @@ class InputComplexityStrategy:
             classifier_timeout: Maximum seconds to wait for classification.
 
         Raises:
-            TypeError: If ``classifier_model`` is not a model.
+            TypeError: If ``classifier_model`` is not a model or ``classifier_timeout`` is not a number.
+            ValueError: If ``classifier_timeout`` is not finite and greater than zero.
         """
         if not isinstance(classifier_model, Model):
             raise TypeError("classifier_model must be a Model")
+        if isinstance(classifier_timeout, bool) or not isinstance(classifier_timeout, (int, float)):
+            raise TypeError("classifier_timeout must be a number")
+
+        classifier_timeout = float(classifier_timeout)
+        if not 0 < classifier_timeout < float("inf"):
+            raise ValueError("classifier_timeout must be finite and greater than zero")
 
         self._classifier_model = classifier_model
         self._classifier_system_prompt = (
