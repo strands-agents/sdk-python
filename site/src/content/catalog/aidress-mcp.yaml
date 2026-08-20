@@ -4,5 +4,5 @@ integrationType: tool
 languages:
   python: {}
 github: https://github.com/Aidress-ai/Aidress
-docsUrl: https://github.com/Aidress-ai/Aidress/blob/main/README_MCP.md
+docsUrl: https://aidress.ai/docs/mcp-server
 addedDate: 2026-08-12
