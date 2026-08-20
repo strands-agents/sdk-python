@@ -1636,7 +1636,7 @@ export class Agent implements LocalAgent, InvokableAgent {
             // this cycle re-invoked the model to regenerate it — now fall through
             // to run the tools. Cancel wins — the isCancelled branch above returns
             // before we reach here.
-            if (this._checkpointing) {
+            if (this._checkpointing && !shouldReturnCycleResult) {
               const priorResumePosition = resumePosition
               resumePosition = undefined
               if (priorResumePosition !== 'afterModel') {
@@ -1708,26 +1708,28 @@ export class Agent implements LocalAgent, InvokableAgent {
               shouldReturnCycleResult = true
             }
 
-            // Structured output captured: exit
-            const structuredOutput = structuredOutputTool
-              ? this._extractStructuredOutput(assistantMessage, toolResultMessage)
-              : undefined
-            if (structuredOutput !== undefined) {
-              cycleResultData = {
-                stopReason: 'toolUse',
-                lastMessage: assistantMessage,
-                traces: this._tracer.localTraces,
-                structuredOutput,
-                invocationState,
+            if (!shouldReturnCycleResult) {
+              // Structured output captured: exit
+              const structuredOutput = structuredOutputTool
+                ? this._extractStructuredOutput(assistantMessage, toolResultMessage)
+                : undefined
+              if (structuredOutput !== undefined) {
+                cycleResultData = {
+                  stopReason: 'toolUse',
+                  lastMessage: assistantMessage,
+                  traces: this._tracer.localTraces,
+                  structuredOutput,
+                  invocationState,
+                }
+                shouldReturnCycleResult = true
               }
-              shouldReturnCycleResult = true
             }
 
             // afterTools checkpoint: tools finished, next model call pending. Placed
             // after the endTurn / structured-output returns so it only fires when the
             // loop would continue. Cancel wins: skip when cancelled and let the next
             // iteration's cancellation check return `cancelled`.
-            if (this._checkpointing && !this.isCancelled) {
+            if (this._checkpointing && !this.isCancelled && !shouldReturnCycleResult) {
               cycleResultData = {
                 stopReason: 'checkpoint',
                 lastMessage: assistantMessage,
