@@ -62,6 +62,7 @@ from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse  # noqa: E40
 from ._defaults import resolve_config_metadata  # noqa: E402
 from ._openai_bedrock import BedrockMantleConfig, resolve_bedrock_client_args  # noqa: E402
 from ._openai_errors import classify_openai_error  # noqa: E402
+from ._strict_schema import ensure_strict_json_schema  # noqa: E402
 from ._validation import validate_config_keys  # noqa: E402
 from .model import BaseModelConfig, Model  # noqa: E402
 
@@ -583,7 +584,12 @@ class OpenAIResponsesModel(Model):
                         "type": "function",
                         "name": tool_spec["name"],
                         "description": tool_spec.get("description", ""),
-                        "parameters": tool_spec["inputSchema"]["json"],
+                        "parameters": (
+                            ensure_strict_json_schema(tool_spec["inputSchema"]["json"], require_all_properties=True)
+                            if tool_spec.get("strict")
+                            else tool_spec["inputSchema"]["json"]
+                        ),
+                        **({"strict": tool_spec["strict"]} if "strict" in tool_spec else {}),
                     }
                     for tool_spec in tool_specs
                 ),

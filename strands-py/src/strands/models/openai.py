@@ -24,6 +24,7 @@ from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
 from ._defaults import resolve_config_metadata
 from ._openai_bedrock import BedrockMantleConfig, resolve_bedrock_client_args
 from ._openai_errors import classify_openai_error
+from ._strict_schema import ensure_strict_json_schema
 from ._validation import _has_location_source, validate_config_keys
 from .model import BaseModelConfig, Model
 
@@ -512,7 +513,12 @@ class OpenAIModel(Model):
                     "function": {
                         "name": tool_spec["name"],
                         "description": tool_spec["description"],
-                        "parameters": tool_spec["inputSchema"]["json"],
+                        "parameters": (
+                            ensure_strict_json_schema(tool_spec["inputSchema"]["json"], require_all_properties=True)
+                            if tool_spec.get("strict")
+                            else tool_spec["inputSchema"]["json"]
+                        ),
+                        **({"strict": tool_spec["strict"]} if "strict" in tool_spec else {}),
                     },
                 }
                 for tool_spec in tool_specs or []

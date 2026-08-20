@@ -40,6 +40,12 @@ class ToolSpec(TypedDict):
             when absent (`readOnlyHint` and `idempotentHint` default to False),
             and this field is absent entirely for non-MCP tools. This field is
             not sent to model provider APIs.
+        strict: Optional Boolean that ensures the model will only output tool calls
+            containing parameters that perfectly match the defined input schema.
+            Note: When using strict mode, optional parameters must be explicitly typed
+            as nullable (e.g., `Optional[str]`), otherwise the model will be forced
+            to generate a value for them. Not all model providers support this field.
+            Providers that don't support it should filter it out before sending to their API.
     """
 
     description: str
@@ -47,6 +53,7 @@ class ToolSpec(TypedDict):
     name: str
     outputSchema: NotRequired[JSONSchema]
     annotations: NotRequired[dict[str, object]]
+    strict: NotRequired[bool]
 
 
 class Tool(TypedDict):
