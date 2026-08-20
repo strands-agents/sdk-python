@@ -82,14 +82,17 @@ async def test_bidi_agent_loop_receive_tool_use(loop, agent, agenerator):
     exp_events = [
         tool_use_event,
         tool_result_event,
-        ToolResultMessageEvent({"role": "user", "content": [{"toolResult": tool_result}]}),
+        # The message is assigned a durable tracking_id when appended to history.
+        ToolResultMessageEvent(
+            {"role": "user", "content": [{"toolResult": tool_result}], "tracking_id": unittest.mock.ANY}
+        ),
     ]
     assert tru_events == exp_events
 
     tru_messages = agent.messages
     exp_messages = [
-        {"role": "assistant", "content": [{"toolUse": tool_use}]},
-        {"role": "user", "content": [{"toolResult": tool_result}]},
+        {"role": "assistant", "content": [{"toolUse": tool_use}], "tracking_id": unittest.mock.ANY},
+        {"role": "user", "content": [{"toolResult": tool_result}], "tracking_id": unittest.mock.ANY},
     ]
     assert tru_messages == exp_messages
 
@@ -256,4 +259,8 @@ async def test_bidi_agent_loop_send_respects_event_role(loop, agent):
     agent.model.send = unittest.mock.AsyncMock()
     await loop.start()
     await loop.send(BidiTextInputEvent(text="injected context", role="assistant"))
-    assert agent.messages[-1] == {"role": "assistant", "content": [{"text": "injected context"}]}
+    assert agent.messages[-1] == {
+        "role": "assistant",
+        "content": [{"text": "injected context"}],
+        "tracking_id": unittest.mock.ANY,
+    }
