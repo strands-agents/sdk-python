@@ -494,22 +494,40 @@ export class BedrockModel extends Model<BedrockModelConfig> {
   }
 
   /**
-   * Applies `cacheConfig.ttl` to a caller-placed system cache point that carries no TTL of its own.
+   * Whether to auto-inject a cache point at the end of the system prompt.
    *
-   * Bedrock rejects a TTL that exceeds an earlier cache point's, in the order toolConfig, system,
-   * messages. Filling the system point in keeps it from sitting at the default between two configured
-   * points. A TTL the caller wrote is left as written, and the fill-in stands down when the tools point
-   * carries a different TTL, leaving the caller to reconcile the two.
+   * @param system - The system content blocks that will be sent to Bedrock.
+   * @returns True if a cache point should be appended.
+   */
+  private _shouldCacheSystem(system: SystemContentBlock[] | undefined): system is SystemContentBlock[] {
+    if (!this._shouldEnableCaching()) {
+      return false
+    }
+    if (this._config.cacheConfig?.systemPromptTTL === false) {
+      return false
+    }
+    if (!system || system.length === 0) {
+      return false
+    }
+    return !system.some((block) => 'cachePoint' in block)
+  }
+
+  /**
+   * Fills the resolved system-section TTL into a system cache point that carries none of its own,
+   * whether auto-injected or caller-placed.
    *
    * @param request - The formatted request, with `system` and `toolConfig` already populated.
    */
   private _applySystemCacheTTL(request: ConverseStreamCommandInput): void {
     const system = request.system
-    if (!system) {
+    if (!system || !this._shouldEnableCaching()) {
       return
     }
-    let ttl = this._shouldEnableCaching() ? this._config.cacheConfig?.ttl || undefined : undefined
-    if (ttl) {
+    const cacheConfig = this._config.cacheConfig
+    const systemSection = resolveCacheSection(cacheConfig?.systemPromptTTL, cacheConfig?.ttl)
+    let ttl = systemSection.ttl
+
+    if (ttl && typeof cacheConfig?.systemPromptTTL !== 'string') {
       const toolsPoint = request.toolConfig?.tools?.find((tool) => 'cachePoint' in tool)
       if (toolsPoint && 'cachePoint' in toolsPoint && toolsPoint.cachePoint?.ttl !== ttl) {
         ttl = undefined
@@ -715,6 +733,10 @@ export class BedrockModel extends Model<BedrockModelConfig> {
       } else if (options.systemPrompt.length > 0) {
         request.system = options.systemPrompt.map((block) => this._formatContentBlock(block) as SystemContentBlock)
       }
+    }
+
+    if (this._shouldCacheSystem(request.system)) {
+      request.system!.push({ cachePoint: { type: 'default' } })
     }
 
     // Add tool configuration
