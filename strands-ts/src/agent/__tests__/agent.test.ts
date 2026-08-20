@@ -417,6 +417,47 @@ describe('Agent', () => {
 
         expect(agent.metrics.cycleCount).toBe(1)
       })
+
+      it('includes the completed cycle duration in the returned result metrics', async () => {
+        vi.useFakeTimers()
+        vi.setSystemTime(0)
+
+        try {
+          const model = new MockMessageModel().addTurn(
+            { type: 'toolUseBlock', name: 'slowTool', toolUseId: 'tool-1', input: {} },
+            { usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 } }
+          )
+
+          const tool = createMockTool('slowTool', async function* (context) {
+            await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 60))
+            if (context.cancelSignal.aborted) {
+              yield undefined as never
+            }
+            return new ToolResultBlock({
+              toolUseId: context.toolUse.toolUseId,
+              status: 'success' as const,
+              content: [new TextBlock('Done')],
+            })
+          })
+
+          const agent = new Agent({ model, tools: [tool] })
+          agent.addHook(AfterToolsEvent, (event: AfterToolsEvent) => {
+            event.endTurn = true
+          })
+
+          const resultPromise = agent.invoke('Test')
+          await vi.advanceTimersByTimeAsync(60)
+          const result = await resultPromise
+
+          expect(result.stopReason).toBe('endTurn')
+          expect(result.metrics?.cycleCount).toBe(1)
+          expect(result.metrics?.totalDuration).toBe(60)
+          expect(result.metrics?.averageCycleTime).toBe(60)
+          expect(result.metrics?.latestAgentInvocation?.cycles[0]?.duration).toBe(60)
+        } finally {
+          vi.useRealTimers()
+        }
+      })
     })
 
     describe('metrics on errors', () => {

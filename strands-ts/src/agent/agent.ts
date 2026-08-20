@@ -1544,6 +1544,8 @@ export class Agent implements LocalAgent, InvokableAgent {
         })
 
         let cycleError: Error | undefined
+        let shouldReturnCycleResult = false
+        let cycleResultData: ConstructorParameters<typeof AgentResult>[0] | undefined
         try {
           // Normalize input and append user messages on first invocation only
           if (currentArgs !== undefined) {
@@ -1592,14 +1594,13 @@ export class Agent implements LocalAgent, InvokableAgent {
 
               // Normal end of turn.
               yield this._appendMessage(modelResult.message, invocationState)
-              result = new AgentResult({
+              cycleResultData = {
                 stopReason: modelResult.stopReason,
                 lastMessage: modelResult.message,
                 traces: this._tracer.localTraces,
-                metrics: this._meter.metrics,
                 invocationState,
-              })
-              return result
+              }
+              shouldReturnCycleResult = true
             }
 
             // Cancel before tool execution: create error results for all pending tools
@@ -1620,14 +1621,13 @@ export class Agent implements LocalAgent, InvokableAgent {
               yield this._appendMessage(modelResult.message, invocationState)
               yield this._appendMessage(toolResultMessage, invocationState)
 
-              result = new AgentResult({
+              cycleResultData = {
                 stopReason: 'cancelled',
                 lastMessage: modelResult.message,
                 traces: this._tracer.localTraces,
-                metrics: this._meter.metrics,
                 invocationState,
-              })
-              return result
+              }
+              shouldReturnCycleResult = true
             }
 
             // afterModel checkpoint: model returned tool use, tools have not run
@@ -1640,15 +1640,14 @@ export class Agent implements LocalAgent, InvokableAgent {
               const priorResumePosition = resumePosition
               resumePosition = undefined
               if (priorResumePosition !== 'afterModel') {
-                result = new AgentResult({
+                cycleResultData = {
                   stopReason: 'checkpoint',
                   lastMessage: modelResult.message,
                   traces: this._tracer.localTraces,
-                  metrics: this._meter.metrics,
                   invocationState,
                   checkpoint: new Checkpoint({ position: 'afterModel', cycleIndex }),
-                })
-                return result
+                }
+                shouldReturnCycleResult = true
               }
             }
 
@@ -1699,14 +1698,13 @@ export class Agent implements LocalAgent, InvokableAgent {
             const lastMessage = new Message({ role: 'assistant', content: [new TextBlock(endTurnText)] })
             yield this._appendMessage(lastMessage, invocationState)
 
-            result = new AgentResult({
+            cycleResultData = {
               stopReason: 'endTurn',
               lastMessage,
               traces: this._tracer.localTraces,
-              metrics: this._meter.metrics,
               invocationState,
-            })
-            return result
+            }
+            shouldReturnCycleResult = true
           }
 
           // Structured output captured: exit
@@ -1714,15 +1712,14 @@ export class Agent implements LocalAgent, InvokableAgent {
             ? this._extractStructuredOutput(assistantMessage, toolResultMessage)
             : undefined
           if (structuredOutput !== undefined) {
-            result = new AgentResult({
+            cycleResultData = {
               stopReason: 'toolUse',
               lastMessage: assistantMessage,
               traces: this._tracer.localTraces,
               structuredOutput,
-              metrics: this._meter.metrics,
               invocationState,
-            })
-            return result
+            }
+            shouldReturnCycleResult = true
           }
 
           // afterTools checkpoint: tools finished, next model call pending. Placed
@@ -1730,26 +1727,38 @@ export class Agent implements LocalAgent, InvokableAgent {
           // loop would continue. Cancel wins: skip when cancelled and let the next
           // iteration's cancellation check return `cancelled`.
           if (this._checkpointing && !this.isCancelled) {
-            result = new AgentResult({
+            cycleResultData = {
               stopReason: 'checkpoint',
               lastMessage: assistantMessage,
               traces: this._tracer.localTraces,
-              metrics: this._meter.metrics,
               invocationState,
               checkpoint: new Checkpoint({ position: 'afterTools', cycleIndex }),
-            })
-            return result
+            }
+            shouldReturnCycleResult = true
           }
         } catch (error) {
           cycleError = error as Error
           throw error
         } finally {
           this._meter.endCycle(cycleStartTime)
+          if (cycleResultData) {
+            result = new AgentResult({
+              ...cycleResultData,
+              metrics: this._meter.metrics,
+            })
+          }
           if (cycleError) {
             this._tracer.endAgentLoopSpan(cycleSpan, { error: cycleError })
           } else {
             this._tracer.endAgentLoopSpan(cycleSpan)
           }
+        }
+
+        if (shouldReturnCycleResult) {
+          if (!result) {
+            throw new Error('cycle result was marked for return before being constructed')
+          }
+          return result
         }
       }
     } catch (error) {
