@@ -292,11 +292,13 @@ function formatToolResultOutput(resultBlock: ToolResultBlock): string | Response
         if (docBlock.source.type === 'documentSourceBytes') {
           const base64 = encodeBase64(docBlock.source.bytes)
           const mimeType = toMimeType(docBlock.format) || `application/${docBlock.format}`
+          const suffix = `.${docBlock.format}`
+          const filename = docBlock.name.endsWith(suffix) ? docBlock.name : `${docBlock.name}${suffix}`
           hasMedia = true
           parts.push({
             type: 'input_file',
             file_data: `data:${mimeType};base64,${base64}`,
-            filename: docBlock.name,
+            filename,
           })
         } else {
           logger.warn(

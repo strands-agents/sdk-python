@@ -351,7 +351,7 @@ describe("OpenAIModel (api: 'responses')", () => {
             new ToolResultBlock({
               toolUseId: 'doc_tool',
               status: 'success',
-              content: [new DocumentBlock({ name: 'report.pdf', format: 'pdf', source: { bytes: docBytes } })],
+              content: [new DocumentBlock({ name: 'report', format: 'pdf', source: { bytes: docBytes } })],
             }),
           ],
         }),
@@ -366,6 +366,26 @@ describe("OpenAIModel (api: 'responses')", () => {
           filename: 'report.pdf',
         },
       ])
+    })
+
+    it('does not double the extension when a document name already carries it', async () => {
+      const docBytes = new Uint8Array([5, 6, 7, 8])
+      const messages = [
+        new Message({ role: 'user', content: [new TextBlock('read')] }),
+        new Message({
+          role: 'user',
+          content: [
+            new ToolResultBlock({
+              toolUseId: 'doc_tool',
+              status: 'success',
+              content: [new DocumentBlock({ name: 'report.pdf', format: 'pdf', source: { bytes: docBytes } })],
+            }),
+          ],
+        }),
+      ]
+      const req = await runOnce({}, messages)
+      const out = req.input.find((i: any) => i.type === 'function_call_output')
+      expect(out.output[0].filename).toBe('report.pdf')
     })
 
     it('keeps tool result output as a plain string when only text is present', async () => {
