@@ -11,7 +11,7 @@ import { ContextWindowOverflowError, ModelThrottledError } from '../../errors.js
 import { Message, ReasoningBlock, ToolUseBlock, ToolResultBlock, JsonBlock } from '../../types/messages.js'
 import type { SystemContentBlock } from '../../types/messages.js'
 import { TextBlock, GuardContentBlock, CachePointBlock } from '../../types/messages.js'
-import { ImageBlock, VideoBlock, DocumentBlock } from '../../types/media.js'
+import { AudioBlock, ImageBlock, VideoBlock, DocumentBlock } from '../../types/media.js'
 import { CitationsBlock } from '../../types/citations.js'
 import type { StreamOptions } from '../model.js'
 import { collectIterator } from '../../__fixtures__/model-test-helpers.js'
@@ -3283,6 +3283,58 @@ describe('BedrockModel', () => {
 
   describe('media blocks in messages', () => {
     const mockConverseStreamCommand = vi.mocked(ConverseStreamCommand)
+
+    it('formats top-level audio block', async () => {
+      const provider = new BedrockModel()
+      const audioBytes = new Uint8Array([1, 2, 3])
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [new AudioBlock({ format: 'mp3', source: { bytes: audioBytes } })],
+        }),
+      ]
+
+      collectIterator(provider.stream(messages))
+
+      expect(mockConverseStreamCommand).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          messages: [
+            {
+              role: 'user',
+              content: [{ audio: { format: 'mp3', source: { bytes: audioBytes } } }],
+            },
+          ],
+        })
+      )
+    })
+
+    it('formats top-level audio block with S3 source', async () => {
+      const provider = new BedrockModel()
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new AudioBlock({
+              format: 'wav',
+              source: { location: { type: 's3', uri: 's3://bucket/audio.wav' } },
+            }),
+          ],
+        }),
+      ]
+
+      collectIterator(provider.stream(messages))
+
+      expect(mockConverseStreamCommand).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          messages: [
+            {
+              role: 'user',
+              content: [{ audio: { format: 'wav', source: { s3Location: { uri: 's3://bucket/audio.wav' } } } }],
+            },
+          ],
+        })
+      )
+    })
 
     it('formats top-level image block', async () => {
       const provider = new BedrockModel()

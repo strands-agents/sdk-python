@@ -31,10 +31,12 @@ import {
   type Tool,
   type ToolConfiguration,
   type ToolUseBlockDelta,
+  type AudioSource as BedrockAudioSource,
   type ImageSource as BedrockImageSource,
   type VideoSource as BedrockVideoSource,
   type DocumentSource as BedrockDocumentSource,
   type SystemContentBlock,
+  AudioFormat,
   DocumentFormat,
   ImageFormat,
   VideoFormat,
@@ -57,7 +59,7 @@ import {
   resolveConfigMetadata,
 } from '../models/model.js'
 import type { ContentBlock, Message, StopReason, ToolUseBlock } from '../types/messages.js'
-import type { ImageSource, VideoSource, DocumentSource } from '../types/media.js'
+import type { AudioSource, ImageSource, VideoSource, DocumentSource } from '../types/media.js'
 import type { CitationsDelta, ModelStreamEvent, ReasoningContentDelta, Usage } from '../models/streaming.js'
 import type { Citation, CitationLocation, CitationsBlockData } from '../types/citations.js'
 import type { JSONValue } from '../types/json.js'
@@ -1293,6 +1295,14 @@ export class BedrockModel extends Model<BedrockModelConfig> {
         return { cachePoint }
       }
 
+      case 'audioBlock':
+        return {
+          audio: {
+            format: block.format as AudioFormat,
+            source: this._formatMediaSource(block.source),
+          },
+        }
+
       case 'imageBlock':
         return {
           image: {
@@ -1355,21 +1365,24 @@ export class BedrockModel extends Model<BedrockModelConfig> {
   }
 
   /**
-   * Format media source (image/video) for Bedrock API.
+   * Format media source (audio/image/video) for Bedrock API.
    * Handles bytes, S3 locations, and s3:// URLs.
    *
    * @param source - Media source
    * @returns Formatted source for Bedrock API
    */
   private _formatMediaSource(
-    source: ImageSource | VideoSource
+    source: AudioSource | ImageSource | VideoSource
   ):
+    | BedrockAudioSource.BytesMember
+    | BedrockAudioSource.S3LocationMember
     | BedrockImageSource.BytesMember
     | BedrockImageSource.S3LocationMember
     | BedrockVideoSource.BytesMember
     | BedrockVideoSource.S3LocationMember
     | undefined {
     switch (source.type) {
+      case 'audioSourceBytes':
       case 'imageSourceBytes':
       case 'videoSourceBytes':
         return { bytes: source.bytes }
@@ -1386,6 +1399,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
         logger.warn('source_type=<imageSourceUrl> | not supported by bedrock | skipping')
         return
 
+      case 'audioSourceS3Location':
       case 'imageSourceS3Location':
       case 'videoSourceS3Location':
         return {
