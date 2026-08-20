@@ -612,8 +612,7 @@ export class Agent implements LocalAgent, InvokableAgent {
     // The plugin is a no-op when no delegation tools fire.
     const hasAgentDelegation = (config?.plugins ?? []).some((p) => p.name === 'strands:agent-delegation')
 
-    const contextManagerPlugin =
-      config?.contextManager instanceof ContextManager ? config.contextManager : undefined
+    const contextManagerPlugin = config?.contextManager instanceof ContextManager ? config.contextManager : undefined
 
     this._pluginRegistry = new PluginRegistry([
       this._conversationManager,

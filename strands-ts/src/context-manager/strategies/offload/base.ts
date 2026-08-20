@@ -101,9 +101,9 @@ export function toolMatchesTarget(
 
 export function targetMatchesMessage(target: OffloadTarget | undefined, message: Message): boolean {
   if (target === undefined || target === '*') return true
-  if (target === 'assistantText') return message.role === 'assistant' && message.content.some((b) => b instanceof TextBlock)
-  if (target === 'userText')
-    return message.role === 'user' && message.content.some((b) => b instanceof TextBlock)
+  if (target === 'assistantText')
+    return message.role === 'assistant' && message.content.some((b) => b instanceof TextBlock)
+  if (target === 'userText') return message.role === 'user' && message.content.some((b) => b instanceof TextBlock)
   return false
 }
 
@@ -372,15 +372,13 @@ export abstract class BaseOffloadStrategy implements ContextStrategy {
   }
 
   /** Whether a block is eligible for offload given the current target and filters. */
-  protected _blockMatchesTarget(
-    block: ContentBlock,
-    message: Message,
-    toolNameMap: Map<string, string>
-  ): boolean {
+  protected _blockMatchesTarget(block: ContentBlock, message: Message, toolNameMap: Map<string, string>): boolean {
     if (block instanceof TextBlock) return targetMatchesMessage(this._target, message)
     if (block instanceof ToolResultBlock) {
-      return this._target === undefined ||
+      return (
+        this._target === undefined ||
         toolMatchesTarget(block, this._target, toolNameMap, this._includeFilter, this._excludeFilter)
+      )
     }
     return false
   }
