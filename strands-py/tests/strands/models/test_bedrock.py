@@ -67,6 +67,13 @@ def model(bedrock_client, model_id):
 
 
 @pytest.fixture
+def nova_model(bedrock_client):
+    _ = bedrock_client
+
+    return BedrockModel(model_id="amazon.nova-pro-v1:0")
+
+
+@pytest.fixture
 def messages():
     return [{"role": "user", "content": [{"text": "test"}]}]
 
@@ -2408,7 +2415,7 @@ def test_format_request_filters_image_content_blocks(model, model_id):
     assert "metadata" not in image_block
 
 
-def test_format_request_image_s3_location_only(model, model_id):
+def test_format_request_image_s3_location_only(nova_model):
     """Test that image with only s3Location is properly formatted."""
     messages = [
         {
@@ -2426,7 +2433,7 @@ def test_format_request_image_s3_location_only(model, model_id):
         }
     ]
 
-    formatted_request = model.format_request(messages)
+    formatted_request = nova_model.format_request(messages)
     image_source = formatted_request["messages"][0]["content"][0]["image"]["source"]
 
     assert image_source == {"s3Location": {"uri": "s3://my-bucket/image.png"}}
@@ -2454,7 +2461,7 @@ def test_format_request_image_bytes_only(model, model_id):
     assert image_source == {"bytes": b"image_data"}
 
 
-def test_format_request_document_s3_location(model, model_id):
+def test_format_request_document_s3_location(nova_model):
     """Test that document with s3Location is properly formatted."""
     messages = [
         {
@@ -2486,7 +2493,7 @@ def test_format_request_document_s3_location(model, model_id):
         }
     ]
 
-    formatted_request = model.format_request(messages)
+    formatted_request = nova_model.format_request(messages)
     document = formatted_request["messages"][0]["content"][0]["document"]
     document_with_bucket_owner = formatted_request["messages"][0]["content"][1]["document"]
 
@@ -2547,7 +2554,7 @@ def test_format_request_unsupported_location(model, caplog):
     assert "Non s3 location sources are not supported by Bedrock | skipping content block" in caplog.text
 
 
-def test_format_request_video_s3_location(model, model_id):
+def test_format_request_video_s3_location(nova_model):
     """Test that video with s3Location is properly formatted."""
     messages = [
         {
@@ -2565,10 +2572,114 @@ def test_format_request_video_s3_location(model, model_id):
         }
     ]
 
-    formatted_request = model.format_request(messages)
+    formatted_request = nova_model.format_request(messages)
     video_source = formatted_request["messages"][0]["content"][0]["video"]["source"]
 
     assert video_source == {"s3Location": {"uri": "s3://my-bucket/video.mp4"}}
+
+
+S3_LOCATION = {"type": "s3", "uri": "s3://my-bucket/report.pdf"}
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        {"document": {"name": "report.pdf", "format": "pdf", "source": {"location": S3_LOCATION}}},
+        {"image": {"format": "png", "source": {"location": S3_LOCATION}}},
+        {"video": {"format": "mp4", "source": {"location": S3_LOCATION}}},
+    ],
+)
+def test_format_request_s3_location_unsupported_model_raises(bedrock_client, content):
+    """S3 location sources on a model family that rejects them raise instead of being dropped.
+
+    Guards https://github.com/strands-agents/sdk-python/issues/1744: Bedrock accepts S3 location
+    sources for Amazon Nova only, and its ValidationException for other families does not mention
+    S3, so the caller gets a clear error naming the model instead.
+    """
+    _ = bedrock_client
+    model = BedrockModel(model_id="anthropic.claude-sonnet-4-20250514-v1:0")
+
+    with pytest.raises(ValueError, match="model does not support s3 location sources") as exc_info:
+        model.format_request([{"role": "user", "content": [content]}])
+
+    assert "anthropic.claude-sonnet-4-20250514-v1:0" in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    ("model_id", "supported"),
+    [
+        ("us.amazon.nova-pro-v1:0", True),
+        ("eu.amazon.nova-lite-v1:0", True),
+        ("us.anthropic.claude-sonnet-4-6", False),
+    ],
+)
+def test_format_request_s3_location_cross_region_profile_id(bedrock_client, model_id, supported):
+    """A cross-region inference profile id is a plain model id, so its family still gates S3."""
+    _ = bedrock_client
+    model = BedrockModel(model_id=model_id)
+    messages = [
+        {
+            "role": "user",
+            "content": [{"document": {"name": "report.pdf", "format": "pdf", "source": {"location": S3_LOCATION}}}],
+        }
+    ]
+
+    if not supported:
+        with pytest.raises(ValueError, match="model does not support s3 location sources"):
+            model.format_request(messages)
+        return
+
+    formatted_request = model.format_request(messages)
+    document = formatted_request["messages"][0]["content"][0]["document"]
+
+    assert document["source"] == {"s3Location": {"uri": "s3://my-bucket/report.pdf"}}
+
+
+def test_format_request_s3_location_inference_profile_arn_unsupported_model_raises(bedrock_client):
+    """An inference profile ARN names its model family, so an unsupported family still raises."""
+    _ = bedrock_client
+    model_id = "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.claude-sonnet-4-6"
+    model = BedrockModel(model_id=model_id)
+
+    messages = [
+        {
+            "role": "user",
+            "content": [{"document": {"name": "report.pdf", "format": "pdf", "source": {"location": S3_LOCATION}}}],
+        }
+    ]
+
+    with pytest.raises(ValueError, match="model does not support s3 location sources"):
+        model.format_request(messages)
+
+
+@pytest.mark.parametrize(
+    "model_id",
+    [
+        # An inference profile ARN names a supported family.
+        "arn:aws:bedrock:us-west-2:123456789012:inference-profile/us.amazon.nova-pro-v1:0",
+        # Every other resource type has an opaque id, leaving the family undetermined.
+        "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123def456",
+        "arn:aws:bedrock:us-west-2:123456789012:provisioned-model/abcdefghijkl",
+        "arn:aws:bedrock:us-east-1:123456789012:custom-model/amazon.nova-pro-v1:0/abc123",
+        "arn:aws:bedrock:us-east-1:123456789012:imported-model/abc123def456",
+    ],
+)
+def test_format_request_s3_location_arn_model_id_passes_through(bedrock_client, model_id):
+    """A supported or undetermined family sends the S3 location to Bedrock unchanged."""
+    _ = bedrock_client
+    model = BedrockModel(model_id=model_id)
+
+    messages = [
+        {
+            "role": "user",
+            "content": [{"document": {"name": "report.pdf", "format": "pdf", "source": {"location": S3_LOCATION}}}],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+    document = formatted_request["messages"][0]["content"][0]["document"]
+
+    assert document["source"] == {"s3Location": {"uri": "s3://my-bucket/report.pdf"}}
 
 
 @pytest.mark.parametrize("video_format", ["3gp", "3g2", "3gpp"])
