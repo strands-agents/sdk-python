@@ -1654,87 +1654,89 @@ export class Agent implements LocalAgent, InvokableAgent {
             assistantMessage = modelResult.message
           }
 
-          // Execute tools
-          const toolsResult = yield* this.executeTools(assistantMessage, invocationState, completedToolResults)
+          if (!shouldReturnCycleResult) {
+            // Execute tools
+            const toolsResult = yield* this.executeTools(assistantMessage, invocationState, completedToolResults)
 
-          // When the consumer breaks the stream (e.g. agent.cancel() + break),
-          // yield* returns undefined because the inner generator was closed.
-          if (!toolsResult) {
-            continue
-          }
-          const toolResultMessage = toolsResult.message
-
-          // Tools were skipped (not executed) — preserve pending state so the next resume
-          // can run them.
-          if (this.isCancelled && toolsResult.toolsSkipped && this._interruptState.pendingToolExecution) {
-            continue
-          }
-
-          /**
-           * Deferred append: both messages are added AFTER tool execution completes.
-           * This keeps agent.messages in a valid, reinvokable state at all times.
-           * If interrupted during tool execution, messages has no dangling toolUse
-           * without a matching toolResult, so the agent can be reinvoked cleanly.
-           */
-          yield this._appendMessage(assistantMessage, invocationState)
-          yield this._appendMessage(toolResultMessage, invocationState)
-
-          // Both messages are in history, so any stored pending execution is now stale.
-          this._interruptState.clearPendingToolExecution()
-
-          // Deactivate interrupt state after successful tool execution so the next
-          // cycle starts with a clean slate (new interrupts can be raised again).
-          if (this._interruptState.activated) {
-            this._interruptState.deactivate()
-          }
-
-          // Hook requested halt: exit without calling the model again
-          const { afterToolsEvent } = toolsResult
-          if (afterToolsEvent.endTurn) {
-            const endTurnText =
-              typeof afterToolsEvent.endTurn === 'string'
-                ? afterToolsEvent.endTurn
-                : 'Turn ended early by hook after tool execution'
-            const lastMessage = new Message({ role: 'assistant', content: [new TextBlock(endTurnText)] })
-            yield this._appendMessage(lastMessage, invocationState)
-
-            cycleResultData = {
-              stopReason: 'endTurn',
-              lastMessage,
-              traces: this._tracer.localTraces,
-              invocationState,
+            // When the consumer breaks the stream (e.g. agent.cancel() + break),
+            // yield* returns undefined because the inner generator was closed.
+            if (!toolsResult) {
+              continue
             }
-            shouldReturnCycleResult = true
-          }
+            const toolResultMessage = toolsResult.message
 
-          // Structured output captured: exit
-          const structuredOutput = structuredOutputTool
-            ? this._extractStructuredOutput(assistantMessage, toolResultMessage)
-            : undefined
-          if (structuredOutput !== undefined) {
-            cycleResultData = {
-              stopReason: 'toolUse',
-              lastMessage: assistantMessage,
-              traces: this._tracer.localTraces,
-              structuredOutput,
-              invocationState,
+            // Tools were skipped (not executed) — preserve pending state so the next resume
+            // can run them.
+            if (this.isCancelled && toolsResult.toolsSkipped && this._interruptState.pendingToolExecution) {
+              continue
             }
-            shouldReturnCycleResult = true
-          }
 
-          // afterTools checkpoint: tools finished, next model call pending. Placed
-          // after the endTurn / structured-output returns so it only fires when the
-          // loop would continue. Cancel wins: skip when cancelled and let the next
-          // iteration's cancellation check return `cancelled`.
-          if (this._checkpointing && !this.isCancelled) {
-            cycleResultData = {
-              stopReason: 'checkpoint',
-              lastMessage: assistantMessage,
-              traces: this._tracer.localTraces,
-              invocationState,
-              checkpoint: new Checkpoint({ position: 'afterTools', cycleIndex }),
+            /**
+             * Deferred append: both messages are added AFTER tool execution completes.
+             * This keeps agent.messages in a valid, reinvokable state at all times.
+             * If interrupted during tool execution, messages has no dangling toolUse
+             * without a matching toolResult, so the agent can be reinvoked cleanly.
+             */
+            yield this._appendMessage(assistantMessage, invocationState)
+            yield this._appendMessage(toolResultMessage, invocationState)
+
+            // Both messages are in history, so any stored pending execution is now stale.
+            this._interruptState.clearPendingToolExecution()
+
+            // Deactivate interrupt state after successful tool execution so the next
+            // cycle starts with a clean slate (new interrupts can be raised again).
+            if (this._interruptState.activated) {
+              this._interruptState.deactivate()
             }
-            shouldReturnCycleResult = true
+
+            // Hook requested halt: exit without calling the model again
+            const { afterToolsEvent } = toolsResult
+            if (afterToolsEvent.endTurn) {
+              const endTurnText =
+                typeof afterToolsEvent.endTurn === 'string'
+                  ? afterToolsEvent.endTurn
+                  : 'Turn ended early by hook after tool execution'
+              const lastMessage = new Message({ role: 'assistant', content: [new TextBlock(endTurnText)] })
+              yield this._appendMessage(lastMessage, invocationState)
+
+              cycleResultData = {
+                stopReason: 'endTurn',
+                lastMessage,
+                traces: this._tracer.localTraces,
+                invocationState,
+              }
+              shouldReturnCycleResult = true
+            }
+
+            // Structured output captured: exit
+            const structuredOutput = structuredOutputTool
+              ? this._extractStructuredOutput(assistantMessage, toolResultMessage)
+              : undefined
+            if (structuredOutput !== undefined) {
+              cycleResultData = {
+                stopReason: 'toolUse',
+                lastMessage: assistantMessage,
+                traces: this._tracer.localTraces,
+                structuredOutput,
+                invocationState,
+              }
+              shouldReturnCycleResult = true
+            }
+
+            // afterTools checkpoint: tools finished, next model call pending. Placed
+            // after the endTurn / structured-output returns so it only fires when the
+            // loop would continue. Cancel wins: skip when cancelled and let the next
+            // iteration's cancellation check return `cancelled`.
+            if (this._checkpointing && !this.isCancelled) {
+              cycleResultData = {
+                stopReason: 'checkpoint',
+                lastMessage: assistantMessage,
+                traces: this._tracer.localTraces,
+                invocationState,
+                checkpoint: new Checkpoint({ position: 'afterTools', cycleIndex }),
+              }
+              shouldReturnCycleResult = true
+            }
           }
         } catch (error) {
           cycleError = error as Error
