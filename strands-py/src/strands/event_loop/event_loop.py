@@ -146,7 +146,7 @@ async def _estimate_input_tokens(agent: "Agent") -> int:
 
     if last_assistant_idx >= 0:
         usage = messages[last_assistant_idx]["metadata"]["usage"]
-        known_baseline = _full_prompt_tokens(usage) + usage["outputTokens"]
+        known_baseline = _full_prompt_tokens(usage) + usage.get("outputTokens", 0)
         new_messages = messages[last_assistant_idx + 1 :]
         if not new_messages:
             return known_baseline

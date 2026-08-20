@@ -699,6 +699,27 @@ def test_latest_context_size_undercounts_anthropic_direct_cache(event_loop_metri
     assert event_loop_metrics.latest_context_size == 10
 
 
+@pytest.mark.parametrize(
+    ("usage", "exp_full_prompt"),
+    [
+        # Regression for #3546: cache tokens count toward the full prompt under both provider conventions.
+        # disjoint (Bedrock/Anthropic): cache reads add to inputTokens (inputTokens + outputTokens != totalTokens).
+        (Usage(inputTokens=10, outputTokens=4, totalTokens=5862, cacheReadInputTokens=5848), 5858),
+        # subset (OpenAI/Gemini): cache reads sit inside inputTokens (inputTokens + outputTokens == totalTokens).
+        (Usage(inputTokens=12936, outputTokens=10, totalTokens=12946, cacheReadInputTokens=6457), 12936),
+        # disjoint with both cache reads and writes added on top.
+        (
+            Usage(inputTokens=10, outputTokens=5, totalTokens=100, cacheReadInputTokens=60, cacheWriteInputTokens=25),
+            95,
+        ),
+        # No cache tokens: both branches collapse to inputTokens (no behavior change for non-caching providers).
+        (Usage(inputTokens=100, outputTokens=50, totalTokens=150), 100),
+    ],
+)
+def test_full_prompt_tokens(usage, exp_full_prompt):
+    assert strands.telemetry.metrics._full_prompt_tokens(usage) == exp_full_prompt
+
+
 def test_projected_context_size_no_invocations(event_loop_metrics):
     assert event_loop_metrics.projected_context_size is None
 
