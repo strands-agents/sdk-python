@@ -1,6 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
-import { StrandsTestInfraStack } from '../lib/stacks/test-infra-stack';
+import { StrandsTestInfraStack, StrandsTestInfraStackProps } from '../lib/stacks/test-infra-stack';
+import { DEPLOY_ENVIRONMENTS, DIFF_ENVIRONMENTS } from '../lib/constructs/github-ci-roles';
 
 let originalEnv: NodeJS.ProcessEnv;
 
@@ -23,6 +24,14 @@ function synth(props?: Partial<ConstructorParameters<typeof StrandsTestInfraStac
     ...props,
   });
   return Template.fromStack(stack);
+}
+
+/** Every `Principal.AWS` ARN across the template's role trust policies. */
+function assumeRolePrincipalArns(template: Template): string[] {
+  return Object.values(template.findResources('AWS::IAM::Role'))
+    .flatMap((role: any) => role.Properties?.AssumeRolePolicyDocument?.Statement ?? [])
+    .map((statement: any) => statement.Principal?.AWS)
+    .filter((arn: unknown): arn is string => typeof arn === 'string');
 }
 
 // --- Knowledge Base ---
@@ -200,6 +209,45 @@ test('internal mode with RUNNER_ROLES adds AssumeRole trust for those roles', ()
   }
 });
 
+test('internal mode refuses to synth when a required list is blank', () => {
+  // A whitespace-only secret must not deploy a role with that list emptied.
+  process.env.STRANDS_TEST_INFRA_SECRET_NAMES = '  ';
+  try {
+    expect(() => synth({ internal: true, testFeatures: ['bedrock-knowledge-base'] })).toThrow(
+      /STRANDS_TEST_INFRA_SECRET_NAMES must be set/,
+    );
+  } finally {
+    process.env.STRANDS_TEST_INFRA_SECRET_NAMES = 'test-secret';
+  }
+});
+
+test('a blank RUNNER_ROLES value adds no trust principal', () => {
+  // GitHub Actions passes an unset secret to a step as an empty string, which
+  // must not become a principal with an empty role name.
+  process.env.STRANDS_TEST_INFRA_RUNNER_ROLES = '';
+  try {
+    const template = synth({ internal: true, testFeatures: ['bedrock-knowledge-base'] });
+
+    expect(assumeRolePrincipalArns(template).filter((arn) => arn.endsWith(':role/'))).toEqual([]);
+  } finally {
+    delete process.env.STRANDS_TEST_INFRA_RUNNER_ROLES;
+  }
+});
+
+test('RUNNER_ROLES entries are trimmed and blanks between them ignored', () => {
+  process.env.STRANDS_TEST_INFRA_RUNNER_ROLES = ' RunnerOne , ,RunnerTwo';
+  try {
+    const template = synth({ internal: true, testFeatures: ['bedrock-knowledge-base'] });
+
+    expect(assumeRolePrincipalArns(template).filter((arn) => arn.includes(':role/Runner'))).toEqual([
+      'arn:aws:iam::123456789012:role/RunnerOne',
+      'arn:aws:iam::123456789012:role/RunnerTwo',
+    ]);
+  } finally {
+    delete process.env.STRANDS_TEST_INFRA_RUNNER_ROLES;
+  }
+});
+
 test('internal mode grants the Mantle actions the base-path drift tests need', () => {
   const template = synth({ internal: true });
 
@@ -249,6 +297,114 @@ test('persistent bucket policy grants access without DeleteBucket', () => {
     expect.arrayContaining(['s3:PutObject', 's3:GetObject', 's3:CreateBucket', 's3:ListBucket', 's3:DeleteObject']),
   );
   expect(persistentStmt.Action).not.toContain('s3:DeleteBucket');
+});
+
+// --- CI Roles ---
+
+const SUB = 'token.actions.githubusercontent.com:sub';
+const WORKFLOW_REF = 'token.actions.githubusercontent.com:job_workflow_ref';
+const CI: Partial<StrandsTestInfraStackProps> = {
+  internal: true,
+  testFeatures: ['bedrock-knowledge-base'],
+};
+
+/** The StringEquals trust conditions of the named fixed-name role. */
+function trust(template: Template, roleName: string): any {
+  const role = Object.values(template.findResources('AWS::IAM::Role')).find(
+    (r: any) => r.Properties?.RoleName === roleName,
+  ) as any;
+  expect(role).toBeDefined();
+  const statements = role.Properties.AssumeRolePolicyDocument.Statement;
+  expect(statements).toHaveLength(1);
+  expect(statements[0].Action).toBe('sts:AssumeRoleWithWebIdentity');
+  expect(statements[0].Principal.Federated).toMatch(
+    /oidc-provider\/token\.actions\.githubusercontent\.com$/,
+  );
+  // StringEquals and nothing else: a stray StringLike is how an exact pin turns
+  // into a wildcard escape hatch.
+  expect(Object.keys(statements[0].Condition)).toEqual(['StringEquals']);
+  return statements[0].Condition.StringEquals;
+}
+
+/** What the named role may assume, by bootstrap role name. */
+function mayAssume(template: Template, logicalIdPrefix: string): string[] {
+  const policies = Object.entries(template.findResources('AWS::IAM::Policy'))
+    .filter(([id]) => id.startsWith(logicalIdPrefix))
+    .map(([, p]) => p as any);
+  expect(policies).toHaveLength(1);
+  const statements = policies[0].Properties.PolicyDocument.Statement;
+  expect(statements).toHaveLength(1);
+  expect(statements[0].Action).toBe('sts:AssumeRole');
+  return [statements[0].Resource].flat();
+}
+
+const WORKFLOW_REF_VALUE =
+  'strands-agents/harness-sdk/.github/workflows/test-infra-deploy.yml@refs/heads/main';
+
+// The subject is the environment, not the ref: pull_request_target reports the
+// default branch in GITHUB_REF, so a ref subject cannot tell a reviewed push from
+// a pull request. job_workflow_ref is what pins branch and file.
+test('the deploy role trusts only the two deploy environments', () => {
+  // Exhaustive: an unasserted extra condition key, or a missing `aud`, is how
+  // this stops being an exact pin.
+  expect(trust(synth(CI), 'StrandsTestInfraDeployRole')).toEqual({
+    'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+    [SUB]: [
+      'repo:strands-agents/harness-sdk:environment:test-infra-deploy',
+      'repo:strands-agents/harness-sdk:environment:test-infra-deploy-approval',
+    ],
+    [WORKFLOW_REF]: WORKFLOW_REF_VALUE,
+  });
+});
+
+// The diff job runs a pull request's own CDK code before anyone approves it, so
+// its role is trusted for different environments — that disjointness is the only
+// thing stopping a diff-job token from satisfying the deploy role's trust.
+test('the diff role trusts only the authorization-check environments', () => {
+  expect(trust(synth(CI), 'StrandsTestInfraDiffRole')).toEqual({
+    'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+    [SUB]: [
+      'repo:strands-agents/harness-sdk:environment:auto-approve',
+      'repo:strands-agents/harness-sdk:environment:manual-approval',
+    ],
+    [WORKFLOW_REF]: WORKFLOW_REF_VALUE,
+  });
+});
+
+// The subject must never pin the ref: pull_request_target reports the default
+// branch in GITHUB_REF, so a ref subject cannot tell a reviewed push from a PR.
+test('neither role trusts a bare ref subject', () => {
+  const template = synth(CI);
+
+  for (const roleName of ['StrandsTestInfraDeployRole', 'StrandsTestInfraDiffRole']) {
+    expect(JSON.stringify(trust(template, roleName)[SUB])).not.toContain('ref:refs/heads');
+  }
+});
+
+test('the diff and deploy environments are disjoint', () => {
+  expect(DIFF_ENVIRONMENTS.filter((e) => DEPLOY_ENVIRONMENTS.includes(e))).toEqual([]);
+});
+
+test('the deploy role may assume the bootstrap roles, the diff role only lookup', () => {
+  const template = synth(CI);
+  const arn = (name: string) =>
+    `arn:aws:iam::123456789012:role/cdk-hnb659fds-${name}-role-123456789012-us-east-1`;
+
+  expect(mayAssume(template, 'StrandsTestInfraCiDeployRole')).toEqual(
+    ['deploy', 'file-publishing', 'image-publishing', 'lookup'].map(arn),
+  );
+  // `deploy` can pass the CloudFormation execution role, so it stays out of reach
+  // of pull-request code.
+  expect(mayAssume(template, 'StrandsTestInfraCiDiffRole')).toEqual([arn('lookup')]);
+});
+
+test('community mode creates neither CI role', () => {
+  const roleNames = Object.values(synth({ internal: false }).findResources('AWS::IAM::Role')).map(
+    (role: any) => role.Properties?.RoleName,
+  );
+
+  expect(roleNames).not.toContain('StrandsTestInfraDeployRole');
+  expect(roleNames).not.toContain('StrandsTestInfraDiffRole');
 });
 
 // --- Feature Toggling ---

@@ -1,0 +1,331 @@
+name: "Test Infra: Deploy"
+
+# Keeps the deployed StrandsTestInfraStack in sync with test-infra/, which owns the
+# IAM role integ tests assume. A permission that merges without a deployment
+# silently does nothing; the symptom is an integ test failing on AccessDenied for a
+# grant that exists in the code (#3691).
+#
+#   push to main / workflow_dispatch  deploy, unattended     test-infra-deploy
+#   pull request                      read-only cdk diff     auto-/manual-approval
+#   pull request, once approved       deploy the PR's code   test-infra-deploy-approval
+#
+# `pull_request_target`, not `pull_request`: a fork PR gets no secrets, so the
+# synthesized template would not match the live one — and this runs main's copy of
+# the workflow, so a PR cannot edit the steps that handle it. Only test-infra/'s
+# code comes from the PR, and `cdk diff`/`cdk deploy` execute it. The diff job is
+# contained by its read-only role; the deploy job is contained by the approval
+# alone. Approving one runs that PR's code with credentials that can change the
+# account — read the code, not just the diff.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'test-infra/**'
+      - '.github/workflows/test-infra-deploy.yml'
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths:
+      - 'test-infra/**'
+      - '.github/workflows/test-infra-deploy.yml'
+  workflow_dispatch:
+
+# Never cancel a deploy: CloudFormation rejects a second UPDATE while one is in
+# flight. The deploy job narrows this to one group for the whole stack.
+concurrency:
+  group: test-infra-deploy-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: test-infra
+
+env:
+  # The PR's own head commit, not the merge commit: what is reviewed is what runs.
+  CHECKOUT_REF: ${{ github.event.pull_request.head.sha || github.sha }}
+  # Secret-derived values that must not reach a public log or summary, and whose
+  # absence would silently narrow the deployed role instead of failing.
+  REDACT: >-
+    STRANDS_TEST_INFRA_PRIVATE_REPOS STRANDS_TEST_INFRA_BUCKET_NAMES
+    STRANDS_TEST_INFRA_PERSISTENT_BUCKET_NAMES STRANDS_TEST_INFRA_SECRET_NAMES
+    STRANDS_TEST_INFRA_RUNNER_ROLES STRANDS_TEST_INFRA_DEPLOYMENT_ACCOUNT
+
+jobs:
+  validate:
+    name: Type-check and unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+          persist-credentials: false
+          allow-unsafe-pr-checkout: true # opt back into fork-PR checkout, blocked by default in checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: test-infra/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+
+  # Whether the diff job's credentials wait for a human: write access lands in
+  # `auto-approve`, everyone else (and every draft) in `manual-approval`. Same gate
+  # as python-integration-test.yml and docs-deploy-preview.yml.
+  authorization-check:
+    name: Check access
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    outputs:
+      approval-env: ${{ steps.auth.outputs.approval-env }}
+    steps:
+      - uses: strands-agents/devtools/authorization-check@main
+        id: auth
+        with:
+          username: ${{ github.event.pull_request.user.login || 'invalid' }}
+          allowed-roles: 'write,maintain,admin'
+
+  # What the PR would change in the account, resolved: test-infra/ computes IAM
+  # from secrets, so the TypeScript diff does not tell you what the live role ends
+  # up with.
+  diff:
+    name: Diff against the deployed stack
+    needs: [validate, authorization-check]
+    if: github.repository == 'strands-agents/harness-sdk'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # An empty name (no environment) fails closed: the subject would carry no
+    # environment and the diff role's trust would not match.
+    environment:
+      name: ${{ needs.authorization-check.outputs.approval-env }}
+      deployment: false
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      # Internal mode and the live lists, or the diff reports every private repo,
+      # bucket and secret being removed from the role.
+      STRANDS_TEST_INFRA_INTERNAL: 'true'
+      STRANDS_TEST_INFRA_PRIVATE_REPOS: ${{ secrets.STRANDS_TEST_INFRA_PRIVATE_REPOS }}
+      STRANDS_TEST_INFRA_BUCKET_NAMES: ${{ secrets.STRANDS_TEST_INFRA_BUCKET_NAMES }}
+      STRANDS_TEST_INFRA_PERSISTENT_BUCKET_NAMES: ${{ secrets.STRANDS_TEST_INFRA_PERSISTENT_BUCKET_NAMES }}
+      STRANDS_TEST_INFRA_SECRET_NAMES: ${{ secrets.STRANDS_TEST_INFRA_SECRET_NAMES }}
+      STRANDS_TEST_INFRA_RUNNER_ROLES: ${{ secrets.STRANDS_TEST_INFRA_RUNNER_ROLES }}
+      STRANDS_TEST_INFRA_DEPLOYMENT_ACCOUNT: ${{ secrets.STRANDS_TEST_INFRA_DEPLOYMENT_ACCOUNT }}
+    steps:
+      - name: Check the secrets are set
+        env:
+          REQUIRED: ${{ env.REDACT }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in $REQUIRED; do [ -n "${!name:-}" ] || missing+=("$name"); done
+          [ ${#missing[@]} -eq 0 ] ||
+            { echo "::error::Missing repository secrets: ${missing[*]}. See test-infra/README.md."; exit 1; }
+
+      # Actions masks a comma-separated secret only as the whole string, and never
+      # masks the job summary, which is a file. Inlined rather than kept in the tree
+      # because on pull_request_target the checkout is the PR's.
+      - name: Mask the list entries and write the redactor
+        run: |
+          set -euo pipefail
+          for name in $REDACT; do
+            printf '%s\n' "${!name:-}" | tr ',' '\n' | while read -r value; do
+              value="$(printf '%s' "$value" | tr -d '[:space:]')"
+              [ -z "$value" ] || echo "::add-mask::$value"
+            done
+          done
+          cat > "$RUNNER_TEMP/redact.py" <<'PY'
+          import os, re, sys
+          values = {e.strip() for n in os.environ['REDACT'].split() for e in (os.environ.get(n) or '').split(',') if e.strip()}
+          # Longest first: a short entry must not clobber a longer one containing it.
+          values = sorted(values, key=len, reverse=True)
+          # A line filter, so one copy serves a finished file and a live stream. Safe
+          # line-at-a-time only because CDK wraps to `stream.columns`, unset for
+          # non-TTY output; recheck on a CDK CLI bump.
+          sys.stdout.reconfigure(line_buffering=True)
+          for line in sys.stdin:
+              for value in values:
+                  line = line.replace(value, '***')
+              line = re.sub('`{3,}', "'''", line)
+              sys.stdout.write(re.sub('^([ \t]*)::', r'\1\\::', line))
+          PY
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+          persist-credentials: false
+          allow-unsafe-pr-checkout: true
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: test-infra/package-lock.json
+      # Before the credentials exist. `cdk diff` runs the PR's code either way —
+      # the role is the containment, not the step order.
+      - run: npm ci
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          # Derived, so the diff role needs no secret of its own.
+          role-to-assume: arn:aws:iam::${{ secrets.STRANDS_TEST_INFRA_DEPLOYMENT_ACCOUNT }}:role/StrandsTestInfraDiffRole
+          aws-region: us-east-1
+          mask-aws-account-id: true
+
+      # --method=template compares templates through the bootstrap lookup role. The
+      # default ("auto") creates a change set with the deploy role, which this job
+      # deliberately cannot assume.
+      - name: cdk diff
+        run: |
+          set -uo pipefail
+          status=0
+          npx cdk diff StrandsTestInfraStack --method=template --no-fail --no-color \
+            > "$RUNNER_TEMP/raw.txt" 2>&1 || status=$?
+          python3 "$RUNNER_TEMP/redact.py" < "$RUNNER_TEMP/raw.txt" > "$RUNNER_TEMP/diff.txt"
+          cat "$RUNNER_TEMP/diff.txt"
+          {
+            echo '### `cdk diff` StrandsTestInfraStack'
+            echo
+            echo 'Secret-derived names are redacted to `***` — this repository is public.'
+            echo '```'
+            cat "$RUNNER_TEMP/diff.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+  deploy:
+    name: Deploy StrandsTestInfraStack
+    needs: [validate, diff]
+    # A PR deploys only after its diff succeeded — that diff is what the approver
+    # reads. On push/dispatch the diff job does not run at all, so `skipped` is the
+    # expected state there.
+    if: |
+      always() &&
+      github.repository == 'strands-agents/harness-sdk' &&
+      needs.validate.result == 'success' &&
+      ((github.event_name == 'pull_request_target' && needs.diff.result == 'success') ||
+       (github.event_name != 'pull_request_target' && needs.diff.result == 'skipped'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # Every deploy touches the one stack, so they serialize here rather than in the
+    # workflow-level group, which is per pull request.
+    concurrency:
+      group: test-infra-deploy-stack
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    # The environment IS the authorization: the deploy role's trust names these two
+    # and nothing else. Evaluated from main's copy of this file, so a PR cannot
+    # point itself at the unprotected one.
+    environment:
+      name: ${{ github.event_name == 'pull_request_target' && 'test-infra-deploy-approval' || 'test-infra-deploy' }}
+      deployment: false
+    env:
+      # Never set internal mode for any account but the team's — see AGENTS.md.
+      STRANDS_TEST_INFRA_INTERNAL: 'true'
+      STRANDS_TEST_INFRA_PRIVATE_REPOS: ${{ secrets.STRANDS_TEST_INFRA_PRIVATE_REPOS }}
+      STRANDS_TEST_INFRA_BUCKET_NAMES: ${{ secrets.STRANDS_TEST_INFRA_BUCKET_NAMES }}
+      STRANDS_TEST_INFRA_PERSISTENT_BUCKET_NAMES: ${{ secrets.STRANDS_TEST_INFRA_PERSISTENT_BUCKET_NAMES }}
+      STRANDS_TEST_INFRA_SECRET_NAMES: ${{ secrets.STRANDS_TEST_INFRA_SECRET_NAMES }}
+      STRANDS_TEST_INFRA_RUNNER_ROLES: ${{ secrets.STRANDS_TEST_INFRA_RUNNER_ROLES }}
+      # Pins the target account: the CDK CLI refuses to deploy when the credentials
+      # belong to a different one.
+      STRANDS_TEST_INFRA_DEPLOYMENT_ACCOUNT: ${{ secrets.STRANDS_TEST_INFRA_DEPLOYMENT_ACCOUNT }}
+    steps:
+      - name: Check the secrets are set
+        env:
+          REQUIRED: ${{ env.REDACT }} STRANDS_TEST_INFRA_DEPLOY_ROLE
+          STRANDS_TEST_INFRA_DEPLOY_ROLE: ${{ secrets.STRANDS_TEST_INFRA_DEPLOY_ROLE }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" != 'pull_request_target' ] && [ "$GITHUB_REF" != 'refs/heads/main' ]; then
+            echo "::error::test-infra deploys from main or an approved pull request (got $GITHUB_EVENT_NAME on $GITHUB_REF)."
+            exit 1
+          fi
+          missing=()
+          for name in $REQUIRED; do [ -n "${!name:-}" ] || missing+=("$name"); done
+          [ ${#missing[@]} -eq 0 ] ||
+            { echo "::error::Missing repository secrets: ${missing[*]}. See test-infra/README.md."; exit 1; }
+
+      # Same reason as the diff job: the post-merge path publishes a summary with
+      # nobody in the loop at all.
+      - name: Mask the list entries and write the redactor
+        run: |
+          set -euo pipefail
+          for name in $REDACT; do
+            printf '%s\n' "${!name:-}" | tr ',' '\n' | while read -r value; do
+              value="$(printf '%s' "$value" | tr -d '[:space:]')"
+              [ -z "$value" ] || echo "::add-mask::$value"
+            done
+          done
+          cat > "$RUNNER_TEMP/redact.py" <<'PY'
+          import os, re, sys
+          values = {e.strip() for n in os.environ['REDACT'].split() for e in (os.environ.get(n) or '').split(',') if e.strip()}
+          # Longest first: a short entry must not clobber a longer one containing it.
+          values = sorted(values, key=len, reverse=True)
+          # A line filter, so one copy serves a finished file and a live stream. Safe
+          # line-at-a-time only because CDK wraps to `stream.columns`, unset for
+          # non-TTY output; recheck on a CDK CLI bump.
+          sys.stdout.reconfigure(line_buffering=True)
+          for line in sys.stdin:
+              for value in values:
+                  line = line.replace(value, '***')
+              line = re.sub('`{3,}', "'''", line)
+              sys.stdout.write(re.sub('^([ \t]*)::', r'\1\\::', line))
+          PY
+
+      - name: Record a pull-request deploy
+        if: github.event_name == 'pull_request_target'
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          echo "Deployed from PR #${PR_NUMBER}, commit \`${CHECKOUT_REF}\` — **not** merged. The account holds this version until main deploys again." >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+          persist-credentials: false
+          allow-unsafe-pr-checkout: true
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: test-infra/package-lock.json
+      - run: npm ci
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.STRANDS_TEST_INFRA_DEPLOY_ROLE }}
+          aws-region: us-east-1
+          mask-aws-account-id: true
+
+      # The change-set diff, which is the accurate one, recorded so the account-side
+      # effect of this run is auditable after the fact.
+      - name: cdk diff
+        run: |
+          set -uo pipefail
+          status=0
+          npx cdk diff StrandsTestInfraStack --no-fail --no-color > "$RUNNER_TEMP/raw.txt" 2>&1 || status=$?
+          python3 "$RUNNER_TEMP/redact.py" < "$RUNNER_TEMP/raw.txt" > "$RUNNER_TEMP/diff.txt"
+          cat "$RUNNER_TEMP/diff.txt"
+          {
+            echo '### `cdk diff` StrandsTestInfraStack'
+            echo '```'
+            cat "$RUNNER_TEMP/diff.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      # Piped as it streams: CloudFormation events name the resources they touch.
+      - name: cdk deploy
+        run: |
+          set -uo pipefail
+          npx cdk deploy StrandsTestInfraStack --require-approval never --no-color 2>&1 |
+            python3 "$RUNNER_TEMP/redact.py"

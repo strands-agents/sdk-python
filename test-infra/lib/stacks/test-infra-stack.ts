@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import { TestFeature } from '../constants';
 import { IntegTestRole } from '../constructs/integ-test-role';
+import { GitHubCiRoles } from '../constructs/github-ci-roles';
 import { BedrockKnowledgeBaseTestResources } from '../constructs/bedrock-knowledge-base-test-resources';
 import { SshEc2TestResources } from '../constructs/ssh-ec2-test-resources';
 
@@ -29,6 +30,11 @@ export class StrandsTestInfraStack extends cdk.Stack {
 
     // Each feature construct layers its own scoped grants onto this role.
     const { role } = new IntegTestRole(this, 'StrandsTestRole', { internal: props.internal });
+
+    // The identities CI deploys and diffs with; internal mode only.
+    if (props.internal) {
+      new GitHubCiRoles(this, 'StrandsTestInfraCi');
+    }
 
     if (enabled('bedrock-knowledge-base')) {
       new BedrockKnowledgeBaseTestResources(this, 'StrandsBedrockKnowledgeBase', { role });

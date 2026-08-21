@@ -2,12 +2,26 @@ import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 
-function requiredInternalEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) {
+/**
+ * Read a comma-separated internal-mode env var as a list. Blank entries are
+ * dropped — GitHub Actions passes an unset secret to a step as an empty string,
+ * which would otherwise become a list containing one empty name and render an
+ * unusable ARN.
+ */
+function requiredInternalEnvList(name: string): string[] {
+  const values = splitEnvList(process.env[name]);
+  if (values.length === 0) {
     throw new Error(`${name} must be set when STRANDS_TEST_INFRA_INTERNAL=true`);
   }
-  return value;
+  return values;
+}
+
+/** Split a comma-separated env var, ignoring surrounding blanks and empty entries. */
+function splitEnvList(value: string | undefined): string[] {
+  return (value ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
 }
 
 export interface IntegTestRoleProps {
@@ -40,11 +54,11 @@ export class IntegTestRole extends Construct {
       'sdk-typescript',
     ];
     const privateRepos = props.internal
-      ? requiredInternalEnv('STRANDS_TEST_INFRA_PRIVATE_REPOS').split(',')
+      ? requiredInternalEnvList('STRANDS_TEST_INFRA_PRIVATE_REPOS')
       : [];
 
     const account = cdk.Stack.of(this).account;
-    const runnerRoleNames = process.env.STRANDS_TEST_INFRA_RUNNER_ROLES?.split(',') ?? [];
+    const runnerRoleNames = splitEnvList(process.env.STRANDS_TEST_INFRA_RUNNER_ROLES);
 
     const assumedBy = props.internal
       ? new iam.CompositePrincipal(
@@ -89,9 +103,9 @@ export class IntegTestRole extends Construct {
   private addLegacyBasePolicy(): void {
     const stack = cdk.Stack.of(this);
 
-    const bucketNames = requiredInternalEnv('STRANDS_TEST_INFRA_BUCKET_NAMES').split(',');
-    const persistentBucketNames = requiredInternalEnv('STRANDS_TEST_INFRA_PERSISTENT_BUCKET_NAMES').split(',');
-    const secretNames = requiredInternalEnv('STRANDS_TEST_INFRA_SECRET_NAMES').split(',');
+    const bucketNames = requiredInternalEnvList('STRANDS_TEST_INFRA_BUCKET_NAMES');
+    const persistentBucketNames = requiredInternalEnvList('STRANDS_TEST_INFRA_PERSISTENT_BUCKET_NAMES');
+    const secretNames = requiredInternalEnvList('STRANDS_TEST_INFRA_SECRET_NAMES');
 
     this.role.addToPolicy(
       new iam.PolicyStatement({
