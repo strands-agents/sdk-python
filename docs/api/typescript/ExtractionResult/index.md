@@ -1,4 +1,4 @@
-Defined in: [src/memory/extraction/types.ts:41](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/memory/extraction/types.ts#L41)
+Defined in: [src/memory/extraction/types.ts:41](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/memory/extraction/types.ts#L41)
 
 A discrete entry produced by an [Extractor](/docs/api/typescript/Extractor/index.md), ready to be written to a store via its `add`.
 
@@ -10,7 +10,7 @@ A discrete entry produced by an [Extractor](/docs/api/typescript/Extractor/index
 content: string;
 ```
 
-Defined in: [src/memory/extraction/types.ts:43](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/memory/extraction/types.ts#L43)
+Defined in: [src/memory/extraction/types.ts:43](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/memory/extraction/types.ts#L43)
 
 The textual content of the entry.
 
@@ -22,6 +22,6 @@ The textual content of the entry.
 optional metadata?: Record<string, JSONValue>;
 ```
 
-Defined in: [src/memory/extraction/types.ts:45](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/memory/extraction/types.ts#L45)
+Defined in: [src/memory/extraction/types.ts:45](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/memory/extraction/types.ts#L45)
 
 Optional metadata to associate with the entry.

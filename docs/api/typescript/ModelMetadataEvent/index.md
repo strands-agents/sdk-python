@@ -1,4 +1,4 @@
-Defined in: [src/models/streaming.ts:257](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/models/streaming.ts#L257)
+Defined in: [src/models/streaming.ts:257](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/models/streaming.ts#L257)
 
 Event containing metadata about the stream. Includes usage statistics, performance metrics, and trace information.
 
@@ -14,7 +14,7 @@ Event containing metadata about the stream. Includes usage statistics, performan
 new ModelMetadataEvent(data): ModelMetadataEvent;
 ```
 
-Defined in: [src/models/streaming.ts:278](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/models/streaming.ts#L278)
+Defined in: [src/models/streaming.ts:278](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/models/streaming.ts#L278)
 
 #### Parameters
 
@@ -34,7 +34,7 @@ Defined in: [src/models/streaming.ts:278](https://github.com/strands-agents/harn
 readonly type: "modelMetadataEvent";
 ```
 
-Defined in: [src/models/streaming.ts:261](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/models/streaming.ts#L261)
+Defined in: [src/models/streaming.ts:261](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/models/streaming.ts#L261)
 
 Discriminator for metadata events.
 
@@ -50,7 +50,7 @@ Discriminator for metadata events.
 readonly optional usage?: Usage;
 ```
 
-Defined in: [src/models/streaming.ts:266](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/models/streaming.ts#L266)
+Defined in: [src/models/streaming.ts:266](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/models/streaming.ts#L266)
 
 Token usage information.
 
@@ -66,7 +66,7 @@ Token usage information.
 readonly optional metrics?: Metrics;
 ```
 
-Defined in: [src/models/streaming.ts:271](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/models/streaming.ts#L271)
+Defined in: [src/models/streaming.ts:271](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/models/streaming.ts#L271)
 
 Performance metrics.
 
@@ -82,7 +82,7 @@ Performance metrics.
 readonly optional trace?: unknown;
 ```
 
-Defined in: [src/models/streaming.ts:276](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/models/streaming.ts#L276)
+Defined in: [src/models/streaming.ts:276](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/models/streaming.ts#L276)
 
 Trace information for observability.
 

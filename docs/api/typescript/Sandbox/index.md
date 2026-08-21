@@ -1,4 +1,4 @@
-Defined in: [src/sandbox/base.ts:42](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/sandbox/base.ts#L42)
+Defined in: [src/sandbox/base.ts:42](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/sandbox/base.ts#L42)
 
 Abstract execution environment.
 
@@ -32,7 +32,7 @@ abstract executeStreaming(command, options?): AsyncIterable<
 | ExecutionResult>;
 ```
 
-Defined in: [src/sandbox/base.ts:54](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/sandbox/base.ts#L54)
+Defined in: [src/sandbox/base.ts:54](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/sandbox/base.ts#L54)
 
 Execute a shell command, streaming output.
 
@@ -64,7 +64,7 @@ abstract executeCodeStreaming(
 | ExecutionResult>;
 ```
 
-Defined in: [src/sandbox/base.ts:64](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/sandbox/base.ts#L64)
+Defined in: [src/sandbox/base.ts:64](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/sandbox/base.ts#L64)
 
 Execute source code via a language interpreter, streaming output.
 
@@ -90,7 +90,7 @@ Async iterable yielding StreamChunks followed by a final ExecutionResult.
 abstract readFile(path): Promise<Uint8Array<ArrayBufferLike>>;
 ```
 
-Defined in: [src/sandbox/base.ts:80](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/sandbox/base.ts#L80)
+Defined in: [src/sandbox/base.ts:80](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/sandbox/base.ts#L80)
 
 Read a file from the sandbox filesystem as raw bytes.
 
@@ -120,7 +120,7 @@ Error if the file does not exist.
 abstract writeFile(path, content): Promise<void>;
 ```
 
-Defined in: [src/sandbox/base.ts:91](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/sandbox/base.ts#L91)
+Defined in: [src/sandbox/base.ts:91](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/sandbox/base.ts#L91)
 
 Write raw bytes to a file in the sandbox filesystem.
 
@@ -145,7 +145,7 @@ Implementations should create parent directories if they do not exist. Use [writ
 abstract removeFile(path): Promise<void>;
 ```
 
-Defined in: [src/sandbox/base.ts:99](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/sandbox/base.ts#L99)
+Defined in: [src/sandbox/base.ts:99](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/sandbox/base.ts#L99)
 
 Remove a file from the sandbox filesystem.
 
@@ -171,7 +171,7 @@ Error if the file does not exist.
 abstract listFiles(path): Promise<FileInfo[]>;
 ```
 
-Defined in: [src/sandbox/base.ts:112](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/sandbox/base.ts#L112)
+Defined in: [src/sandbox/base.ts:112](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/sandbox/base.ts#L112)
 
 List files in a sandbox directory.
 
@@ -201,7 +201,7 @@ Error if the directory does not exist.
 getTools(): Tool[];
 ```
 
-Defined in: [src/sandbox/base.ts:119](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/sandbox/base.ts#L119)
+Defined in: [src/sandbox/base.ts:119](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/sandbox/base.ts#L119)
 
 Tools this sandbox vends to an agent, registered during `Agent.initialize()`. A tool is skipped if the user already registered one with the same name. Override to provide them.
 
@@ -217,7 +217,7 @@ Tools this sandbox vends to an agent, registered during `Agent.initialize()`. A 
 execute(command, options?): Promise<ExecutionResult>;
 ```
 
-Defined in: [src/sandbox/base.ts:135](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/sandbox/base.ts#L135)
+Defined in: [src/sandbox/base.ts:135](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/sandbox/base.ts#L135)
 
 Execute a shell command and return the result.
 
@@ -247,7 +247,7 @@ executeCode(
 options?): Promise<ExecutionResult>;
 ```
 
-Defined in: [src/sandbox/base.ts:155](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/sandbox/base.ts#L155)
+Defined in: [src/sandbox/base.ts:155](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/sandbox/base.ts#L155)
 
 Execute source code and return the result.
 
@@ -275,7 +275,7 @@ The execution result with exit code and output.
 readText(path): Promise<string>;
 ```
 
-Defined in: [src/sandbox/base.ts:173](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/sandbox/base.ts#L173)
+Defined in: [src/sandbox/base.ts:173](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/sandbox/base.ts#L173)
 
 Read a text file from the sandbox filesystem.
 
@@ -301,7 +301,7 @@ The file contents decoded as a UTF-8 string.
 writeText(path, content): Promise<void>;
 ```
 
-Defined in: [src/sandbox/base.ts:186](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/sandbox/base.ts#L186)
+Defined in: [src/sandbox/base.ts:186](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/sandbox/base.ts#L186)
 
 Write a text file to the sandbox filesystem.
 

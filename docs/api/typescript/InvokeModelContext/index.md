@@ -1,4 +1,4 @@
-Defined in: [src/middleware/stages.ts:75](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/middleware/stages.ts#L75)
+Defined in: [src/middleware/stages.ts:75](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/middleware/stages.ts#L75)
 
 Context passed to model-stage middleware. All inputs to the model call are explicit — middleware can inspect and transform any of them by passing a modified context to next(). Collection fields are defensive copies; invocationState and model are shared references.
 
@@ -10,7 +10,7 @@ Context passed to model-stage middleware. All inputs to the model call are expli
 readonly agent: LocalAgent;
 ```
 
-Defined in: [src/middleware/stages.ts:77](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/middleware/stages.ts#L77)
+Defined in: [src/middleware/stages.ts:77](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/middleware/stages.ts#L77)
 
 The agent instance (escape hatch for advanced use cases).
 
@@ -22,7 +22,7 @@ The agent instance (escape hatch for advanced use cases).
 readonly model: Model;
 ```
 
-Defined in: [src/middleware/stages.ts:79](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/middleware/stages.ts#L79)
+Defined in: [src/middleware/stages.ts:79](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/middleware/stages.ts#L79)
 
 The model this call invokes. Initialized from agent.model and replaceable per call.
 
@@ -34,7 +34,7 @@ The model this call invokes. Initialized from agent.model and replaceable per ca
 readonly messages: readonly Message[];
 ```
 
-Defined in: [src/middleware/stages.ts:81](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/middleware/stages.ts#L81)
+Defined in: [src/middleware/stages.ts:81](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/middleware/stages.ts#L81)
 
 The messages to send to the model.
 
@@ -46,7 +46,7 @@ The messages to send to the model.
 readonly optional systemPrompt?: SystemPrompt;
 ```
 
-Defined in: [src/middleware/stages.ts:83](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/middleware/stages.ts#L83)
+Defined in: [src/middleware/stages.ts:83](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/middleware/stages.ts#L83)
 
 System prompt to guide the model’s behavior.
 
@@ -58,7 +58,7 @@ System prompt to guide the model’s behavior.
 readonly toolSpecs: readonly ToolSpec[];
 ```
 
-Defined in: [src/middleware/stages.ts:85](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/middleware/stages.ts#L85)
+Defined in: [src/middleware/stages.ts:85](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/middleware/stages.ts#L85)
 
 Tool specifications available to the model.
 
@@ -70,7 +70,7 @@ Tool specifications available to the model.
 readonly optional toolChoice?: ToolChoice;
 ```
 
-Defined in: [src/middleware/stages.ts:87](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/middleware/stages.ts#L87)
+Defined in: [src/middleware/stages.ts:87](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/middleware/stages.ts#L87)
 
 Controls how the model selects tools.
 
@@ -82,7 +82,7 @@ Controls how the model selects tools.
 readonly invocationState: InvocationState;
 ```
 
-Defined in: [src/middleware/stages.ts:89](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/middleware/stages.ts#L89)
+Defined in: [src/middleware/stages.ts:89](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/middleware/stages.ts#L89)
 
 Per-invocation state. Shared by reference — mutations are visible to hooks, tools, and AgentResult.
 
@@ -94,7 +94,7 @@ Per-invocation state. Shared by reference — mutations are visible to hooks, to
 readonly optional projectedInputTokens?: number;
 ```
 
-Defined in: [src/middleware/stages.ts:91](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/middleware/stages.ts#L91)
+Defined in: [src/middleware/stages.ts:91](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/middleware/stages.ts#L91)
 
 Estimated input token count for this model call, or undefined if estimation failed.
 
@@ -106,7 +106,7 @@ Estimated input token count for this model call, or undefined if estimation fail
 readonly optional dynamicTrailingBlocks?: number;
 ```
 
-Defined in: [src/middleware/stages.ts:100](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/middleware/stages.ts#L100)
+Defined in: [src/middleware/stages.ts:100](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/middleware/stages.ts#L100)
 
 How many trailing blocks of the last user message are rebuilt on every call.
 

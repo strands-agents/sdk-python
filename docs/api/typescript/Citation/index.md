@@ -1,4 +1,4 @@
-Defined in: [src/types/citations.ts:131](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/types/citations.ts#L131)
+Defined in: [src/types/citations.ts:131](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/types/citations.ts#L131)
 
 A single citation linking generated content to a source location.
 
@@ -10,7 +10,7 @@ A single citation linking generated content to a source location.
 location: CitationLocation;
 ```
 
-Defined in: [src/types/citations.ts:135](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/types/citations.ts#L135)
+Defined in: [src/types/citations.ts:135](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/types/citations.ts#L135)
 
 The location of the cited source.
 
@@ -22,7 +22,7 @@ The location of the cited source.
 source: string;
 ```
 
-Defined in: [src/types/citations.ts:140](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/types/citations.ts#L140)
+Defined in: [src/types/citations.ts:140](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/types/citations.ts#L140)
 
 The source identifier string.
 
@@ -34,7 +34,7 @@ The source identifier string.
 sourceContent: CitationSourceContent[];
 ```
 
-Defined in: [src/types/citations.ts:145](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/types/citations.ts#L145)
+Defined in: [src/types/citations.ts:145](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/types/citations.ts#L145)
 
 The source content referenced by this citation.
 
@@ -46,6 +46,6 @@ The source content referenced by this citation.
 title: string;
 ```
 
-Defined in: [src/types/citations.ts:150](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/types/citations.ts#L150)
+Defined in: [src/types/citations.ts:150](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/types/citations.ts#L150)
 
 Title of the cited source.

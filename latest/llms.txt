@@ -881,6 +881,7 @@
   - [v0.1.1](https://strandsagents.com/changelog/harness/typescript-v0.1.1/index.md): Harness TypeScript v0.1.1 (2025-12-03)
   - [v0.1.0](https://strandsagents.com/changelog/harness/typescript-v0.1.0/index.md): Harness TypeScript v0.1.0 (2025-12-03)
 - Evals
+  - [v1.2.0](https://strandsagents.com/changelog/evals/v1.2.0/index.md): Evals v1.2.0 (2026-08-21)
   - [v1.1.1](https://strandsagents.com/changelog/evals/v1.1.1/index.md): Evals v1.1.1 (2026-08-12)
   - [v1.1.0](https://strandsagents.com/changelog/evals/v1.1.0/index.md): Evals v1.1.0 (2026-08-07)
   - [v1.0.3](https://strandsagents.com/changelog/evals/v1.0.3/index.md): Evals v1.0.3 (2026-07-23)

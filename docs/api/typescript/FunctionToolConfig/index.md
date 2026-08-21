@@ -1,4 +1,4 @@
-Defined in: [src/tools/function-tool.ts:60](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/tools/function-tool.ts#L60)
+Defined in: [src/tools/function-tool.ts:60](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/tools/function-tool.ts#L60)
 
 Configuration options for creating a FunctionTool.
 
@@ -10,7 +10,7 @@ Configuration options for creating a FunctionTool.
 name: string;
 ```
 
-Defined in: [src/tools/function-tool.ts:62](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/tools/function-tool.ts#L62)
+Defined in: [src/tools/function-tool.ts:62](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/tools/function-tool.ts#L62)
 
 The unique name of the tool
 
@@ -22,7 +22,7 @@ The unique name of the tool
 description: string;
 ```
 
-Defined in: [src/tools/function-tool.ts:64](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/tools/function-tool.ts#L64)
+Defined in: [src/tools/function-tool.ts:64](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/tools/function-tool.ts#L64)
 
 Human-readable description of the tool’s purpose
 
@@ -34,7 +34,7 @@ Human-readable description of the tool’s purpose
 optional inputSchema?: JSONSchema7;
 ```
 
-Defined in: [src/tools/function-tool.ts:66](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/tools/function-tool.ts#L66)
+Defined in: [src/tools/function-tool.ts:66](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/tools/function-tool.ts#L66)
 
 JSON Schema defining the expected input structure. If omitted, defaults to an empty object schema.
 
@@ -46,6 +46,6 @@ JSON Schema defining the expected input structure. If omitted, defaults to an em
 callback: FunctionToolCallback;
 ```
 
-Defined in: [src/tools/function-tool.ts:68](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/tools/function-tool.ts#L68)
+Defined in: [src/tools/function-tool.ts:68](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/tools/function-tool.ts#L68)
 
 Function that implements the tool logic

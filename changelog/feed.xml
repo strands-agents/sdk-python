@@ -6,7 +6,11 @@
 • surface tool annotations in ToolSpec
 • throw on undeliverable document blocks instead of silently dropping them
 • deliver url-source images instead of silently dropping them
-• require both decorator and log when deprecating a tool</description><pubDate>Fri, 21 Aug 2026 00:00:00 GMT</pubDate><category>model</category><category>mcp</category><category>tool</category><category>devx</category><category>persistence</category><category>hooks</category><category>agent</category><category>language</category><category>context</category></item><item><title>Harness Python v1.52.0</title><link>https://strandsagents.com/changelog/harness/python-v1.52.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.52.0/</guid><description>• bump actions/upload-artifact from 6.0.0 to 7.0.1
+• require both decorator and log when deprecating a tool</description><pubDate>Fri, 21 Aug 2026 00:00:00 GMT</pubDate><category>model</category><category>mcp</category><category>tool</category><category>devx</category><category>persistence</category><category>hooks</category><category>agent</category><category>language</category><category>context</category></item><item><title>Evals v1.2.0</title><link>https://strandsagents.com/changelog/evals/v1.2.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v1.2.0/</guid><description>• add Claude Agents OpenInference integration tests
+• update mypy requirement from &lt;2.0.0 to &lt;3.0.0
+• update opentelemetry-instrumentation-langchain requirement from &lt;0.62.0,&gt;=0.40.0 to &gt;=0.40.0,&lt;0.63.0
+• select root agent span by earliest start_time in multi-agent traces
+• reduce flakiness for integration tests targeting new session mappers</description><pubDate>Fri, 21 Aug 2026 00:00:00 GMT</pubDate><category>tracing</category><category>evaluators</category></item><item><title>Harness Python v1.52.0</title><link>https://strandsagents.com/changelog/harness/python-v1.52.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.52.0/</guid><description>• bump actions/upload-artifact from 6.0.0 to 7.0.1
 • bump actions/setup-python from 6.3.0 to 7.0.0
 • bump actions/download-artifact from 6.0.0 to 8.0.1
 • bump dorny/paths-filter from 4.0.2 to 4.0.3

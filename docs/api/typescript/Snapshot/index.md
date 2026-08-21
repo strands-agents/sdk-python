@@ -1,4 +1,4 @@
-Defined in: [src/types/snapshot.ts:20](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/types/snapshot.ts#L20)
+Defined in: [src/types/snapshot.ts:20](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/types/snapshot.ts#L20)
 
 Point-in-time capture of agent or orchestrator state.
 
@@ -10,7 +10,7 @@ Point-in-time capture of agent or orchestrator state.
 scope: Scope;
 ```
 
-Defined in: [src/types/snapshot.ts:22](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/types/snapshot.ts#L22)
+Defined in: [src/types/snapshot.ts:22](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/types/snapshot.ts#L22)
 
 Scope identifying the snapshot context (agent or multi-agent).
 
@@ -22,7 +22,7 @@ Scope identifying the snapshot context (agent or multi-agent).
 schemaVersion: string;
 ```
 
-Defined in: [src/types/snapshot.ts:24](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/types/snapshot.ts#L24)
+Defined in: [src/types/snapshot.ts:24](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/types/snapshot.ts#L24)
 
 Schema version string for forward compatibility.
 
@@ -34,7 +34,7 @@ Schema version string for forward compatibility.
 createdAt: string;
 ```
 
-Defined in: [src/types/snapshot.ts:26](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/types/snapshot.ts#L26)
+Defined in: [src/types/snapshot.ts:26](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/types/snapshot.ts#L26)
 
 ISO 8601 timestamp of when snapshot was created.
 
@@ -46,7 +46,7 @@ ISO 8601 timestamp of when snapshot was created.
 data: Record<string, JSONValue>;
 ```
 
-Defined in: [src/types/snapshot.ts:28](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/types/snapshot.ts#L28)
+Defined in: [src/types/snapshot.ts:28](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/types/snapshot.ts#L28)
 
 Framework-owned state data.
 
@@ -58,6 +58,6 @@ Framework-owned state data.
 appData: Record<string, JSONValue>;
 ```
 
-Defined in: [src/types/snapshot.ts:30](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/types/snapshot.ts#L30)
+Defined in: [src/types/snapshot.ts:30](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/types/snapshot.ts#L30)
 
 Application-owned data. Strands does not read or modify this.
