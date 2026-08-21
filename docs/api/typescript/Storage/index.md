@@ -1,10 +1,12 @@
-Defined in: [src/storage/storage.ts:74](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/storage/storage.ts#L74)
+Defined in: [src/storage/storage.ts:93](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/storage/storage.ts#L93)
 
 A backend for storing and retrieving raw bytes under string keys.
 
 The interface is deliberately minimal — four operations over opaque `Uint8Array` values. Keys are opaque strings — implementations must round-trip the bytes they are given unchanged. The shipped backends interpret `/` as a logical separator (collapsing runs, rejecting `..`), but custom backends may apply their own key scheme.
 
 The `ListQuery` type parameter controls what `list` accepts. It defaults to `string` (a key prefix), which every backend supports. Implementations may widen it to accept a richer query object (e.g. a DynamoDB partition/sort-key filter) while still accepting a plain string for SDK-internal callers.
+
+The `SearchQuery` type parameter controls what `search` accepts. It defaults to `string` (a natural-language query), which every backend interprets in its own way (keyword scan, vector similarity, full-text index). Implementations may widen it to accept a richer query object (e.g. a pre-computed embedding vector with filters).
 
 Implement this to add a custom backend; the SDK ships InMemoryStorage, LocalFileStorage, and S3Storage.
 
@@ -13,6 +15,7 @@ Implement this to add a custom backend; the SDK ships InMemoryStorage, LocalFile
 | Type Parameter | Default type |
 | --- | --- |
 | `ListQuery` | `string` |
+| `SearchQuery` | `string` |
 
 ## Methods
 
@@ -22,7 +25,7 @@ Implement this to add a custom backend; the SDK ships InMemoryStorage, LocalFile
 write(key, data): Promise<void>;
 ```
 
-Defined in: [src/storage/storage.ts:82](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/storage/storage.ts#L82)
+Defined in: [src/storage/storage.ts:101](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/storage/storage.ts#L101)
 
 Stores `data` under `key`, overwriting any existing value.
 
@@ -49,7 +52,7 @@ Stores `data` under `key`, overwriting any existing value.
 read(key): Promise<Uint8Array<ArrayBufferLike>>;
 ```
 
-Defined in: [src/storage/storage.ts:91](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/storage/storage.ts#L91)
+Defined in: [src/storage/storage.ts:110](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/storage/storage.ts#L110)
 
 Retrieves the bytes previously stored under `key`.
 
@@ -77,7 +80,7 @@ The stored bytes, or `null` if no value exists for `key`
 delete(key): Promise<void>;
 ```
 
-Defined in: [src/storage/storage.ts:99](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/storage/storage.ts#L99)
+Defined in: [src/storage/storage.ts:118](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/storage/storage.ts#L118)
 
 Deletes the value stored under `key`. A no-op if the key does not exist.
 
@@ -103,7 +106,7 @@ Deletes the value stored under `key`. A no-op if the key does not exist.
 list(query): Promise<string[]>;
 ```
 
-Defined in: [src/storage/storage.ts:115](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/storage/storage.ts#L115)
+Defined in: [src/storage/storage.ts:134](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/storage/storage.ts#L134)
 
 Lists keys matching the given query.
 
@@ -135,7 +138,7 @@ The matching keys, sorted ascending
 optional namespace(prefix): Storage;
 ```
 
-Defined in: [src/storage/storage.ts:126](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/storage/storage.ts#L126)
+Defined in: [src/storage/storage.ts:145](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/storage/storage.ts#L145)
 
 Returns a view of this storage with all keys prefixed by `prefix`. The original storage is not mutated.
 
@@ -152,3 +155,33 @@ Optional — shipped backends implement this, custom backends may omit it.
 `Storage`
 
 A Storage view scoped to the given prefix
+
+---
+
+### search()?
+
+```ts
+optional search(query): Promise<StorageSearchResult[]>;
+```
+
+Defined in: [src/storage/storage.ts:162](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/storage/storage.ts#L162)
+
+Searches stored content by query.
+
+When `SearchQuery` is `string` (the default), the query is a natural-language string and how it is interpreted is backend-specific: keyword/lexical scan, full-text index, or vector similarity (the backend embeds the query internally).
+
+Implementations may accept richer query objects (e.g. a pre-computed embedding vector with metadata filters) while still accepting a plain string for SDK-internal callers.
+
+Optional — when absent, consumers fall back to client-side search.
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `query` | `SearchQuery` | A string query or backend-specific query object |
+
+#### Returns
+
+`Promise`<`StorageSearchResult`\[\]>
+
+Matched keys with relevance scores, ranked best-first

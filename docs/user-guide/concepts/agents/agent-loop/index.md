@@ -187,7 +187,7 @@ const controllerResult = await agent.invoke('Hello', {
 
 #### Cancellation within tool execution
 
-The SDK automatically checks for cancellation before and between tool invocations (see checkpoints above). However, once a tool callback is running, cancellation is **cooperative** — only the tool itself can respond mid-execution. Tools can participate by forwarding the signal to APIs that accept `AbortSignal`, or by polling `cancelSignal.aborted` between steps. If a tool does neither, it runs to completion and the agent resumes cancellation handling after the tool returns.
+The SDK automatically checks for cancellation before and between tool calls (see checkpoints above). Once a tool callback is running, cancellation is **cooperative**: only the tool itself can respond mid-execution. Tools can participate by forwarding `context.cancelSignal` to APIs that accept `AbortSignal`, or by polling `context.cancelSignal.aborted` between steps. If a tool does neither, it runs to completion, and the agent resumes cancellation handling after the tool returns.
 
 ```typescript
 const myTool = tool({
@@ -197,7 +197,7 @@ const myTool = tool({
   callback: async (input, context) => {
     // Forward the cancel signal to APIs that accept AbortSignal
     const response = await fetch(input.url, {
-      signal: context?.agent.cancelSignal,
+      signal: context?.cancelSignal,
     })
     return response.text()
   },

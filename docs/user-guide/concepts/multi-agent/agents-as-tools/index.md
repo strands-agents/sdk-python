@@ -420,6 +420,78 @@ const response = await orchestrator.invoke(
 
 This example demonstrates how Strands Agents SDK enables specialized experts to collaborate on complex queries requiring multiple domains of knowledge. The orchestrator intelligently routes different aspects of the query to the appropriate specialized agents, then synthesizes their responses into a comprehensive answer.
 
+## Delegation
+
+Sometimes, you do not want a sub-agent’s response to be re-processed by the orchestrator agent, since it would incur unnecessary token usage and potentially corrupt the sub-agent’s response. For example:
+
+-   A coding agent returning generated source code that shouldn’t be rephrased
+-   A customer service agent whose compliance-reviewed language must reach the user unchanged
+-   A retrieval agent returning structured data the caller consumes directly
+
+In that case, you can mark a tool agent as a delegate by passing `delegate: true` to `.as_tool()``.asTool()`. When you do so, the orchestrator agent returns the delegate’s response directly to the user, skipping the extra orchestrator model round-trip.
+
+(( tab "Python" ))
+```python
+from pydantic import BaseModel
+from strands import Agent
+
+
+class BillingResponse(BaseModel):
+    summary: str
+    refund_amount: float
+
+
+billing_agent = Agent(
+    name="billing_expert",
+    description="Answers billing questions: charges, refunds, and invoices.",
+    system_prompt="You handle billing questions with precision.",
+    structured_output_model=BillingResponse,
+)
+
+orchestrator = Agent(
+    system_prompt="""Route billing questions to billing_expert.
+Answer general questions yourself.""",
+    tools=[billing_agent.as_tool(delegate=True)],
+)
+
+result = orchestrator("Why was I charged twice?")
+# result contains the billing agent's structured JSON response, unchanged
+```
+(( /tab "Python" ))
+
+(( tab "TypeScript" ))
+```typescript
+const BillingResponseSchema = z.object({
+    summary: z.string(),
+    refundAmount: z.number(),
+  })
+
+  const billingAgent = new Agent({
+    name: 'billing_expert',
+    description: 'Answers billing questions: charges, refunds, and invoices.',
+    systemPrompt: 'You handle billing questions with precision.',
+    structuredOutputSchema: BillingResponseSchema,
+    printer: false,
+  })
+
+  const orchestrator = new Agent({
+    systemPrompt: `Route billing questions to billing_expert.
+Answer general questions yourself.`,
+    tools: [billingAgent.asTool({ delegate: true })],
+  })
+
+  const result = await orchestrator.invoke('Why was I charged twice?')
+  // result contains the billing agent's structured JSON response, unchanged
+```
+(( /tab "TypeScript" ))
+
+On success, the agent loop stops with `stop_reason == 'end_turn'``stopReason === 'endTurn'` and the `AgentResult` contains the delegate’s content without additional model processing. Streaming events from the delegate surface natively in the parent’s stream, so callers see the specialist’s tokens as they arrive.
+
+Limitations to be aware of:
+
+-   **Single delegated tool per turn**: An agent can have both delegated and non-delegated tools. However, if the agent calls a delegated tool during a turn, that tool must be called alone. The SDK cancels the tool batch if other tools are requested alongside the delegated tool.
+-   **Incompatible with stateful models**: Delegation exits the agent loop early, which would leave an unclosed function call on the server for models that manage conversation state server-side. Combining delegated tools with stateful models is not supported.
+
 ## Remote Agents with A2A
 
 You can also use remote agents as tools through the [Agent-to-Agent (A2A) protocol](/docs/user-guide/concepts/multi-agent/agent-to-agent/index.md). The `A2AAgent` class lets you wrap a remote A2A-compatible agent as a tool in your orchestrator, following the same pattern described above but communicating over the network. See [A2AAgent as a Tool](/docs/user-guide/concepts/multi-agent/agent-to-agent/index.md#as-a-tool) for details.
@@ -455,7 +527,9 @@ The [Agents as Tools](https://github.com/strands-agents/harness-sdk/tree/main/st
 ### Python
 
 - [harness-sdk/strands-py/src/strands/agent/_agent_as_tool.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/_agent_as_tool.py)
+- [harness-sdk/strands-py/src/strands/agent/_agent_delegation.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/_agent_delegation.py)
 
 ### TypeScript
 
 - [harness-sdk/strands-ts/src/agent/agent-as-tool.ts](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/agent/agent-as-tool.ts)
+- [harness-sdk/strands-ts/src/agent/agent-delegation.ts](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/agent/agent-delegation.ts)

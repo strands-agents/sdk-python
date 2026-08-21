@@ -6,7 +6,7 @@ type ConversationManagerReduceOptions = {
 };
 ```
 
-Defined in: [src/conversation-manager/conversation-manager.ts:27](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/conversation-manager/conversation-manager.ts#L27)
+Defined in: [src/conversation-manager/conversation-manager.ts:27](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/conversation-manager/conversation-manager.ts#L27)
 
 Options passed to [ConversationManager.reduce](/docs/api/typescript/ConversationManager/index.md#reduce).
 
@@ -22,7 +22,7 @@ When `error` is undefined, this is a proactive compression call — best-effort 
 agent: LocalAgent;
 ```
 
-Defined in: [src/conversation-manager/conversation-manager.ts:31](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/conversation-manager/conversation-manager.ts#L31)
+Defined in: [src/conversation-manager/conversation-manager.ts:31](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/conversation-manager/conversation-manager.ts#L31)
 
 The agent instance. Mutate `agent.messages` in place to reduce history.
 
@@ -34,7 +34,7 @@ The agent instance. Mutate `agent.messages` in place to reduce history.
 model: Model;
 ```
 
-Defined in: [src/conversation-manager/conversation-manager.ts:37](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/conversation-manager/conversation-manager.ts#L37)
+Defined in: [src/conversation-manager/conversation-manager.ts:37](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/conversation-manager/conversation-manager.ts#L37)
 
 The model instance. Used by conversation managers that perform model-based reduction (e.g. summarization).
 
@@ -46,7 +46,7 @@ The model instance. Used by conversation managers that perform model-based reduc
 optional error?: ContextWindowOverflowError;
 ```
 
-Defined in: [src/conversation-manager/conversation-manager.ts:49](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/conversation-manager/conversation-manager.ts#L49)
+Defined in: [src/conversation-manager/conversation-manager.ts:49](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/conversation-manager/conversation-manager.ts#L49)
 
 The [ContextWindowOverflowError](/docs/api/typescript/ContextWindowOverflowError/index.md) that triggered this call, or `undefined` for proactive compression calls.
 

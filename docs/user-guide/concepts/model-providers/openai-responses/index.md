@@ -54,49 +54,7 @@ console.log(response)
 In TypeScript, both the Responses API and Chat Completions API are available through a single `OpenAIModel` class. The Responses API is selected by default. Pass `api: 'chat'` to use [Chat Completions](/docs/user-guide/concepts/model-providers/openai/index.md) instead.
 (( /tab "TypeScript" ))
 
-### Amazon Bedrock (Mantle)
-
-The Responses provider can connect to [Amazon Bedrock’s OpenAI-compatible endpoints](https://docs.aws.amazon.com/bedrock/latest/userguide/bedrock-mantle.html) powered by Mantle. Authenticate with a [Bedrock API key](https://docs.aws.amazon.com/bedrock/latest/userguide/api-key-management.html) and point the client at your region’s Mantle endpoint.
-
-(( tab "Python" ))
-```python
-from strands import Agent
-from strands.models.openai_responses import OpenAIResponsesModel
-
-region = "us-east-1"
-model = OpenAIResponsesModel(
-    model_id="openai.gpt-oss-120b",
-    client_args={
-        "api_key": "<BEDROCK_API_KEY>",
-        "base_url": f"https://bedrock-mantle.{region}.api.aws/v1",
-    },
-)
-
-agent = Agent(model=model)
-response = agent("What is 2+2?")
-print(response)
-```
-(( /tab "Python" ))
-
-(( tab "TypeScript" ))
-```typescript
-import { Agent } from '@strands-agents/sdk'
-import { OpenAIModel } from '@strands-agents/sdk/models/openai'
-
-const region = 'us-east-1'
-const model = new OpenAIModel({
-  modelId: 'openai.gpt-oss-120b',
-  apiKey: '<BEDROCK_API_KEY>',
-  clientConfig: {
-    baseURL: `https://bedrock-mantle.${region}.api.aws/v1`,
-  },
-})
-
-const agent = new Agent({ model })
-const response = await agent.invoke('What is 2+2?')
-console.log(response)
-```
-(( /tab "TypeScript" ))
+To connect to Amazon Bedrock’s OpenAI-compatible Mantle endpoints, see [OpenAI-compatible endpoints (Mantle)](/docs/user-guide/concepts/model-providers/amazon-bedrock/index.md#openai-compatible-endpoints-mantle) on the Amazon Bedrock page.
 
 ## Configuration
 

@@ -90,6 +90,8 @@ The outer `BedrockKnowledgeBaseStoreConfig` carries the per-store identity and b
 | `scope` | Logical namespace isolating documents. Applied as a metadata filter on search and stamped on writes. |
 | `filter` | Explicit retrieval filter; overrides the auto-generated scope filter on search. |
 | `access_control_list``accessControlList` | Document-level ACL entries stamped on every write. Required when the data source has ACL awareness enabled. See [Access control lists](#access-control-lists). |
+| `min_score``minScore` | Score floor a result must meet. Use for similarity-scored knowledge bases, where a higher score is a better match. See [Filtering by score](#filtering-by-score). |
+| `max_score``maxScore` | Score ceiling a result must not exceed. Use for distance-scored knowledge bases, where a lower score is a better match. See [Filtering by score](#filtering-by-score). |
 
 ### Connection config
 
@@ -265,6 +267,12 @@ Each entry’s `metadata` carries the document’s own attributes plus two reser
 The document id from `add` is the generated UUID for a `CUSTOM` document, or the `s3://` URI of the uploaded object for `S3`. Writes require a data source ID (and an `s3` config for S3 data sources); a write against a missing or read-only configuration raises.
 
 Ingestion is eventually consistent: a successful write does not mean the content is immediately searchable.
+
+### Filtering by score
+
+Set `min_score``minScore` or `max_score``maxScore` on the store to enforce score limits on returned results. For similarity-scored knowledge bases use `min_score``minScore` to keep results at or above the floor. For distance-scored knowledge bases use `max_score``maxScore` to keep results at or below the ceiling.
+
+The score metric is a property of the vector store behind the knowledge base. Filtering is applied after retrieval, so a search may therefore return fewer entries than `max_search_results``maxSearchResults`, or none at all when nothing clears the bound. A result without a score is retained.
 
 ## Extraction
 

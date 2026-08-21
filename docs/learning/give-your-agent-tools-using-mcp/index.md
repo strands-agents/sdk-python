@@ -1,0 +1,67 @@
+*[Watch on YouTube](https://www.youtube.com/watch?v=Pucmy0GZkeI&list=PLDzwjhH-4yhU&index=3)*
+
+*Code for this lesson can be found [**here**](https://github.com/aws-samples/sample-building-with-strands-course/tree/main/samples/03-mcp-tools).*
+
+### Connecting Agents to the Outside World
+
+It’s common to give agents many different tools from multiple sources, and agents will use tools as needed to solve whatever task is in front of them. In Strands, there are multiple ways to give an agent access to tools.
+
+You’ve already seen how to use some of the community tools and turn Python functions into tools using the `tool` decorator. Another pattern is MCP.
+
+MCP, or Model Context Protocol, is an open standard that gives agents a consistent way to discover and interact with external capabilities. Maybe you want your agent to interact with GitHub, AWS APIs, browser tools, or internal company systems. Instead of manually wiring up every capability one tool at a time, you connect to an MCP server that already exposes those capabilities using a standard protocol.
+
+Modern agent systems increasingly rely on runtime access to external knowledge and capabilities instead of trying to encode everything directly into prompts or local tools.
+
+### Integrating the AWS MCP Server
+
+Now let’s take a look at an example agent that’s a simple coding assistant that we want to have deep capabilities with AWS technologies.
+
+AWS has an MCP server as a part of the AWS agent toolkit that exposes AWS capabilities directly to agents. Instead of hardcoding AWS knowledge into prompts or maintaining your own retrieval system, the agent can dynamically pull the information it needs through MCP tools. Let me show you how to connect it.
+
+Strands provides an MCP client that you can connect to either remote or local MCP servers. We import the streamable HTTP client from the MCP package and the MCP client from Strands. Then we create an MCP client and point it at the AWS MCP server endpoint. Once we have the client, we pass it into the agent’s tool list just like this.
+
+When the agent initializes, Strands automatically discovers the tools exposed by the MCP server and makes them available to the model. Then we can ask something like:
+
+> *“I need to build a serverless FastAPI backend with authentication and file uploads. What AWS services should I use, and how should I architect this?”*
+
+Agents can also connect to multiple MCP servers simultaneously, whether those servers are local, remote, third-party hosted, or internally developed.
+
+### Managing Context Bloat with Tool Filtering
+
+But the thing you’ll notice as your system gets more complex is that tools in MCP can consume a lot of context and tokens. The tool descriptions, schemas, and MCP server metadata all take up space in the model’s context window when they get loaded.
+
+The problem is that when you overload an agent with too many tools, it can start making worse tool selection decisions or even hallucinate tool names that don’t exist. Part of good harness design is exposing the right capabilities without overwhelming the model. This is one reason tool filtering becomes useful.
+
+For example, some MCP servers expose dozens of tools, but your agent only needs a few of them. With tool filtering, you can select only the relevant tools to pass to your agent, so you can reduce context bloat and avoid confusion as well as save on cost.
+
+Here I have a script that uses the same AWS MCP server and prints out all of the tools. Then we take that same MCP server and we filter down the list using the tool filters in Strands. You can pass allowed lists, rejected lists, or regex patterns. Let’s go ahead and run this.
+
+The agent ran, and you can see there were 11 tools listed on the MCP server, but after our filtering, we only brought back two tools and provided those to our agent. So we were able to filter that tool list down.
+
+Deciding which tools to give which agents for which tasks is exactly the type of thing you can build into your harness. In more advanced systems, you can even build semantic or dynamic tool filtering depending on the type of workflows and MCP servers that you’re looking at. This example uses an AWS-hosted MCP server, but you can also build your own MCP servers and connect them to Strands in exactly the same way.
+
+### Security and Permissions: The Mental Model for Tools
+
+So that’s tools with MCP. Before we move on to the next lesson, there’s something I want you to understand about tools.
+
+When you’re using community tools or building your own, it’s good to understand that tools execute with the permissions of the host process. That means if you give your agent unrestricted access to the shell tool, you’ve effectively given it access to your entire machine. An agent that can run `curl` can also read your cloud credentials, reach your internal network, and overwrite files that maybe you didn’t intend to expose.
+
+Strands has something called [**Strands Shell**](/docs/user-guide/shell/index.md) that helps you with this security problem. With Strands Shell, you can restrict shell processes to run inside of an isolated sandbox that you control. You declare what the agent can reach, like what files, URLs, and credentials it needs upfront, and then everything else doesn’t exist as far as the agent is concerned.
+
+And then there are security concerns with MCP. When you’re plugging MCP tools into your agent, these are potentially tools someone else controls. This means they could swap out tool logic or add new tools that you didn’t intend to give to your agent. In production systems, tools access becomes a part of your security boundary. So use Strands Shell when needed, and also be careful about the MCP servers you connect to your agent and how you connect them.
+
+Here’s the mental model for tools:
+
+-   Your harness gives the agent access to **custom tools** for project-specific logic and integrations.
+-   **Community tools** for common capabilities.
+-   **MCP servers** for connecting to external systems.
+
+All of these can coexist within the same agent’s tool list.
+
+### What’s Next?
+
+Okay, so at this point, we have an agent that can reason, use tools, connect to external services, and we can swap out the model behind it. But we have no control over what it does with those tools. If it decides to delete a file or send an email, it just does it.
+
+We’ll fix that with **hooks**, which let you intercept the agent loop, inspect what’s about to happen, and you can even ask a human before anything destructive goes through.
+
+*Learn more: [Model Context Protocol (MCP) Tools](/docs/user-guide/concepts/tools/mcp-tools/index.md)*

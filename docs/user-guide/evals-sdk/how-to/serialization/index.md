@@ -242,5 +242,5 @@ with open("experiment.json", "w") as f:
 ## Related pages
 
 - [Bidirectional Streaming Session Management](/docs/user-guide/concepts/bidirectional-streaming/session-management/index.md) (1 shared tag)
-- [Session Management](/docs/user-guide/concepts/agents/session-management/index.md) (1 shared tag)
 - [State Management](/docs/user-guide/concepts/agents/state/index.md) (1 shared tag)
+- [Session Management](/docs/user-guide/concepts/agents/session-management/index.md) (1 shared tag)

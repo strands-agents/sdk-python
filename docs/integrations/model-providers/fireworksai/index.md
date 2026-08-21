@@ -1,76 +1,81 @@
-[Fireworks AI](https://fireworks.ai) provides blazing fast inference for open-source language models. Fireworks AI is accessible through OpenAI’s SDK via full API compatibility, allowing easy and portable integration with the Strands Agents SDK using the familiar OpenAI interface.
+[Fireworks AI](https://fireworks.ai) provides fast hosted inference for open-source language models.
+
+OpenAI compatibility
+
+This integration works through the SDK’s built-in [OpenAI provider](/docs/user-guide/concepts/model-providers/openai/index.md) pointed at Fireworks AI’s OpenAI-compatible endpoint; there is no separate integration. Compatible endpoints can have quirks that deviate from the exact OpenAI API spec, so some features may behave differently than they do against OpenAI itself.
 
 ## Installation
 
-The Strands Agents SDK provides access to Fireworks AI models through the OpenAI compatibility layer, configured as an optional dependency. To install, run:
+The OpenAI provider is an optional dependency. To install, run:
 
-```bash
-pip install 'strands-agents[openai]' strands-agents-tools
-```
-
-## Usage
-
-After installing the `openai` package, you can import and initialize the Strands Agents’ OpenAI-compatible provider for Fireworks AI models as follows:
-
-```python
-from strands import Agent
-from strands.models.openai import OpenAIModel
-from strands_tools import calculator
-
-model = OpenAIModel(
-    client_args={
-        "api_key": "<FIREWORKS_API_KEY>",
-        "base_url": "https://api.fireworks.ai/inference/v1",
-    },
-    model_id="accounts/fireworks/models/deepseek-v3p1-terminus",  # or see https://fireworks.ai/models
-    params={
-        "max_tokens": 5000,
-        "temperature": 0.1
-    }
-)
-
-agent = Agent(model=model, tools=[calculator])
-agent("What is 2+2?")
-```
-
-## Configuration
-
-### Client Configuration
-
-The `client_args` configure the underlying OpenAI-compatible client. When using Fireworks AI, you must set:
-
--   `api_key`: Your Fireworks AI API key. Get one from the [Fireworks AI Console](https://app.fireworks.ai/settings/users/api-keys).
--   `base_url`: `https://api.fireworks.ai/inference/v1`
-
-Refer to [OpenAI Python SDK GitHub](https://github.com/openai/openai-python) for full client options.
-
-### Model Configuration
-
-The `model_config` specifies which Fireworks AI model to use and any additional parameters.
-
-| Parameter | Description | Example | Options |
-| --- | --- | --- | --- |
-| `model_id` | Model name | `accounts/fireworks/models/deepseek-v3p1-terminus` | See [Fireworks Models](https://fireworks.ai/models) |
-| `params` | Model-specific parameters | `{"max_tokens": 5000, "temperature": 0.7, "top_p": 0.9}` | [API reference](https://docs.fireworks.ai/api-reference) |
-
-## Troubleshooting
-
-### `ModuleNotFoundError: No module named 'openai'`
-
-You must install the `openai` dependency to use this provider:
-
+(( tab "Python" ))
 ```bash
 pip install 'strands-agents[openai]'
 ```
+(( /tab "Python" ))
 
-### Unexpected model behavior?
+(( tab "TypeScript" ))
+```bash
+npm install @strands-agents/sdk openai
+```
+(( /tab "TypeScript" ))
 
-Ensure you’re using a model ID compatible with Fireworks AI (e.g., `accounts/fireworks/models/deepseek-v3p1-terminus`, `accounts/fireworks/models/kimi-k2-instruct-0905`), and your `base_url` is set to `https://api.fireworks.ai/inference/v1`.
+## Usage
+
+Create an [API key](https://app.fireworks.ai/settings/users/api-keys), export it as `FIREWORKS_API_KEY`, and point the provider at Fireworks AI’s endpoint:
+
+(( tab "Python" ))
+```python
+import os
+
+from strands import Agent
+from strands.models.openai import OpenAIModel
+
+model = OpenAIModel(
+    client_args={
+        "api_key": os.environ["FIREWORKS_API_KEY"],
+        "base_url": "https://api.fireworks.ai/inference/v1",
+    },
+    model_id="accounts/fireworks/models/deepseek-v3p1-terminus",
+)
+
+agent = Agent(model=model)
+response = agent("Explain tool calling in one sentence.")
+print(response)
+```
+(( /tab "Python" ))
+
+(( tab "TypeScript" ))
+```typescript
+import { Agent } from '@strands-agents/sdk'
+import { OpenAIModel } from '@strands-agents/sdk/models/openai'
+
+const model = new OpenAIModel({
+  api: 'chat',
+  apiKey: process.env.FIREWORKS_API_KEY,
+  clientConfig: {
+    baseURL: 'https://api.fireworks.ai/inference/v1',
+  },
+  modelId: 'accounts/fireworks/models/deepseek-v3p1-terminus',
+})
+
+const agent = new Agent({ model })
+const response = await agent.invoke('Explain tool calling in one sentence.')
+console.log(response)
+```
+(( /tab "TypeScript" ))
+
+## Configuration
+
+Two client settings connect the provider to Fireworks AI:
+
+-   **API key**: from your [account settings](https://app.fireworks.ai/settings/users/api-keys)
+-   **Base URL**: `https://api.fireworks.ai/inference/v1`
+
+Model IDs come from the [Fireworks AI model library](https://fireworks.ai/models) and carry the `accounts/fireworks/models/` prefix. For model parameters and other provider options, see the [OpenAI provider](/docs/user-guide/concepts/model-providers/openai/index.md) guide.
 
 ## References
 
--   [Fireworks AI OpenAI Compatibility Guide](https://fireworks.ai/docs/tools-sdks/openai-compatibility#openai-compatibility)
--   [Fireworks AI API Reference](https://docs.fireworks.ai/api-reference)
--   [Fireworks AI Models](https://fireworks.ai/models)
--   [OpenAI Python SDK](https://github.com/openai/openai-python)
--   [Strands Agents API](/docs/api/python/strands.models.model)
+-   [Fireworks AI OpenAI compatibility guide](https://fireworks.ai/docs/tools-sdks/openai-compatibility#openai-compatibility)
+-   [Fireworks AI model library](https://fireworks.ai/models)
+-   [OpenAI provider](/docs/user-guide/concepts/model-providers/openai/index.md)

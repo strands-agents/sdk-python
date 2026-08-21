@@ -11,15 +11,21 @@ The following table shows all model providers supported by Strands Agents SDK an
 | [Amazon Bedrock](/docs/user-guide/concepts/model-providers/amazon-bedrock/index.md) | ✅ | ✅ |
 | [Amazon Nova](/docs/user-guide/concepts/model-providers/amazon-nova/index.md) | ✅ | ❌ |
 | [Anthropic](/docs/user-guide/concepts/model-providers/anthropic/index.md) | ✅ | ✅ |
+| [Cohere](/docs/integrations/model-providers/cohere/index.md) | ✅ | ❌ |
+| [Crusoe](/docs/integrations/model-providers/crusoe/index.md) | ✅ | ✅ |
 | [Custom Providers](/docs/user-guide/concepts/model-providers/custom_model_provider/index.md) | ✅ | ✅ |
+| [Fireworks AI](/docs/integrations/model-providers/fireworksai/index.md) | ✅ | ✅ |
 | [Google](/docs/user-guide/concepts/model-providers/google/index.md) | ✅ | ✅ |
 | [LiteLLM](/docs/user-guide/concepts/model-providers/litellm/index.md) | ✅ | ❌ |
 | [llama.cpp](/docs/user-guide/concepts/model-providers/llamacpp/index.md) | ✅ | ❌ |
 | [LlamaAPI](/docs/user-guide/concepts/model-providers/llamaapi/index.md) | ✅ | ❌ |
 | [MistralAI](/docs/user-guide/concepts/model-providers/mistral/index.md) | ✅ | ❌ |
+| [Nebius Token Factory](/docs/integrations/model-providers/nebius-token-factory/index.md) | ✅ | ✅ |
 | [Ollama](/docs/user-guide/concepts/model-providers/ollama/index.md) | ✅ | ❌ |
 | [OpenAI](/docs/user-guide/concepts/model-providers/openai/index.md) | ✅ | ✅ |
 | [OpenAI Responses API](/docs/user-guide/concepts/model-providers/openai-responses/index.md) | ✅ | ✅ |
+| [OpenRouter](/docs/integrations/model-providers/openrouter/index.md) | ✅ | ✅ |
+| [OVHcloud AI Endpoints](/docs/integrations/model-providers/ovhcloud-ai-endpoints/index.md) | ✅ | ✅ |
 | [SageMaker](/docs/user-guide/concepts/model-providers/sagemaker/index.md) | ✅ | ❌ |
 | [Vercel](/docs/user-guide/concepts/model-providers/vercel/index.md) | ❌ | ✅ |
 | [Writer](/docs/user-guide/concepts/model-providers/writer/index.md) | ✅ | ❌ |
@@ -31,13 +37,8 @@ The following providers are built and maintained by the Strands community. Brows
 | Provider | Python Supported | TypeScript Supported |
 | --- | --- | --- |
 | [CLOVA Studio](/docs/integrations/model-providers/clova-studio/index.md) | ✅ | ❌ |
-| [Cohere](/docs/integrations/model-providers/cohere/index.md) | ✅ | ❌ |
-| [Crusoe](/docs/integrations/model-providers/crusoe/index.md) | ✅ | ❌ |
-| [Fireworks AI](/docs/integrations/model-providers/fireworksai/index.md) | ✅ | ❌ |
 | [MLX](/docs/integrations/model-providers/mlx/index.md) | ✅ | ❌ |
-| [Nebius Token Factory](/docs/integrations/model-providers/nebius-token-factory/index.md) | ✅ | ❌ |
 | [NVIDIA NIM](/docs/integrations/model-providers/nvidia-nim/index.md) | ✅ | ❌ |
-| [OVHcloud AI Endpoints](/docs/integrations/model-providers/ovhcloud-ai-endpoints/index.md) | ✅ | ❌ |
 | [SGLang](/docs/integrations/model-providers/sglang/index.md) | ✅ | ❌ |
 | [vLLM](/docs/integrations/model-providers/vllm/index.md) | ✅ | ❌ |
 | [xAI](/docs/integrations/model-providers/xai/index.md) | ✅ | ❌ |

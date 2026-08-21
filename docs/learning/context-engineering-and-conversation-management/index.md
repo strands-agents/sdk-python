@@ -1,0 +1,102 @@
+*[Watch on YouTube](https://www.youtube.com/watch?v=6zbbYm902MQ&list=PLDzwjhH-4yhU&index=8)*
+
+*Code for this lesson can be found [**here**](https://github.com/aws-samples/sample-building-with-strands-course/tree/main/samples/08-conversation-management).*
+
+### Introduction: The Core Architectural Challenge of Context
+
+Let’s talk about context management. Managing context is one of the core responsibilities of an agent harness. Every tool call, tool result, correction, summary, user message, and model response consumes tokens and takes up space in the context window.
+
+Even before you hit the hard context limit, oversized contexts increase latency and cost, and they often reduce reasoning quality. As agents become longer running and more capable, context engineering starts becoming one of the main architectural problems that you need to solve.
+
+There are a few common strategies you’ll see repeatedly:
+
+-   You can **externalize context** into files, databases, or memory systems instead of keeping everything in the prompt.
+-   You can **dynamically select relevant information** for the current task using tools.
+-   You can **compress context** through summarization or compaction.
+-   You can **isolate context** between agents so each one only sees what’s relevant to its role.
+
+Strands ships with a few different out-of-the-box components that make context engineering a lot easier to implement so you can save tokens. We will explore the basics first, and then look at the single line of code that gives you everything you need out of the box. This way, you’ll understand what you’re getting when you use built-in context management features and have the ability to select what makes sense for you.
+
+### Reactive Compaction: The Sliding Window Conversation Manager
+
+For compaction, Strands ships with built-in conversation managers to help manage this automatically.
+
+The first is the sliding window conversation manager. This one is straightforward: it keeps only the *N* most recent messages and removes older history as the conversation grows.
+
+Let’s add it to our customer service agent. We create a sliding window conversation manager with a window size of 20 and pass it into the agent during creation. The conversation manager handles trimming automatically during the agent loop.
+
+Importantly, it trims intelligently. It won’t split tool calls from their results, and it trims along conversation boundaries so history remains structurally valid.
+
+There’s also an option called `should_truncate_results`. When enabled, large tool outputs get compacted automatically:
+
+-   Long results are shortened while preserving the beginning and end of the output.
+-   Large image blocks can be replaced with lightweight placeholders.
+
+This helps control context growth from especially large tool responses. The sliding window approach is simple, fast, and predictable—and honestly, it’s where most people start. But it’s also naive because eventually, you lose older information entirely, which might actually be desired depending on your use case. But for a lot of longer-running workflows, losing important context from the beginning of the conversation can become a problem.
+
+### Lossy Compression: The Summarizing Conversation Manager
+
+That’s where the second built-in option comes in: the summarizing conversation manager. Instead of dropping older messages completely, this manager compresses them into summaries.
+
+The setup looks very similar, but we use the summarizing conversation manager instead of the sliding window. When the context window starts approaching its limit, the manager takes older portions of the conversation, summarizes them, replaces them with a compressed summary message, and retries the request with the reduced context.
+
+There are a few important configurations here:
+
+-   **Summary Ratio:** Controls how much of the older conversation gets summarized during compaction.
+-   **Preserve Recent Messages:** Ensures the most recent messages remain untouched so the active work in context stays intact.
+
+You can also customize how summarization happens. For example, for a customer support agent, you might provide a summarization prompt that tells the summarizer to focus on customer identity, issue history, actions already taken, and unresolved problems.
+
+Importantly, the summarization step itself can use a separate summarization agent or a cheaper model provider entirely. Simple summarization tasks usually don’t need your most expensive reasoning model. That’s another example of a harness engineering design decision that shapes system cost and performance.
+
+Summarization is useful, but it’s important to understand that summarization is lossy compression. Sometimes important details disappear, especially after repeated compression cycles. In long-running agent systems, you might need more sophisticated strategies depending on your use case, such as:
+
+-   Extracting structured state as a list of facts instead of summarizing.
+-   Retrieving information dynamically from external memory stores like short-term and long-term memory.
+-   Splitting workflows across multiple isolated agents with different contexts to work on different parts of the problem, each having its own conversation management strategy.
+
+### Proactive vs. Reactive Compression
+
+The conversation managers we just saw are reactive; they kick in when you hit the limit. But Strands also supports proactive compression.
+
+You can set a compression threshold, and the manager will start compressing before you overflow the context window. This is how you add it to your agent: just include the proactive compression parameter and set your threshold, and you’re all set.
+
+There are many different ways you can tackle context engineering, but there usually is no single perfect strategy. You experiment, evaluate behavior, tune compaction approaches, and evolve the harness over time based on the workloads that you actually observe. The good news is that Strands gives you extension points for this, allowing you to build custom conversation managers when the built-in approaches stop being sufficient.
+
+### Handling Enormous Tool Outputs: Context Offloading
+
+There’s a separate problem that you might run into with context that we haven’t talked about yet, but is super common for agents that use many different tools. Individual tool results can be enormous and consume a ton of tokens. A single verbose tool response or file read could be tens of thousands of tokens, and that’s sent to the model on every single turn of the conversation, driving up costs and reducing performance.
+
+You’re going to want a way to solve for that. The **Context Offloader Plugin** solves this. It intercepts large tool results, stores the full context externally, and keeps a compact preview in context for the agent. The agent still knows what the result contained; it just doesn’t bloat the window with the full thing. This is all driven using hooks and tools—concepts you already understand.
+
+In this example, we’re bringing in the context offloader plugin, which stacks on top of the other plugins we’re already using. We then set the storage for the offloaded tool results to go to a local directory, set the max result tokens, and set preview tokens to be the first 2,000 tokens. This reduces the amount of tokens in the context window for tool calls but still gives a fair amount in the preview. You can tune these numbers for your specific use case to see what works best.
+
+These two mechanisms—conversation management for history and context offloading for individual tool results—work together.
+
+### One-Line Out-of-the-Box Setup: `context_manager=auto`
+
+Now let’s see the built-in context management configurations you can give to your agent so you can get context offloading, summarization, and proactive compression all with one line of code.
+
+You can drop this into your agent:
+
+```python
+context_manager="auto"
+```
+
+This gives you the default behavior:
+
+-   Large tool results are offloaded to external storage and replaced with a truncated preview.
+-   Old messages are automatically compressed into structured summaries rather than dropped.
+-   Proactive compression fires at 85% context usage to stay ahead of overflow.
+
+In Strands’ benchmarks on real code investigation tasks, cost dropped by 55% while accuracy went from 68% to 98%. You end up using about half the tokens, but you get way better results.
+
+There is also `context_manager="agentic"` for when the model is better positioned to decide what stays in context. The model gets tools to summarize, truncate, or pin messages—it trades tokens for judgment. We recommend you start with `auto` by default, and use `agentic` when your agent needs to protect specific context across long conversations.
+
+### What’s Next?
+
+We’ve spent some time here talking about memory systems, but everything we’ve done so far hasn’t used memory. If the agent restarts at any point, the conversation history, the summaries, and the agent state all go away, and there is no way to bring back up conversation history for a given session across different runs.
+
+In the next lesson, we’ll solve that by giving our agent persistent memory.
+
+*Learn more: [Context Management](/docs/user-guide/concepts/context-management/index.md)*

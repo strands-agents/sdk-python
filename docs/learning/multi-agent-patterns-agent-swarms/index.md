@@ -1,0 +1,88 @@
+*[Watch on YouTube](https://www.youtube.com/watch?v=yG-5rIJoh_8&list=PLDzwjhH-4yhU&index=12)*
+
+*Code for this lesson can be found [**here**](https://github.com/aws-samples/sample-building-with-strands-course/tree/main/samples/12-swarms).*
+
+### Why Agent Swarms Exist
+
+In a graph, you decide the execution order of the agents upfront. With the “agents as tools” pattern, a central orchestrator decides who to call. But what if you don’t know the right workflow structure ahead of time?
+
+Think about a production incident triage system. The first agent checks the logs and finds a database connection error. It hands off the task to a metrics analyst, who sees that the connection pool is exhausted. The metrics analyst then hands off to a deployment reviewer, who discovers that someone changed the pool configuration 30 minutes ago.
+
+You can’t draw that graph ahead of time because the execution path depends entirely on what each agent discovers during runtime.
+
+This is why agent swarms exist. In a swarm, the agents themselves make the decisions. They hand off tasks to each other autonomously based on what the active problem requires.
+
+### Building a System Debugging Swarm
+
+Let’s build a system debugging swarm. For this setup, we have four agents:
+
+1.  A **triage agent** (responsible for the initial assessment)
+2.  A **log analyst**
+3.  A **metrics analyst**
+4.  A **deployment reviewer**
+
+First, we define some simulated production debugging tools using the `@tool` decorator, such as checking logs, metrics, recent deployments, and infrastructure status. In a real production system, these would integrate with external APIs or use MCP servers, but mock functions work fine for this example.
+
+Then we create our four agents. Each has a highly specific system prompt describing their specialty, when they should hand off to a different expert, and their designated tools.
+
+To use these agents in a swarm, we pass them all to a `Swarm` object and set the entry point to the triage agent:
+
+```python
+swarm = Swarm(
+    [triage_agent, log_analyst, metrics_analyst, deployment_reviewer],
+    entry_point=triage_agent
+)
+```
+
+Strands automatically injects a “handoff to agent” tool into every agent in the swarm. This is the mechanism that allows them to transfer execution control to one another dynamically.
+
+### Safety Controls in Swarms
+
+Because swarm handoffs are autonomous, you must define safety configurations carefully. Without proper safeguards, swarms can run forever and burn through a massive number of tokens.
+
+For example, two agents can get stuck in a ping-pong loop: the log analyst says, *“This looks like a deployment issue,”* and hands off to the deployment reviewer, who replies, *“This looks like an application issue,”* handing it right back. They will bounce the task back and forth until they hit a timeout or exhaust your budget.
+
+To prevent this, Strands provides several critical safety boundaries:
+
+-   `max_handoffs`: Caps the total number of handoffs permitted during a request.
+-   `max_iterations`: Caps the total number of individual agent executions.
+-   `execution_timeout`: Sets a time limit for the entire swarm’s execution.
+-   `node_timeout`: Limits the execution time of any single agent’s turn.
+-   **Repetitive Handoff Detection:** You can configure `repetitive_handoff_detection_window` and `repetitive_handoff_min_unique_agents`. If the swarm detects that the same subset of agents is repeatedly passing the task back and forth without involving new agents, it will automatically terminate.
+
+When we run our debugging task—such as investigating why a payment service is returning 500 errors—the swarm coordinates organically. The triage agent starts, assesses the issue, and hands off to the specialists. Multiple tracks run, tools are called, and the optimal path emerges dynamically based on real-time findings.
+
+### Control Flow and Shared Context
+
+There is a fundamental architectural difference between swarms and the “agents as tools” pattern:
+
+-   **No Request-Response Bottleneck:** When Agent A hands off to Agent B, Agent A’s turn is completely finished. Control is fully transferred over to Agent B. It is not a nested function call where Agent A sits and waits for Agent B to return a value.
+-   **Shared Context:** Swarms operate over a single, shared conversation context. Each agent sees the accumulated work of all the agents before it, including prior findings, handoff histories, and shared execution state.
+
+By the time the deployment reviewer takes over, it doesn’t just see the raw incident report. It sees the triage assessment, the log analyst’s findings about connection timeouts, and the metrics analyst’s data regarding pool exhaustion. Every agent builds directly on top of the context established by its predecessors.
+
+### Comparing the Three Multi-Agent Patterns
+
+Understanding when to apply each pattern is key to designing a robust system:
+
+| Pattern | Architecture | Best Used For |
+| --- | --- | --- |
+| **Agents as Tools** | Hub & Spoke | Clearly separable domains where one central manager agent needs to coordinate specialists and synthesize the final answer. |
+| **Graph Workflows** | Structured DAG | Processes with a known, predefined order of execution, dependencies, parallel fan-outs, or explicit feedback loops. |
+| **Agent Swarms** | Decentralized Network | Collaborative, exploratory tasks where the optimal execution path cannot be known in advance and must emerge dynamically. |
+
+#### The Whiteboard Mental Model
+
+-   If you can easily draw the workflow step-by-step on a whiteboard, **use a graph**.
+-   If you have a clear supervisor-to-specialist relationship, **use agents as tools**.
+-   If you need a specialized team to collaborate and figure out the problem together, **use a swarm**.
+
+These patterns are also completely composable. You can run a swarm as a single node inside a larger graph, or have individual agents within a swarm call sub-agents using the “agents as tools” pattern. This modularity allows you to build highly customized architectures tailored to your specific application.
+
+### What’s Next?
+
+Now that we have covered the major multi-agent architectural patterns, we will move on to measuring performance.
+
+In the next lesson, we will focus on agent evaluation and how to reliably measure the quality and success of your agent systems.
+
+*Learn more: [Swarm Multi-Agent Pattern](/docs/user-guide/concepts/multi-agent/swarm/index.md)*

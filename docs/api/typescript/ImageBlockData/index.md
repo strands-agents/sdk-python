@@ -1,4 +1,4 @@
-Defined in: [src/types/media.ts:157](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/types/media.ts#L157)
+Defined in: [src/types/media.ts:257](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/types/media.ts#L257)
 
 Data for an image block.
 
@@ -10,7 +10,7 @@ Data for an image block.
 format: "png" | "jpeg" | "jpg" | "gif" | "webp";
 ```
 
-Defined in: [src/types/media.ts:161](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/types/media.ts#L161)
+Defined in: [src/types/media.ts:261](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/types/media.ts#L261)
 
 Image format.
 
@@ -22,6 +22,6 @@ Image format.
 source: ImageSourceData;
 ```
 
-Defined in: [src/types/media.ts:166](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/types/media.ts#L166)
+Defined in: [src/types/media.ts:266](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/types/media.ts#L266)
 
 Image source.

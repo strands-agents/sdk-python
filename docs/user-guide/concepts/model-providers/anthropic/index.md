@@ -86,7 +86,7 @@ The `model_config` configures the underlying model selected for inference. The s
 | `max_tokens` | Maximum number of tokens to generate before stopping | `1028` | [reference](https://platform.claude.com/docs/en/api/messages/create#create.max_tokens) |
 | `model_id` | ID of a model to use | `claude-sonnet-4-6` | [reference](https://platform.claude.com/docs/en/api/messages/create#create.model) |
 | `params` | Additional pass-through parameters | `{"metadata": {"user_id": "u1"}}` | [reference](https://platform.claude.com/docs/en/api/messages/create) |
-| `cache_config` | Enables [prompt caching](#prompt-caching) on the conversation | `CacheConfig(ttl="1h")` | [reference](https://docs.claude.com/en/docs/build-with-claude/prompt-caching) |
+| `cache_config` | Enables [prompt caching](#prompt-caching) on the system prompt and the conversation | `CacheConfig(ttl="1h")` | [reference](https://docs.claude.com/en/docs/build-with-claude/prompt-caching) |
 | `cache_tools` | Caches the tool definitions | `"default"` or `CacheToolsConfig(ttl="1h")` | [reference](https://docs.claude.com/en/docs/build-with-claude/prompt-caching) |
 (( /tab "Python" ))
 
@@ -97,7 +97,7 @@ The `model_config` configures the underlying model selected for inference. The s
 | `maxTokens` | Maximum tokens to generate | `1028` | [reference](https://platform.claude.com/docs/en/api/messages/create#create.max_tokens) |
 | `stopSequences` | Sequences that stop generation | `['END']` | [reference](https://platform.claude.com/docs/en/api/messages/create#create.stop_sequences) |
 | `params` | Additional pass-through parameters | `{ metadata: { user_id: 'u1' } }` | [reference](https://platform.claude.com/docs/en/api/messages/create) |
-| `cacheConfig` | Enables [prompt caching](#prompt-caching) on the tool definitions and the conversation | `{ ttl: '1h' }` | [reference](https://docs.claude.com/en/docs/build-with-claude/prompt-caching) |
+| `cacheConfig` | Enables [prompt caching](#prompt-caching) on the tool definitions, the system prompt, and the conversation | `{ ttl: '1h' }` | [reference](https://docs.claude.com/en/docs/build-with-claude/prompt-caching) |
 (( /tab "TypeScript" ))
 
 ## Troubleshooting
@@ -232,7 +232,7 @@ For schema patterns, error handling, and per-invocation overrides, see [Structur
 
 [Prompt caching](https://docs.claude.com/en/docs/build-with-claude/prompt-caching) lets Claude reuse an already-processed prefix of your prompt instead of reprocessing it on every call. The mechanism, the cost model, and the cache metrics match [Amazon Bedrock](/docs/user-guide/concepts/model-providers/amazon-bedrock/index.md#caching); this section covers what differs here.
 
-Caching is off by default. Set `cache_config``cacheConfig` to add a cache point to the last user message, which caches everything before it:
+Caching is off by default. Set `cache_config``cacheConfig` to cache the system prompt and add a cache point to the last user message, which caches everything before it:
 
 (( tab "Python" ))
 ```python
@@ -281,13 +281,13 @@ Cache activity is reported in the usage metrics, in the same fields Bedrock uses
 #### Choosing what to cache
 
 (( tab "Python" ))
-`cache_config` caches the conversation. `cache_tools` caches the tool definitions and works on its own, so tool definitions can be cached without caching the conversation. Passing a plain string (`"default"`) only switches it on: the value is not a TTL. Use `CacheToolsConfig(ttl=...)` to set one.
+`cache_config` caches the system prompt and the conversation; set `system_prompt_ttl=False` to leave the system prompt uncached, or a TTL string (`system_prompt_ttl="1h"`) to give it its own duration. `cache_tools` caches the tool definitions and works on its own, so tool definitions can be cached without caching the conversation. Passing a plain string (`"default"`) only switches it on: the value is not a TTL. Use `CacheToolsConfig(ttl=...)` to set one.
 
 `strategy` is ignored by this provider.
 (( /tab "Python" ))
 
 (( tab "TypeScript" ))
-One `cacheConfig` covers both the tool definitions and the conversation, with `toolsTTL` and `messagesTTL` controlling them independently. The shape and the per-field behavior are the same as on [Amazon Bedrock](/docs/user-guide/concepts/model-providers/amazon-bedrock/index.md#tool-caching), so a configuration survives a provider switch unchanged.
+One `cacheConfig` covers the tool definitions, the system prompt, and the conversation, with `toolsTTL`, `systemPromptTTL`, and `messagesTTL` controlling them independently (set one to `false` to leave that part uncached). The shape and the per-field behavior are the same as on [Amazon Bedrock](/docs/user-guide/concepts/model-providers/amazon-bedrock/index.md#tool-caching), so a configuration survives a provider switch unchanged.
 
 `strategy` is ignored by this provider.
 (( /tab "TypeScript" ))

@@ -129,7 +129,7 @@ async def before_tool_call(event: BeforeToolCallEvent,
                            **kwargs: Any) -> InterventionAction
 ```
 
-Defined in: [src/strands/vended\_interventions/hitl/hitl.py:195](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_interventions/hitl/hitl.py#L195)
+Defined in: [src/strands/vended\_interventions/hitl/hitl.py:193](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_interventions/hitl/hitl.py#L193)
 
 Request human approval before executing a tool that is not allow-listed or trusted.
 

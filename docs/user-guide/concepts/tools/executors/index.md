@@ -99,7 +99,7 @@ Cancellation works identically in both modes. Call `agent.cancel()` to request c
 
 (( tab "TypeScript" ))
 -   **Pre-launch cancel**: set `BeforeToolsEvent.cancel` on the batch-level hook, or call `agent.cancel()` before tools start, to produce error results for every tool in the batch.
--   **Mid-flight cancel** in sequential mode short-circuits not-yet-started tools. In concurrent mode, all tools have already launched, so each in-flight tool must cooperatively observe `agent.cancelSignal` to stop early.
+-   **Mid-flight cancel** in sequential mode short-circuits not-yet-started tools. In concurrent mode, all tools have already launched, so each in-flight tool must cooperatively observe `context.cancelSignal` to stop early.
 (( /tab "TypeScript" ))
 
 ## Custom Executors

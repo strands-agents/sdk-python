@@ -28,11 +28,15 @@ or [build your own manager](#creating-a-conversationmanager) that matches your r
 
 ### NullConversationManager
 
-The [`NullConversationManager`](/docs/api/python/strands.agent.conversation_manager.null_conversation_manager#NullConversationManager) is a simple implementation that does not modify the conversation history. It’s useful for:
+The [`NullConversationManager`](/docs/api/python/strands.agent.conversation_manager.null_conversation_manager#NullConversationManager) is a simple implementation that does not modify the conversation history. Pass it explicitly to turn off the default [`SlidingWindowConversationManager`](#slidingwindowconversationmanager) and keep the full conversation history. It’s useful for:
 
 -   Short conversations that won’t exceed context limits
 -   Debugging purposes
 -   Cases where you want to manage context manually
+
+Note
+
+Omitting `conversation_manager``conversationManager` — or passing `conversation_manager=None``conversationManager: undefined` — selects the default sliding window. It does **not** disable trimming. To keep the full history, pass a `NullConversationManager` instance explicitly.
 
 (( tab "Python" ))
 ```python
@@ -57,7 +61,7 @@ const agent = new Agent({
 
 ### SlidingWindowConversationManager
 
-The [`SlidingWindowConversationManager`](/docs/api/python/strands.agent.conversation_manager.sliding_window_conversation_manager#SlidingWindowConversationManager) implements a sliding window strategy that maintains a fixed number of recent messages. This is the default conversation manager used by the Agent class.
+The [`SlidingWindowConversationManager`](/docs/api/python/strands.agent.conversation_manager.sliding_window_conversation_manager#SlidingWindowConversationManager) implements a sliding window strategy that maintains a fixed number of recent messages. This is the default conversation manager used by the Agent class when no `conversation_manager``conversationManager` is specified. To turn it off and keep the full history, pass a [`NullConversationManager`](#nullconversationmanager).
 
 (( tab "Python" ))
 ```python

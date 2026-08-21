@@ -2,7 +2,7 @@
 type SystemPromptData = string | SystemContentBlockData[];
 ```
 
-Defined in: [src/types/messages.ts:751](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/types/messages.ts#L751)
+Defined in: [src/types/messages.ts:753](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/types/messages.ts#L753)
 
 Data representation of a system prompt. Can be a simple string or an array of system content block data for advanced caching.
 

@@ -93,6 +93,8 @@ const response = await agent.invoke('Hello!')
 ```
 (( /tab "TypeScript" ))
 
+Guides for specific OpenAI-compatible services, such as [OpenRouter](/docs/integrations/model-providers/openrouter/index.md) and [Fireworks AI](/docs/integrations/model-providers/fireworksai/index.md), are in the [integrations](/integrations/index.md) section.
+
 ## Configuration
 
 ### Client Configuration

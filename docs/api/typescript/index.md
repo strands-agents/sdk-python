@@ -8,6 +8,7 @@
     -   [AgentResult](/docs/api/typescript/AgentResult/index.md)
     -   [AgentResultEvent](/docs/api/typescript/AgentResultEvent/index.md)
     -   [AgentTrace](/docs/api/typescript/AgentTrace/index.md)
+    -   [AudioBlock](/docs/api/typescript/AudioBlock/index.md)
     -   [BedrockModel](/docs/api/typescript/BedrockModel/index.md)
     -   [BeforeInvocationEvent](/docs/api/typescript/BeforeInvocationEvent/index.md)
     -   [BeforeModelCallEvent](/docs/api/typescript/BeforeModelCallEvent/index.md)
@@ -92,6 +93,7 @@
 -   **Interfaces**
     -   [AddMessagesContext](/docs/api/typescript/AddMessagesContext/index.md)
     -   [AgentAsToolOptions](/docs/api/typescript/AgentAsToolOptions/index.md)
+    -   [AudioBlockData](/docs/api/typescript/AudioBlockData/index.md)
     -   [BackoffContext](/docs/api/typescript/BackoffContext/index.md)
     -   [BackoffStrategy](/docs/api/typescript/BackoffStrategy/index.md)
     -   [BaseModelConfig](/docs/api/typescript/BaseModelConfig/index.md)
@@ -207,6 +209,9 @@
 -   **Type Aliases**
     -   [AgentConfig](/docs/api/typescript/AgentConfig/index.md)
     -   [AgentStreamEvent](/docs/api/typescript/AgentStreamEvent/index.md)
+    -   [AudioFormat](/docs/api/typescript/AudioFormat/index.md)
+    -   [AudioSource](/docs/api/typescript/AudioSource/index.md)
+    -   [AudioSourceData](/docs/api/typescript/AudioSourceData/index.md)
     -   [BedrockCacheConfig](/docs/api/typescript/BedrockCacheConfig/index.md)
     -   [BedrockCacheTTL](/docs/api/typescript/BedrockCacheTTL/index.md)
     -   [CitationGeneratedContent](/docs/api/typescript/CitationGeneratedContent/index.md)

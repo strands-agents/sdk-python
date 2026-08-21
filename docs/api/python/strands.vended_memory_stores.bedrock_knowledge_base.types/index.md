@@ -80,6 +80,8 @@ Full configuration for a :class:`BedrockKnowledgeBaseStore`, passed as its const
 -   `scope` - Namespace isolating this store’s documents; applied as a search filter and stamped on writes. Not a store-identity field, so it never affects `MemoryManager` routing.
 -   `filter` - Explicit search filter, overriding the scope-derived one. Affects `search` only; writes always scope by `scope`.
 -   `access_control_list` - Document-level access control entries stamped on every write, required by data sources that have ACL awareness enabled (a write to such a data source fails without it). The same entries apply to `CUSTOM` (inline) and `S3` (sidecar) writes. Affects writes only; ACL filtering at search time is supplied separately as retrieval `userContext`.
+-   `min_score` - Floor a result must meet (`score >= min_score`). Use for similarity-scored knowledge bases, where a higher score is a better match. Mutually exclusive with `max_score`. Omitted means no floor.
+-   `max_score` - Ceiling a result must not exceed (`score <= max_score`). Use for distance-scored knowledge bases, where a lower score is a better match. Mutually exclusive with `min_score`. Omitted means no ceiling.
 
 ## BedrockKnowledgeBaseAddResult
 
@@ -88,7 +90,7 @@ Full configuration for a :class:`BedrockKnowledgeBaseStore`, passed as its const
 class BedrockKnowledgeBaseAddResult()
 ```
 
-Defined in: [src/strands/vended\_memory\_stores/bedrock\_knowledge\_base/types.py:142](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/bedrock_knowledge_base/types.py#L142)
+Defined in: [src/strands/vended\_memory\_stores/bedrock\_knowledge\_base/types.py:150](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/bedrock_knowledge_base/types.py#L150)
 
 Result returned by :meth:`BedrockKnowledgeBaseStore.add`.
 

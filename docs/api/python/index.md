@@ -181,6 +181,7 @@
         -   **Agent**
             -   [Agent](/docs/api/python/strands.experimental.bidi.agent.agent)
             -   [Loop](/docs/api/python/strands.experimental.bidi.agent.loop)
+        -   [Audio](/docs/api/python/strands.experimental.bidi.audio)
         -   **Io**
             -   [Audio](/docs/api/python/strands.experimental.bidi.io.audio)
             -   [Text](/docs/api/python/strands.experimental.bidi.io.text)

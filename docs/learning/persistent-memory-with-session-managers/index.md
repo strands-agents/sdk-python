@@ -1,0 +1,88 @@
+*[Watch on YouTube](https://www.youtube.com/watch?v=HqGIYRXo6WE&list=PLDzwjhH-4yhU&index=9)*
+
+*Code for this lesson can be found [**here**](https://github.com/aws-samples/sample-building-with-strands-course/tree/main/samples/09-persistent-memory).*
+
+### Why You Need Session Managers
+
+If you’re building anything beyond a single-turn tool—like a coding assistant, a support agent, or a research assistant—you need conversation history to persist across runs or sessions of the agent.
+
+In Strands, session managers handle this. You can start by storing session information in local files using the built-in file session manager. Let’s take a look at the code using the same customer service example we’ve been using.
+
+### Local Storage: Coding with the File Session Manager
+
+First, we import `FileSessionManager`. Then we create a new instance of the session manager and pass in a session ID and the storage directory:
+
+```python
+session_manager = FileSessionManager(
+    session_id="session-123",
+    storage_dir="./sessions"
+)
+```
+
+This session ID is how you identify this specific conversation, and the storage directory is where the files will be saved.
+
+In a real-world application, you wouldn’t hardcode these. These would need to be scoped to a specific user session so that if two users were using the same agent, they would have different, isolated sessions for their conversation history. But for now, this is fine while we are just learning. We’ll build up to a more production-ready solution by the end.
+
+To use the session manager, when you create the agent, you simply pass it in. That’s it! Every message and every state change will now be automatically persisted to disk at the directory we specified.
+
+Let’s give this a run and start chatting. I’ll say, *“Help me return my order.”* Already you can see that a `sessions` directory was created. If we open this directory up, you can see that the agent messages are coming through:
+
+-   `message_0.json` contains: *“Help me return my order.”*
+-   `message_1.json` contains the response: *“I’d happy to… I’d be happy to help you with that return,”* as well as some metadata and other session information.
+
+If I continue chatting and provide the customer ID, more messages are added on the side. Other files that get populated include:
+
+-   `session.json` which includes the session ID that we created.
+-   `agent.json` which includes internal state information about this agent.
+
+When I type `exit`, the program stops.
+
+If I restart the script with the same file session manager configuration, the agent automatically restores the full conversation history and state. When I ask, *“What are you helping me with?”* it is able to find the previous messages and reply: *“You reached out about returning your order.”* This confirms it was able to retrieve those memories.
+
+### The Persistence Lifecycle
+
+Persistence happens automatically at three distinct points:
+
+1.  **Initialization:** The agent loads existing session data when it starts up.
+2.  **Message Addition:** When a message is added, it writes back to persistent memory.
+3.  **Post-Invocation:** After each invocation, it syncs agent state and conversation manager state.
+
+You don’t need to manually call “save” or “flush”; Strands handles this for you under the hood. Session managers are implemented as hook providers. That means persistence is really just another harness behavior layered into the agent lifecycle through hooks. Everything you learned about hooks is what makes persistence plugins and steering all work.
+
+### Scaling to Production: Cloud Storage and S3
+
+The local file session manager is great for development, but once you’re ready to deploy your agent somewhere, you’re going to want to store this information off of your local disk.
+
+The nice thing is that because of how Strands works, you can define a different session manager and swap the component without rewriting the entire app. For example, you could persist conversation history in Amazon S3, the object storage service from AWS.
+
+If you already have an AWS account and an S3 bucket set up, you can define an `S3SessionManager`:
+
+```python
+session_manager = S3SessionManager(
+    session_id="session-123",
+    bucket="my-agent-sessions",
+    region_name="us-east-1"
+)
+```
+
+You import it, create the instance passing in the session ID, bucket name, optional prefix, and the AWS region, and then you pass that to your agent. When you use it, it saves the same session structure we saw locally, but now stored in S3 instead.
+
+Later in the course, we will explore **Amazon Bedrock AgentCore Memory**. This is especially interesting because it gives you more than just short-term persistence. It also supports long-term memory patterns where it automatically extracts information from the raw conversation history that can be retrieved by the agent when needed, such as:
+
+-   Conversation summaries
+-   User preferences
+-   Semantic facts
+
+We’ll use that later in the course when we deploy our agent to the cloud. But the great part is that the integration pattern is still the same: you just swap out the session manager.
+
+### Session Management vs. Runtime Context Retrieval
+
+There is an important distinction here because this is something that gets confused a lot: **Session managers handle conversation persistence.** However, in production, your agent’s context usually comes from many different sources beyond just the conversation history. Things like customer data from a database, product information from a RAG system, user preferences from long-term memory, or operational state from external systems are separate context sources.
+
+You can dynamically retrieve data from those sources at runtime using tools that you wire into your agent, independent of raw conversation history storage.
+
+### What’s Next?
+
+Up next, we’ll tackle multi-agent systems. We’ll start with one of the simplest orchestration patterns: wrapping one agent as a tool for another, using the “agent as a tool” pattern.
+
+*Learn more: [Session Management](/docs/user-guide/concepts/agents/session-management/index.md)*

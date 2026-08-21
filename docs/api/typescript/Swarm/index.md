@@ -1,4 +1,4 @@
-Defined in: [src/multiagent/swarm.ts:133](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/multiagent/swarm.ts#L133)
+Defined in: [src/multiagent/swarm.ts:133](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/multiagent/swarm.ts#L133)
 
 Swarm multi-agent orchestration pattern.
 
@@ -37,7 +37,7 @@ const result = await swarm.invoke('Explain quantum computing')
 new Swarm(options): Swarm;
 ```
 
-Defined in: [src/multiagent/swarm.ts:151](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/multiagent/swarm.ts#L151)
+Defined in: [src/multiagent/swarm.ts:151](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/multiagent/swarm.ts#L151)
 
 #### Parameters
 
@@ -57,7 +57,7 @@ Defined in: [src/multiagent/swarm.ts:151](https://github.com/strands-agents/harn
 readonly id: string;
 ```
 
-Defined in: [src/multiagent/swarm.ts:134](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/multiagent/swarm.ts#L134)
+Defined in: [src/multiagent/swarm.ts:134](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/multiagent/swarm.ts#L134)
 
 Unique identifier for this orchestrator.
 
@@ -75,7 +75,7 @@ MultiAgent.id
 readonly nodes: ReadonlyMap<string, AgentNode>;
 ```
 
-Defined in: [src/multiagent/swarm.ts:135](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/multiagent/swarm.ts#L135)
+Defined in: [src/multiagent/swarm.ts:135](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/multiagent/swarm.ts#L135)
 
 ---
 
@@ -85,7 +85,7 @@ Defined in: [src/multiagent/swarm.ts:135](https://github.com/strands-agents/harn
 readonly config: Required<SwarmConfig>;
 ```
 
-Defined in: [src/multiagent/swarm.ts:136](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/multiagent/swarm.ts#L136)
+Defined in: [src/multiagent/swarm.ts:136](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/multiagent/swarm.ts#L136)
 
 ---
 
@@ -95,7 +95,7 @@ Defined in: [src/multiagent/swarm.ts:136](https://github.com/strands-agents/harn
 readonly start: AgentNode;
 ```
 
-Defined in: [src/multiagent/swarm.ts:140](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/multiagent/swarm.ts#L140)
+Defined in: [src/multiagent/swarm.ts:140](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/multiagent/swarm.ts#L140)
 
 ---
 
@@ -105,7 +105,7 @@ Defined in: [src/multiagent/swarm.ts:140](https://github.com/strands-agents/harn
 readonly optional sessionManager?: SessionManager;
 ```
 
-Defined in: [src/multiagent/swarm.ts:141](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/multiagent/swarm.ts#L141)
+Defined in: [src/multiagent/swarm.ts:141](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/multiagent/swarm.ts#L141)
 
 ## Methods
 
@@ -115,7 +115,7 @@ Defined in: [src/multiagent/swarm.ts:141](https://github.com/strands-agents/harn
 initialize(): Promise<void>;
 ```
 
-Defined in: [src/multiagent/swarm.ts:192](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/multiagent/swarm.ts#L192)
+Defined in: [src/multiagent/swarm.ts:192](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/multiagent/swarm.ts#L192)
 
 Initialize the swarm. Invokes the MultiAgentInitializedEvent callback. Called automatically on first invocation.
 
@@ -131,7 +131,7 @@ Initialize the swarm. Invokes the MultiAgentInitializedEvent callback. Called au
 addHook<T>(eventType, callback): HookCleanup;
 ```
 
-Defined in: [src/multiagent/swarm.ts:206](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/multiagent/swarm.ts#L206)
+Defined in: [src/multiagent/swarm.ts:206](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/multiagent/swarm.ts#L206)
 
 Register a hook callback for a specific swarm event type.
 
@@ -168,7 +168,7 @@ MultiAgent.addHook
 invoke(input, options?): Promise<MultiAgentResult>;
 ```
 
-Defined in: [src/multiagent/swarm.ts:217](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/multiagent/swarm.ts#L217)
+Defined in: [src/multiagent/swarm.ts:217](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/multiagent/swarm.ts#L217)
 
 Invoke swarm and return final result (consumes stream).
 
@@ -199,7 +199,7 @@ MultiAgent.invoke
 stream(input, options?): AsyncGenerator<MultiAgentStreamEvent, MultiAgentResult, undefined>;
 ```
 
-Defined in: [src/multiagent/swarm.ts:234](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/multiagent/swarm.ts#L234)
+Defined in: [src/multiagent/swarm.ts:234](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/multiagent/swarm.ts#L234)
 
 Stream swarm execution, yielding events as agents execute. Invokes hook callbacks for each event before yielding.
 

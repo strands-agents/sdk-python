@@ -13,4 +13,4 @@ type DocumentFormat =
   | "xml";
 ```
 
-Defined in: [src/mime.ts:13](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/mime.ts#L13)
+Defined in: [src/mime.ts:30](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/mime.ts#L30)

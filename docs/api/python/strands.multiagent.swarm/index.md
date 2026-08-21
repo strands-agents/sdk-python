@@ -18,7 +18,7 @@ Key Features:
 class SwarmNode()
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:67](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L67)
+Defined in: [src/strands/multiagent/swarm.py:75](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L75)
 
 Represents a node (e.g. Agent) in the swarm.
 
@@ -28,7 +28,7 @@ Represents a node (e.g. Agent) in the swarm.
 def __post_init__() -> None
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:77](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L77)
+Defined in: [src/strands/multiagent/swarm.py:85](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L85)
 
 Capture initial executor state after initialization.
 
@@ -38,7 +38,7 @@ Capture initial executor state after initialization.
 def __hash__() -> int
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:84](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L84)
+Defined in: [src/strands/multiagent/swarm.py:92](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L92)
 
 Return hash for SwarmNode based on node\_id.
 
@@ -48,7 +48,7 @@ Return hash for SwarmNode based on node\_id.
 def __eq__(other: Any) -> bool
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:88](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L88)
+Defined in: [src/strands/multiagent/swarm.py:96](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L96)
 
 Return equality for SwarmNode based on node\_id.
 
@@ -58,7 +58,7 @@ Return equality for SwarmNode based on node\_id.
 def __str__() -> str
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:94](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L94)
+Defined in: [src/strands/multiagent/swarm.py:102](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L102)
 
 Return string representation of SwarmNode.
 
@@ -68,7 +68,7 @@ Return string representation of SwarmNode.
 def __repr__() -> str
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:98](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L98)
+Defined in: [src/strands/multiagent/swarm.py:106](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L106)
 
 Return detailed representation of SwarmNode.
 
@@ -78,7 +78,7 @@ Return detailed representation of SwarmNode.
 def reset_executor_state() -> None
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:102](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L102)
+Defined in: [src/strands/multiagent/swarm.py:110](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L110)
 
 Reset SwarmNode executor state to initial state when swarm was created.
 
@@ -91,7 +91,7 @@ If Swarm is resuming from an interrupt, we reset the executor state from the int
 class SharedContext()
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:121](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L121)
+Defined in: [src/strands/multiagent/swarm.py:129](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L129)
 
 Shared context between swarm nodes.
 
@@ -101,7 +101,7 @@ Shared context between swarm nodes.
 def add_context(node: SwarmNode, key: str, value: Any) -> None
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:126](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L126)
+Defined in: [src/strands/multiagent/swarm.py:134](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L134)
 
 Add context.
 
@@ -112,7 +112,7 @@ Add context.
 class SwarmState()
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:170](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L170)
+Defined in: [src/strands/multiagent/swarm.py:178](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L178)
 
 Current state of swarm execution.
 
@@ -165,7 +165,7 @@ def should_continue(
         repetitive_handoff_min_unique_agents: int) -> tuple[bool, str]
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:188](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L188)
+Defined in: [src/strands/multiagent/swarm.py:196](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L196)
 
 Check if the swarm should continue.
 
@@ -178,7 +178,7 @@ Returns: (should\_continue, reason)
 class SwarmResult(MultiAgentResult)
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:231](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L231)
+Defined in: [src/strands/multiagent/swarm.py:239](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L239)
 
 Result from swarm execution - extends MultiAgentResult with swarm-specific details.
 
@@ -188,7 +188,7 @@ Result from swarm execution - extends MultiAgentResult with swarm-specific detai
 class Swarm(MultiAgentBase)
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:258](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L258)
+Defined in: [src/strands/multiagent/swarm.py:266](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L266)
 
 Self-organizing collaborative agent teams with shared working memory.
 
@@ -211,7 +211,7 @@ def __init__(nodes: list[Agent],
              plugins: list[MultiAgentPlugin] | None = None) -> None
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:261](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L261)
+Defined in: [src/strands/multiagent/swarm.py:269](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L269)
 
 Initialize Swarm with agents and configuration.
 
@@ -240,7 +240,7 @@ def add_hook(callback: HookCallback,
              order: float = HookOrder.DEFAULT) -> None
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:341](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L341)
+Defined in: [src/strands/multiagent/swarm.py:349](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L349)
 
 Register a hook callback with the swarm.
 
@@ -258,7 +258,7 @@ def __call__(task: MultiAgentInput,
              **kwargs: Any) -> SwarmResult
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:355](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L355)
+Defined in: [src/strands/multiagent/swarm.py:363](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L363)
 
 Invoke the swarm synchronously.
 
@@ -276,7 +276,7 @@ async def invoke_async(task: MultiAgentInput,
                        **kwargs: Any) -> SwarmResult
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:370](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L370)
+Defined in: [src/strands/multiagent/swarm.py:378](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L378)
 
 Invoke the swarm asynchronously.
 
@@ -296,7 +296,7 @@ async def stream_async(task: MultiAgentInput,
                        **kwargs: Any) -> AsyncIterator[dict[str, Any]]
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:394](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L394)
+Defined in: [src/strands/multiagent/swarm.py:402](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L402)
 
 Stream events during swarm execution.
 
@@ -322,7 +322,7 @@ Dictionary events during swarm execution, such as:
 def serialize_state() -> dict[str, Any]
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:1043](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L1043)
+Defined in: [src/strands/multiagent/swarm.py:1052](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L1052)
 
 Serialize the current swarm state to a dictionary.
 
@@ -332,7 +332,7 @@ Serialize the current swarm state to a dictionary.
 def deserialize_state(payload: dict[str, Any]) -> None
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:1095](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L1095)
+Defined in: [src/strands/multiagent/swarm.py:1104](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L1104)
 
 Restore swarm state from a session dict and prepare for execution.
 

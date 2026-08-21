@@ -73,6 +73,7 @@
     - [interruption](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/interruption/index.md): Handle real-time voice interruptions in BidiAgent. Voice Activity Detection stops responses mid-stream for natural, human-like conversations.
     - [hooks](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/hooks/index.md): Extend BidiAgent with hooks for bidirectional streaming events: connection lifecycle, interruptions, restarts, and real-time conversation logging.
     - [session-management](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/session-management/index.md): Persist BidiAgent conversation history and state across bidirectional streaming sessions so voice assistants resume where they left off.
+    - [observability](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/observability/index.md): Trace, measure, and log BidiAgent sessions: connection lifecycle, time to first audio, interruptions, per-modality token usage, and reconnects.
   - Experimental
     - [agent-config](https://strandsagents.com/docs/user-guide/concepts/experimental/agent-config/index.md): Create Strands agents from JSON files or dictionaries with the experimental config_to_agent function, including tool loading and model settings.
 - Model Providers
@@ -212,6 +213,21 @@
     - [documentation](https://strandsagents.com/docs/contribute/contributing/documentation/index.md): Contribute to Strands Agents documentation: run the Astro site locally, use the docs agent skills, and submit anything from typo fixes to new guides.
     - [feature-proposals](https://strandsagents.com/docs/contribute/contributing/feature-proposals/index.md): Propose significant features for the Strands SDK: when to write a design document, what to include, and how the review process works.
     - [extensions](https://strandsagents.com/docs/contribute/contributing/extensions/index.md): Package and publish your own Strands components: share tools, model providers, and session managers so other developers can install them.
+- Learning
+  - [Lesson 1: How Agents Really Work](https://strandsagents.com/docs/learning/how-agents-really-work/index.md): A ground-up look at the agent loop: how a model, a set of tools, and a running context combine to let an agent reason, act, and observe until a task is done.
+  - [Lesson 2: Switching Model Providers](https://strandsagents.com/docs/learning/switching-model-providers/index.md): This covers model providers: how Strands abstracts the underlying LLM so your agent logic stays the same regardless of which model you're calling.
+  - [Lesson 3: Give Your Agent Tools Using MCP](https://strandsagents.com/docs/learning/give-your-agent-tools-using-mcp/index.md): This chapter covers MCP and how it changes the way you think about equipping your agent with capabilities.
+  - [Lesson 4: Adding Callbacks & Response Streaming](https://strandsagents.com/docs/learning/adding-callbacks-and-response-streaming/index.md): This chapter is about making the agent's work visible while it's happening, not just dumping a final answer after 15 seconds of silence.
+  - [Lesson 5: Control Your Agent With Hooks](https://strandsagents.com/docs/learning/control-your-agent-with-hooks/index.md): Hooks fire at the same event points as callbacks (before/after tool calls, before/after model calls, cycle boundaries) but they can modify or cancel what's about to happen.
+  - [Lesson 6: Agent Plugins & Skills](https://strandsagents.com/docs/learning/agent-plugins-and-skills/index.md): Individual tools solve individual problems. But some capabilities require multiple tools working together with specific hooks and prompt instructions to function correctly. That's what a plugin is: a packaged bundle of tools + hooks + system prompt additions that you attach to an agent as a unit.
+  - [Lesson 7: Improve Agent Reliability With Strands Steering](https://strandsagents.com/docs/learning/improve-agent-reliability-with-strands-steering/index.md): System prompts set the agent's general personality and rules, but they're blunt. You can't easily say 'only for this next tool call, format the output as JSON' or 'when the user mentions billing, always check their account status first' without bloating the prompt with conditionals the model has to parse every single turn.
+  - [Lesson 8: Context Engineering & Conversation Management](https://strandsagents.com/docs/learning/context-engineering-and-conversation-management/index.md): Every turn, the model receives the full conversation history plus system prompt plus tool results. That window fills up fast. Once it does, you either hit token limits, start paying significantly more per request, or the model starts missing information buried in the middle.
+  - [Lesson 9: Persistent Memory With Session Managers](https://strandsagents.com/docs/learning/persistent-memory-with-session-managers/index.md): Without persistence, every conversation starts from zero. The agent has no memory of prior interactions, no accumulated knowledge about the user, no awareness of decisions made yesterday. Session managers handle the storage and retrieval of conversation state so continuity works automatically.
+  - [Lesson 10: Multi-Agent Patterns: Agents as Tools](https://strandsagents.com/docs/learning/multi-agent-patterns-agents-as-tools/index.md): This is where we cross from single-agent patterns into multi-agent orchestration, and we start with the most intuitive version: an agent that can call other agents the same way it calls any other tool.
+  - [Lesson 11: Multi-Agent Patterns: Graph Workflows](https://strandsagents.com/docs/learning/multi-agent-patterns-graph-workflows/index.md): Some workflows have a fixed structure: step A feeds into step B, step B branches based on a condition, both branches converge at step C. You don't want the model deciding whether to run step B. You want it guaranteed.
+  - [Lesson 12: Multi-Agent Patterns: Agent Swarms](https://strandsagents.com/docs/learning/multi-agent-patterns-agent-swarms/index.md): In a swarm, multiple agents share a workspace or communication channel. Each agent has its own tools, its own prompt, its own specialization.
+  - [Lesson 13: Evaluating Agents](https://strandsagents.com/docs/learning/evaluating-agents/index.md): Agent evaluation is harder than traditional software testing. The output is non-deterministic.
+  - [Lesson 14: Deploying Agents to the Cloud](https://strandsagents.com/docs/learning/deploying-agents-to-the-cloud/index.md): We'll deploy an agent to AWS using Amazon Bedrock AgentCore. AgentCore is a collection of components for building, deploying and operating agents in production. The main components we will focus on in this video is AgentCore Runtime and AgentCore Memory.
 - Labs
   - [labs](https://strandsagents.com/docs/labs/index.md): Explore Strands Labs, the experimental arm of Strands Agents: open source projects covering robotics, world models, agentic benchmarks, harness optimization, and audio processing.
   - Projects
@@ -238,10 +254,11 @@
 - Model Providers
   - [cohere](https://strandsagents.com/docs/integrations/model-providers/cohere/index.md): Use Cohere language models with Strands agents through the OpenAI compatibility layer for chat, tool calling, and streaming.
   - [clova-studio](https://strandsagents.com/docs/integrations/model-providers/clova-studio/index.md): Connect Strands agents to Naver CLOVA Studio, Korean-optimized language models on Naver Cloud Platform, via strands-clova.
-  - [crusoe](https://strandsagents.com/docs/integrations/model-providers/crusoe/index.md): Crusoe Managed Inference
+  - [crusoe](https://strandsagents.com/docs/integrations/model-providers/crusoe/index.md): Run Strands agents on Crusoe Managed Inference, open-weight models on renewable-powered GPUs, through the OpenAI-compatible API.
   - [fireworksai](https://strandsagents.com/docs/integrations/model-providers/fireworksai/index.md): Run Strands agents on Fireworks AI, fast hosted inference for open-source models, using the OpenAI-compatible API.
   - [nebius-token-factory](https://strandsagents.com/docs/integrations/model-providers/nebius-token-factory/index.md): Use Nebius Token Factory with Strands agents for fast open-source model inference through the OpenAI-compatible API.
   - [nvidia-nim](https://strandsagents.com/docs/integrations/model-providers/nvidia-nim/index.md): Connect Strands agents to NVIDIA NIM inference microservices with the strands-nvidia-nim community model provider.
+  - [openrouter](https://strandsagents.com/docs/integrations/model-providers/openrouter/index.md): Run Strands agents on hundreds of models through OpenRouter, using the SDK's built-in OpenAI provider against the OpenAI-compatible endpoint.
   - [sglang](https://strandsagents.com/docs/integrations/model-providers/sglang/index.md): Use SGLang servers as a Strands model provider with Token-In/Token-Out support for agentic reinforcement learning training.
   - [vllm](https://strandsagents.com/docs/integrations/model-providers/vllm/index.md): Serve Strands agents from vLLM with Token-In/Token-Out support for agentic RL training via the OpenAI-compatible API.
   - [mlx](https://strandsagents.com/docs/integrations/model-providers/mlx/index.md): Run Strands agents locally on Apple Silicon with the MLX model provider, supporting inference, LoRA fine-tuning, and vision.
@@ -287,6 +304,7 @@
 - [strands.experimental.bidi](https://strandsagents.com/docs/api/python/strands.experimental.bidi/index.md)
 - [strands.experimental.bidi.agent.agent](https://strandsagents.com/docs/api/python/strands.experimental.bidi.agent.agent/index.md)
 - [strands.experimental.bidi.agent.loop](https://strandsagents.com/docs/api/python/strands.experimental.bidi.agent.loop/index.md)
+- [strands.experimental.bidi.audio](https://strandsagents.com/docs/api/python/strands.experimental.bidi.audio/index.md)
 - [strands.experimental.bidi.io.audio](https://strandsagents.com/docs/api/python/strands.experimental.bidi.io.audio/index.md)
 - [strands.experimental.bidi.io.text](https://strandsagents.com/docs/api/python/strands.experimental.bidi.io.text/index.md)
 - [strands.experimental.bidi.models](https://strandsagents.com/docs/api/python/strands.experimental.bidi.models/index.md)
@@ -436,6 +454,11 @@
 - [AgentResultEvent](https://strandsagents.com/docs/api/typescript/AgentResultEvent/index.md)
 - [AgentStreamEvent](https://strandsagents.com/docs/api/typescript/AgentStreamEvent/index.md)
 - [AgentTrace](https://strandsagents.com/docs/api/typescript/AgentTrace/index.md)
+- [AudioBlock](https://strandsagents.com/docs/api/typescript/AudioBlock/index.md)
+- [AudioBlockData](https://strandsagents.com/docs/api/typescript/AudioBlockData/index.md)
+- [AudioFormat](https://strandsagents.com/docs/api/typescript/AudioFormat/index.md)
+- [AudioSource](https://strandsagents.com/docs/api/typescript/AudioSource/index.md)
+- [AudioSourceData](https://strandsagents.com/docs/api/typescript/AudioSourceData/index.md)
 - [BackoffContext](https://strandsagents.com/docs/api/typescript/BackoffContext/index.md)
 - [BackoffStrategy](https://strandsagents.com/docs/api/typescript/BackoffStrategy/index.md)
 - [BaseModelConfig](https://strandsagents.com/docs/api/typescript/BaseModelConfig/index.md)
@@ -746,6 +769,7 @@
 
 - [Changelog](https://strandsagents.com/changelog/index.md): All releases across the Harness and Evals SDKs
 - Harness Python
+  - [v1.53.0](https://strandsagents.com/changelog/harness/python-v1.53.0/index.md): Harness Python v1.53.0 (2026-08-21)
   - [v1.52.0](https://strandsagents.com/changelog/harness/python-v1.52.0/index.md): Harness Python v1.52.0 (2026-08-12)
   - [v1.51.0](https://strandsagents.com/changelog/harness/python-v1.51.0/index.md): Harness Python v1.51.0 (2026-08-07)
   - [v1.50.2](https://strandsagents.com/changelog/harness/python-v1.50.2/index.md): Harness Python v1.50.2 (2026-07-27)
@@ -818,6 +842,7 @@
   - [v0.1.1](https://strandsagents.com/changelog/harness/python-v0.1.1/index.md): Harness Python v0.1.1 (2025-05-17)
   - [v0.1.0](https://strandsagents.com/changelog/harness/python-v0.1.0/index.md): Harness Python v0.1.0 (2025-05-16)
 - Harness TypeScript
+  - [v1.14.0](https://strandsagents.com/changelog/harness/typescript-v1.14.0/index.md): Harness TypeScript v1.14.0 (2026-08-21)
   - [v1.13.0](https://strandsagents.com/changelog/harness/typescript-v1.13.0/index.md): Harness TypeScript v1.13.0 (2026-08-12)
   - [v1.12.0](https://strandsagents.com/changelog/harness/typescript-v1.12.0/index.md): Harness TypeScript v1.12.0 (2026-08-07)
   - [v1.11.2](https://strandsagents.com/changelog/harness/typescript-v1.11.2/index.md): Harness TypeScript v1.11.2 (2026-07-27)

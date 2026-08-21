@@ -434,6 +434,7 @@ The agent automatically cleans up background tasks, model connections, I/O chann
 -   [Events](/docs/user-guide/concepts/bidirectional-streaming/events/index.md) - Complete guide to bidirectional streaming events
 -   [I/O Channels](/docs/user-guide/concepts/bidirectional-streaming/io/index.md) - Building custom input/output channels
 -   [Model Providers](/docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic/index.md) - Provider-specific configuration
+-   [Observability](/docs/user-guide/concepts/bidirectional-streaming/observability/index.md) - Trace sessions, responses, and interruptions
 -   [Quickstart](/docs/user-guide/concepts/bidirectional-streaming/quickstart/index.md) - Getting started guide
 -   [Python API Reference](/docs/api/python/strands.experimental.bidi.agent.agent) - Complete API documentation
 
@@ -444,6 +445,7 @@ The agent automatically cleans up background tasks, model connections, I/O chann
 - [I/O Channels](/docs/user-guide/concepts/bidirectional-streaming/io/index.md) (1 shared tag)
 - [Interruptions](/docs/user-guide/concepts/bidirectional-streaming/interruption/index.md) (1 shared tag)
 - [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai_realtime/index.md) (1 shared tag)
+- [Bidirectional Streaming Observability](/docs/user-guide/concepts/bidirectional-streaming/observability/index.md) (1 shared tag)
 - [Bidirectional Streaming Hooks](/docs/user-guide/concepts/bidirectional-streaming/hooks/index.md) (1 shared tag)
 - [Voice & Realtime Quickstart](/docs/user-guide/concepts/bidirectional-streaming/quickstart/index.md) (1 shared tag)
 - [Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic/index.md) (1 shared tag)

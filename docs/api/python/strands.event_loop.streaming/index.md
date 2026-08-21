@@ -194,6 +194,7 @@ async def stream_messages(model: Model,
                           | None = None,
                           invocation_state: dict[str, Any] | None = None,
                           model_state: dict[str, Any] | None = None,
+                          dynamic_trailing_blocks: int = 0,
                           cancel_signal: threading.Event | None = None,
                           **kwargs: Any) -> AsyncGenerator[TypedEvent, None]
 ```
@@ -212,6 +213,7 @@ Streams messages to the model and processes the response.
 -   `system_prompt_content` - The authoritative system prompt content blocks that always contains the system prompt data.
 -   `invocation_state` - Caller-provided state/context that was passed to the agent when it was invoked.
 -   `model_state` - Runtime state for model providers (e.g., server-side response ids).
+-   `dynamic_trailing_blocks` - How many trailing blocks of the last user message are rebuilt on every call, so a provider placing cache points keeps its own ahead of them.
 -   `cancel_signal` - Optional threading.Event to check for cancellation during streaming.
 -   `**kwargs` - Additional keyword arguments for future extensibility.
 

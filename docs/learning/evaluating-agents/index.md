@@ -1,0 +1,101 @@
+*[Watch on YouTube](https://www.youtube.com/watch?v=rDtcfG4aZV4&list=PLDzwjhH-4yhU&index=13)*
+
+*Code for this lesson can be found [**here**](https://github.com/aws-samples/sample-building-with-strands-course/tree/main/samples/13-evals).*
+
+### Why Traditional Testing Fails with AI Agents
+
+How do you know your agent actually works? More importantly, how do you measure whether a prompt change, model swap, tool update, or harness modification made things better or worse?
+
+Traditional software testing breaks down pretty quickly with AI agents because of non-determinism. The same exact input can produce different outputs across different runs, and a lot of agent failures are incredibly hard to catch. The response could successfully come back, yet be low-quality, unsafe, incomplete, off-policy, or subtly incorrect.
+
+One of the biggest mistakes people make is only evaluating single-turn interactions. Most agents look great on turn one. The failures usually appear after longer, multi-turn interactions:
+
+-   When context accumulates over multiple conversational turns.
+-   When summaries compress information incorrectly or miss key details.
+-   When tools get repeatedly called in loop patterns.
+-   When the model slowly goes “off the rails” over time.
+
+That is why evaluation is a core part of harness engineering. Good agent harnesses need structured mechanisms for measuring reliability, detecting regressions, validating workflows, and stress-testing behavior over time.
+
+### The “LLM as a Judge” Pattern
+
+One of the most common patterns to use for agent evaluation is **LLM as a Judge**. Under this pattern, you run your agent against many simulated test cases, then use another model to evaluate the outputs against a rubric you define. The judge model scores the results and explains its reasoning.
+
+Strands ships with an evaluation SDK that helps structure these types of evaluations. To install it, you run:
+
+```bash
+pip install strands-agents-evals
+```
+
+The SDK provides the essential building blocks for defining test cases, running experiments, simulating conversations, generating evaluation datasets, and scoring agent behavior.
+
+### Setting Up a Simple Multi-Turn Evaluation
+
+To set up a basic evaluation suite in Strands, you define the following components:
+
+#### 1\. The Simulation Function
+
+We define a task function that creates a conversation simulator. We pass in the specific test case to simulate and a configured `max_turns` limit. We then run a multi-turn conversation loop to simulate a realistic back-and-forth between a customer and our agent. To keep things clean, we suppress the default streaming output during evaluation by setting the callback handler to `None`.
+
+#### 2\. The Test Cases
+
+We define multiple test cases to run. Each case includes:
+
+-   An initial input prompt.
+-   Expected outcomes defined within metadata.
+
+#### 3\. The Evaluator and Rubrics
+
+Next, we define an evaluator using a rubric. You can supply your own rubric in plain language to tell the judge model exactly how to score the response. Strands also includes built-in evaluators that look at core characteristics like:
+
+-   **Helpfulness:** Did the agent assist the customer effectively?
+-   **Outcome Met:** Did the agent successfully achieve the target objective of the workflow?
+
+#### 4\. The Experiment
+
+Finally, we bundle the task function, test cases, and evaluators into an “Experiment” and execute the suite.
+
+When we run our evaluation suite, the output might reveal something like a 66% pass rate across our test cases. The CLI output lets us expand each run to inspect the results:
+
+-   **Refund Request (Passed - 83%):** The judge model indicates that the agent successfully checked eligibility and processed the return, providing a clear explanation for its score.
+-   **Order Tracking (Failed - 50%):** The agent struggled to follow the expected workflow.
+-   **Account Issue (Failed - 0%):** The evaluation highlighted an API or lookup error that caused the turn to fail completely.
+
+This telemetry provides concrete data to help you debug whether your agent prompts, tool integrations, or even the evaluation test cases themselves need refinement.
+
+### Advanced Evaluation Strategies
+
+As your system matures, you can leverage more advanced evaluation patterns:
+
+-   **Experiment Generation (Bootstrapping Coverage):** When you first start, you might not know what test cases you should even run. The Strands Experiment Generator can inspect your agent’s tools, workflows, and capabilities to automatically generate candidate evaluation cases. While not a replacement for carefully designed manual test cases, it is great for discovering missing coverage and bootstrapping an initial test suite.
+-   **Trajectory Evaluation:** Sometimes, evaluating the final response is not enough. You need to ensure the agent followed a strict protocol. For example, a customer support agent must:
+
+1.  Look up the customer.
+2.  Retrieve order history.
+3.  Validate refund eligibility.
+4.  Process the refund.
+
+Trajectory evaluators let you validate whether this specific sequence of actions actually occurred by evaluating the step-by-step path the agent took during the execution loop.
+
+-   **Deterministic Evaluators:** Not every evaluation needs to be run through an LLM. You can write fast, inexpensive, deterministic evaluators in pure Python to validate concrete requirements, such as JSON schema correctness, response lengths, or status code presence.
+
+### The Role of Evaluations in Production
+
+In a production lifecycle, these tools fit together to secure system quality:
+
+-   **CI/CD Integration:** You can wire these evaluation suites directly into your CI/CD pipelines so that code deployments fail automatically if your agent’s reliability score falls below an acceptable threshold.
+-   **Continuous Evolution:** Your evaluation suite should be a living system. As users interact with the agent in production and expose edge cases you didn’t anticipate, you should continuously convert those real-world failure modes into new test cases in your evaluation suite.
+
+#### Evaluating the Trade-offs
+
+The primary trade-off of the LLM-as-a-judge pattern is cost and latency. Running large-scale simulations with multiple turns and invoking an evaluator model for every single run can consume significant tokens very quickly.
+
+However, despite these costs, evaluations are one of the most critical investments you can make when building production agent systems. Without them, you are operating in the dark, unable to prove whether your changes are making the agent better or worse.
+
+### What’s Next?
+
+We have covered the foundational components of building, structuring, and evaluating agent systems.
+
+In the final lesson, we’ll take everything we have built across this entire course and deploy it to a production cloud runtime using **Amazon Bedrock AgentCore**.
+
+*Learn more: [Strands Evaluation Quickstart](/docs/user-guide/evals-sdk/quickstart/index.md)*

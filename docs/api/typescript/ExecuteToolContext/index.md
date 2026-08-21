@@ -1,4 +1,4 @@
-Defined in: [src/middleware/stages.ts:104](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/middleware/stages.ts#L104)
+Defined in: [src/middleware/stages.ts:116](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/middleware/stages.ts#L116)
 
 Context passed to tool-stage middleware. Contains everything needed to understand and potentially modify the tool call.
 
@@ -14,7 +14,7 @@ Context passed to tool-stage middleware. Contains everything needed to understan
 readonly agent: LocalAgent;
 ```
 
-Defined in: [src/middleware/stages.ts:106](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/middleware/stages.ts#L106)
+Defined in: [src/middleware/stages.ts:118](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/middleware/stages.ts#L118)
 
 The agent instance (escape hatch for advanced use cases).
 
@@ -26,7 +26,7 @@ The agent instance (escape hatch for advanced use cases).
 readonly tool: Tool;
 ```
 
-Defined in: [src/middleware/stages.ts:108](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/middleware/stages.ts#L108)
+Defined in: [src/middleware/stages.ts:120](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/middleware/stages.ts#L120)
 
 The resolved tool implementation, or undefined if not found.
 
@@ -38,7 +38,7 @@ The resolved tool implementation, or undefined if not found.
 readonly toolUse: ToolUseData;
 ```
 
-Defined in: [src/middleware/stages.ts:110](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/middleware/stages.ts#L110)
+Defined in: [src/middleware/stages.ts:122](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/middleware/stages.ts#L122)
 
 The tool use request (name, toolUseId, input).
 
@@ -50,9 +50,21 @@ The tool use request (name, toolUseId, input).
 readonly invocationState: InvocationState;
 ```
 
-Defined in: [src/middleware/stages.ts:112](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/middleware/stages.ts#L112)
+Defined in: [src/middleware/stages.ts:124](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/middleware/stages.ts#L124)
 
 Per-invocation state. Shared by reference — mutations are visible to hooks, tools, and AgentResult.
+
+---
+
+### cancelSignal
+
+```ts
+readonly cancelSignal: AbortSignal;
+```
+
+Defined in: [src/middleware/stages.ts:126](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/middleware/stages.ts#L126)
+
+Executor-owned cancellation signal for this tool call; middleware can observe but cannot replace it.
 
 ## Methods
 
@@ -62,7 +74,7 @@ Per-invocation state. Shared by reference — mutations are visible to hooks, to
 interrupt<T>(params): MiddlewareInterruptResult<T>;
 ```
 
-Defined in: [src/middleware/stages.ts:50](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/middleware/stages.ts#L50)
+Defined in: [src/middleware/stages.ts:50](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/middleware/stages.ts#L50)
 
 Request a human-in-the-loop interrupt.
 

@@ -85,7 +85,7 @@ def format_request(messages: Messages,
                    system_prompt: str | None = None) -> Any
 ```
 
-Defined in: [src/strands/models/writer.py:267](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/writer.py#L267)
+Defined in: [src/strands/models/writer.py:268](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/writer.py#L268)
 
 Format a streaming request to the underlying model.
 
@@ -105,7 +105,7 @@ The formatted request.
 def format_chunk(event: Any) -> StreamEvent
 ```
 
-Defined in: [src/strands/models/writer.py:308](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/writer.py#L308)
+Defined in: [src/strands/models/writer.py:309](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/writer.py#L309)
 
 Format the model response events into standardized message chunks.
 
@@ -129,7 +129,7 @@ async def stream(messages: Messages,
                  **kwargs: Any) -> AsyncGenerator[StreamEvent, None]
 ```
 
-Defined in: [src/strands/models/writer.py:373](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/writer.py#L373)
+Defined in: [src/strands/models/writer.py:374](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/writer.py#L374)
 
 Stream conversation with the Writer model.
 
@@ -161,7 +161,7 @@ async def structured_output(
         **kwargs: Any) -> AsyncGenerator[dict[str, T | Any], None]
 ```
 
-Defined in: [src/strands/models/writer.py:458](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/writer.py#L458)
+Defined in: [src/strands/models/writer.py:459](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/writer.py#L459)
 
 Get structured output from the model.
 

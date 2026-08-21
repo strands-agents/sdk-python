@@ -9,7 +9,7 @@ Defines callable protocols for input and output channels that can be used with B
 class BidiInput(Protocol)
 ```
 
-Defined in: [src/strands/experimental/bidi/types/io.py:17](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/types/io.py#L17)
+Defined in: [src/strands/experimental/bidi/types/io.py:18](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/types/io.py#L18)
 
 Protocol for bidirectional input callables.
 
@@ -21,7 +21,7 @@ Input callables read data from a source (microphone, camera, websocket, etc.) an
 async def start(agent: "BidiAgent") -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/types/io.py:24](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/types/io.py#L24)
+Defined in: [src/strands/experimental/bidi/types/io.py:25](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/types/io.py#L25)
 
 Start input.
 
@@ -31,7 +31,7 @@ Start input.
 async def stop() -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/types/io.py:28](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/types/io.py#L28)
+Defined in: [src/strands/experimental/bidi/types/io.py:29](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/types/io.py#L29)
 
 Stop input.
 
@@ -41,7 +41,7 @@ Stop input.
 def __call__() -> Awaitable[BidiInputEvent]
 ```
 
-Defined in: [src/strands/experimental/bidi/types/io.py:32](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/types/io.py#L32)
+Defined in: [src/strands/experimental/bidi/types/io.py:33](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/types/io.py#L33)
 
 Read input data from the source.
 
@@ -56,7 +56,7 @@ Awaitable that resolves to an input event (audio, text, image, etc.)
 class BidiOutput(Protocol)
 ```
 
-Defined in: [src/strands/experimental/bidi/types/io.py:42](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/types/io.py#L42)
+Defined in: [src/strands/experimental/bidi/types/io.py:43](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/types/io.py#L43)
 
 Protocol for bidirectional output callables.
 
@@ -68,7 +68,7 @@ Output callables receive events from the agent and handle them appropriately (pl
 async def start(agent: "BidiAgent") -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/types/io.py:49](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/types/io.py#L49)
+Defined in: [src/strands/experimental/bidi/types/io.py:50](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/types/io.py#L50)
 
 Start output.
 
@@ -78,7 +78,7 @@ Start output.
 async def stop() -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/types/io.py:53](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/types/io.py#L53)
+Defined in: [src/strands/experimental/bidi/types/io.py:54](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/types/io.py#L54)
 
 Stop output.
 
@@ -88,7 +88,7 @@ Stop output.
 def __call__(event: BidiOutputEvent) -> Awaitable[None]
 ```
 
-Defined in: [src/strands/experimental/bidi/types/io.py:57](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/types/io.py#L57)
+Defined in: [src/strands/experimental/bidi/types/io.py:58](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/types/io.py#L58)
 
 Process output events from the agent.
 

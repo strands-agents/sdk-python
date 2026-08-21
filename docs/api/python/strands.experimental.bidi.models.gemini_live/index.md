@@ -78,7 +78,7 @@ Receive Gemini Live API events and convert to provider-agnostic format.
 async def send(content: BidiInputEvent | ToolResultEvent) -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/models/gemini\_live.py:380](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/gemini_live.py#L380)
+Defined in: [src/strands/experimental/bidi/models/gemini\_live.py:384](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/gemini_live.py#L384)
 
 Unified send method for all content types. Sends the given inputs to Google Live API.
 
@@ -98,6 +98,6 @@ Dispatches to appropriate internal handler based on content type.
 async def stop() -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/models/gemini\_live.py:479](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/gemini_live.py#L479)
+Defined in: [src/strands/experimental/bidi/models/gemini\_live.py:483](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/gemini_live.py#L483)
 
 Close Gemini Live API connection.

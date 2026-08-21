@@ -7,7 +7,7 @@ type TakeSnapshotOptions = {
 };
 ```
 
-Defined in: [src/agent/snapshot.ts:54](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/agent/snapshot.ts#L54)
+Defined in: [src/agent/snapshot.ts:54](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/agent/snapshot.ts#L54)
 
 Options for taking a snapshot of agent state.
 
@@ -19,7 +19,7 @@ Options for taking a snapshot of agent state.
 optional preset?: SnapshotPreset;
 ```
 
-Defined in: [src/agent/snapshot.ts:59](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/agent/snapshot.ts#L59)
+Defined in: [src/agent/snapshot.ts:59](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/agent/snapshot.ts#L59)
 
 Preset to use as the starting set of fields. If not specified, starts with an empty set (unless include is specified).
 
@@ -31,7 +31,7 @@ Preset to use as the starting set of fields. If not specified, starts with an em
 optional include?: SnapshotField[];
 ```
 
-Defined in: [src/agent/snapshot.ts:64](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/agent/snapshot.ts#L64)
+Defined in: [src/agent/snapshot.ts:64](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/agent/snapshot.ts#L64)
 
 Fields to add to the snapshot. These are added to the preset fields (if any).
 
@@ -43,7 +43,7 @@ Fields to add to the snapshot. These are added to the preset fields (if any).
 optional exclude?: SnapshotField[];
 ```
 
-Defined in: [src/agent/snapshot.ts:69](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/agent/snapshot.ts#L69)
+Defined in: [src/agent/snapshot.ts:69](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/agent/snapshot.ts#L69)
 
 Fields to exclude from the snapshot. Applied after preset and include to filter out specific fields.
 
@@ -55,6 +55,6 @@ Fields to exclude from the snapshot. Applied after preset and include to filter 
 optional appData?: Record<string, JSONValue>;
 ```
 
-Defined in: [src/agent/snapshot.ts:74](https://github.com/strands-agents/harness-sdk/blob/333885bbdabbb126ca305af4cc30d2214417e39c/strands-ts/src/agent/snapshot.ts#L74)
+Defined in: [src/agent/snapshot.ts:74](https://github.com/strands-agents/harness-sdk/blob/f6765ab42296e23ac7af7c93e0ff3626fd09a60c/strands-ts/src/agent/snapshot.ts#L74)
 
 Application-owned data to store in the snapshot. Strands does not read or modify this data.
