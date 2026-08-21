@@ -7,7 +7,11 @@ import pytest_asyncio
 from strands import tool
 from strands.experimental.bidi import BidiAgent
 from strands.experimental.bidi.models import BidiModel, BidiModelTimeoutError
-from strands.experimental.bidi.types.events import BidiConnectionCloseEvent, BidiConnectionRestartEvent, BidiTextInputEvent
+from strands.experimental.bidi.types.events import (
+    BidiConnectionCloseEvent,
+    BidiConnectionRestartEvent,
+    BidiTextInputEvent,
+)
 from strands.types._events import ToolResultEvent, ToolResultMessageEvent, ToolUseStreamEvent
 
 

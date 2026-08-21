@@ -123,6 +123,8 @@ class BidiNovaSonicModel(BidiModel):
         model_id: str = NOVA_SONIC_V2_MODEL_ID,
         provider_config: dict[str, Any] | None = None,
         client_config: dict[str, Any] | None = None,
+        reasoner: Any | None = None,
+        reasoner_config: Any | None = None,
         **kwargs: Any,
     ) -> None:
         """Initialize Nova Sonic bidirectional model.
@@ -135,15 +137,37 @@ class BidiNovaSonicModel(BidiModel):
                 - turn_detection: Turn detection configuration (v2 only feature)
                   - endpointingSensitivity: "HIGH" | "MEDIUM" | "LOW" (optional)
             client_config: AWS authentication (boto_session OR region, not both)
+            reasoner: Reasoner instance for custom reasoning (shorthand).
+            reasoner_config: ReasonerConfig instance for advanced configuration.
+                Mutually exclusive with `reasoner`.
             **kwargs: Reserved for future parameters.
 
         Raises:
             ValueError: If turn_detection is used with v1 model.
             ValueError: If endpointingSensitivity is not HIGH, MEDIUM, or LOW.
-            ValueError: If the resolved AWS region is not a valid region identifier.
+            ValueError: If both reasoner and reasoner_config are specified.
         """
         # Store model ID
         self.model_id = model_id
+
+        # Reasoner setup
+        if reasoner and reasoner_config:
+            raise ValueError("Cannot specify both 'reasoner' and 'reasoner_config'. Use one or the other.")
+
+        self._reasoner_manager: Any | None = None
+        if reasoner or reasoner_config:
+            if model_id == NOVA_SONIC_V1_MODEL_ID:
+                raise ValueError(f"reasoner requires Nova Sonic v2 or above, got {model_id!r}")
+
+            from ..reasoning.config import ReasonerConfig
+            from ..reasoning.manager import _ReasonerManager
+
+            if reasoner:
+                config = ReasonerConfig(reasoner=reasoner)
+            else:
+                config = reasoner_config
+
+            self._reasoner_manager = _ReasonerManager(self, config)
 
         # Validate turn_detection configuration
         provider_config = provider_config or {}
@@ -555,6 +579,10 @@ class BidiNovaSonicModel(BidiModel):
         """Close Nova Sonic connection with proper cleanup sequence."""
         logger.debug("nova connection cleanup starting")
 
+        async def stop_reasoner() -> None:
+            if self._reasoner_manager:
+                await self._reasoner_manager.shutdown()
+
         async def stop_events() -> None:
             if not self._connection_id:
                 return
@@ -572,7 +600,7 @@ class BidiNovaSonicModel(BidiModel):
         async def stop_connection() -> None:
             self._connection_id = None
 
-        await stop_all(stop_events, stop_stream, stop_connection)
+        await stop_all(stop_reasoner, stop_events, stop_stream, stop_connection)
 
         logger.debug("nova connection closed")
 
@@ -631,6 +659,12 @@ class BidiNovaSonicModel(BidiModel):
         # Handle tool use
         if "toolUse" in nova_event:
             tool_use = nova_event["toolUse"]
+
+            # Route to reasoner manager
+            if tool_use["toolName"] == "ExpertTool" and self._reasoner_manager:
+                asyncio.create_task(self._reasoner_manager.handle_invocation(tool_use))
+                return None  # Don't emit as ToolUseStreamEvent
+
             tool_use_event: ToolUse = {
                 "toolUseId": tool_use["toolUseId"],
                 "name": tool_use["toolName"],
@@ -715,6 +749,14 @@ class BidiNovaSonicModel(BidiModel):
             prompt_start_event["event"]["promptStart"]["toolUseOutputConfiguration"] = NOVA_TOOL_CONFIG
             prompt_start_event["event"]["promptStart"]["toolConfiguration"] = {"tools": tool_config}
 
+        # Inject reasoner tool spec if configured
+        if self._reasoner_manager:
+            reasoner_tool_spec = self._build_reasoner_tool_spec()
+            if "toolConfiguration" not in prompt_start_event["event"]["promptStart"]:
+                prompt_start_event["event"]["promptStart"]["toolUseOutputConfiguration"] = NOVA_TOOL_CONFIG
+                prompt_start_event["event"]["promptStart"]["toolConfiguration"] = {"tools": []}
+            prompt_start_event["event"]["promptStart"]["toolConfiguration"]["tools"].append(reasoner_tool_spec)
+
         return json.dumps(prompt_start_event)
 
     def _build_tool_configuration(self, tools: list[ToolSpec]) -> list[dict[str, Any]]:
@@ -731,6 +773,45 @@ class BidiNovaSonicModel(BidiModel):
                 {"toolSpec": {"name": tool["name"], "description": tool["description"], "inputSchema": input_schema}}
             )
         return tool_config
+
+    def _build_reasoner_tool_spec(self) -> dict[str, Any]:
+        """Build the reasoner tool spec for Nova Sonic registration."""
+        schema = json.dumps(
+            {
+                "type": "object",
+                "required": ["messages"],
+                "properties": {
+                    "messages": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["role", "content"],
+                            "properties": {
+                                "role": {"type": "string", "enum": ["USER", "ASSISTANT"]},
+                                "content": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "required": ["text"],
+                                        "properties": {"text": {"type": "string"}},
+                                    },
+                                },
+                            },
+                        },
+                    }
+                },
+            }
+        )
+        return {
+            "toolSpec": {
+                "name": "ExpertTool",
+                "description": (
+                    "The tool acts as the reasoning/understanding layer in a speech "
+                    "conversation that generates text response based on user input"
+                ),
+                "inputSchema": {"json": schema},
+            }
+        }
 
     def _get_system_prompt_events(self, system_prompt: str | None) -> list[str]:
         """Generate system prompt events."""

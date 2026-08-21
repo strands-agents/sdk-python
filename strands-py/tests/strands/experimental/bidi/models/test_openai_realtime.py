@@ -495,9 +495,7 @@ async def test_send_edge_cases(mock_websockets_connect, model):
     image_item = image_creates[0].get("item", {})
     assert image_item.get("type") == "message"
     assert image_item.get("role") == "user"
-    assert image_item.get("content") == [
-        {"type": "input_image", "image_url": f"data:image/jpeg;base64,{image_b64}"}
-    ]
+    assert image_item.get("content") == [{"type": "input_image", "image_url": f"data:image/jpeg;base64,{image_b64}"}]
     # Image input must NOT auto-trigger a response — caller decides when to commit.
     assert not any(m.get("type") == "response.create" for m in image_calls)
 
