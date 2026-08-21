@@ -623,6 +623,65 @@ def test_format_chunk_metadata_with_missing_token_counts(model):
     }
 
 
+def test_format_chunk_metadata_counts_tool_use_as_input_and_thoughts_as_output(model):
+    """Tool-use tokens count as input and thinking tokens as output, not folded into output by subtraction.
+
+    Regression for the token miscount catalogued in #3546: total_token_count sums four disjoint buckets
+    (prompt + candidates + tool_use_prompt + thoughts), so subtracting only prompt miscounts the input-side
+    tool_use_prompt tokens as output.
+    """
+    event = {
+        "chunk_type": "metadata",
+        "data": genai.types.GenerateContentResponseUsageMetadata(
+            prompt_token_count=100,
+            candidates_token_count=20,
+            tool_use_prompt_token_count=5,
+            thoughts_token_count=30,
+            total_token_count=155,
+        ),
+    }
+
+    result = model._format_chunk(event)
+
+    assert result == {
+        "metadata": {
+            "usage": {
+                "inputTokens": 105,
+                "outputTokens": 50,
+                "totalTokens": 155,
+            },
+            "metrics": {"latencyMs": 0},
+        },
+    }
+
+
+def test_format_chunk_metadata_with_candidates_and_cache_tokens(model):
+    """Test _format_chunk uses candidates for output while still surfacing cache-read tokens."""
+    event = {
+        "chunk_type": "metadata",
+        "data": genai.types.GenerateContentResponseUsageMetadata(
+            prompt_token_count=100,
+            candidates_token_count=20,
+            cached_content_token_count=25,
+            total_token_count=120,
+        ),
+    }
+
+    result = model._format_chunk(event)
+
+    assert result == {
+        "metadata": {
+            "usage": {
+                "inputTokens": 100,
+                "outputTokens": 20,
+                "totalTokens": 120,
+                "cacheReadInputTokens": 25,
+            },
+            "metrics": {"latencyMs": 0},
+        },
+    }
+
+
 @pytest.mark.asyncio
 async def test_stream_response_tool_use(gemini_client, model, messages, agenerator, alist):
     gemini_client.aio.models.generate_content_stream.return_value = agenerator(
