@@ -8,6 +8,7 @@ tags: [bidi-streaming]
 sourceLinks:
   - path: strands-py/src/strands/experimental/bidi/io/text.py
   - path: strands-py/src/strands/experimental/bidi/io/audio.py
+  - path: strands-py/src/strands/experimental/bidi/audio.py
 ---
 
 
@@ -122,26 +123,77 @@ async def main():
 asyncio.run(main())
 ```
 
-This creates a voice-enabled agent that captures audio from your microphone, streams it to the model in real-time, and plays responses through your speakers.
+This creates a voice-enabled agent that captures audio from your microphone, streams it to
+the model in real-time, and plays responses through your speakers.
 
-### Configurations
+### Microphone Audio Processing
+
+Pass an `AudioProcessorConfig` to the `processor` parameter to enable optional microphone
+audio processing. `BidiAudioIO` then configures the `pywebrtc-audio` processor with noise
+suppression and automatic gain control enabled. These two settings are not configurable
+through `AudioProcessorConfig`.
+
+Echo cancellation is enabled by default in `AudioProcessorConfig`. This can reduce speaker 
+audio captured by the microphone, but results depend on the audio devices, acoustic environment, 
+and stream alignment.
+
+Install the `bidi-aec` extra, which also installs the `bidi-io` dependencies:
+
+```bash
+pip install "strands-agents[bidi-aec]"
+```
+
+```python
+import asyncio
+
+from strands.experimental.bidi import AudioProcessorConfig, BidiAgent
+from strands.experimental.bidi.io import BidiAudioIO
+from strands_tools import stop
+
+
+async def main():
+    agent = BidiAgent(tools=[stop])
+    audio_io = BidiAudioIO(processor=AudioProcessorConfig())
+
+    await agent.run(
+        inputs=[audio_io.input()],
+        outputs=[audio_io.output()],
+    )
+
+
+asyncio.run(main())
+```
+
+Echo cancellation requires the input and output channels from the same `BidiAudioIO`
+instance. A separate instance has a separate processor and does not share the played-audio
+reference.
+
+Audio processing supports microphone input rates of 16 kHz, 32 kHz, and 48 kHz.
+
+### `AudioProcessorConfig` Parameters
+
+| Parameter | Description | Default |
+| --------- | ----------- | ------- |
+| `echo_cancellation` | Passes played audio to the processor as the far-end reference. Set to `False` to run without a reference while retaining the configured noise suppression and automatic gain control stages. | `True` |
+| `stream_delay_ms` | Playback-to-capture delay hint from 0 through 1000 milliseconds. A value of `0` delegates delay estimation to the processor. | `0` |
+
+### `BidiAudioIO` Parameters
 
 | Parameter | Description | Example | Default |
 | --------- | ----------- | ------- | ------- |
-| `input_buffer_size` | Maximum number of audio chunks to buffer from microphone before dropping oldest. | `1024` | None (unbounded) |
+| `processor` | Optional `AudioProcessorConfig` that enables microphone audio processing. | `AudioProcessorConfig()` | None (disabled) |
+| `input_buffer_size` | Maximum number of microphone chunks to buffer before dropping the oldest. Ignored when echo cancellation is enabled. | `1024` | None (unbounded) |
 | `input_device_index` | Specific microphone device ID to use for audio input. | `1` | None (system default) |
-| `input_frames_per_buffer` | Number of audio frames to be read per input callback (affects latency and performance). | `1024` | 512 |
-| `output_buffer_size` | Maximum number of audio chunks to buffer for speaker playback before dropping oldest. | `2048` | None (unbounded) |
-| `output_device_index` | Specific speaker device ID to use for audio output. | `2` | None (system default) |
-| `output_frames_per_buffer` | Number of audio frames to be written per output callback (affects latency and performance). | `1024` | 512 |
+| `input_frames_per_buffer` | Number of frames per input callback. Processing overrides this with a 10 ms frame size. | `1024` | 512 |
+| `output_buffer_size` | Maximum number of chunks to buffer for playback before dropping the oldest. | `2048` | None (unbounded) |
+| `output_device_index` | Specific playback device ID to use for audio output. | `2` | None (system default) |
+| `output_frames_per_buffer` | Number of frames per output callback. Processing overrides this with a 10 ms frame size. | `1024` | 512 |
 
 ### Interruption Handling
 
-`BidiAudioIO` automatically handles interruptions to create natural conversational flow where users can interrupt the agent mid-response. When an interruption occurs:
-
-1. The agent emits a `BidiInterruptionEvent`
-3. `BidiAudioIO`'s internal output buffer is cleared to stop playback
-4. The agent begins responding immediately to the new user input
+When `BidiAudioIO` receives a `BidiInterruptionEvent`, it clears queued playback audio. If
+a processor is configured, it also clears queued reference audio to preserve alignment. The
+processor itself remains configured.
 
 ## Text I/O
 
