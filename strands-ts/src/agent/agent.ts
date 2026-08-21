@@ -30,6 +30,7 @@ import type { ToolChoice, ToolSpec } from '../tools/types.js'
 import { cloneSystemPrompt, systemPromptFromData } from '../types/messages.js'
 import { normalizeError, ConcurrentInvocationError, StructuredOutputError } from '../errors.js'
 import { Model } from '../models/model.js'
+import { ModelRouter } from '../models/routing/router.js'
 import type { BaseModelConfig, StreamAggregatedResult, StreamOptions } from '../models/model.js'
 import { ModelPlugin } from '../plugins/model-plugin.js'
 import { isModelStreamEvent } from '../models/streaming.js'
@@ -181,9 +182,9 @@ const CONTEXT_MANAGER_COMPRESSION_THRESHOLD = 0.85
  */
 export type AgentConfig = {
   /**
-   * The model instance that the agent will use to make decisions.
-   * Accepts either a Model instance or a string representing a Bedrock model ID.
-   * When a string is provided, it will be used to create a BedrockModel instance.
+   * The model instance or router that the agent will use to make decisions.
+   * Accepts a Model, ModelRouter, or a string representing a Bedrock model ID.
+   * When a router is provided, `agent.model` remains its default concrete model.
    *
    * @example
    * ```typescript
@@ -202,7 +203,7 @@ export type AgentConfig = {
    * })
    * ```
    */
-  model?: Model<BaseModelConfig> | string
+  model?: Model<BaseModelConfig> | ModelRouter | string
   /** An initial set of messages to seed the agent's conversation history. */
   messages?: Message[] | MessageData[]
   /**
@@ -422,6 +423,9 @@ const DEFAULT_AGENT_ID = 'agent'
 /** Result returned by tool-execution generators, threading the AfterToolsEvent back to the main loop. */
 type ToolsExecutionResult = { message: Message; afterToolsEvent: AfterToolsEvent; toolsSkipped: boolean }
 
+/** Effective model and result returned by one middleware-backed model call. */
+type ModelInvocationOutcome = { result: StreamAggregatedResult; model: Model }
+
 /**
  * Orchestrates the interaction between a model, a set of tools, and MCP clients.
  * The Agent is responsible for managing the lifecycle of tools and clients
@@ -452,6 +456,8 @@ export class Agent implements LocalAgent, InvokableAgent {
    * The model provider used by the agent for inference.
    */
   public model: Model
+  private readonly _modelRouter?: ModelRouter
+  private _failedInvocationModel: Model | undefined
 
   /**
    * The system prompt to pass to the model provider.
@@ -551,10 +557,18 @@ export class Agent implements LocalAgent, InvokableAgent {
           : undefined
     this._sandbox = config?.sandbox
 
-    if (typeof config?.model === 'string') {
-      this.model = new BedrockModel({ modelId: config.model })
+    const configuredModel = config?.model
+    if (typeof configuredModel === 'string') {
+      this.model = new BedrockModel({ modelId: configuredModel })
+    } else if (configuredModel instanceof ModelRouter) {
+      this._modelRouter = configuredModel
+      this.model = configuredModel.defaultModel
     } else {
-      this.model = config?.model ?? new BedrockModel()
+      this.model = configuredModel ?? new BedrockModel()
+    }
+
+    if (config?.plugins?.some((plugin) => plugin instanceof ModelRouter)) {
+      throw new Error('ModelRouter must be passed through Agent({ model }), not plugins')
     }
 
     // Validate and assign conversation manager
@@ -583,6 +597,7 @@ export class Agent implements LocalAgent, InvokableAgent {
 
     // Initialize middleware registry
     this._middlewareRegistry = new MiddlewareRegistry()
+    this._modelRouter?.attachToAgent(this)
 
     if (config?.contextManager === 'agentic') {
       this._middlewareRegistry.addInput(InvokeModelStage.Input, createTokenUsageMiddleware())
@@ -616,6 +631,7 @@ export class Agent implements LocalAgent, InvokableAgent {
     const contextManagerPlugin = config?.contextManager instanceof ContextManager ? config.contextManager : undefined
 
     this._pluginRegistry = new PluginRegistry([
+      ...(this._modelRouter ? [this._modelRouter] : []),
       this._conversationManager,
       ...retryStrategies,
       ...(config?.plugins ?? []),
@@ -2033,25 +2049,24 @@ export class Agent implements LocalAgent, InvokableAgent {
     if (this.systemPrompt !== undefined) {
       streamOptions.systemPrompt = this.systemPrompt
     }
-
-    // Add tool choice if provided
     if (toolChoice) {
       streamOptions.toolChoice = toolChoice
     }
 
     let attemptCount = 1
     while (true) {
-      // Estimate input tokens for the upcoming model call (non-fatal if estimation fails)
+      const selectedModel = this._modelForAttempt(invocationState)
       let projectedInputTokens: number | undefined
       try {
+        // Context management continues to size against the agent's default model.
         projectedInputTokens = await this._estimateInputTokens(streamOptions)
-      } catch (e) {
-        logger.debug(`error=<${e}> | token estimation failed, proceeding without estimate`)
+      } catch (error) {
+        logger.debug(`error=<${error}> | token estimation failed, proceeding without estimate`)
       }
 
       const beforeModelCallEvent = new BeforeModelCallEvent({
         agent: this,
-        model: this.model,
+        model: selectedModel,
         invocationState,
         ...(projectedInputTokens !== undefined && { projectedInputTokens }),
       })
@@ -2078,7 +2093,7 @@ export class Agent implements LocalAgent, InvokableAgent {
         const stopData: ModelStopData = { message, stopReason: 'endTurn' }
         const afterModelCallEvent = new AfterModelCallEvent({
           agent: this,
-          model: this.model,
+          model: selectedModel,
           attemptCount,
           stopData,
           invocationState,
@@ -2086,7 +2101,7 @@ export class Agent implements LocalAgent, InvokableAgent {
         yield afterModelCallEvent
 
         if (afterModelCallEvent.retry) {
-          attemptCount += 1
+          attemptCount = this._nextAttemptCount(selectedModel, invocationState, attemptCount)
           continue
         }
 
@@ -2107,9 +2122,16 @@ export class Agent implements LocalAgent, InvokableAgent {
       }
 
       try {
-        const result = yield* this._invokeModelWithMiddleware(invocationState, toolChoice, projectedInputTokens)
+        this._failedInvocationModel = undefined
+        const invocation = yield* this._invokeModelWithMiddleware(
+          invocationState,
+          selectedModel,
+          toolChoice,
+          projectedInputTokens
+        )
+        const { result, model } = invocation
+        const routedModel = this._modelRouter?.getRoutedModel(this, invocationState) ?? selectedModel
 
-        // Accumulate token usage and model latency metrics
         this._meter.updateCycle(result.metadata)
 
         yield new ModelMessageEvent({
@@ -2119,7 +2141,6 @@ export class Agent implements LocalAgent, InvokableAgent {
           invocationState,
         })
 
-        // Handle user content redaction if guardrails blocked input
         if (result.redaction?.userMessage) {
           this._redactLastMessage(result.redaction.userMessage)
         }
@@ -2132,7 +2153,7 @@ export class Agent implements LocalAgent, InvokableAgent {
 
         const afterModelCallEvent = new AfterModelCallEvent({
           agent: this,
-          model: this.model,
+          model,
           attemptCount,
           stopData,
           invocationState,
@@ -2140,42 +2161,47 @@ export class Agent implements LocalAgent, InvokableAgent {
         yield afterModelCallEvent
 
         if (afterModelCallEvent.retry) {
-          attemptCount += 1
+          attemptCount = this._nextAttemptCount(routedModel, invocationState, attemptCount)
           continue
         }
 
         return result
       } catch (error) {
+        const routedModel = this._modelRouter?.getRoutedModel(this, invocationState) ?? selectedModel
+        const failedModel = this._failedInvocationModel ?? routedModel
+        this._failedInvocationModel = undefined
         const modelError = normalizeError(error)
-
-        // Create error event
         const errorEvent = new AfterModelCallEvent({
           agent: this,
-          model: this.model,
+          model: failedModel,
           attemptCount,
           error: modelError,
           invocationState,
         })
-
-        // Yield error event - stream will invoke hooks
         yield errorEvent
 
-        // Let CancelledError propagate directly — no retry
-        // (we emit the AfterModelCall because we already emitted Before and we guarentee the pair)
+        // Preserve the Before/After event pair, but never retry cancellation.
         if (error instanceof CancelledError) {
           throw error
         }
 
-        // After yielding, hooks have been invoked and may have set retry
         if (errorEvent.retry) {
-          attemptCount += 1
+          attemptCount = this._nextAttemptCount(routedModel, invocationState, attemptCount)
           continue
         }
 
-        // Re-throw error
         throw error
       }
     }
+  }
+
+  private _modelForAttempt(invocationState: InvocationState): Model {
+    return this._modelRouter?.getRoutedModel(this, invocationState) ?? this.model
+  }
+
+  private _nextAttemptCount(model: Model, invocationState: InvocationState, attemptCount: number): number {
+    const nextModel = this._modelRouter?.getRoutedModel(this, invocationState)
+    return nextModel !== undefined && nextModel !== model ? 1 : attemptCount + 1
   }
 
   /**
@@ -2190,12 +2216,13 @@ export class Agent implements LocalAgent, InvokableAgent {
    */
   private async *_invokeModelWithMiddleware(
     invocationState: InvocationState,
+    selectedModel: Model,
     toolChoice?: ToolChoice,
     projectedInputTokens?: number
-  ): AsyncGenerator<AgentStreamEvent, StreamAggregatedResult, undefined> {
+  ): AsyncGenerator<AgentStreamEvent, ModelInvocationOutcome, undefined> {
     const context: InvokeModelContext = {
       agent: this,
-      model: this.model,
+      model: selectedModel,
       messages: this.messages.map((msg) => msg.clone()),
       ...(this.systemPrompt !== undefined && { systemPrompt: cloneSystemPrompt(this.systemPrompt) }),
       toolSpecs: deepCopy(this._toolRegistry.list().map((tool) => tool.toolSpec)) as unknown as ToolSpec[],
@@ -2209,6 +2236,7 @@ export class Agent implements LocalAgent, InvokableAgent {
     // cannot affect modelState at any point (before or after next()).
     const modelStateSnapshot = this.modelState.getAll()
     let tempModelState: StateStore | undefined
+    let invokedModel = selectedModel
 
     // async function* doesn't bind lexical `this`; capture for the terminal callback.
     // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -2217,6 +2245,8 @@ export class Agent implements LocalAgent, InvokableAgent {
       InvokeModelStage,
       context,
       async function* (ctx: InvokeModelContext): AsyncGenerator<AgentStreamEvent, InvokeModelResult, undefined> {
+        invokedModel = ctx.model
+        self._failedInvocationModel = undefined
         const modelId = ctx.model.modelId
         const modelSpan = self._tracer.startModelInvokeSpan({
           messages: ctx.messages as Message[],
@@ -2256,6 +2286,7 @@ export class Agent implements LocalAgent, InvokableAgent {
           return { result: iterResult.value }
         } catch (error) {
           self._tracer.endModelInvokeSpan(modelSpan, { error: normalizeError(error) })
+          self._failedInvocationModel = ctx.model
           throw error
         }
       }
@@ -2268,7 +2299,7 @@ export class Agent implements LocalAgent, InvokableAgent {
       loadStateSerializable(this.modelState, serializeStateSerializable(tempModelState))
     }
 
-    return middlewareResult.result
+    return { result: middlewareResult.result, model: invokedModel }
   }
 
   /**
