@@ -709,7 +709,10 @@ class OpenAIResponsesModel(Model):
         if "document" in content:
             doc = content["document"]
             data_url = _encode_media_to_data_url(doc["source"]["bytes"], doc["format"], "document")
-            return {"type": "input_file", "filename": doc.get("name", "document"), "file_data": data_url}
+            name = doc.get("name", "document")
+            suffix = f".{doc['format']}"
+            filename = name if name.endswith(suffix) else f"{name}{suffix}"
+            return {"type": "input_file", "filename": filename, "file_data": data_url}
 
         if "image" in content:
             img = content["image"]
