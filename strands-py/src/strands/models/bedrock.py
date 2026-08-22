@@ -8,8 +8,8 @@ import json
 import logging
 import os
 import warnings
-from collections.abc import AsyncGenerator, Callable, Iterable, Mapping, ValuesView
-from typing import Any, Literal, NoReturn, TypeVar, cast
+from collections.abc import AsyncGenerator, Callable, Iterable, ValuesView
+from typing import TYPE_CHECKING, Any, Literal, NoReturn, TypeVar, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -35,6 +35,10 @@ from ._defaults import resolve_config_metadata
 from ._strict_schema import ensure_strict_json_schema
 from ._validation import validate_config_keys
 from .model import BaseModelConfig, CacheConfig, CacheToolsConfig, Model
+
+if TYPE_CHECKING:
+    # Type-only: `bedrock_invoke` imports this module, so importing it at runtime would be circular.
+    from .bedrock_invoke import BedrockInvokeModel
 
 logger = logging.getLogger(__name__)
 
@@ -1591,7 +1595,10 @@ class BedrockModel(Model):
         yield {"output": output_model(**output_response)}
 
     @staticmethod
-    def _get_default_model_with_warning(region_name: str, model_config: Mapping[str, Any] | None = None) -> str:
+    def _get_default_model_with_warning(
+        region_name: str,
+        model_config: "BedrockModel.BedrockConfig | BedrockInvokeModel.BedrockInvokeConfig | None" = None,
+    ) -> str:
         """Get the default Bedrock modelId based on region.
 
         If the region is not **known** to support inference then we show a helpful warning
@@ -1601,9 +1608,9 @@ class BedrockModel(Model):
 
         Args:
             region_name (str): region for bedrock model
-            model_config (Optional[Mapping[str, Any]]): Model Config that caller passes in on init. Shared between
-                ``BedrockModel`` and ``BedrockInvokeModel``, which have different config TypedDicts, so this only
-                relies on the common ``model_id`` key.
+            model_config (BedrockConfig | BedrockInvokeConfig | None): Model Config that caller passes in on init.
+                Shared between ``BedrockModel`` and ``BedrockInvokeModel``, which have different config TypedDicts,
+                so this only relies on the common ``model_id`` key.
         """
         model_config = model_config or {}
         if model_id := model_config.get("model_id"):
