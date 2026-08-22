@@ -140,7 +140,18 @@ async def test_stream_passes_input_to_agent(tool, mock_agent, tool_use, agent_re
     async for _ in tool.stream(tool_use, {}):
         pass
 
-    mock_agent.stream_async.assert_called_once_with("hello")
+    mock_agent.stream_async.assert_called_once_with("hello", invocation_state={})
+
+
+@pytest.mark.asyncio
+async def test_stream_forwards_invocation_state_and_kwargs(tool, mock_agent, tool_use, agent_result):
+    mock_agent.stream_async.return_value = _mock_stream_async(agent_result)
+
+    invocation_state = {"request_id": "req-1"}
+    async for _ in tool.stream(tool_use, invocation_state, extra="value"):
+        pass
+
+    mock_agent.stream_async.assert_called_once_with("hello", invocation_state=invocation_state, extra="value")
 
 
 @pytest.mark.asyncio
@@ -155,7 +166,7 @@ async def test_stream_empty_input(tool, mock_agent, agent_result):
     async for _ in tool.stream(empty_tool_use, {}):
         pass
 
-    mock_agent.stream_async.assert_called_once_with("")
+    mock_agent.stream_async.assert_called_once_with("", invocation_state={})
 
 
 @pytest.mark.asyncio
@@ -170,7 +181,7 @@ async def test_stream_string_input(tool, mock_agent, agent_result):
     async for _ in tool.stream(tool_use, {}):
         pass
 
-    mock_agent.stream_async.assert_called_once_with("direct string")
+    mock_agent.stream_async.assert_called_once_with("direct string", invocation_state={})
 
 
 @pytest.mark.asyncio
