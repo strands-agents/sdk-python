@@ -1,13 +1,18 @@
+import asyncio
 import unittest.mock
 from unittest.mock import ANY, MagicMock
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 import strands
 from strands.experimental.hooks.events import BidiAfterToolCallEvent
 from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent
 from strands.interrupt import Interrupt
 from strands.telemetry.metrics import Trace
+from strands.telemetry.tracer import Tracer
 from strands.tools.executors._executor import ToolExecutor
 from strands.types._events import ToolCancelEvent, ToolInterruptEvent, ToolResultEvent, ToolStreamEvent
 from strands.types.tools import ToolUse
@@ -995,6 +1000,106 @@ async def test_executor_stream_with_trace_error(
     assert error_arg is not None
     assert isinstance(error_arg, RuntimeError)
     assert "Tool error" in str(error_arg)
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_with_trace_ends_span_on_escaping_error(
+    executor, tracer, agent, tool_results, cycle_trace, cycle_span, invocation_state, alist
+):
+    # Guards tool-span error cleanup for https://github.com/strands-agents/harness-sdk/issues/3609.
+    tool_use: ToolUse = {"name": "exception_tool", "toolUseId": "1", "input": {}}
+    error = RuntimeError("tool stream failed")
+
+    async def error_stream(*args, **kwargs):
+        raise error
+        yield
+
+    with unittest.mock.patch.object(ToolExecutor, "_stream", new=error_stream):
+        stream = executor._stream_with_trace(agent, tool_use, tool_results, cycle_trace, cycle_span, invocation_state)
+        with pytest.raises(RuntimeError, match="tool stream failed"):
+            await alist(stream)
+
+    tool_span = tracer.start_tool_call_span.return_value
+    tracer.end_span_with_error.assert_called_once_with(tool_span, str(error), error)
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_with_trace_ends_span_on_cancellation(
+    executor, tracer, agent, tool_results, cycle_trace, cycle_span, invocation_state, alist
+):
+    # Guards tool-span cancellation cleanup for https://github.com/strands-agents/harness-sdk/issues/3609.
+    tool_use: ToolUse = {"name": "weather_tool", "toolUseId": "1", "input": {}}
+    cancellation = asyncio.CancelledError()
+
+    async def cancelled_stream(*args, **kwargs):
+        raise cancellation
+        yield
+
+    with unittest.mock.patch.object(ToolExecutor, "_stream", new=cancelled_stream):
+        stream = executor._stream_with_trace(agent, tool_use, tool_results, cycle_trace, cycle_span, invocation_state)
+        with pytest.raises(asyncio.CancelledError):
+            await alist(stream)
+
+    tool_span = tracer.start_tool_call_span.return_value
+    tracer._end_span_with_cancellation.assert_called_once_with(tool_span, cancellation)
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_with_trace_ends_span_before_interrupt_yield(
+    executor, agent, tool_results, cycle_trace, invocation_state
+):
+    # Guards terminal interrupt ordering for https://github.com/strands-agents/harness-sdk/issues/3609.
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+    real_tracer = Tracer()
+    real_tracer.tracer_provider = provider
+    real_tracer.tracer = provider.get_tracer(real_tracer.service_name)
+
+    tool_use: ToolUse = {"name": "weather_tool", "toolUseId": "1", "input": {}}
+    interrupt_event = ToolInterruptEvent(tool_use, [Interrupt(id="interrupt-id", name="approval")])
+
+    async def interrupt_stream(*args, **kwargs):
+        yield interrupt_event
+
+    with (
+        unittest.mock.patch.object(strands.tools.executors._executor, "get_tracer", return_value=real_tracer),
+        unittest.mock.patch.object(ToolExecutor, "_stream", new=interrupt_stream),
+    ):
+        stream = executor._stream_with_trace(agent, tool_use, tool_results, cycle_trace, None, invocation_state)
+        try:
+            tru_event = await anext(stream)
+            provider.force_flush()
+            assert tru_event is interrupt_event
+            assert [span.name for span in exporter.get_finished_spans()] == ["execute_tool weather_tool"]
+        finally:
+            await stream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_with_trace_ends_span_before_result_yield(
+    executor, agent, tool_results, cycle_trace, invocation_state
+):
+    # Guards terminal result ordering for https://github.com/strands-agents/harness-sdk/issues/3609.
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+    real_tracer = Tracer()
+    real_tracer.tracer_provider = provider
+    real_tracer.tracer = provider.get_tracer(real_tracer.service_name)
+
+    tool_use: ToolUse = {"name": "weather_tool", "toolUseId": "1", "input": {}}
+    with unittest.mock.patch.object(strands.tools.executors._executor, "get_tracer", return_value=real_tracer):
+        stream = executor._stream_with_trace(agent, tool_use, tool_results, cycle_trace, None, invocation_state)
+        try:
+            tru_event = await anext(stream)
+            provider.force_flush()
+            assert isinstance(tru_event, ToolResultEvent)
+            assert [span.name for span in exporter.get_finished_spans()] == ["execute_tool weather_tool"]
+        finally:
+            await stream.aclose()
 
 
 @pytest.mark.asyncio

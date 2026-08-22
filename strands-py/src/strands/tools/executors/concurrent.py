@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from typing import TYPE_CHECKING, Any
 
 from typing_extensions import override
@@ -122,10 +123,11 @@ class ConcurrentToolExecutor(ToolExecutor):
             events = ToolExecutor._stream_with_trace(
                 agent, tool_use, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
             )
-            async for event in events:
-                task_queue.put_nowait((task_id, event))
-                await task_event.wait()
-                task_event.clear()
+            async with aclosing(events):
+                async for event in events:
+                    task_queue.put_nowait((task_id, event))
+                    await task_event.wait()
+                    task_event.clear()
 
         except Exception as e:
             task_queue.put_nowait((task_id, e))

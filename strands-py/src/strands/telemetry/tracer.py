@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 REDACTED_VALUE = "[REDACTED]"
+_CANCELLATION_TYPE_KEY = "strands.cancellation.type"
 
 
 class JSONEncoder(json.JSONEncoder):
@@ -283,8 +284,9 @@ class Tracer:
         self,
         span: Span,
         attributes: dict[str, AttributeValue] | None = None,
-        error: Exception | None = None,
+        error: BaseException | None = None,
         error_message: str | None = None,
+        cancelled: bool = False,
     ) -> None:
         """Generic helper method to end a span.
 
@@ -293,6 +295,7 @@ class Tracer:
             attributes: Optional attributes to set before ending the span
             error: Optional exception if an error occurred
             error_message: Optional error message to set in the span status
+            cancelled: Whether the operation ended through cancellation.
         """
         if not span or not span.is_recording():
             return
@@ -312,14 +315,14 @@ class Tracer:
                 span.record_exception(error)
             elif error_message:
                 span.set_status(StatusCode.ERROR, error_message)
-            else:
+            elif not cancelled:
                 span.set_status(StatusCode.OK)
         except Exception as e:
             logger.warning("error=<%s> | error while ending span", e, exc_info=True)
         finally:
             span.end()
 
-    def end_span_with_error(self, span: Span, error_message: str, exception: Exception | None = None) -> None:
+    def end_span_with_error(self, span: Span, error_message: str, exception: BaseException | None = None) -> None:
         """End a span with error status.
 
         Args:
@@ -332,6 +335,19 @@ class Tracer:
 
         error = exception or Exception(error_message)
         self._end_span(span, error=error, error_message=error_message)
+
+    def _end_span_with_cancellation(self, span: Span, cancellation: BaseException) -> None:
+        """End a cancelled span without marking the operation successful or failed.
+
+        Args:
+            span: The span to end.
+            cancellation: The exception that cancelled the operation.
+        """
+        self._end_span(
+            span,
+            attributes={_CANCELLATION_TYPE_KEY: type(cancellation).__name__},
+            cancelled=True,
+        )
 
     def _add_event(
         self, span: Span | None, event_name: str, event_attributes: Attributes, to_span_attributes: bool = False
@@ -558,7 +574,9 @@ class Tracer:
 
         return span
 
-    def end_tool_call_span(self, span: Span, tool_result: ToolResult | None, error: Exception | None = None) -> None:
+    def end_tool_call_span(
+        self, span: Span, tool_result: ToolResult | None, error: BaseException | None = None
+    ) -> None:
         """End a tool call span with results.
 
         Args:
@@ -769,7 +787,7 @@ class Tracer:
         self,
         span: Span,
         response: AgentResult | None = None,
-        error: Exception | None = None,
+        error: BaseException | None = None,
     ) -> None:
         """End an agent span with results and metrics.
 

@@ -1,6 +1,7 @@
 """Sequential tool executor implementation."""
 
 from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from typing import TYPE_CHECKING, Any
 
 from typing_extensions import override
@@ -61,11 +62,12 @@ class SequentialToolExecutor(ToolExecutor):
             events = ToolExecutor._stream_with_trace(
                 agent, tool_use, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
             )
-            async for event in events:
-                if isinstance(event, ToolInterruptEvent):
-                    interrupted = True
+            async with aclosing(events):
+                async for event in events:
+                    if isinstance(event, ToolInterruptEvent):
+                        interrupted = True
 
-                yield event
+                    yield event
 
             if interrupted:
                 break

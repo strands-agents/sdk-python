@@ -8,6 +8,7 @@ import pytest
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import StatusCode
 
 import strands
 import strands._middleware
@@ -658,6 +659,73 @@ async def test_event_loop_cycle_creates_spans(
     assert call_kwargs["system_prompt_content"] == [{"text": agent.system_prompt}]
     mock_tracer.end_model_invoke_span.assert_called_once()
     mock_tracer.end_event_loop_cycle_span.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_event_loop_tracing_ends_spans_on_timeout(agent, model, alist):
+    # Guards cancellation-safe span export for https://github.com/strands-agents/harness-sdk/issues/3609.
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+    tracer = Tracer()
+    tracer.tracer_provider = provider
+    tracer.tracer = provider.get_tracer(tracer.service_name)
+
+    model_started = asyncio.Event()
+    never_complete = asyncio.Event()
+
+    async def slow_stream():
+        model_started.set()
+        yield {"messageStart": {"role": "assistant"}}
+        await never_complete.wait()
+
+    agent.trace_span = None
+    agent._system_prompt_content = None
+    model.config = {"model_id": "test-model"}
+    model.stream.return_value = slow_stream()
+
+    with patch("strands.event_loop.event_loop.get_tracer", return_value=tracer):
+        stream = strands.event_loop.event_loop.event_loop_cycle(agent=agent, invocation_state={})
+        task = asyncio.create_task(alist(stream))
+        await asyncio.wait_for(model_started.wait(), timeout=1)
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(task, timeout=0.01)
+
+    provider.force_flush()
+    tru_spans = {span.name: span for span in exporter.get_finished_spans()}
+    exp_span_names = {"chat", "execute_event_loop_cycle"}
+    assert set(tru_spans) == exp_span_names
+    assert all(span.status.status_code == StatusCode.UNSET for span in tru_spans.values())
+    assert all(span.attributes["strands.cancellation.type"] == "CancelledError" for span in tru_spans.values())
+
+
+@pytest.mark.asyncio
+async def test_stop_for_interrupts_ends_cycle_span_before_yield(agent, messages, mock_tracer):
+    # Guards terminal-event span ordering for https://github.com/strands-agents/harness-sdk/issues/3609.
+    agent.event_loop_metrics = MagicMock()
+    cycle_span = MagicMock()
+    cycle_trace = MagicMock()
+    interrupt = Interrupt(id="interrupt-id", name="approval")
+    stream = strands.event_loop.event_loop._stop_for_interrupts(
+        agent=agent,
+        message=messages[0],
+        tool_results=[],
+        interrupts=[interrupt],
+        cycle_start_time=0,
+        cycle_trace=cycle_trace,
+        cycle_span=cycle_span,
+        invocation_state={"request_state": {}},
+        tracer=mock_tracer,
+    )
+
+    try:
+        tru_event = await anext(stream)
+        exp_stop_reason = "interrupt"
+        assert tru_event["stop"][0] == exp_stop_reason
+        mock_tracer.end_event_loop_cycle_span.assert_called_once_with(span=cycle_span, message=messages[0])
+    finally:
+        await stream.aclose()
 
 
 @patch("strands.event_loop.event_loop.get_tracer")

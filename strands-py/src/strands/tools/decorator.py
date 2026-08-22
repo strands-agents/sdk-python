@@ -46,6 +46,7 @@ import inspect
 import json
 import logging
 from collections.abc import Callable
+from contextlib import aclosing
 from typing import (
     Annotated,
     Any,
@@ -622,8 +623,9 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
             # Async-generators, yield streaming events and final tool result
             if inspect.isasyncgenfunction(self._tool_func):
                 sub_events = self._tool_func(**validated_input)  # type: ignore
-                async for sub_event in sub_events:
-                    yield ToolStreamEvent(tool_use, sub_event)
+                async with aclosing(sub_events):
+                    async for sub_event in sub_events:
+                        yield ToolStreamEvent(tool_use, sub_event)
 
                 # The last event is the result
                 yield self._wrap_tool_result(tool_use_id, sub_event)

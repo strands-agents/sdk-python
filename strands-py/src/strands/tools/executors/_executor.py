@@ -8,6 +8,7 @@ import abc
 import logging
 import time
 from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from typing import TYPE_CHECKING, Any, cast
 
 from opentelemetry import trace as trace_api
@@ -243,32 +244,34 @@ class ToolExecutor(abc.ABC):
                 )
 
                 result_event: ToolResultEvent | None = None
-                async for event in agent._middleware_registry.invoke(
+                events = agent._middleware_registry.invoke(
                     ExecuteToolStage,
                     middleware_context,
                     _make_execute_tool_terminal(kwargs),
-                ):
-                    # Tool-originated interrupt: a ToolInterruptEvent yielded from tool.stream()
-                    # (including sub-agent interrupts propagated via _AgentAsTool). Distinct from
-                    # the middleware-initiated InterruptException handled below — this one rides
-                    # the event stream rather than unwinding it. Register its interrupts so
-                    # _interrupt_state.resume() can locate them by id, surface the event, and
-                    # short-circuit here: a halted tool has no result, so the after-hook and the
-                    # result handling below are intentionally skipped.
-                    if isinstance(event, ToolInterruptEvent):
-                        for interrupt in event.interrupts:
-                            agent._interrupt_state.interrupts.setdefault(interrupt.id, interrupt)
-                        yield event
-                        return
+                )
+                async with aclosing(events):
+                    async for event in events:
+                        # Tool-originated interrupt: a ToolInterruptEvent yielded from tool.stream()
+                        # (including sub-agent interrupts propagated via _AgentAsTool). Distinct from
+                        # the middleware-initiated InterruptException handled below — this one rides
+                        # the event stream rather than unwinding it. Register its interrupts so
+                        # _interrupt_state.resume() can locate them by id, surface the event, and
+                        # short-circuit here: a halted tool has no result, so the after-hook and the
+                        # result handling below are intentionally skipped.
+                        if isinstance(event, ToolInterruptEvent):
+                            for interrupt in event.interrupts:
+                                agent._interrupt_state.interrupts.setdefault(interrupt.id, interrupt)
+                            yield event
+                            return
 
-                    # Capture the result but keep draining: middleware may yield trailing
-                    # events after it, and the last ToolResultEvent wins (matching the model
-                    # stage). It is re-emitted only after AfterToolCallEvent runs, since hooks
-                    # may rewrite it. All non-result events flow through as they arrive.
-                    if isinstance(event, ToolResultEvent):
-                        result_event = event
-                    else:
-                        yield event
+                        # Capture the result but keep draining: middleware may yield trailing
+                        # events after it, and the last ToolResultEvent wins (matching the model
+                        # stage). It is re-emitted only after AfterToolCallEvent runs, since hooks
+                        # may rewrite it. All non-result events flow through as they arrive.
+                        if isinstance(event, ToolResultEvent):
+                            result_event = event
+                        else:
+                            yield event
 
                 if result_event is None:
                     raise RuntimeError(
@@ -365,31 +368,49 @@ class ToolExecutor(abc.ABC):
         tool_trace = Trace(f"Tool: {tool_name}", parent_id=cycle_trace.id, raw_name=tool_name)
         tool_start_time = time.time()
 
-        with trace_api.use_span(tool_call_span):
-            async for event in ToolExecutor._stream(
-                agent, tool_use, tool_results, invocation_state, structured_output_context, **kwargs
-            ):
-                yield event
+        with trace_api.use_span(tool_call_span, end_on_exit=False):
+            try:
+                events = ToolExecutor._stream(
+                    agent, tool_use, tool_results, invocation_state, structured_output_context, **kwargs
+                )
+                terminal_event_seen = False
+                async with aclosing(events):
+                    async for event in events:
+                        if isinstance(event, ToolInterruptEvent):
+                            tool_duration = time.time() - tool_start_time
+                            if ToolExecutor._is_agent(agent):
+                                agent.event_loop_metrics.add_tool_usage(tool_use, tool_duration, tool_trace, False)
+                            cycle_trace.add_child(tool_trace)
+                            tracer.end_tool_call_span(tool_call_span, tool_result=None)
+                            terminal_event_seen = True
+                            yield event
+                            continue
 
-            if isinstance(event, ToolInterruptEvent):
-                tool_duration = time.time() - tool_start_time
-                if ToolExecutor._is_agent(agent):
-                    agent.event_loop_metrics.add_tool_usage(tool_use, tool_duration, tool_trace, False)
-                cycle_trace.add_child(tool_trace)
-                tracer.end_tool_call_span(tool_call_span, tool_result=None)
-                return
+                        if isinstance(event, ToolResultEvent):
+                            result = event.tool_result
+                            tool_success = result.get("status") == "success"
+                            tool_duration = time.time() - tool_start_time
+                            message = Message(role="user", content=[{"toolResult": result}])
+                            if ToolExecutor._is_agent(agent):
+                                agent.event_loop_metrics.add_tool_usage(
+                                    tool_use, tool_duration, tool_trace, tool_success, message
+                                )
+                            cycle_trace.add_child(tool_trace)
+                            tracer.end_tool_call_span(tool_call_span, result, error=event.exception)
+                            terminal_event_seen = True
+                            yield event
+                            continue
 
-            result_event = cast(ToolResultEvent, event)
-            result = result_event.tool_result
+                        yield event
 
-            tool_success = result.get("status") == "success"
-            tool_duration = time.time() - tool_start_time
-            message = Message(role="user", content=[{"toolResult": result}])
-            if ToolExecutor._is_agent(agent):
-                agent.event_loop_metrics.add_tool_usage(tool_use, tool_duration, tool_trace, tool_success, message)
-            cycle_trace.add_child(tool_trace)
-
-            tracer.end_tool_call_span(tool_call_span, result, error=result_event.exception)
+                if not terminal_event_seen:
+                    raise RuntimeError("Tool stream produced no terminal event")
+            except Exception as error:
+                tracer.end_span_with_error(tool_call_span, str(error), error)
+                raise
+            except BaseException as cancellation:
+                tracer._end_span_with_cancellation(tool_call_span, cancellation)
+                raise
 
     @abc.abstractmethod
     # pragma: no cover
@@ -471,22 +492,24 @@ def _make_execute_tool_terminal(
         yielded_any = False
         last_raw_event: Any = None
         try:
-            async for event in ctx.tool.stream(tool_use, ctx.invocation_state, **extra_kwargs):
-                if isinstance(event, ToolInterruptEvent):
-                    yield event
-                    return
+            events = ctx.tool.stream(tool_use, ctx.invocation_state, **extra_kwargs)
+            async with aclosing(events):
+                async for event in events:
+                    if isinstance(event, ToolInterruptEvent):
+                        yield event
+                        return
 
-                if isinstance(event, ToolResultEvent):
-                    # Re-emit so the exception decorated tools attach rides along as the result.
-                    yield ToolResultEvent(event.tool_result, exception=event.exception)
-                    return
+                    if isinstance(event, ToolResultEvent):
+                        # Re-emit so the exception decorated tools attach rides along as the result.
+                        yield ToolResultEvent(event.tool_result, exception=event.exception)
+                        return
 
-                if isinstance(event, ToolStreamEvent):
-                    yield event
-                else:
-                    yield ToolStreamEvent(tool_use, event)
-                yielded_any = True
-                last_raw_event = event
+                    if isinstance(event, ToolStreamEvent):
+                        yield event
+                    else:
+                        yield ToolStreamEvent(tool_use, event)
+                    yielded_any = True
+                    last_raw_event = event
         except InterruptException:
             # A tool-raised interrupt must halt the agent — let it unwind rather than
             # becoming an error result (matches TS re-throwing InterruptError).

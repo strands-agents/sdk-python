@@ -1,5 +1,6 @@
 """Tests for _AgentAsTool - the agent-as-tool adapter."""
 
+import asyncio
 from unittest.mock import MagicMock
 
 import pytest
@@ -131,6 +132,31 @@ async def test_stream_success(tool, mock_agent, tool_use, agent_result):
     assert len(result_events) == 1
     assert result_events[0]["tool_result"]["status"] == "success"
     assert result_events[0]["tool_result"]["content"][0]["text"] == "response text\n"
+
+
+@pytest.mark.asyncio
+async def test_stream_close_closes_agent_stream(tool, mock_agent, tool_use):
+    started = asyncio.Event()
+    closed = asyncio.Event()
+    never_complete = asyncio.Event()
+
+    async def slow_stream():
+        try:
+            started.set()
+            yield {"event": "partial"}
+            await never_complete.wait()
+        finally:
+            closed.set()
+
+    mock_agent.stream_async.return_value = slow_stream()
+    stream = tool.stream(tool_use, {})
+    try:
+        while not started.is_set():
+            await anext(stream)
+    finally:
+        await stream.aclose()
+
+    assert closed.is_set()
 
 
 @pytest.mark.asyncio

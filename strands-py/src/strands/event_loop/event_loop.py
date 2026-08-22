@@ -11,7 +11,8 @@ The event loop allows agents to:
 import copy
 import logging
 import uuid
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable, Iterator
+from contextlib import aclosing, contextmanager
 from typing import TYPE_CHECKING, Any
 
 from opentelemetry import trace as trace_api
@@ -62,6 +63,26 @@ logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 6
 INITIAL_DELAY = 4
 MAX_DELAY = 240  # 4 minutes
+
+
+@contextmanager
+def _end_span_on_cancellation(tracer: Tracer, span: Any) -> Iterator[None]:
+    """End a span when control flow exits through a non-error cancellation.
+
+    Args:
+        tracer: Tracer that owns the span.
+        span: Span to end on cancellation.
+
+    Yields:
+        Control to the guarded span lifecycle.
+    """
+    try:
+        yield
+    except BaseException as cancellation:
+        if isinstance(cancellation, Exception):
+            raise
+        tracer._end_span_with_cancellation(span, cancellation)
+        raise
 
 
 def _check_limits(agent: "Agent", limits: Limits | None) -> StopReason | None:
@@ -281,7 +302,7 @@ async def event_loop_cycle(
     )
     invocation_state["event_loop_cycle_span"] = cycle_span
 
-    with trace_api.use_span(cycle_span, end_on_exit=False):
+    with _end_span_on_cancellation(tracer, cycle_span), trace_api.use_span(cycle_span, end_on_exit=False):
         try:
             # Resume a tool interrupt by replaying its stored message instead of calling the model.
             if agent._interrupt_state.activated and "tool_use_message" in agent._interrupt_state.context:
@@ -295,9 +316,10 @@ async def event_loop_cycle(
                 model_events = _handle_model_execution(
                     agent, cycle_span, cycle_trace, invocation_state, tracer, structured_output_context
                 )
-                async for model_event in model_events:
-                    if not isinstance(model_event, ModelStopReason):
-                        yield model_event
+                async with aclosing(model_events):
+                    async for model_event in model_events:
+                        if not isinstance(model_event, ModelStopReason):
+                            yield model_event
 
                 stop_reason, message, *_ = model_event["stop"]
                 yield ModelMessageEvent(message=message)
@@ -353,8 +375,9 @@ async def event_loop_cycle(
                     structured_output_context=structured_output_context,
                     limits=limits,
                 )
-                async for tool_event in tool_events:
-                    yield tool_event
+                async with aclosing(tool_events):
+                    async for tool_event in tool_events:
+                        yield tool_event
 
                 return
 
@@ -380,8 +403,9 @@ async def event_loop_cycle(
                     structured_output_context=structured_output_context,
                     limits=limits,
                 )
-                async for typed_event in events:
-                    yield typed_event
+                async with aclosing(events):
+                    async for typed_event in events:
+                        yield typed_event
                 return
 
             tracer.end_event_loop_cycle_span(cycle_span, message)
@@ -442,8 +466,9 @@ async def recurse_event_loop(
         structured_output_context=structured_output_context,
         limits=limits,
     )
-    async for event in events:
-        yield event
+    async with aclosing(events):
+        async for event in events:
+            yield event
 
     recursive_trace.end()
 
@@ -558,13 +583,15 @@ async def _handle_model_execution(
             # Run through middleware chain. The last yielded event is ModelStopReason
             # which serves as both the streaming result event and the middleware result.
             last_event = None
-            async for event in agent._middleware_registry.invoke(
+            events = agent._middleware_registry.invoke(
                 InvokeModelStage,
                 middleware_context,
                 _make_invoke_model_terminal(agent, cycle_span, tracer, model_state_snapshot),
-            ):
-                last_event = event
-                yield event
+            )
+            async with aclosing(events):
+                async for event in events:
+                    last_event = event
+                    yield event
 
             if last_event is None:
                 raise RuntimeError(
@@ -683,7 +710,7 @@ def _make_invoke_model_terminal(
         )
         with trace_api.use_span(model_invoke_span, end_on_exit=False):
             try:
-                async for event in stream_messages(
+                events = stream_messages(
                     ctx.model,
                     system_prompt_str,
                     ctx.messages,
@@ -694,13 +721,18 @@ def _make_invoke_model_terminal(
                     model_state=model_state,
                     dynamic_trailing_blocks=ctx.dynamic_trailing_blocks,
                     cancel_signal=agent._cancel_signal,
-                ):
-                    yield event
+                )
+                async with aclosing(events):
+                    async for event in events:
+                        yield event
 
                 stop_reason, message, usage, metrics = event["stop"]
                 tracer.end_model_invoke_span(model_invoke_span, message, usage, metrics, stop_reason)
             except Exception as e:
                 tracer.end_span_with_error(model_invoke_span, str(e), e)
+                raise
+            except BaseException as cancellation:
+                tracer._end_span_with_cancellation(model_invoke_span, cancellation)
                 raise
 
     return terminal
@@ -728,6 +760,9 @@ async def _stop_for_interrupts(
     agent._interrupt_state.activate()
 
     agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
+    if cycle_span:
+        tracer.end_event_loop_cycle_span(span=cycle_span, message=message)
+
     yield EventLoopStopEvent(
         "interrupt",
         message,
@@ -736,9 +771,6 @@ async def _stop_for_interrupts(
         interrupts,
         structured_output=structured_output_result,
     )
-    # End the cycle span before yielding the recursive cycle.
-    if cycle_span:
-        tracer.end_event_loop_cycle_span(span=cycle_span, message=message)
 
 
 async def _handle_tool_execution(
@@ -844,11 +876,12 @@ async def _handle_tool_execution(
             tool_events = agent.tool_executor._execute(
                 agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
             )
-            async for tool_event in tool_events:
-                if isinstance(tool_event, ToolInterruptEvent):
-                    interrupts.extend(tool_event["tool_interrupt_event"]["interrupts"])
+            async with aclosing(tool_events):
+                async for tool_event in tool_events:
+                    if isinstance(tool_event, ToolInterruptEvent):
+                        interrupts.extend(tool_event["tool_interrupt_event"]["interrupts"])
 
-                yield tool_event
+                    yield tool_event
 
             if structured_output_context.is_enabled:
                 if structured_output_result := structured_output_context.extract_result(tool_uses):
@@ -964,5 +997,6 @@ async def _handle_tool_execution(
         structured_output_context=structured_output_context,
         limits=limits,
     )
-    async for event in events:
-        yield event
+    async with aclosing(events):
+        async for event in events:
+            yield event

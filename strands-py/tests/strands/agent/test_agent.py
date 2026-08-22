@@ -1,3 +1,4 @@
+import asyncio
 import copy
 import importlib
 import json
@@ -6,11 +7,15 @@ import textwrap
 import threading
 import unittest.mock
 import warnings
+from collections import Counter
 from collections.abc import AsyncGenerator
 from typing import Any
 from uuid import uuid4
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from pydantic import BaseModel
 
 import strands
@@ -26,7 +31,7 @@ from strands.interrupt import Interrupt
 from strands.memory import MemoryManager, MemoryManagerConfig
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.session.repository_session_manager import RepositorySessionManager
-from strands.telemetry.tracer import serialize
+from strands.telemetry.tracer import Tracer, serialize
 from strands.types._events import EventLoopStopEvent, ModelStreamEvent
 from strands.types.agent import ConcurrentInvocationMode
 from strands.types.content import ContentBlock, Messages
@@ -1485,6 +1490,275 @@ async def test_agent_stream_async_creates_and_ends_span_on_success(
 
     # Verify span was ended with the result
     mock_tracer.end_agent_span.assert_called_once_with(span=mock_span, response=expected_response)
+
+
+@pytest.mark.asyncio
+@unittest.mock.patch("strands.agent.agent.get_tracer")
+async def test_agent_stream_async_ends_span_before_result_yield(mock_get_tracer, mock_event_loop_cycle, mock_model):
+    # Guards terminal-result span ordering for https://github.com/strands-agents/harness-sdk/issues/3609.
+    mock_tracer = unittest.mock.MagicMock()
+    mock_span = unittest.mock.MagicMock()
+    mock_tracer.start_agent_span.return_value = mock_span
+    mock_get_tracer.return_value = mock_tracer
+
+    async def test_event_loop(*args, **kwargs):
+        yield EventLoopStopEvent("stop", {"role": "assistant", "content": [{"text": "Agent Response"}]}, {}, {})
+
+    mock_event_loop_cycle.side_effect = test_event_loop
+    agent = Agent(model=mock_model)
+    stream = agent.stream_async("test prompt")
+
+    try:
+        while True:
+            tru_event = await anext(stream)
+            if "result" in tru_event:
+                break
+
+        exp_response = AgentResult(
+            stop_reason="stop",
+            message={"role": "assistant", "content": [{"text": "Agent Response"}]},
+            metrics={},
+            state={},
+        )
+        mock_tracer.end_agent_span.assert_called_once_with(span=mock_span, response=exp_response)
+    finally:
+        await stream.aclose()
+
+
+@pytest.mark.asyncio
+@unittest.mock.patch("strands.agent.agent.get_tracer")
+async def test_agent_stream_async_ends_span_on_cancellation(mock_get_tracer, mock_event_loop_cycle, mock_model, alist):
+    # Guards root-span cancellation for https://github.com/strands-agents/harness-sdk/issues/3609.
+    mock_tracer = unittest.mock.MagicMock()
+    mock_span = unittest.mock.MagicMock()
+    mock_tracer.start_agent_span.return_value = mock_span
+    mock_get_tracer.return_value = mock_tracer
+    cancellation = asyncio.CancelledError()
+
+    async def cancelled_event_loop(*args, **kwargs):
+        raise cancellation
+        yield
+
+    mock_event_loop_cycle.side_effect = cancelled_event_loop
+    agent = Agent(model=mock_model)
+
+    with pytest.raises(asyncio.CancelledError):
+        await alist(agent.stream_async("test prompt"))
+
+    mock_tracer._end_span_with_cancellation.assert_called_once_with(mock_span, cancellation)
+
+
+@pytest.mark.asyncio
+async def test_agent_stream_async_early_close_ends_all_started_spans():
+    # Guards synchronous delegated-generator cleanup for https://github.com/strands-agents/harness-sdk/issues/3609.
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+    tracer = Tracer()
+    tracer.tracer_provider = provider
+    tracer.tracer = provider.get_tracer(tracer.service_name)
+
+    model_started = asyncio.Event()
+    model_closed = asyncio.Event()
+    never_complete = asyncio.Event()
+
+    class ClosableSlowModel(MockedModelProvider):
+        async def stream(self, *args, **kwargs):
+            try:
+                model_started.set()
+                yield {"messageStart": {"role": "assistant"}}
+                await never_complete.wait()
+            finally:
+                model_closed.set()
+
+    model = ClosableSlowModel([])
+
+    with (
+        unittest.mock.patch("strands.agent.agent.get_tracer", return_value=tracer),
+        unittest.mock.patch("strands.event_loop.event_loop.get_tracer", return_value=tracer),
+    ):
+        agent = Agent(model=model, callback_handler=None)
+        stream = agent.stream_async("test prompt")
+        try:
+            while not model_started.is_set():
+                await anext(stream)
+        finally:
+            await stream.aclose()
+
+    assert model_closed.is_set()
+    provider.force_flush()
+    tru_span_names = {span.name.split()[0] for span in exporter.get_finished_spans()}
+    exp_span_names = {"invoke_agent", "execute_event_loop_cycle", "chat"}
+    assert tru_span_names == exp_span_names
+
+
+@pytest.mark.asyncio
+async def test_agent_stream_async_early_close_ends_started_tool_span():
+    # Guards synchronous tool-generator cleanup for https://github.com/strands-agents/harness-sdk/issues/3609.
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+    tracer = Tracer()
+    tracer.tracer_provider = provider
+    tracer.tracer = provider.get_tracer(tracer.service_name)
+
+    model = MockedModelProvider(
+        [
+            {
+                "role": "assistant",
+                "content": [
+                    {"toolUse": {"toolUseId": "tool-id", "name": "weather", "input": {}}},
+                ],
+            }
+        ]
+    )
+
+    tool_started = asyncio.Event()
+    tool_closed = asyncio.Event()
+    never_complete = asyncio.Event()
+
+    @strands.tool(name="weather")
+    async def weather() -> AsyncGenerator[Any, None]:
+        try:
+            tool_started.set()
+            yield "partial"
+            await never_complete.wait()
+        finally:
+            tool_closed.set()
+
+    with (
+        unittest.mock.patch("strands.agent.agent.get_tracer", return_value=tracer),
+        unittest.mock.patch("strands.event_loop.event_loop.get_tracer", return_value=tracer),
+        unittest.mock.patch("strands.tools.executors._executor.get_tracer", return_value=tracer),
+    ):
+        agent = Agent(model=model, tools=[weather], callback_handler=None)
+        stream = agent.stream_async("test prompt")
+        try:
+            while not tool_started.is_set():
+                await anext(stream)
+        finally:
+            await stream.aclose()
+
+    assert tool_closed.is_set()
+    provider.force_flush()
+    tru_span_names = {span.name.split()[0] for span in exporter.get_finished_spans()}
+    exp_span_names = {"invoke_agent", "execute_event_loop_cycle", "chat", "execute_tool"}
+    assert tru_span_names == exp_span_names
+
+
+@pytest.mark.asyncio
+async def test_agent_stream_async_early_close_ends_recursive_cycle_spans():
+    # Guards recursive-cycle cleanup for https://github.com/strands-agents/harness-sdk/issues/3609.
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+    tracer = Tracer()
+    tracer.tracer_provider = provider
+    tracer.tracer = provider.get_tracer(tracer.service_name)
+
+    second_model_started = asyncio.Event()
+    never_complete = asyncio.Event()
+
+    class RecursiveSlowModel(MockedModelProvider):
+        async def stream(self, *args, **kwargs):
+            if self.index == 1:
+                second_model_started.set()
+                yield {"messageStart": {"role": "assistant"}}
+                await never_complete.wait()
+                return
+
+            async for event in super().stream(*args, **kwargs):
+                yield event
+
+    model = RecursiveSlowModel(
+        [
+            {
+                "role": "assistant",
+                "content": [
+                    {"toolUse": {"toolUseId": "tool-id", "name": "weather", "input": {}}},
+                ],
+            },
+            {"role": "assistant", "content": [{"text": "unused"}]},
+        ]
+    )
+
+    @strands.tool(name="weather")
+    def weather():
+        return "sunny"
+
+    with (
+        unittest.mock.patch("strands.agent.agent.get_tracer", return_value=tracer),
+        unittest.mock.patch("strands.event_loop.event_loop.get_tracer", return_value=tracer),
+        unittest.mock.patch("strands.tools.executors._executor.get_tracer", return_value=tracer),
+    ):
+        agent = Agent(model=model, tools=[weather], callback_handler=None)
+        stream = agent.stream_async("test prompt")
+        try:
+            while not second_model_started.is_set():
+                await anext(stream)
+        finally:
+            await stream.aclose()
+
+    provider.force_flush()
+    tru_span_names = Counter(span.name.split()[0] for span in exporter.get_finished_spans())
+    exp_span_names = Counter({"invoke_agent": 1, "execute_event_loop_cycle": 2, "chat": 2, "execute_tool": 1})
+    assert tru_span_names == exp_span_names
+
+
+@pytest.mark.asyncio
+async def test_agent_stream_async_early_close_ends_forced_structured_output_spans():
+    # Guards forced structured-output recursion for https://github.com/strands-agents/harness-sdk/issues/3609.
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+    tracer = Tracer()
+    tracer.tracer_provider = provider
+    tracer.tracer = provider.get_tracer(tracer.service_name)
+
+    second_model_started = asyncio.Event()
+    never_complete = asyncio.Event()
+
+    class StructuredResult(BaseModel):
+        answer: str
+
+    class ForcedOutputSlowModel(MockedModelProvider):
+        async def stream(self, *args, **kwargs):
+            if self.index == 1:
+                second_model_started.set()
+                yield {"messageStart": {"role": "assistant"}}
+                await never_complete.wait()
+                return
+
+            async for event in super().stream(*args, **kwargs):
+                yield event
+
+    model = ForcedOutputSlowModel(
+        [
+            {"role": "assistant", "content": [{"text": "not structured"}]},
+            {"role": "assistant", "content": [{"text": "unused"}]},
+        ]
+    )
+
+    with (
+        unittest.mock.patch("strands.agent.agent.get_tracer", return_value=tracer),
+        unittest.mock.patch("strands.event_loop.event_loop.get_tracer", return_value=tracer),
+    ):
+        agent = Agent(model=model, callback_handler=None)
+        stream = agent.stream_async("test prompt", structured_output_model=StructuredResult)
+        try:
+            while not second_model_started.is_set():
+                await anext(stream)
+        finally:
+            await stream.aclose()
+
+    provider.force_flush()
+    tru_span_names = Counter(span.name.split()[0] for span in exporter.get_finished_spans())
+    exp_span_names = Counter({"invoke_agent": 1, "execute_event_loop_cycle": 2, "chat": 2})
+    assert tru_span_names == exp_span_names
 
 
 @unittest.mock.patch("strands.agent.agent.get_tracer")

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -106,6 +107,24 @@ def test_end_span(mock_span):
     # Check that set_attributes was called with the provided attributes
     mock_span.set_attributes.assert_called_once_with({"key": "value"})
     mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.end.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "cancellation",
+    [asyncio.CancelledError(), GeneratorExit(), KeyboardInterrupt(), SystemExit()],
+)
+def test_end_span_with_cancellation(mock_span, cancellation):
+    # Guards cancellation status and attribution for https://github.com/strands-agents/harness-sdk/issues/3609.
+    tracer = Tracer()
+
+    tracer._end_span_with_cancellation(mock_span, cancellation)
+
+    tru_attributes = mock_span.set_attributes.call_args.args[0]
+    exp_attributes = {"strands.cancellation.type": type(cancellation).__name__}
+    assert tru_attributes == exp_attributes
+    mock_span.set_status.assert_not_called()
+    mock_span.record_exception.assert_not_called()
     mock_span.end.assert_called_once()
 
 

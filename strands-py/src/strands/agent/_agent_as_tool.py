@@ -7,8 +7,11 @@ so it can be passed to another agent's tool list.
 from __future__ import annotations
 
 import copy
+import inspect
 import logging
 import threading
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
 from typing_extensions import override
@@ -28,6 +31,18 @@ DELEGATION_DESCRIPTION_SUFFIX = (
     " Calling this tool will return its response directly to the user as the final answer."
     " It should be the only tool called in the turn."
 )
+
+
+@asynccontextmanager
+async def _close_async_iterator(events: AsyncIterator[Any]) -> AsyncIterator[None]:
+    """Close an async iterator on exit when its implementation supports it."""
+    try:
+        yield
+    finally:
+        if aclose := getattr(events, "aclose", None):
+            close_result = aclose()
+            if inspect.isawaitable(close_result):
+                await close_result
 
 
 class _AgentAsTool(AgentTool):
@@ -217,11 +232,13 @@ class _AgentAsTool(AgentTool):
             logger.debug("tool_name=<%s>, tool_use_id=<%s> | invoking agent", self._tool_name, tool_use_id)
 
             result = None
-            async for event in self._agent.stream_async(prompt):
-                if "result" in event:
-                    result = event["result"]
-                else:
-                    yield AgentAsToolStreamEvent(tool_use, event, self)
+            events = self._agent.stream_async(prompt)
+            async with _close_async_iterator(events):
+                async for event in events:
+                    if "result" in event:
+                        result = event["result"]
+                    else:
+                        yield AgentAsToolStreamEvent(tool_use, event, self)
 
             if result is None:
                 yield ToolResultEvent(

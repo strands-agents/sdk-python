@@ -14,6 +14,7 @@ import logging
 import threading
 import warnings
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
+from contextlib import aclosing
 from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
@@ -1266,16 +1267,17 @@ class Agent(AgentBase):
                     # The result is the last EventLoopStopEvent, not the last event overall:
                     # AgentStreamStage middleware may yield trailing events after the stop event.
                     stop_event: EventLoopStopEvent | None = None
-                    async for event in events:
-                        event.prepare(invocation_state=merged_state)
+                    async with aclosing(events):
+                        async for event in events:
+                            event.prepare(invocation_state=merged_state)
 
-                        if isinstance(event, EventLoopStopEvent):
-                            stop_event = event
+                            if isinstance(event, EventLoopStopEvent):
+                                stop_event = event
 
-                        if event.is_callback_event:
-                            as_dict = event.as_dict()
-                            callback_handler(**as_dict)
-                            yield as_dict
+                            if event.is_callback_event:
+                                as_dict = event.as_dict()
+                                callback_handler(**as_dict)
+                                yield as_dict
 
                     if stop_event is None:
                         raise RuntimeError(
@@ -1285,13 +1287,15 @@ class Agent(AgentBase):
 
                     result = AgentResult(*stop_event["stop"])
                     callback_handler(result=result)
-                    yield AgentResultEvent(result=result).as_dict()
-
                     self._end_agent_trace_span(response=result)
+                    yield AgentResultEvent(result=result).as_dict()
 
                 except Exception as e:
                     self._end_agent_trace_span(error=e)
                     self._concurrency.complete(begin.registered_token, error=e)
+                    raise
+                except BaseException as cancellation:
+                    self._end_agent_trace_span(cancellation=cancellation)
                     raise
 
         finally:
@@ -1377,14 +1381,16 @@ class Agent(AgentBase):
                     _interrupts=dict(self._interrupt_state.interrupts) if self._interrupt_state.activated else {},
                 )
                 try:
-                    async for event in self._middleware_registry.invoke(
+                    events = self._middleware_registry.invoke(
                         AgentStreamStage,
                         middleware_context,
                         self._make_agent_stream_terminal(structured_output_context, limits, pass_progress),
-                    ):
-                        if isinstance(event, EventLoopStopEvent):
-                            agent_result = AgentResult(*event["stop"])
-                        yield event
+                    )
+                    async with aclosing(events):
+                        async for event in events:
+                            if isinstance(event, EventLoopStopEvent):
+                                agent_result = AgentResult(*event["stop"])
+                            yield event
 
                     # A resumed AgentStreamStage interrupt that finished without tool execution
                     # never hits the tool path's deactivate(), so clear the interrupt state here.
@@ -1484,25 +1490,26 @@ class Agent(AgentBase):
         async def terminal(ctx: "AgentStreamContext") -> AsyncGenerator[TypedEvent, None]:
             # Execute the event loop cycle with retry logic for context limits
             events = self._execute_event_loop_cycle(ctx.invocation_state, structured_output_context, limits)
-            async for event in events:
-                if isinstance(event, EventLoopStopEvent):
-                    pass_progress.event_loop_produced_result = True
+            async with aclosing(events):
+                async for event in events:
+                    if isinstance(event, EventLoopStopEvent):
+                        pass_progress.event_loop_produced_result = True
 
-                # Signal from the model provider that the message sent by the user should be redacted,
-                # likely due to a guardrail.
-                if (
-                    isinstance(event, ModelStreamChunkEvent)
-                    and event.chunk
-                    and event.chunk.get("redactContent")
-                    and event.chunk["redactContent"].get("redactUserContentMessage")
-                ):
-                    self.messages[-1]["content"] = self._redact_user_content(
-                        self.messages[-1]["content"],
-                        str(event.chunk["redactContent"]["redactUserContentMessage"]),
-                    )
-                    if self._session_manager:
-                        self._session_manager.redact_latest_message(self.messages[-1], self)
-                yield event
+                    # Signal from the model provider that the message sent by the user should be redacted,
+                    # likely due to a guardrail.
+                    if (
+                        isinstance(event, ModelStreamChunkEvent)
+                        and event.chunk
+                        and event.chunk.get("redactContent")
+                        and event.chunk["redactContent"].get("redactUserContentMessage")
+                    ):
+                        self.messages[-1]["content"] = self._redact_user_content(
+                            self.messages[-1]["content"],
+                            str(event.chunk["redactContent"]["redactUserContentMessage"]),
+                        )
+                        if self._session_manager:
+                            self._session_manager.redact_latest_message(self.messages[-1], self)
+                    yield event
 
         return terminal
 
@@ -1539,8 +1546,9 @@ class Agent(AgentBase):
                 structured_output_context=structured_output_context,
                 limits=limits,
             )
-            async for event in events:
-                yield event
+            async with aclosing(events):
+                async for event in events:
+                    yield event
 
         except ContextWindowOverflowException as e:
             # Try reducing the context size and retrying
@@ -1551,8 +1559,9 @@ class Agent(AgentBase):
                 self._session_manager.sync_agent(self)
 
             events = self._execute_event_loop_cycle(invocation_state, structured_output_context, limits)
-            async for event in events:
-                yield event
+            async with aclosing(events):
+                async for event in events:
+                    yield event
 
         finally:
             if structured_output_context:
@@ -1658,16 +1667,21 @@ class Agent(AgentBase):
     def _end_agent_trace_span(
         self,
         response: AgentResult | None = None,
-        error: Exception | None = None,
+        error: BaseException | None = None,
+        cancellation: BaseException | None = None,
     ) -> None:
         """Ends a trace span for the agent.
 
         Args:
-            span: The span to end.
             response: Response to record as a trace attribute.
             error: Error to record as a trace attribute.
+            cancellation: Cancellation that aborted the invocation.
         """
         if self.trace_span:
+            if cancellation is not None:
+                self.tracer._end_span_with_cancellation(self.trace_span, cancellation)
+                return
+
             trace_attributes: dict[str, Any] = {
                 "span": self.trace_span,
             }
