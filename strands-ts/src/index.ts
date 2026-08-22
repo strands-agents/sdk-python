@@ -102,12 +102,16 @@ export type {
 export { CitationsBlock } from './types/citations.js'
 
 // Media classes
-export { S3Location, ImageBlock, VideoBlock, DocumentBlock } from './types/media.js'
+export { S3Location, AudioBlock, ImageBlock, VideoBlock, DocumentBlock } from './types/media.js'
 
 // Media types
 export type {
   LocationData,
   S3LocationData,
+  AudioFormat,
+  AudioSource,
+  AudioSourceData,
+  AudioBlockData,
   ImageFormat,
   ImageSource,
   ImageSourceData,

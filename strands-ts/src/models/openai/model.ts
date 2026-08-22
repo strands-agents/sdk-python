@@ -13,7 +13,7 @@ import type { ResponseStreamEvent } from 'openai/resources/responses/responses'
 import { Model, resolveConfigMetadata } from '../model.js'
 import type { StreamOptions } from '../model.js'
 import type { Message } from '../../types/messages.js'
-import type { ModelStreamEvent } from '../streaming.js'
+import type { ModelStreamEvent, Usage } from '../streaming.js'
 import { ContextWindowOverflowError, ModelThrottledError } from '../../errors.js'
 import { logger } from '../../logging/logger.js'
 import { warnOnce } from '../../logging/warn-once.js'
@@ -192,7 +192,7 @@ export class OpenAIModel extends Model<OpenAIModelConfig> {
 
       let bufferedUsage: {
         type: 'modelMetadataEvent'
-        usage: { inputTokens: number; outputTokens: number; totalTokens: number }
+        usage: Usage
       } | null = null
 
       for await (const chunk of stream) {
@@ -205,6 +205,11 @@ export class OpenAIModel extends Model<OpenAIModelConfig> {
                 outputTokens: chunk.usage.completion_tokens ?? 0,
                 totalTokens: chunk.usage.total_tokens ?? 0,
               },
+            }
+            // Match the Responses path's present-and-positive guard so the two OpenAI paths agree.
+            const cached = chunk.usage.prompt_tokens_details?.cached_tokens
+            if (typeof cached === 'number' && cached > 0) {
+              bufferedUsage.usage.cacheReadInputTokens = cached
             }
           }
           continue

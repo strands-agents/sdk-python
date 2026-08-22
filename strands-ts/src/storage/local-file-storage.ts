@@ -1,8 +1,9 @@
 import type { Sandbox } from '../sandbox/base.js'
-import type { Storage } from './storage.js'
+import type { Storage, StorageSearchResult } from './storage.js'
 
 import { StorageError } from '../errors.js'
 import { namespace, normalizeKey, normalizePrefix } from './storage.js'
+import { KeywordSearchStrategy } from './search/keyword.js'
 
 /**
  * Returns true if the error represents a missing or non-directory path (ENOENT or ENOTDIR).
@@ -227,6 +228,16 @@ export class LocalFileStorage implements Storage {
     }
 
     return walk(dir, keyPrefix)
+  }
+
+  /**
+   * Searches stored content by keyword token-overlap scoring.
+   *
+   * @param query - Natural-language search query
+   * @returns All matches with relevance scores, ranked best-first
+   */
+  async search(query: string): Promise<StorageSearchResult[]> {
+    return KeywordSearchStrategy.search(this, query)
   }
 
   /**

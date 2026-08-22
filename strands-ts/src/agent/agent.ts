@@ -122,6 +122,7 @@ import {
   pinContextTool,
   createTokenUsageMiddleware,
 } from '../context-manager/modes/agentic/agentic-context.js'
+import { ContextManager } from '../context-manager/context-manager.js'
 
 /**
  * Recursive type definition for nested tool arrays.
@@ -149,10 +150,20 @@ export type ToolList = (Tool | McpClient | Agent | ToolList)[]
 export type ToolExecutorStrategy = 'sequential' | 'concurrent'
 
 /**
- * Supported values for the `contextManager` parameter.
+ * Supported string presets for the `contextManager` parameter.
  */
 export const CONTEXT_MANAGER_STRATEGIES = ['auto', 'agentic'] as const
-export type ContextManagerStrategy = (typeof CONTEXT_MANAGER_STRATEGIES)[number]
+type ContextManagerPreset = (typeof CONTEXT_MANAGER_STRATEGIES)[number]
+
+/**
+ * Supported values for the `contextManager` parameter.
+ *
+ * - `"auto"`: Managed context with proactive compression + offloading.
+ * - `"agentic"`: Model-driven context management via injected tools.
+ * - `ContextManager` instance: Full control over strategy-driven offloading.
+ * - `false`: Explicitly disable all context management (no compression, no offloading).
+ */
+export type ContextManagerStrategy = ContextManagerPreset | ContextManager | false
 
 /** Benchmark-validated token threshold for offloading tool results. */
 const CONTEXT_MANAGER_MAX_RESULT_TOKENS = 1_500
@@ -223,13 +234,15 @@ export type AgentConfig = {
    */
   conversationManager?: ConversationManager
   /**
-   * Context management strategy.
+   * Context management strategy that controls how messages are compressed and offloaded.
    *
    * - `"auto"`: SummarizingConversationManager with proactive compression + ContextOffloader.
    * - `"agentic"`: (Experimental) Lets the model drive context management via injected tools.
    *   This mode may change in future versions.
+   * - `ContextManager` instance: Strategy-driven offloading with overflow recovery.
+   * - `false`: Explicitly disable context management (no compression, no offloading).
    *
-   * If `conversationManager` is also provided, the user's conversation manager is used instead.
+   * When a `ContextManager` instance is provided, any co-provided `conversationManager` is ignored.
    * Defaults to undefined (SlidingWindowConversationManager, no offloader).
    *
    * @remarks The offloader uses in-memory storage by default. When an agent-level
@@ -342,11 +355,19 @@ export type AgentConfig = {
  * When "auto", uses SummarizingConversationManager with proactive compression.
  * When "agentic", uses SummarizingConversationManager without proactive compression
  * (the agent manages its context via tools; the context manager is only a reactive safety net).
+ * When a ContextManager instance, uses NullConversationManager — the ContextManager owns
+ * overflow recovery via apply().
  */
 function resolveConversationManager(
   contextManager: ContextManagerStrategy | undefined,
   conversationManager: ConversationManager | undefined
 ): ConversationManager {
+  if (contextManager === false) {
+    return conversationManager ?? new NullConversationManager()
+  }
+  if (contextManager instanceof ContextManager) {
+    return new NullConversationManager()
+  }
   if (contextManager === 'agentic') {
     return (
       conversationManager ??
@@ -453,6 +474,10 @@ export class Agent implements LocalAgent, InvokableAgent {
   public readonly description?: string
 
   /**
+   * The context manager for strategy-driven offloading, if configured.
+   */
+  public readonly contextManager?: ContextManager | undefined
+  /**
    * The session manager for saving and restoring agent sessions, if configured.
    */
   public readonly sessionManager?: SessionManager | undefined
@@ -515,6 +540,7 @@ export class Agent implements LocalAgent, InvokableAgent {
     this.name = config?.name ?? DEFAULT_AGENT_NAME
     this.id = config?.id ?? DEFAULT_AGENT_ID
     if (config?.description !== undefined) this.description = config.description
+    this.contextManager = config?.contextManager instanceof ContextManager ? config.contextManager : undefined
     this.sessionManager = config?.sessionManager
     this.storage = config?.storage
     this.memoryManager =
@@ -559,7 +585,7 @@ export class Agent implements LocalAgent, InvokableAgent {
     this._middlewareRegistry = new MiddlewareRegistry()
 
     if (config?.contextManager === 'agentic') {
-      this._middlewareRegistry.addInput(InvokeModelStage.Input, createTokenUsageMiddleware(this.model))
+      this._middlewareRegistry.addInput(InvokeModelStage.Input, createTokenUsageMiddleware())
     }
 
     // `undefined` (omitted) → install the default; `null`/`[]` → explicit opt-out.
@@ -582,11 +608,12 @@ export class Agent implements LocalAgent, InvokableAgent {
     //   guards on `event.retry`, so a user hook that already set it short-circuits
     //   the strategy regardless of registration order.
     const hasOffloader = (config?.plugins ?? []).some((p) => p.name === 'strands:context-offloader')
-
     // Always register AgentDelegation so delegation semantics work regardless of
     // when a delegate tool is added (construction, plugin getTools, MCP, runtime).
     // The plugin is a no-op when no delegation tools fire.
     const hasAgentDelegation = (config?.plugins ?? []).some((p) => p.name === 'strands:agent-delegation')
+
+    const contextManagerPlugin = config?.contextManager instanceof ContextManager ? config.contextManager : undefined
 
     this._pluginRegistry = new PluginRegistry([
       this._conversationManager,
@@ -605,6 +632,7 @@ export class Agent implements LocalAgent, InvokableAgent {
           ]
         : []),
       ...(this.memoryManager ? [this.memoryManager] : []),
+      ...(contextManagerPlugin ? [contextManagerPlugin] : []),
       ...(config?.sessionManager ? [config.sessionManager] : []),
       new ModelPlugin(this.model),
     ])
@@ -2167,6 +2195,7 @@ export class Agent implements LocalAgent, InvokableAgent {
   ): AsyncGenerator<AgentStreamEvent, StreamAggregatedResult, undefined> {
     const context: InvokeModelContext = {
       agent: this,
+      model: this.model,
       messages: this.messages.map((msg) => msg.clone()),
       ...(this.systemPrompt !== undefined && { systemPrompt: cloneSystemPrompt(this.systemPrompt) }),
       toolSpecs: deepCopy(this._toolRegistry.list().map((tool) => tool.toolSpec)) as unknown as ToolSpec[],
@@ -2188,7 +2217,7 @@ export class Agent implements LocalAgent, InvokableAgent {
       InvokeModelStage,
       context,
       async function* (ctx: InvokeModelContext): AsyncGenerator<AgentStreamEvent, InvokeModelResult, undefined> {
-        const modelId = self.model.modelId
+        const modelId = ctx.model.modelId
         const modelSpan = self._tracer.startModelInvokeSpan({
           messages: ctx.messages as Message[],
           ...(modelId && { modelId }),
@@ -2208,7 +2237,7 @@ export class Agent implements LocalAgent, InvokableAgent {
             // Omitted when zero, so an ordinary call's options are unchanged.
             ...(ctx.dynamicTrailingBlocks ? { dynamicTrailingBlocks: ctx.dynamicTrailingBlocks } : {}),
           }
-          const gen = self._streamFromModel(ctx.messages as Message[], streamOptions, ctx.invocationState)
+          const gen = self._streamFromModel(ctx.model, ctx.messages as Message[], streamOptions, ctx.invocationState)
           let iterResult = await gen.next()
           while (!iterResult.done) {
             yield iterResult.value
@@ -2254,17 +2283,19 @@ export class Agent implements LocalAgent, InvokableAgent {
    * These are separate event classes because they represent different granularities
    * (partial deltas vs finished blocks). Both are yielded in the stream and hookable.
    *
+   * @param model - Model selected for this call
    * @param messages - Messages to send to the model
    * @param streamOptions - Options for streaming
    * @returns StreamAggregatedResult containing message, stop reason, and optional redaction message
    */
   private async *_streamFromModel(
+    model: Model,
     messages: Message[],
     streamOptions: StreamOptions,
     invocationState: InvocationState
   ): AsyncGenerator<AgentStreamEvent, StreamAggregatedResult, undefined> {
     messages = normalizeToolUseNames(messages)
-    const streamGenerator = this.model.streamAggregated(messages, streamOptions)
+    const streamGenerator = model.streamAggregated(messages, streamOptions)
     try {
       let result = await streamGenerator.next()
 

@@ -385,16 +385,19 @@ class AnthropicModel(Model):
         system_prompt: str | None = None,
         tool_choice: ToolChoice | None = None,
         dynamic_trailing_blocks: int = 0,
+        *,
+        system_prompt_content: list[SystemContentBlock] | None = None,
     ) -> dict[str, Any]:
         """Format an Anthropic streaming request.
 
         Args:
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
-            system_prompt: System prompt to provide context to the model.
+            system_prompt: Plain string system prompt. Ignored when system_prompt_content is provided.
             tool_choice: Selection strategy for tool invocation.
             dynamic_trailing_blocks: How many trailing blocks of the last user message are rebuilt on
                 every call, so the cache point stays ahead of them.
+            system_prompt_content: Structured system prompt content blocks, which can carry a cache point.
 
         Returns:
             An Anthropic streaming request.
@@ -418,7 +421,14 @@ class AnthropicModel(Model):
         cache_tools = self.config.get("cache_tools")
         if cache_tools and tools:
             ttl = cache_tools.ttl if isinstance(cache_tools, CacheToolsConfig) else None
+
+            if not ttl:
+                cache_config = self.config.get("cache_config")
+                if cache_config and cache_config.ttl and cache_config.strategy in ("auto", "anthropic"):
+                    ttl = cache_config.ttl
             tools[-1]["cache_control"] = self._format_cache_control(ttl)
+
+        system = self._format_system_prompt(system_prompt, system_prompt_content)
 
         request = {
             "max_tokens": self.config["max_tokens"],
@@ -426,11 +436,57 @@ class AnthropicModel(Model):
             "model": self.config["model_id"],
             "tools": tools,
             **(self._format_tool_choice(tool_choice)),
-            **({"system": system_prompt} if system_prompt else {}),
+            **({"system": system} if system else {}),
             **(self.config.get("params") or {}),
         }
 
         return request
+
+    def _format_system_prompt(
+        self, system_prompt: str | None, system_prompt_content: list[SystemContentBlock] | None
+    ) -> str | list[dict[str, Any]] | None:
+        """Format the system prompt for the Anthropic API, auto-injecting a cache point at its end.
+
+        Args:
+            system_prompt: Plain string system prompt. Ignored when system_prompt_content is provided.
+            system_prompt_content: Structured system prompt content blocks.
+
+        Returns:
+            The API system value (string or text blocks), or None when no system prompt is given.
+        """
+        cache_config = self.config.get("cache_config")
+        if cache_config is None or cache_config.strategy not in ("auto", "anthropic"):
+            managed_ttl: str | None = None
+            auto_inject = False
+        else:
+            system_prompt_ttl = cache_config.system_prompt_ttl
+            managed_ttl = system_prompt_ttl if isinstance(system_prompt_ttl, str) else cache_config.ttl
+            auto_inject = system_prompt_ttl is not False
+
+        if system_prompt_content is None:
+            if not system_prompt:
+                return None
+            if not auto_inject:
+                return system_prompt
+            return [{"type": "text", "text": system_prompt, "cache_control": self._format_cache_control(managed_ttl)}]
+
+        formatted: list[dict[str, Any]] = []
+        placed = False
+        for block in system_prompt_content:
+            if "cachePoint" in block:
+                if formatted and "cache_control" in formatted[-1]:
+                    logger.warning("stripped an extra system cache point | keeping the earlier point on the block")
+                elif self._attach_cache_control(formatted, block["cachePoint"].get("ttl") or managed_ttl):
+                    placed = True
+                continue
+            if "text" in block:
+                formatted.append({"type": "text", "text": block["text"]})
+
+        if not formatted:
+            return None
+        if auto_inject and not placed:
+            formatted[-1]["cache_control"] = self._format_cache_control(managed_ttl)
+        return formatted
 
     @staticmethod
     def _format_tool_choice(tool_choice: ToolChoice | None) -> dict:
@@ -598,10 +654,9 @@ class AnthropicModel(Model):
             return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
 
         try:
-            # system_prompt_content is not used; this provider only accepts system_prompt as a plain string,
-            # matching the behavior of stream(). The caller always provides system_prompt alongside
-            # system_prompt_content, so the plain string is always available.
-            request = self.format_request(messages, tool_specs, system_prompt)
+            request = self.format_request(
+                messages, tool_specs, system_prompt, system_prompt_content=system_prompt_content
+            )
             # Keep only fields accepted by count_tokens; strip inference params (max_tokens, temperature, etc.)
             count_tokens_fields = {"model", "messages", "tools", "tool_choice", "system"}
             request = {k: request[k] for k in request.keys() & count_tokens_fields}
@@ -631,6 +686,7 @@ class AnthropicModel(Model):
         system_prompt: str | None = None,
         *,
         tool_choice: ToolChoice | None = None,
+        system_prompt_content: list[SystemContentBlock] | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the Anthropic model.
@@ -638,8 +694,9 @@ class AnthropicModel(Model):
         Args:
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
-            system_prompt: System prompt to provide context to the model.
+            system_prompt: Plain string system prompt. Ignored when system_prompt_content is provided.
             tool_choice: Selection strategy for tool invocation.
+            system_prompt_content: Structured system prompt content blocks, which can carry a cache point.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
@@ -651,7 +708,12 @@ class AnthropicModel(Model):
         """
         logger.debug("formatting request")
         request = self.format_request(
-            messages, tool_specs, system_prompt, tool_choice, kwargs.get("dynamic_trailing_blocks", 0)
+            messages,
+            tool_specs,
+            system_prompt,
+            system_prompt_content=system_prompt_content,
+            tool_choice=tool_choice,
+            dynamic_trailing_blocks=kwargs.get("dynamic_trailing_blocks", 0),
         )
         logger.debug("request=<%s>", request)
 

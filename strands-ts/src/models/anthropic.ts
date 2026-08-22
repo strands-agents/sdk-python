@@ -9,7 +9,7 @@ import {
   type CacheConfig,
   type ResolvedCacheSection,
 } from '../models/model.js'
-import type { Message, ContentBlock } from '../types/messages.js'
+import type { Message, ContentBlock, SystemPrompt } from '../types/messages.js'
 import type { ModelStreamEvent } from '../models/streaming.js'
 import { createEmptyUsage } from '../models/streaming.js'
 import { ContextWindowOverflowError, ModelThrottledError, normalizeError } from '../errors.js'
@@ -319,7 +319,7 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
   }
 
   /** Resolves a cache section, disabled when `cacheConfig` is unset or its strategy is unknown. */
-  private _cacheSection(section: 'toolsTTL' | 'messagesTTL'): ResolvedCacheSection {
+  private _cacheSection(section: 'toolsTTL' | 'messagesTTL' | 'systemPromptTTL'): ResolvedCacheSection {
     const cacheConfig = this._config.cacheConfig
     if (!cacheConfig) {
       return { enabled: false }
@@ -364,6 +364,53 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
     return false
   }
 
+  /**
+   * Formats the system prompt for the Anthropic API, auto-injecting a cache point at its end.
+   *
+   * @param systemPrompt - The system prompt as a string or content blocks.
+   * @returns The API system value (string or text blocks), or undefined when nothing cacheable remains.
+   */
+  private _formatSystemPrompt(systemPrompt: SystemPrompt): string | Anthropic.TextBlockParam[] | undefined {
+    const systemCache = this._cacheSection('systemPromptTTL')
+
+    if (typeof systemPrompt === 'string') {
+      if (!systemCache.enabled) return systemPrompt
+      return [{ type: 'text', text: systemPrompt, cache_control: this._formatCacheControl(systemCache.ttl) }]
+    }
+
+    const systemBlocks: Anthropic.TextBlockParam[] = []
+    let hasPlacedCachePoint = false
+    for (let index = 0; index < systemPrompt.length; index++) {
+      const block = systemPrompt[index]
+      if (!block) continue
+      if (block.type === 'guardContentBlock') {
+        logger.warn(
+          'block_type=<guardContentBlock> | guard content not supported in anthropic system prompt | skipping'
+        )
+        continue
+      }
+      if (block.type !== 'textBlock') continue
+
+      const nextBlock = systemPrompt[index + 1]
+      const cacheControl =
+        nextBlock?.type === 'cachePointBlock' ? this._formatCacheControl(nextBlock.ttl || systemCache.ttl) : undefined
+      systemBlocks.push({ type: 'text', text: block.text, ...(cacheControl && { cache_control: cacheControl }) })
+      if (cacheControl) {
+        hasPlacedCachePoint = true
+        index++
+      }
+    }
+
+    if (systemBlocks.length === 0) return undefined
+
+    if (systemCache.enabled && !hasPlacedCachePoint) {
+      const lastBlock = systemBlocks[systemBlocks.length - 1]
+      if (lastBlock) lastBlock.cache_control = this._formatCacheControl(systemCache.ttl)
+    }
+
+    return systemBlocks
+  }
+
   private _formatRequest(messages: Message[], options?: StreamOptions): Anthropic.MessageStreamParams {
     if (!this._config.modelId) throw new Error('Model ID is required')
 
@@ -387,34 +434,8 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
     }
 
     if (options?.systemPrompt) {
-      if (typeof options.systemPrompt === 'string') {
-        request.system = options.systemPrompt
-      } else if (Array.isArray(options.systemPrompt)) {
-        const systemBlocks: Anthropic.TextBlockParam[] = []
-        for (let i = 0; i < options.systemPrompt.length; i++) {
-          const block = options.systemPrompt[i]
-          if (!block) continue
-
-          if (block.type === 'textBlock') {
-            const nextBlock = options.systemPrompt[i + 1]
-            const cacheControl =
-              nextBlock?.type === 'cachePointBlock' ? this._formatCacheControl(nextBlock.ttl) : undefined
-
-            systemBlocks.push({
-              type: 'text',
-              text: block.text,
-              ...(cacheControl && { cache_control: cacheControl }),
-            })
-
-            if (cacheControl) i++
-          } else if (block.type === 'guardContentBlock') {
-            logger.warn(
-              'block_type=<guardContentBlock> | guard content not supported in anthropic system prompt | skipping'
-            )
-          }
-        }
-        if (systemBlocks.length > 0) request.system = systemBlocks
-      }
+      const system = this._formatSystemPrompt(options.systemPrompt)
+      if (system !== undefined) request.system = system
     }
 
     if (options?.toolSpecs?.length) {

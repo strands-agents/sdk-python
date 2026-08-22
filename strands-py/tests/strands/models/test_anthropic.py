@@ -1319,6 +1319,28 @@ class TestCountTokens:
         assert call_kwargs["system"] == "Be helpful."
 
     @pytest.mark.asyncio
+    async def test_native_count_tokens_renders_system_prompt_content(
+        self, model_with_client, anthropic_client, messages
+    ):
+        """The count matches what stream() sends: system_prompt_content is rendered, not the plain string."""
+        model_with_client.update_config(cache_config=CacheConfig(strategy="auto"))
+        mock_response = unittest.mock.MagicMock()
+        mock_response.input_tokens = 42
+        anthropic_client.messages.count_tokens = unittest.mock.AsyncMock(return_value=mock_response)
+
+        result = await model_with_client.count_tokens(
+            messages=messages,
+            system_prompt="Be helpful.",
+            system_prompt_content=[{"text": "Be helpful."}],
+        )
+
+        assert result == 42
+        call_kwargs = anthropic_client.messages.count_tokens.call_args[1]
+        assert call_kwargs["system"] == [
+            {"type": "text", "text": "Be helpful.", "cache_control": {"type": "ephemeral"}}
+        ]
+
+    @pytest.mark.asyncio
     async def test_native_count_tokens_with_tool_specs(self, model_with_client, anthropic_client, messages, tool_specs):
         mock_response = unittest.mock.MagicMock()
         mock_response.input_tokens = 100
@@ -2134,3 +2156,159 @@ class TestPromptCaching:
         request = model.format_request(messages, dynamic_trailing_blocks=1)
 
         assert self._breakpoints(request) == []
+
+    def test_string_system_prompt_is_promoted_to_a_cached_block(self, model, messages):
+        """A plain string carries no cache_control, so it is rendered to a block that can."""
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+
+        request = model.format_request(messages, system_prompt="static prompt")
+
+        assert request["system"] == [{"type": "text", "text": "static prompt", "cache_control": {"type": "ephemeral"}}]
+
+    def test_auto_injects_a_system_cache_point_on_the_last_block(self, model, messages):
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        system_prompt_content = [{"text": "Heavy context"}, {"text": "More context"}]
+
+        request = model.format_request(messages, system_prompt_content=system_prompt_content)
+
+        # The default messages section also caches the last user message, so both points are present.
+        assert self._breakpoints(request) == [
+            ("system", "text", {"type": "ephemeral"}),
+            ("messages", 0, {"type": "ephemeral"}),
+        ]
+        assert "cache_control" not in request["system"][0]
+        assert request["system"][1]["cache_control"] == {"type": "ephemeral"}
+
+    def test_auto_injected_system_cache_point_inherits_cache_config_ttl(self, model, messages):
+        model.update_config(cache_config=CacheConfig(strategy="auto", ttl="1h"))
+
+        request = model.format_request(messages, system_prompt="static prompt")
+
+        assert request["system"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+
+    def test_system_prompt_ttl_false_leaves_the_system_prompt_uncached(self, model, messages):
+        model.update_config(cache_config=CacheConfig(strategy="auto", system_prompt_ttl=False))
+
+        request = model.format_request(messages, system_prompt="static prompt")
+
+        assert request["system"] == "static prompt"
+
+    def test_system_prompt_ttl_string_sets_the_section_duration(self, model, messages):
+        """A system_prompt_ttl string sets the system section's own duration rather than deriving from shared ttl."""
+        model.update_config(cache_config=CacheConfig(strategy="auto", ttl="5m", system_prompt_ttl="1h"))
+
+        request = model.format_request(messages, system_prompt="static prompt")
+
+        assert request["system"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+
+    def test_hand_placed_system_cache_point_is_not_doubled(self, model, messages):
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        system_prompt_content = [
+            {"text": "Heavy context"},
+            {"cachePoint": {"type": "default"}},
+            {"text": "Light context"},
+        ]
+
+        request = model.format_request(messages, system_prompt_content=system_prompt_content)
+
+        # The placed point on the first block is honored; the last block is not also cached.
+        assert self._breakpoints(request) == [
+            ("system", "text", {"type": "ephemeral"}),
+            ("messages", 0, {"type": "ephemeral"}),
+        ]
+        assert request["system"][0]["cache_control"] == {"type": "ephemeral"}
+        assert "cache_control" not in request["system"][1]
+
+    def test_hand_placed_system_cache_point_inherits_cache_config_ttl(self, model, messages):
+        """Parity with the messages path: a placed point with no TTL fills in ``cache_config.ttl``."""
+        model.update_config(cache_config=CacheConfig(strategy="auto", ttl="1h"))
+        system_prompt_content = [{"text": "Heavy context"}, {"cachePoint": {"type": "default"}}]
+
+        request = model.format_request(messages, system_prompt_content=system_prompt_content)
+
+        assert request["system"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+
+    def test_hand_placed_system_cache_point_keeps_its_own_ttl(self, model, messages):
+        """A TTL the caller wrote is more specific than the configured one."""
+        model.update_config(cache_config=CacheConfig(strategy="auto", ttl="1h"))
+        system_prompt_content = [{"text": "Heavy context"}, {"cachePoint": {"type": "default", "ttl": "5m"}}]
+
+        request = model.format_request(messages, system_prompt_content=system_prompt_content)
+
+        assert request["system"][0]["cache_control"] == {"type": "ephemeral", "ttl": "5m"}
+
+    def test_hand_placed_system_cache_point_is_honored_without_cache_config(self, model, messages):
+        """Mirrors the messages path: a placed point is honored even with caching unconfigured."""
+        system_prompt_content = [{"text": "Heavy context"}, {"cachePoint": {"type": "default"}}]
+
+        request = model.format_request(messages, system_prompt_content=system_prompt_content)
+
+        assert self._breakpoints(request) == [("system", "text", {"type": "ephemeral"})]
+
+    def test_system_prompt_content_without_a_placed_point_is_uncached_without_cache_config(self, model, messages):
+        system_prompt_content = [{"text": "Heavy context"}]
+
+        request = model.format_request(messages, system_prompt_content=system_prompt_content)
+
+        assert request["system"] == [{"type": "text", "text": "Heavy context"}]
+        assert self._breakpoints(request) == []
+
+    def test_adjacent_system_cache_points_keep_the_first_and_warn(self, model, messages, caplog):
+        """First-wins parity with the messages path: a second point on a block already carrying one is
+        dropped, not applied over the first. Swapping the two TTLs swaps which value survives."""
+        caplog.set_level(logging.WARNING, logger="strands.models.anthropic")
+
+        def system_points(system_prompt_content):
+            request = model.format_request(messages, system_prompt_content=system_prompt_content)
+            return [point for point in self._breakpoints(request) if point[0] == "system"]
+
+        first_wins = system_points(
+            [{"text": "ctx"}, {"cachePoint": {"type": "default", "ttl": "1h"}}, {"cachePoint": {"type": "default"}}]
+        )
+        swapped = system_points(
+            [{"text": "ctx"}, {"cachePoint": {"type": "default"}}, {"cachePoint": {"type": "default", "ttl": "1h"}}]
+        )
+
+        assert first_wins == [("system", "text", {"type": "ephemeral", "ttl": "1h"})]
+        assert swapped == [("system", "text", {"type": "ephemeral"})]
+        assert "stripped an extra system cache point" in caplog.text
+
+    def test_tool_choice_and_dynamic_trailing_blocks_stay_positional(self, model, messages, tool_specs):
+        """tool_choice and dynamic_trailing_blocks keep their released positional slots so an existing
+        positional call still routes them; only system_prompt_content is keyword-only."""
+        request = model.format_request(messages, tool_specs, "SYSTEM", {"any": {}}, 1)
+
+        assert request["tool_choice"] == {"type": "any"}
+
+    def test_system_prompt_content_is_keyword_only(self, model, messages, tool_specs):
+        """system_prompt_content is keyword-only so a sixth positional argument fails loudly rather than
+        landing silently in it."""
+        with pytest.raises(TypeError):
+            model.format_request(messages, tool_specs, "SYSTEM", {"any": {}}, 1, [{"text": "ctx"}])
+
+    def test_untimed_cache_tools_inherits_cache_config_ttl(self, model, messages, tool_specs):
+        """Mirrors the Bedrock tools point: an untimed cache_tools inherits cache_config.ttl so it is not
+        the lone 5m point ahead of the 1h system/messages points, which the API rejects."""
+        model.update_config(cache_config=CacheConfig(strategy="anthropic", ttl="1h"), cache_tools="default")
+
+        breakpoints = self._breakpoints(model.format_request(messages, tool_specs))
+
+        assert breakpoints == [
+            ("tools", "t2", {"type": "ephemeral", "ttl": "1h"}),
+            ("messages", 0, {"type": "ephemeral", "ttl": "1h"}),
+        ]
+
+    def test_leading_system_cache_point_falls_through_to_automatic_placement(self, model, messages):
+        """A point ahead of every text block cannot attach; auto-injection still caches the last block."""
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        system_prompt_content = [{"cachePoint": {"type": "default"}}, {"text": "ctx"}]
+
+        request = model.format_request(messages, system_prompt_content=system_prompt_content)
+
+        assert request["system"] == [{"type": "text", "text": "ctx", "cache_control": {"type": "ephemeral"}}]
+
+    def test_system_prompt_content_with_no_renderable_blocks_omits_the_system_field(self, model, messages):
+        """Blocks carrying neither text nor a cache point render nothing, so no system field is sent."""
+        request = model.format_request(messages, system_prompt_content=[{}])
+
+        assert "system" not in request
