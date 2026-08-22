@@ -10,9 +10,8 @@ import pydantic
 import pytest
 
 from strands import Agent, tool
+from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID
 from strands.models.bedrock_invoke import BedrockInvokeModel
-
-CLAUDE_ID = "anthropic.claude-3-5-sonnet-20241022-v2:0"
 
 
 @tool
@@ -22,7 +21,7 @@ def string_length(string_to_measure: str) -> str:
 
 
 def test_bedrock_invoke_basic_text_generation():
-    agent = Agent(BedrockInvokeModel(model_id=CLAUDE_ID, max_tokens=64, temperature=0.0))
+    agent = Agent(BedrockInvokeModel(model_id=DEFAULT_BEDROCK_MODEL_ID, max_tokens=64, temperature=0.0))
     result = agent("Reply with the single word: ack")
     assert result.message["content"]
     assert result.stop_reason in ("end_turn", "stop_sequence", "max_tokens")
@@ -30,7 +29,7 @@ def test_bedrock_invoke_basic_text_generation():
 
 def test_bedrock_invoke_tool_use():
     agent = Agent(
-        BedrockInvokeModel(model_id=CLAUDE_ID, max_tokens=256, temperature=0.0),
+        BedrockInvokeModel(model_id=DEFAULT_BEDROCK_MODEL_ID, max_tokens=256, temperature=0.0),
         tools=[string_length],
     )
     assert agent('Use the string_length tool to measure the string "abcdef".').message["content"]
@@ -41,7 +40,7 @@ def test_bedrock_invoke_structured_output():
         name: str
         age: int
 
-    agent = Agent(BedrockInvokeModel(model_id=CLAUDE_ID, max_tokens=128, temperature=0.0))
+    agent = Agent(BedrockInvokeModel(model_id=DEFAULT_BEDROCK_MODEL_ID, max_tokens=128, temperature=0.0))
     person = agent.structured_output(Person, "Return name=Ada and age=36 as JSON.")
     assert isinstance(person, Person)
 
