@@ -31,10 +31,12 @@ import {
   type Tool,
   type ToolConfiguration,
   type ToolUseBlockDelta,
+  type AudioSource as BedrockAudioSource,
   type ImageSource as BedrockImageSource,
   type VideoSource as BedrockVideoSource,
   type DocumentSource as BedrockDocumentSource,
   type SystemContentBlock,
+  AudioFormat,
   DocumentFormat,
   ImageFormat,
   VideoFormat,
@@ -57,7 +59,7 @@ import {
   resolveConfigMetadata,
 } from '../models/model.js'
 import type { ContentBlock, Message, StopReason, ToolUseBlock } from '../types/messages.js'
-import type { ImageSource, VideoSource, DocumentSource } from '../types/media.js'
+import type { AudioSource, ImageSource, VideoSource, DocumentSource } from '../types/media.js'
 import type { CitationsDelta, ModelStreamEvent, ReasoningContentDelta, Usage } from '../models/streaming.js'
 import type { Citation, CitationLocation, CitationsBlockData } from '../types/citations.js'
 import type { JSONValue } from '../types/json.js'
@@ -492,22 +494,40 @@ export class BedrockModel extends Model<BedrockModelConfig> {
   }
 
   /**
-   * Applies `cacheConfig.ttl` to a caller-placed system cache point that carries no TTL of its own.
+   * Whether to auto-inject a cache point at the end of the system prompt.
    *
-   * Bedrock rejects a TTL that exceeds an earlier cache point's, in the order toolConfig, system,
-   * messages. Filling the system point in keeps it from sitting at the default between two configured
-   * points. A TTL the caller wrote is left as written, and the fill-in stands down when the tools point
-   * carries a different TTL, leaving the caller to reconcile the two.
+   * @param system - The system content blocks that will be sent to Bedrock.
+   * @returns True if a cache point should be appended.
+   */
+  private _shouldCacheSystem(system: SystemContentBlock[] | undefined): system is SystemContentBlock[] {
+    if (!this._shouldEnableCaching()) {
+      return false
+    }
+    if (this._config.cacheConfig?.systemPromptTTL === false) {
+      return false
+    }
+    if (!system || system.length === 0) {
+      return false
+    }
+    return !system.some((block) => 'cachePoint' in block)
+  }
+
+  /**
+   * Fills the resolved system-section TTL into a system cache point that carries none of its own,
+   * whether auto-injected or caller-placed.
    *
    * @param request - The formatted request, with `system` and `toolConfig` already populated.
    */
   private _applySystemCacheTTL(request: ConverseStreamCommandInput): void {
     const system = request.system
-    if (!system) {
+    if (!system || !this._shouldEnableCaching()) {
       return
     }
-    let ttl = this._shouldEnableCaching() ? this._config.cacheConfig?.ttl || undefined : undefined
-    if (ttl) {
+    const cacheConfig = this._config.cacheConfig
+    const systemSection = resolveCacheSection(cacheConfig?.systemPromptTTL, cacheConfig?.ttl)
+    let ttl = systemSection.ttl
+
+    if (ttl && typeof cacheConfig?.systemPromptTTL !== 'string') {
       const toolsPoint = request.toolConfig?.tools?.find((tool) => 'cachePoint' in tool)
       if (toolsPoint && 'cachePoint' in toolsPoint && toolsPoint.cachePoint?.ttl !== ttl) {
         ttl = undefined
@@ -713,6 +733,10 @@ export class BedrockModel extends Model<BedrockModelConfig> {
       } else if (options.systemPrompt.length > 0) {
         request.system = options.systemPrompt.map((block) => this._formatContentBlock(block) as SystemContentBlock)
       }
+    }
+
+    if (this._shouldCacheSystem(request.system)) {
+      request.system!.push({ cachePoint: { type: 'default' } })
     }
 
     // Add tool configuration
@@ -1293,6 +1317,14 @@ export class BedrockModel extends Model<BedrockModelConfig> {
         return { cachePoint }
       }
 
+      case 'audioBlock':
+        return {
+          audio: {
+            format: block.format as AudioFormat,
+            source: this._formatMediaSource(block.source),
+          },
+        }
+
       case 'imageBlock':
         return {
           image: {
@@ -1355,21 +1387,24 @@ export class BedrockModel extends Model<BedrockModelConfig> {
   }
 
   /**
-   * Format media source (image/video) for Bedrock API.
+   * Format media source (audio/image/video) for Bedrock API.
    * Handles bytes, S3 locations, and s3:// URLs.
    *
    * @param source - Media source
    * @returns Formatted source for Bedrock API
    */
   private _formatMediaSource(
-    source: ImageSource | VideoSource
+    source: AudioSource | ImageSource | VideoSource
   ):
+    | BedrockAudioSource.BytesMember
+    | BedrockAudioSource.S3LocationMember
     | BedrockImageSource.BytesMember
     | BedrockImageSource.S3LocationMember
     | BedrockVideoSource.BytesMember
     | BedrockVideoSource.S3LocationMember
     | undefined {
     switch (source.type) {
+      case 'audioSourceBytes':
       case 'imageSourceBytes':
       case 'videoSourceBytes':
         return { bytes: source.bytes }
@@ -1386,6 +1421,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
         logger.warn('source_type=<imageSourceUrl> | not supported by bedrock | skipping')
         return
 
+      case 'audioSourceS3Location':
       case 'imageSourceS3Location':
       case 'videoSourceS3Location':
         return {

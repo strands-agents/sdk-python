@@ -230,11 +230,11 @@ class LlamaCppModel(Model):
                 "type": "image_url",
             }
 
-        # Handle audio content (not in standard ContentBlock but supported by llama.cpp)
+        # Handle audio content.
         if "audio" in content:
-            audio_content = cast(dict[str, Any], content)
-            audio_data = base64.b64encode(audio_content["audio"]["source"]["bytes"]).decode("utf-8")
-            audio_format = audio_content["audio"].get("format", "wav")
+            audio_content = content["audio"]
+            audio_data = base64.b64encode(audio_content["source"]["bytes"]).decode("utf-8")
+            audio_format = audio_content.get("format", "wav")
             return {
                 "type": "input_audio",
                 "input_audio": {"data": audio_data, "format": audio_format},

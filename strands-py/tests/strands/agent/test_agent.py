@@ -29,7 +29,7 @@ from strands.session.repository_session_manager import RepositorySessionManager
 from strands.telemetry.tracer import serialize
 from strands.types._events import EventLoopStopEvent, ModelStreamEvent
 from strands.types.agent import ConcurrentInvocationMode
-from strands.types.content import Messages
+from strands.types.content import ContentBlock, Messages
 from strands.types.exceptions import (
     CheckpointException,
     ConcurrencyException,
@@ -1834,6 +1834,22 @@ def test_agent_with_multiple_messages_on_invoke():
     result = agent(input_messages)
     assert str(result) == "world!\n"
     assert len(agent.messages) == 3
+
+
+def test_agent_with_audio_content_block():
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "world!"}]}])
+    agent = Agent(model=model)
+    audio_content: ContentBlock = {
+        "audio": {
+            "format": "wav",
+            "source": {"bytes": b"audio data"},
+        }
+    }
+
+    result = agent([audio_content])
+
+    assert str(result) == "world!\n"
+    assert agent.messages[0]["content"] == [audio_content]
 
 
 def test_agent_with_invalid_input():

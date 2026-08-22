@@ -306,6 +306,9 @@ class BedrockModel(Model):
         # Built ahead of the request so the tools cache point is known to the system cache point behind it.
         tools_cache_point = self._build_tools_cache_point() if tool_specs else []
 
+        if self._should_cache_system(system_blocks):
+            system_blocks.append({"cachePoint": {"type": "default"}})
+
         formatted_messages = self._format_bedrock_messages(messages, dynamic_trailing_blocks)
         if self._tool_result_turn_separation_model_id == self.config["model_id"]:
             formatted_messages = self._separate_tool_result_turns(formatted_messages)
@@ -416,8 +419,8 @@ class BedrockModel(Model):
 
         Bedrock rejects a TTL that exceeds an earlier cache point's, in the order toolConfig, system,
         messages. Filling the system point in keeps it from sitting at the default between two configured
-        points. A TTL the caller wrote is left as written, and the fill-in stands down when the tools point
-        carries a different TTL, leaving the caller to reconcile the two.
+        points. A TTL the caller wrote on the point is left as written. An explicit ``cache_config.system_prompt_ttl``
+        string is honored as written.
 
         Args:
             system_blocks: System content blocks for the request.
@@ -428,12 +431,15 @@ class BedrockModel(Model):
         """
         ttl: str | None = None
         cache_config = self.config.get("cache_config")
-        if cache_config and cache_config.ttl:
-            tools_ttl_differs = bool(tools_cache_point) and (
-                tools_cache_point[0]["cachePoint"].get("ttl") != cache_config.ttl
-            )
-            if self._cache_strategy == "anthropic" and not tools_ttl_differs:
-                ttl = cache_config.ttl
+        if cache_config and self._cache_strategy == "anthropic":
+            system_prompt_ttl = cache_config.system_prompt_ttl
+            section_ttl = system_prompt_ttl if isinstance(system_prompt_ttl, str) else cache_config.ttl
+            if section_ttl:
+                tools_ttl_differs = bool(tools_cache_point) and (
+                    tools_cache_point[0]["cachePoint"].get("ttl") != section_ttl
+                )
+                if isinstance(system_prompt_ttl, str) or not tools_ttl_differs:
+                    ttl = section_ttl
 
         normalized: list[SystemContentBlock] = []
         for block in system_blocks:
@@ -452,6 +458,27 @@ class BedrockModel(Model):
             normalized.append(SystemContentBlock(**{**block, "cachePoint": point}))
 
         return normalized
+
+    def _should_cache_system(self, system_blocks: list[SystemContentBlock]) -> bool:
+        """Whether to auto-inject a cache point at the end of the system prompt.
+
+        Args:
+            system_blocks: The system content blocks that will be sent to Bedrock.
+
+        Returns:
+            True if a cache point should be appended.
+        """
+        if self._cache_strategy != "anthropic":
+            return False
+
+        cache_config = self.config.get("cache_config")
+        if not cache_config or cache_config.system_prompt_ttl is False:
+            return False
+
+        if not system_blocks:
+            return False
+
+        return not any("cachePoint" in block for block in system_blocks)
 
     def _build_tools_cache_point(self) -> list[dict[str, Any]]:
         """Build the cache point block appended to ``toolConfig.tools`` if ``cache_tools`` is configured.
@@ -880,6 +907,21 @@ class BedrockModel(Model):
             if cache_point.get("ttl"):
                 result["ttl"] = cache_point["ttl"]
             return {"cachePoint": result}
+
+        # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_AudioBlock.html
+        if "audio" in content:
+            audio = content["audio"]
+            source = audio["source"]
+            formatted_audio_source: dict[str, Any] | None
+            if "location" in source:
+                formatted_audio_source = self._handle_location(source["location"])
+                if formatted_audio_source is None:
+                    return None
+            elif "bytes" in source:
+                formatted_audio_source = {"bytes": source["bytes"]}
+
+            result = {"format": audio["format"], "source": formatted_audio_source}
+            return {"audio": result}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_DocumentBlock.html
         if "document" in content:

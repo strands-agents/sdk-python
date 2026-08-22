@@ -7,6 +7,7 @@ import {
   TextBlock,
   FunctionTool,
   CachePointBlock,
+  AudioBlock,
   DocumentBlock,
   ImageBlock,
 } from '@strands-agents/sdk'
@@ -17,6 +18,7 @@ import { bedrock } from '../__fixtures__/model-providers.js'
 import { loadFixture } from '../__fixtures__/test-helpers.js'
 import yellowPngUrl from '../__resources__/yellow.png?url'
 import letterPdfUrl from '../__resources__/letter.pdf?url'
+import pineappleMp3Url from '../__resources__/pineapple.mp3?url'
 import {
   BedrockClient,
   CreateGuardrailCommand,
@@ -887,5 +889,25 @@ describe.skipIf(bedrock.skip)('BedrockModel Integration Tests', () => {
       const withTools = await model.countTokens(messages, { toolSpecs, systemPrompt: 'Be helpful.' })
       expect(withTools).toBeGreaterThan(without)
     })
+  })
+
+  describe('Media Support', () => {
+    it('transcribes spoken audio', async () => {
+      const audioBytes = await loadFixture(pineappleMp3Url)
+      const model = bedrock.createModel({
+        modelId: 'mistral.voxtral-small-24b-2507',
+        region: 'us-east-1',
+        temperature: 0,
+        maxTokens: 20,
+      })
+      const agent = new Agent({ model, printer: false })
+
+      const response = await agent.invoke([
+        new TextBlock('Transcribe the final word spoken in the audio. Output only that word.'),
+        new AudioBlock({ format: 'mp3', source: { bytes: audioBytes } }),
+      ])
+
+      expect(response.toString().toLowerCase()).toContain('pineapple')
+    }, 30000)
   })
 })

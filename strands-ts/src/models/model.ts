@@ -98,6 +98,15 @@ export interface CacheConfig {
   toolsTTL?: boolean | CacheTTL
 
   /**
+   * Cache the system prompt, auto-injecting a cache point at its end so repeated calls with the same
+   * static system prefix hit the cache. A TTL sets this section's duration; `true` (the default) reads
+   * the value from `ttl`; `false` disables systemPrompt cache injection.
+   *
+   * @defaultValue true
+   */
+  systemPromptTTL?: boolean | CacheTTL
+
+  /**
    * Cache the conversation prefix, on the last user message. A TTL sets this section's duration;
    * `false` disables it.
    *
