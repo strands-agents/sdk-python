@@ -926,6 +926,9 @@ class Graph(MultiAgentBase):
         semaphore: asyncio.Semaphore | None,
     ) -> None:
         """Stream events from a node to the shared queue with optional timeout."""
+        # A scheduled node is in flight even while it waits for a concurrency slot. Session
+        # serialization uses EXECUTING to keep queued branches in the resume frontier.
+        node.execution_status = Status.EXECUTING
 
         async def stream_node() -> None:
             async for event in self._execute_node(node, invocation_state):

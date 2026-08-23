@@ -1699,6 +1699,9 @@ async def test_graph_node_timeout_excludes_concurrency_queue_time(mock_strands_t
 
     # Waiting for a concurrency slot must not start the per-node timeout.
     assert not task.done()
+    tru_queued_status = graph.nodes["queued"].execution_status
+    exp_queued_status = Status.EXECUTING
+    assert tru_queued_status == exp_queued_status
 
     semaphore.release()
     await asyncio.wait_for(task, timeout=1)
