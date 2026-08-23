@@ -182,7 +182,7 @@ export class OpenAIModel extends Model<OpenAIModelConfig> {
   private async *_streamChat(messages: Message[], options?: StreamOptions): AsyncIterable<ModelStreamEvent> {
     try {
       const request = formatChatRequest(this._config as OpenAIChatConfig, messages, options)
-      const stream = await this._client.chat.completions.create(request)
+      const stream = await this._client.chat.completions.create(request, { signal: options?.cancelSignal })
 
       const streamState: ChatStreamState = {
         messageStarted: false,
@@ -236,7 +236,7 @@ export class OpenAIModel extends Model<OpenAIModelConfig> {
   private async *_streamResponses(messages: Message[], options?: StreamOptions): AsyncIterable<ModelStreamEvent> {
     try {
       const request = formatResponsesRequest(this._config as OpenAIResponsesConfig, messages, options, this.stateful)
-      const stream = await this._client.responses.create(request)
+      const stream = await this._client.responses.create(request, { signal: options?.cancelSignal })
 
       const state = createResponsesStreamState()
 

@@ -150,6 +150,53 @@ describe("OpenAIModel (api: 'responses')", () => {
     })
   })
 
+  describe('cancellation', () => {
+    // Guards against provider work continuing after agent cancellation (#3915).
+    it('stops an in-flight responses producer when the signal aborts', async () => {
+      let producedTokens = 0
+      let producerStopped = false
+      let resolveFirstToken!: () => void
+      const firstTokenProduced = new Promise<void>((resolve) => {
+        resolveFirstToken = resolve
+      })
+      const create = vi.fn(async (_request: unknown, requestOptions?: unknown): Promise<AsyncGenerator<unknown>> => {
+        const signal = (requestOptions as { signal?: AbortSignal } | undefined)?.signal
+        return (async function* (): AsyncGenerator<unknown> {
+          yield { type: 'response.created', response: { id: 'response-1' } }
+          while (producedTokens < 20) {
+            if (signal?.aborted) {
+              producerStopped = true
+              break
+            }
+            producedTokens += 1
+            if (producedTokens === 1) {
+              resolveFirstToken()
+            }
+            yield { type: 'response.output_text.delta', delta: 'token ' }
+            await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 1))
+          }
+          yield { type: 'response.completed', response: {} }
+        })()
+      })
+      const client = { responses: { create } } as unknown as OpenAI
+      const controller = new AbortController()
+      const model = new OpenAIModel({ api: 'responses', client })
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+
+      const streamResult = collectIterator(model.stream(messages, { cancelSignal: controller.signal }))
+      await firstTokenProduced
+      const tokensAtCancel = producedTokens
+      controller.abort()
+      await streamResult
+
+      expect(create).toHaveBeenCalledWith(expect.anything(), { signal: controller.signal })
+      expect({ producedTokens, producerStopped }).toEqual({
+        producedTokens: tokensAtCancel,
+        producerStopped: true,
+      })
+    })
+  })
+
   describe('request formatting', () => {
     const mkUserMessage = () => new Message({ role: 'user', content: [new TextBlock('Hi')] })
 
