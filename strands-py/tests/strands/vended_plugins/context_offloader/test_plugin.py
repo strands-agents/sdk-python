@@ -59,7 +59,9 @@ async def _heuristic_count_tokens(messages, **kwargs):
     return total
 
 
-def _make_event(agent, text_content, status="success", tool_use_id="tool_123", cancel_message=None):
+def _make_event(
+    agent, text_content, status="success", tool_use_id="tool_123", cancel_message=None, tool_name="test_tool"
+):
     """Helper to create an AfterToolCallEvent with content."""
     if isinstance(text_content, str):
         content = [{"text": text_content}]
@@ -71,7 +73,7 @@ def _make_event(agent, text_content, status="success", tool_use_id="tool_123", c
         "status": status,
         "content": content,
     }
-    tool_use = {"toolUseId": tool_use_id, "name": "test_tool", "input": {}}
+    tool_use = {"toolUseId": tool_use_id, "name": tool_name, "input": {}}
 
     return AfterToolCallEvent(
         agent=agent,
@@ -507,8 +509,8 @@ class TestRetrievalTool:
 
     @pytest.mark.asyncio
     async def test_retrieve_missing_reference(self, plugin, tool_context):
-        result = await plugin.retrieve_offloaded_content(reference="nonexistent", tool_context=tool_context)
-        assert "Error: reference not found" in result
+        with pytest.raises(ValueError, match="reference not found: nonexistent"):
+            await plugin.retrieve_offloaded_content(reference="nonexistent", tool_context=tool_context)
 
     @pytest.mark.asyncio
     async def test_retrieve_image_content(self, plugin, storage, tool_context):
@@ -610,14 +612,11 @@ class TestRetrievalToolSearch:
         assert "line 11" not in result
 
     @pytest.mark.asyncio
-    async def test_returns_error_for_binary_content(self, plugin, storage, tool_context):
+    async def test_raises_for_binary_content(self, plugin, storage, tool_context):
         ref = await storage.store("k1", b"\x89PNG", "image/png")
 
-        result = await plugin.retrieve_offloaded_content(
-            reference=ref, pattern="test", tool_context=tool_context
-        )
-
-        assert "Error: cannot search binary content (image/png)" in result
+        with pytest.raises(ValueError, match=r"cannot search binary content \(image/png\)"):
+            await plugin.retrieve_offloaded_content(reference=ref, pattern="test", tool_context=tool_context)
 
     @pytest.mark.asyncio
     async def test_falls_back_to_literal_on_invalid_regex(self, plugin, storage, tool_context):
@@ -633,12 +632,9 @@ class TestRetrievalToolSearch:
         assert "> 3| foo (bar again" in result
 
     @pytest.mark.asyncio
-    async def test_returns_error_for_missing_reference(self, plugin, tool_context):
-        result = await plugin.retrieve_offloaded_content(
-            reference="nonexistent", pattern="test", tool_context=tool_context
-        )
-
-        assert "Error: reference not found" in result
+    async def test_raises_for_missing_reference(self, plugin, tool_context):
+        with pytest.raises(ValueError, match="reference not found: nonexistent"):
+            await plugin.retrieve_offloaded_content(reference="nonexistent", pattern="test", tool_context=tool_context)
 
     @pytest.mark.asyncio
     async def test_searches_json_content(self, plugin, storage, tool_context):
@@ -698,11 +694,10 @@ class TestRetrievalToolSearch:
         content = "line 1\nline 2\nline 3"
         ref = await storage.store("k1", content.encode("utf-8"), "text/plain")
 
-        result = await plugin.retrieve_offloaded_content(
-            reference=ref, line_range={"start": 100, "end": 200}, tool_context=tool_context
-        )
-
-        assert "beyond content length (3 lines)" in result
+        with pytest.raises(ValueError, match=r"beyond content length \(3 lines\)"):
+            await plugin.retrieve_offloaded_content(
+                reference=ref, line_range={"start": 100, "end": 200}, tool_context=tool_context
+            )
 
     @pytest.mark.asyncio
     async def test_clamps_line_range_end(self, plugin, storage, tool_context):
@@ -725,9 +720,7 @@ class TestRetrievalToolSearch:
         content = "\n".join(f"line {i + 1}" for i in range(20))
         ref = await storage.store("k1", content.encode("utf-8"), "text/plain")
 
-        result = await plugin.retrieve_offloaded_content(
-            reference=ref, context_lines=10, tool_context=tool_context
-        )
+        result = await plugin.retrieve_offloaded_content(reference=ref, context_lines=10, tool_context=tool_context)
 
         assert "[Lines 1-10 of 20]" in result
         assert "line 1" in result
@@ -742,6 +735,98 @@ class TestRetrievalToolSearch:
         result = await plugin.retrieve_offloaded_content(reference=ref, tool_context=tool_context)
 
         assert result == "hello world"
+
+
+class TestRetrievalToolErrorStatus:
+    """Retrieval failures surface as tool results with status "error" (#3493).
+
+    A failure reported as status "success" is indistinguishable to the model from
+    content that was retrieved successfully.
+    """
+
+    @pytest.fixture
+    def storage(self):
+        return InMemoryStorage()
+
+    @pytest.fixture
+    def plugin(self, storage):
+        return ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10, include_retrieval_tool=True)
+
+    @pytest.fixture
+    def mock_agent(self):
+        return MagicMock()
+
+    @staticmethod
+    async def _tool_result(plugin, mock_agent, alist, tool_input):
+        """Invoke the tool the way the event loop does and return the tool result the model sees."""
+        tool_use = ToolUse(toolUseId="retrieve_1", name="retrieve_offloaded_content", input=tool_input)
+        events = await alist(plugin.retrieve_offloaded_content.stream(tool_use, {"agent": mock_agent}))
+        return events[-1].tool_result
+
+    @pytest.mark.asyncio
+    async def test_missing_reference_reports_error_status(self, plugin, mock_agent, alist):
+        tru_result = await self._tool_result(plugin, mock_agent, alist, {"reference": "nope"})
+
+        exp_result = {
+            "toolUseId": "retrieve_1",
+            "status": "error",
+            "content": [{"text": "Error: reference not found: nope"}],
+        }
+        assert tru_result == exp_result
+
+    @pytest.mark.asyncio
+    async def test_binary_content_search_reports_error_status(self, plugin, storage, mock_agent, alist):
+        ref = await storage.store("k1", b"\x89PNG", "image/png")
+
+        tru_result = await self._tool_result(plugin, mock_agent, alist, {"reference": ref, "pattern": "test"})
+
+        exp_result = {
+            "toolUseId": "retrieve_1",
+            "status": "error",
+            "content": [
+                {
+                    "text": (
+                        "Error: cannot search binary content (image/png). "
+                        "Omit pattern/line_range/context_lines to retrieve the full content."
+                    )
+                }
+            ],
+        }
+        assert tru_result == exp_result
+
+    @pytest.mark.asyncio
+    async def test_out_of_range_line_range_reports_error_status(self, plugin, storage, mock_agent, alist):
+        ref = await storage.store("k1", b"line 1\nline 2", "text/plain")
+
+        tru_result = await self._tool_result(
+            plugin, mock_agent, alist, {"reference": ref, "line_range": {"start": 100, "end": 200}}
+        )
+
+        exp_result = {
+            "toolUseId": "retrieve_1",
+            "status": "error",
+            "content": [{"text": "Error: line_range.start (100) is beyond content length (2 lines)."}],
+        }
+        assert tru_result == exp_result
+
+    @pytest.mark.asyncio
+    async def test_successful_retrieval_reports_success_status(self, plugin, storage, mock_agent, alist):
+        ref = await storage.store("k1", b"hello world", "text/plain")
+
+        tru_result = await self._tool_result(plugin, mock_agent, alist, {"reference": ref})
+
+        exp_result = {"toolUseId": "retrieve_1", "status": "success", "content": [{"text": "hello world"}]}
+        assert tru_result == exp_result
+
+    @pytest.mark.asyncio
+    async def test_search_without_matches_reports_success_status(self, plugin, storage, mock_agent, alist):
+        """A search that finds nothing has succeeded — only genuine failures report an error."""
+        ref = await storage.store("k1", b"hello\nworld", "text/plain")
+
+        tru_result = await self._tool_result(plugin, mock_agent, alist, {"reference": ref, "pattern": "absent"})
+
+        assert tru_result["status"] == "success"
+        assert "No matches found for pattern 'absent'" in tru_result["content"][0]["text"]
 
 
 class TestInlineGuidance:
@@ -985,6 +1070,48 @@ class TestUnifiedStorage:
         assert len(await unified_storage.list("")) == 0
 
     @pytest.mark.asyncio
+    async def test_retrieve_refreshes_eviction_cycle_unified(self, unified_storage, unified_mock_agent):
+        """Retrieving offloaded content refreshes its stored cycle for unified Storage
+        backends so actively-retrieved entries survive eviction, mirroring
+        InMemoryStorage.retrieve's last-access refresh."""
+        plugin = ContextOffloader(
+            storage=unified_storage,
+            max_result_tokens=25,
+            preview_tokens=10,
+            include_retrieval_tool=True,
+            evict_after_cycles=3,
+        )
+
+        # Offload at cycle 1 (stored_cycle == 1)
+        unified_mock_agent.event_loop_metrics.cycle_count = 1
+        event = _make_event(unified_mock_agent, "hello world " * 50)
+        await plugin._handle_tool_result(event)
+
+        # Extract the reference from the offloaded placeholder
+        result_text = event.result["content"][0]["text"]
+        ref_line = [line for line in result_text.split("\n") if "tool_123_0" in line][0]
+        ref = ref_line.strip().split(" ")[0]
+
+        # Cycle 3: retrieve -> must refresh stored_cycle to 3
+        unified_mock_agent.event_loop_metrics.cycle_count = 3
+        tool_context = MagicMock(spec=ToolContext)
+        tool_context.agent = unified_mock_agent
+        content = await plugin.retrieve_offloaded_content(reference=ref, tool_context=tool_context)
+        assert "hello world" in content
+
+        # Cycle 5: without the refresh, stored_cycle=1 < threshold (5-3=2) -> evicted.
+        # With the refresh, stored_cycle=3 >= 2 -> survives.
+        bmc_event = BeforeModelCallEvent(agent=unified_mock_agent, invocation_state={})
+        unified_mock_agent.event_loop_metrics.cycle_count = 5
+        await plugin._on_before_model_call(bmc_event)
+        assert len(await unified_storage.list("")) == 1, (
+            "actively-retrieved entry must survive eviction for unified Storage backends"
+        )
+        # And remains retrievable
+        content_again = await plugin.retrieve_offloaded_content(reference=ref, tool_context=tool_context)
+        assert "hello world" in content_again
+
+    @pytest.mark.asyncio
     async def test_eviction_scoped_per_agent(self, unified_storage):
         plugin = ContextOffloader(
             storage=unified_storage,
@@ -1120,3 +1247,184 @@ class TestUnifiedStorage:
                 preview_tokens=10,
                 evict_after_cycles=-1,
             )
+
+
+class TestShouldOffloadCallback:
+    """Tests for the should_offload callback parameter."""
+
+    @pytest.fixture
+    def storage(self):
+        return InMemoryStorage()
+
+    @pytest.fixture
+    def mock_agent(self):
+        agent = MagicMock()
+        agent.model = MagicMock()
+        agent.model.count_tokens = AsyncMock(side_effect=_heuristic_count_tokens)
+        return agent
+
+    @pytest.mark.asyncio
+    async def test_callback_receives_tool_name_and_token_count(self, storage, mock_agent):
+        received_args = []
+
+        def capture_args(tool_name, token_count, **kwargs):
+            received_args.append((tool_name, token_count))
+            return True
+
+        plugin = ContextOffloader(
+            storage=storage,
+            max_result_tokens=25,
+            preview_tokens=10,
+            include_retrieval_tool=False,
+            should_offload=capture_args,
+        )
+        event = _make_event(mock_agent, "x" * 200, tool_name="my_tool")
+
+        await plugin._handle_tool_result(event)
+
+        assert len(received_args) == 1
+        assert received_args[0][0] == "my_tool"
+        assert received_args[0][1] == 50
+
+    @pytest.mark.asyncio
+    async def test_callback_returning_true_offloads(self, storage, mock_agent):
+        plugin = ContextOffloader(
+            storage=storage,
+            max_result_tokens=25,
+            preview_tokens=10,
+            include_retrieval_tool=False,
+            should_offload=lambda name, tokens, **kwargs: True,
+        )
+        event = _make_event(mock_agent, "x" * 200, tool_name="large_tool")
+
+        await plugin._handle_tool_result(event)
+
+        assert "[Offloaded:" in event.result["content"][0]["text"]
+
+    @pytest.mark.asyncio
+    async def test_callback_returning_false_skips_offload(self, storage, mock_agent):
+        plugin = ContextOffloader(
+            storage=storage,
+            max_result_tokens=25,
+            preview_tokens=10,
+            include_retrieval_tool=False,
+            should_offload=lambda name, tokens, **kwargs: False,
+        )
+        large_text = "x" * 200
+        event = _make_event(mock_agent, large_text, tool_name="search_tool")
+
+        await plugin._handle_tool_result(event)
+
+        assert event.result["content"][0]["text"] == large_text
+        assert len(storage._store) == 0
+
+    @pytest.mark.asyncio
+    async def test_callback_filters_by_tool_name(self, storage, mock_agent):
+        plugin = ContextOffloader(
+            storage=storage,
+            max_result_tokens=25,
+            preview_tokens=10,
+            include_retrieval_tool=False,
+            should_offload=lambda name, tokens, **kwargs: name == "get_document_text",
+        )
+        large_text = "x" * 200
+
+        event1 = _make_event(mock_agent, large_text, tool_use_id="t1", tool_name="get_document_text")
+        await plugin._handle_tool_result(event1)
+        assert "[Offloaded:" in event1.result["content"][0]["text"]
+
+        event2 = _make_event(mock_agent, large_text, tool_use_id="t2", tool_name="search_opensearch")
+        await plugin._handle_tool_result(event2)
+        assert event2.result["content"][0]["text"] == large_text
+
+    @pytest.mark.asyncio
+    async def test_none_callback_offloads_all(self, storage, mock_agent):
+        plugin = ContextOffloader(
+            storage=storage,
+            max_result_tokens=25,
+            preview_tokens=10,
+            include_retrieval_tool=False,
+            should_offload=None,
+        )
+        event = _make_event(mock_agent, "x" * 200, tool_name="any_tool")
+
+        await plugin._handle_tool_result(event)
+
+        assert "[Offloaded:" in event.result["content"][0]["text"]
+
+    @pytest.mark.asyncio
+    async def test_callback_not_called_when_under_threshold(self, storage, mock_agent):
+        call_count = {"n": 0}
+
+        def counting_callback(name, tokens, **kwargs):
+            call_count["n"] += 1
+            return True
+
+        plugin = ContextOffloader(
+            storage=storage,
+            max_result_tokens=25,
+            preview_tokens=10,
+            include_retrieval_tool=False,
+            should_offload=counting_callback,
+        )
+        event = _make_event(mock_agent, "short", tool_name="small_tool")
+
+        await plugin._handle_tool_result(event)
+
+        assert call_count["n"] == 0
+
+    @pytest.mark.asyncio
+    async def test_raising_callback_falls_back_to_offload(self, storage, mock_agent):
+        def boom(tool_name, token_count, **kwargs):
+            raise RuntimeError("boom")
+
+        plugin = ContextOffloader(
+            storage=storage,
+            max_result_tokens=25,
+            preview_tokens=10,
+            include_retrieval_tool=False,
+            should_offload=boom,
+        )
+        event = _make_event(mock_agent, "x" * 200, tool_name="my_tool")
+
+        await plugin._handle_tool_result(event)
+
+        assert "[Offloaded:" in event.result["content"][0]["text"]
+
+    @pytest.mark.asyncio
+    async def test_async_callback_returning_false_skips_offload(self, storage, mock_agent):
+        async def never(tool_name, token_count, **kwargs):
+            return False
+
+        plugin = ContextOffloader(
+            storage=storage,
+            max_result_tokens=25,
+            preview_tokens=10,
+            include_retrieval_tool=False,
+            should_offload=never,
+        )
+        large_text = "x" * 200
+        event = _make_event(mock_agent, large_text, tool_name="search_tool")
+
+        await plugin._handle_tool_result(event)
+
+        assert event.result["content"][0]["text"] == large_text
+        assert len(storage._store) == 0
+
+    @pytest.mark.asyncio
+    async def test_async_callback_returning_true_offloads(self, storage, mock_agent):
+        async def always(tool_name, token_count, **kwargs):
+            return True
+
+        plugin = ContextOffloader(
+            storage=storage,
+            max_result_tokens=25,
+            preview_tokens=10,
+            include_retrieval_tool=False,
+            should_offload=always,
+        )
+        event = _make_event(mock_agent, "x" * 200, tool_name="large_tool")
+
+        await plugin._handle_tool_result(event)
+
+        assert "[Offloaded:" in event.result["content"][0]["text"]

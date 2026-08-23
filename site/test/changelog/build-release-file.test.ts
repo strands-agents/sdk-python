@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildReleaseFile } from '../../scripts/changelog/build-release-file'
 import { classifyTitle } from '../../scripts/changelog/parse-release-body'
+import { enrichFromPr } from '../../scripts/changelog/enrich'
 import type { BuildDeps } from '../../scripts/changelog/build-release-file'
 
 // buildReleaseFile sources entries from deps.deriveEntries (compare-driven), not
@@ -163,6 +164,38 @@ describe('build-release-file', () => {
     expect(ts!.contents).toMatch(/unknown thing/)
     expect(ts!.contents).not.toMatch(/py thing/)
     expect(ts!.contents).not.toMatch(/site thing/)
+  })
+
+  it('a root-lockfile-only dependency bump lands on one stream only', async () => {
+    // Root lockfile bumps touch no SDK dir, but they do change one published
+    // package's dependency tree, so exactly one stream may carry them (#3712).
+    const body =
+      '* ci(typescript): bump hono from 4.12.32 to 4.13.0 by @dependabot in https://github.com/strands-agents/harness-sdk/pull/3643'
+    const deps = {
+      // Real enricher: the language signal under test is derived from PR files.
+      enrich: (repo: string, pr: number) =>
+        enrichFromPr(repo, pr, async () => ({
+          labels: [],
+          merge_commit_sha: 'cfc8825aaaa',
+          user: 'dependabot[bot]',
+          files: ['package-lock.json'],
+        })),
+      deriveEntries: bodyDerive,
+      readExisting: async () => null,
+    }
+    const py = await buildReleaseFile(
+      'strands-agents/harness-sdk',
+      { tag_name: 'python/v1.51.0', published_at: '2026-08-07T00:00:00Z', html_url: 'h', body },
+      deps as any
+    )
+    expect(py!.contents).not.toMatch(/bump hono/)
+
+    const ts = await buildReleaseFile(
+      'strands-agents/harness-sdk',
+      { tag_name: 'typescript/v1.12.0', published_at: '2026-08-07T00:00:00Z', html_url: 'h', body },
+      deps as any
+    )
+    expect(ts!.contents).toMatch(/bump hono/)
   })
 
   it('monorepo-tagged release with PRs in the OLD flat repo is not language-gated', async () => {

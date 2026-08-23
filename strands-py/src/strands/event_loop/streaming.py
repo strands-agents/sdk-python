@@ -294,6 +294,11 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
         try:
             current_tool_use["input"] = json.loads(current_tool_use["input"])
         except ValueError:
+            logger.warning(
+                "tool_name=<%s>, raw_input=<%s> | failed to parse tool input json, defaulting to empty dict",
+                current_tool_use.get("name", "unknown"),
+                current_tool_use["input"][:200] if isinstance(current_tool_use.get("input"), str) else "",
+            )
             current_tool_use["input"] = {}
 
         tool_use_id = current_tool_use.get("toolUseId", "")
@@ -338,8 +343,9 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
             }
         }
 
-        if "signature" in state:
-            content_block["reasoningContent"]["reasoningText"]["signature"] = state["signature"]
+        # Consume the signature so it belongs to exactly this block and does not leak into the next one.
+        if (signature := state.pop("signature", None)) is not None:
+            content_block["reasoningContent"]["reasoningText"]["signature"] = signature
 
         content.append(content_block)
         state["reasoningText"] = ""
@@ -490,6 +496,7 @@ async def stream_messages(
     system_prompt_content: list[SystemContentBlock] | None = None,
     invocation_state: dict[str, Any] | None = None,
     model_state: dict[str, Any] | None = None,
+    dynamic_trailing_blocks: int = 0,
     cancel_signal: threading.Event | None = None,
     **kwargs: Any,
 ) -> AsyncGenerator[TypedEvent, None]:
@@ -505,6 +512,8 @@ async def stream_messages(
             system prompt data.
         invocation_state: Caller-provided state/context that was passed to the agent when it was invoked.
         model_state: Runtime state for model providers (e.g., server-side response ids).
+        dynamic_trailing_blocks: How many trailing blocks of the last user message are rebuilt on every
+            call, so a provider placing cache points keeps its own ahead of them.
         cancel_signal: Optional threading.Event to check for cancellation during streaming.
         **kwargs: Additional keyword arguments for future extensibility.
 
@@ -527,6 +536,8 @@ async def stream_messages(
         system_prompt_content=system_prompt_content,
         invocation_state=invocation_state,
         model_state=model_state,
+        # Omitted when zero, so an ordinary call's arguments are unchanged.
+        **({"dynamic_trailing_blocks": dynamic_trailing_blocks} if dynamic_trailing_blocks else {}),
     )
 
     async for event in process_stream(chunks, start_time, cancel_signal):

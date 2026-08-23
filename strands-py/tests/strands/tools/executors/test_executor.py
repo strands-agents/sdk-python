@@ -1,5 +1,5 @@
 import unittest.mock
-from unittest.mock import MagicMock
+from unittest.mock import ANY, MagicMock
 
 import pytest
 
@@ -65,9 +65,15 @@ async def test_executor_stream_yields_result(
             tool_use=tool_use,
             invocation_state=invocation_state,
             result=exp_results[0],
+            duration=ANY,
         ),
     ]
     assert tru_hook_events == exp_hook_events
+
+    # Verify duration is a realistic positive value (mocked tool should complete in under 10s)
+    after_event = tru_hook_events[1]
+    assert isinstance(after_event.duration, float)
+    assert 0 <= after_event.duration < 10
 
 
 @pytest.mark.asyncio
@@ -163,8 +169,13 @@ async def test_executor_stream_yields_tool_error(
         invocation_state=invocation_state,
         result=exp_results[0],
         exception=unittest.mock.ANY,
+        duration=ANY,
     )
     assert tru_hook_after_event == exp_hook_after_event
+
+    # Verify duration is a realistic positive value
+    assert isinstance(tru_hook_after_event.duration, float)
+    assert 0 <= tru_hook_after_event.duration < 10
 
 
 @pytest.mark.asyncio
@@ -190,8 +201,13 @@ async def test_executor_stream_yields_unknown_tool(executor, agent, tool_results
         invocation_state=invocation_state,
         result=exp_results[0],
         exception=unittest.mock.ANY,
+        duration=ANY,
     )
     assert tru_hook_after_event == exp_hook_after_event
+
+    # Unknown tool still passes through middleware, so duration is measured
+    assert isinstance(tru_hook_after_event.duration, float)
+    assert 0 <= tru_hook_after_event.duration < 10
 
 
 @pytest.mark.asyncio
@@ -713,6 +729,43 @@ async def test_executor_stream_retry_true(executor, agent, tool_results, invocat
     assert tool_results[0] == {"toolUseId": "1", "status": "success", "content": [{"text": "attempt_2"}]}
 
 
+@pytest.mark.parametrize("cancel_agent", [False, True])
+@pytest.mark.asyncio
+async def test_executor_stream_does_not_retry_cancelled_tool_result(
+    cancel_agent, executor, agent, tool_results, invocation_state, alist
+):
+    """Test cancellation remains terminal when an after hook requests retry."""
+    call_count = 0
+
+    @strands.tool(name="cancelled_tool")
+    def cancelled_tool():
+        nonlocal call_count
+        call_count += 1
+        if cancel_agent:
+            agent._cancel_signal.set()
+        return {
+            "status": "error",
+            "content": [{"text": "cancelled"}],
+            **({} if cancel_agent else {"cancelled": True}),
+        }
+
+    def retry_on_error(event):
+        if isinstance(event, AfterToolCallEvent) and event.result["status"] == "error":
+            event.retry = True
+        return event
+
+    agent.tool_registry.register_tool(cancelled_tool)
+    agent.hooks.add_callback(AfterToolCallEvent, retry_on_error)
+    tool_use: ToolUse = {"name": "cancelled_tool", "toolUseId": "1", "input": {}}
+
+    tru_events = await alist(executor._stream(agent, tool_use, tool_results, invocation_state))
+
+    assert call_count == 1
+    assert len(tru_events) == 1
+    assert tru_events[0].tool_result["status"] == "error"
+    assert len(tool_results) == 1
+
+
 @pytest.mark.asyncio
 async def test_executor_stream_retry_true_emits_events_from_both_attempts(
     executor, agent, tool_results, invocation_state, alist
@@ -1011,3 +1064,23 @@ async def test_executor_stream_cancel_after_hook_sees_no_exception(
     assert isinstance(after_event, AfterToolCallEvent)
     assert after_event.exception is None
     assert after_event.cancel_message == "user denied permission"
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_cancel_duration_is_none(
+    executor, agent, tool_results, invocation_state, hook_events, alist
+):
+    """Test that AfterToolCallEvent.duration is None when the tool is cancelled before execution."""
+
+    def cancel_callback(event):
+        event.cancel_tool = True
+        return event
+
+    agent.hooks.add_callback(BeforeToolCallEvent, cancel_callback)
+    tool_use: ToolUse = {"name": "weather_tool", "toolUseId": "1", "input": {}}
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
+    await alist(stream)
+
+    after_event = hook_events[-1]
+    assert isinstance(after_event, AfterToolCallEvent)
+    assert after_event.duration is None

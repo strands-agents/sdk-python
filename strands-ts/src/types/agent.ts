@@ -1,4 +1,5 @@
 import type { Sandbox } from '../sandbox/base.js'
+import type { Storage } from '../storage/storage.js'
 import type { StateStore } from '../state-store.js'
 import type { ContentBlock, ContentBlockData, Message, MessageData, StopReason, SystemPrompt } from './messages.js'
 import type { Interrupt } from '../interrupt.js'
@@ -296,6 +297,15 @@ export interface LocalAgent {
   readonly sandbox: Sandbox
 
   /**
+   * Default storage backend for agent subsystems.
+   *
+   * When set, subsystems that do not have their own explicit storage (e.g.,
+   * SessionManager, ContextOffloader) resolve from this. Each subsystem
+   * auto-namespaces under its own prefix to avoid key collisions.
+   */
+  readonly storage?: Storage | undefined
+
+  /**
    * Aggregated metrics for the agent's loop execution.
    * Tracks cycle counts, token usage, tool execution stats, and model latency.
    */
@@ -324,7 +334,7 @@ export interface LocalAgent {
    * callback: async ({ items }, context) => {
    *   const results = []
    *   for (const item of items) {
-   *     if (context.agent.cancelSignal.aborted) return results
+   *     if (context?.cancelSignal.aborted) return results
    *     results.push(await process(item))
    *   }
    *   return results
@@ -334,7 +344,7 @@ export interface LocalAgent {
    * **Signal forwarding** — pass to APIs that accept `AbortSignal`:
    * ```ts
    * callback: async ({ url }, context) => {
-   *   const res = await fetch(url, { signal: context.agent.cancelSignal })
+   *   const res = await fetch(url, { signal: context?.cancelSignal })
    *   return res.text()
    * }
    * ```

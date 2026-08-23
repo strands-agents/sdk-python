@@ -1,6 +1,7 @@
-import type { Storage } from './storage.js'
+import type { Storage, StorageSearchResult } from './storage.js'
 
 import { namespace, normalizeKey, normalizePrefix } from './storage.js'
+import { KeywordSearchStrategy } from './search/keyword.js'
 
 /**
  * In-memory {@link Storage} backend backed by a `Map`.
@@ -12,8 +13,9 @@ import { namespace, normalizeKey, normalizePrefix } from './storage.js'
  * This is a plain unbounded store with no eviction. Consumers that need eviction
  * (e.g. the ContextOffloader plugin) manage it themselves.
  *
- * Keys are normalized identically to {@link LocalFileStorage}: slash runs are collapsed,
- * leading/trailing slashes are stripped, and `..` segments are rejected.
+ * Like the other shipped backends, keys are normalized via {@link normalizeKey}:
+ * slash runs are collapsed, leading/trailing slashes are stripped, and `..`
+ * segments are rejected.
  *
  * @example
  * ```typescript
@@ -29,7 +31,7 @@ export class InMemoryStorage implements Storage {
    * Stores `data` under `key`, overwriting any existing value.
    * Bytes are copied on write to prevent aliasing with the caller's buffer.
    *
-   * @param key - Opaque, `/`-separated key identifying the value
+   * @param key - Opaque string key identifying the value
    * @param data - Raw bytes to persist
    * @throws {@link StorageError} if the key is empty or contains `..` segments
    */
@@ -80,6 +82,16 @@ export class InMemoryStorage implements Storage {
   /** Returns a prefixed view of this storage without mutating the original. */
   namespace(prefix: string): Storage {
     return namespace(this, prefix)
+  }
+
+  /**
+   * Searches stored content by keyword token-overlap scoring.
+   *
+   * @param query - Natural-language search query
+   * @returns All matches with relevance scores, ranked best-first
+   */
+  async search(query: string): Promise<StorageSearchResult[]> {
+    return KeywordSearchStrategy.search(this, query)
   }
 
   /**

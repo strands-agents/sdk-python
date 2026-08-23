@@ -4,9 +4,11 @@ import {
   findCurrentNavSection,
   filterSidebarByBasePath,
   applyCollapse,
+  onRequest,
 } from '../src/route-middleware'
 import { type NavLink } from '../src/config/navbar'
 import { loadSidebarFromConfig, type StarlightSidebarItem } from '../src/sidebar'
+import { buildCourseSidebar, getPrevNextLinks, type DocInfo } from '../src/dynamic-sidebar'
 
 // Sidebar entry types matching Starlight's runtime structure
 type SidebarLink = { type: 'link'; label: string; href: string; isCurrent: boolean }
@@ -18,14 +20,10 @@ const testNavLinks: NavLink[] = [
   { label: 'Home', href: '/' },
   { label: 'User Guide', href: '/docs/user-guide/quickstart/overview/', basePath: '/docs/user-guide/' },
   { label: 'Examples', href: '/docs/examples/', basePath: '/docs/examples/' },
-  { label: 'Community', href: '/docs/community/community-packages/', basePath: '/docs/community/' },
+  { label: 'Integrations', href: '/integrations/', basePath: ['/integrations/', '/docs/integrations/'] },
   { label: 'Contribute', href: 'https://github.com/example', external: true },
 ]
 
-/**
- * Convert build-time sidebar config to runtime format.
- * Starlight transforms { slug: "examples" } to { type: "link", href: "/examples/", ... }
- */
 function convertToRuntimeFormat(items: StarlightSidebarItem[]): SidebarEntry[] {
   return items.map((item) => {
     if ('slug' in item) {
@@ -88,10 +86,10 @@ describe('findCurrentNavSection', () => {
     expect(result?.label).toBe('User Guide')
   })
 
-  it('should find Community nav for community paths', () => {
-    const result = findCurrentNavSection('/docs/community/community-packages/', testNavLinks)
+  it('should find Integrations nav for integrations docs paths', () => {
+    const result = findCurrentNavSection('/docs/integrations/get-featured/', testNavLinks)
     expect(result).toBeDefined()
-    expect(result?.label).toBe('Community')
+    expect(result?.label).toBe('Integrations')
   })
 
   it('should find Home nav for root path', () => {
@@ -156,19 +154,19 @@ describe('Sidebar filtering with live navigation.yml data', () => {
     })
   })
 
-  it('should filter sidebar to only Community items for /community/ basePath', () => {
-    const result = filterSidebarByBasePath(runtimeSidebar as any, '/docs/community/')
+  it('should filter sidebar to only Integrations items for /integrations/ basePath', () => {
+    const result = filterSidebarByBasePath(runtimeSidebar as any, '/docs/integrations/')
 
     const allLinks = getAllLinks(result)
-    console.log(`\nCommunity section has ${allLinks.length} links`)
+    console.log(`\nIntegrations section has ${allLinks.length} links`)
 
     expect(allLinks.length).toBeGreaterThan(0)
     allLinks.forEach((link) => {
-      expect(link.href).toMatch(/^\/docs\/community\//)
+      expect(link.href).toMatch(/^\/docs\/integrations\//)
     })
   })
 
-  it('should not include User Guide or Community items when filtering for Examples', () => {
+  it('should not include User Guide or Integrations items when filtering for Examples', () => {
     const result = filterSidebarByBasePath(runtimeSidebar as any, '/docs/examples/')
 
     const allLinks = getAllLinks(result)
@@ -228,12 +226,12 @@ describe('Integration: Full filtering flow', () => {
     })
   })
 
-  it('should correctly filter sidebar for /community/community-packages/ page', () => {
-    const currentPath = '/docs/community/community-packages/'
+  it('should correctly filter sidebar for integrations docs pages', () => {
+    const currentPath = '/docs/integrations/get-featured/'
     const currentNav = findCurrentNavSection(currentPath, testNavLinks)
 
     expect(currentNav).toBeDefined()
-    expect(currentNav?.label).toBe('Community')
+    expect(currentNav?.label).toBe('Integrations')
 
     const basePath = currentNav?.basePath || currentNav?.href || ''
     const filtered = filterSidebarByBasePath(runtimeSidebar as any, basePath)
@@ -242,8 +240,38 @@ describe('Integration: Full filtering flow', () => {
     const allLinks = getAllLinks(result)
     expect(allLinks.length).toBeGreaterThan(0)
     allLinks.forEach((link) => {
-      expect(link.href.startsWith('/docs/community/')).toBe(true)
+      expect(link.href.startsWith('/docs/integrations/')).toBe(true)
     })
+  })
+
+  it('lesson pagination prev is the previous lesson, not the All-courses back-link', () => {
+    // Mirrors the middleware's lesson branch: sidebar from buildCourseSidebar,
+    // pagination from the lesson group's entries only.
+    const lessonIds = [
+      'docs/learning/how-agents-really-work',
+      'docs/learning/switching-model-providers',
+      'docs/learning/give-your-agent-tools-using-mcp',
+    ]
+    const lessonDocs: DocInfo[] = [
+      { id: 'docs/learning/how-agents-really-work', title: 'Lesson 1: How Agents Really Work' },
+      { id: 'docs/learning/switching-model-providers', title: 'Lesson 2: Switching Model Providers' },
+      { id: 'docs/learning/give-your-agent-tools-using-mcp', title: 'Lesson 3: Give Your Agent Tools Using MCP' },
+    ]
+    const currentSlug = 'docs/learning/switching-model-providers'
+    const course = { title: 'Agent Fundamentals with Strands', lessonIds }
+    const courseSidebar = buildCourseSidebar(lessonDocs, currentSlug, course)
+
+    // The sidebar leads with the All-courses back-link
+    expect(courseSidebar[0]?.type).toBe('link')
+    expect((courseSidebar[0] as { label: string }).label).toBe('← All courses')
+
+    const lessonGroup = courseSidebar.find((entry) => entry.type === 'group')
+    const lessonsOnly = lessonGroup?.type === 'group' ? lessonGroup.entries : []
+    const { prev, next } = getPrevNextLinks(lessonsOnly)
+
+    expect(prev?.label).toBe('Lesson 1: How Agents Really Work')
+    expect(prev?.label).not.toBe('← All courses')
+    expect(next?.label).toBe('Lesson 3: Give Your Agent Tools Using MCP')
   })
 })
 
@@ -273,8 +301,7 @@ describe('applyCollapse', () => {
   })
 
   it('should collapse nested groups by default when no explicit value', () => {
-    // Note: in production Starlight pre-normalizes all unset collapsed to false,
-    // so this path (no collapsed property) is only exercised outside Starlight.
+    // Starlight pre-normalizes unset collapsed to false; this path (missing property) only runs outside Starlight.
     const nested = { type: 'group' as const, label: 'Nested', entries: [] }
     const input = [{ type: 'group' as const, label: 'Top', entries: [nested] }]
 
@@ -286,10 +313,7 @@ describe('applyCollapse', () => {
   })
 
   it('should collapse nested groups when Starlight has normalized collapsed to false', () => {
-    // Starlight normalizes unset collapsed to false before the middleware runs,
-    // making collapsed: false indistinguishable from "not set". Depth-based
-    // default still applies — only explicit collapsed: true in navigation.yml
-    // can override it.
+    // Starlight normalizes unset collapsed to false; depth-based default still applies.
     const nested: SidebarGroup = { type: 'group', label: 'Nested', collapsed: false, entries: [] }
     const input: SidebarEntry[] = [{ type: 'group', label: 'Top', collapsed: false, entries: [nested] }]
 
@@ -417,5 +441,38 @@ describe('filterSidebarByBasePath with base path in URLs', () => {
     expect(result.length).toBe(2)
     expect((result[0] as SidebarLink).href).toBe('/docs/examples/')
     expect((result[1] as SidebarLink).href).toBe('/docs/examples/python/')
+  })
+})
+
+describe('onRequest integration: lesson pagination via real collection', () => {
+  it('lesson1 has no prev — back-link must not appear as prev', async () => {
+    // Guards lessonsOnly: back-link is the entry preceding lesson1 in the full sidebar;
+    // passing the full sidebar to getPrevNextLinks would make it lesson1's prev.
+    const currentSlug = 'docs/learning/how-agents-really-work'
+
+    const starlightRoute: Record<string, unknown> = {
+      id: currentSlug,
+      sidebar: [],
+      hasSidebar: true,
+      pagination: { prev: undefined, next: undefined },
+    }
+
+    const context = {
+      locals: { starlightRoute },
+      url: new URL(`https://example.com/${currentSlug}/`),
+    }
+
+    const noopNext = async (): Promise<void> => {}
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await onRequest(context as any, noopNext)
+
+    const sidebar = starlightRoute.sidebar as SidebarEntry[]
+    expect(sidebar[0]?.type).toBe('link')
+    expect((sidebar[0] as SidebarLink).label).toBe('← All courses')
+
+    const pagination = starlightRoute.pagination as { prev?: SidebarLink; next?: SidebarLink }
+    expect(pagination.prev).toBeUndefined()
+    expect(pagination.next?.label).toBe('Lesson 2: Switching Model Providers')
   })
 })

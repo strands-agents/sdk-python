@@ -1,7 +1,8 @@
-import type { Storage } from './storage.js'
+import type { Storage, StorageSearchResult } from './storage.js'
 
 import { StorageError } from '../errors.js'
 import { namespace, normalizeKey, normalizePrefix } from './storage.js'
+import { KeywordSearchStrategy } from './search/keyword.js'
 
 /** Configuration for {@link S3Storage}. */
 export interface S3StorageConfig {
@@ -54,7 +55,7 @@ export class S3Storage implements Storage {
   /**
    * Stores `data` under `key`, overwriting any existing value.
    *
-   * @param key - Opaque, `/`-separated key identifying the value
+   * @param key - Opaque string key identifying the value
    * @param data - Raw bytes to persist
    * @throws {@link StorageError} if the key is invalid or the upload fails
    */
@@ -145,6 +146,16 @@ export class S3Storage implements Storage {
       throw new StorageError(`Failed to list S3 bucket '${this._bucket}' under '${normalized}'`, { cause: error })
     }
     return keys.sort()
+  }
+
+  /**
+   * Searches stored content by keyword token-overlap scoring.
+   *
+   * @param query - Natural-language search query
+   * @returns All matches with relevance scores, ranked best-first
+   */
+  async search(query: string): Promise<StorageSearchResult[]> {
+    return KeywordSearchStrategy.search(this, query)
   }
 
   private async _getClient(): Promise<import('@aws-sdk/client-s3').S3Client> {

@@ -63,7 +63,7 @@ class LocalFileStorage:
         On the host filesystem, writes are atomic via write-to-temp-then-rename.
 
         Args:
-            key: Opaque, '/'-separated key identifying the value.
+            key: Opaque string key identifying the value.
             data: Raw bytes to persist.
 
         Raises:
@@ -250,5 +250,3 @@ class LocalFileStorage:
             else:
                 rel = os.path.relpath(str(full_path), self._base_dir)
                 keys.append(rel.replace(os.sep, "/"))
-
-

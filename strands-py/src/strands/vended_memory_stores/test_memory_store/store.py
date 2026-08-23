@@ -84,9 +84,12 @@ class TestMemoryStore(MemoryStore):
     of entries), not production workloads — use a managed store like ``BedrockKnowledgeBaseStore`` for
     that. Writes within one event loop are serialized; concurrent writers across processes are not.
 
-    Persistence is backed by the unified :class:`~strands.storage.Storage` interface: ``persist=True``
-    (the default) uses a :class:`~strands.storage.LocalFileStorage`, ``persist=False`` an ephemeral
-    :class:`~strands.storage.InMemoryStorage`.
+    Persistence is backed by the unified :class:`~strands.storage.Storage` interface internally:
+    ``persist=True`` (the default) uses a :class:`~strands.storage.LocalFileStorage`, ``persist=False``
+    an ephemeral :class:`~strands.storage.InMemoryStorage`. Unlike other subsystems
+    (SnapshotSessionManager, ContextOffloader), this store does not accept an external ``Storage``
+    or resolve from the agent-level ``storage`` — it manages its own backend via ``persist`` and
+    ``path``.
 
     The on-disk format is shared with the TypeScript SDK's ``TestMemoryStore``: records use the same
     camelCase keys (``id``, ``content``, ``metadata``, ``createdAt``) and the same timestamp shape, so

@@ -103,12 +103,16 @@ export type {
 export { CitationsBlock } from './types/citations.js'
 
 // Media classes
-export { S3Location, ImageBlock, VideoBlock, DocumentBlock } from './types/media.js'
+export { S3Location, AudioBlock, ImageBlock, VideoBlock, DocumentBlock } from './types/media.js'
 
 // Media types
 export type {
   LocationData,
   S3LocationData,
+  AudioFormat,
+  AudioSource,
+  AudioSourceData,
+  AudioBlockData,
   ImageFormat,
   ImageSource,
   ImageSourceData,
@@ -284,6 +288,10 @@ export type { Logger } from './logging/types.js'
 // MCP Client types and implementations
 export {
   type McpClientOptions,
+  type McpListToolsOptions,
+  type McpToolFilterCallback,
+  type McpToolFilters,
+  type McpToolMatcher,
   type McpClientConfig,
   type McpClientCredentials,
   type McpTransport,
@@ -291,6 +299,7 @@ export {
   type TasksConfig,
   type McpConnectionState,
   type McpServerConfig,
+  type SerializableMcpToolFilters,
   McpClient,
 } from './mcp/index.js'
 export type { ElicitationCallback, ElicitationContext } from './types/elicitation.js'

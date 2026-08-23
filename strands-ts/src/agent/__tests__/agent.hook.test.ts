@@ -500,6 +500,67 @@ describe('Agent Hooks Integration', () => {
       expect(hookCallCount).toBe(2)
     })
 
+    it('does not retry a tool call after agent cancellation', async () => {
+      let toolCallCount = 0
+      const tool = createMockTool('cancelledTool', () => {
+        toolCallCount++
+        return new ToolResultBlock({
+          toolUseId: 'tool-1',
+          status: 'error',
+          content: [new TextBlock('Cancelled locally')],
+        })
+      })
+
+      const model = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'cancelledTool', toolUseId: 'tool-1', input: {} })
+        .addTurn({ type: 'textBlock', text: 'Should not reach' })
+
+      const agent = new Agent({ model, tools: [tool] })
+      let hookCallCount = 0
+      agent.addHook(AfterToolCallEvent, (event: AfterToolCallEvent) => {
+        hookCallCount++
+        if (hookCallCount === 1) {
+          agent.cancel()
+          event.retry = true
+        }
+      })
+
+      const result = await agent.invoke('Test')
+
+      expect(result.stopReason).toBe('cancelled')
+      expect(toolCallCount).toBe(1)
+      expect(hookCallCount).toBe(1)
+    })
+
+    it('does not retry a hook-cancelled tool after agent cancellation', async () => {
+      let toolCallCount = 0
+      const tool = createMockTool('cancelledTool', () => {
+        toolCallCount++
+        return new ToolResultBlock({ toolUseId: 'tool-1', status: 'success', content: [new TextBlock('Success')] })
+      })
+
+      const model = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'cancelledTool', toolUseId: 'tool-1', input: {} })
+        .addTurn({ type: 'textBlock', text: 'Should not reach' })
+
+      const agent = new Agent({ model, tools: [tool] })
+      agent.addHook(BeforeToolCallEvent, (event: BeforeToolCallEvent) => {
+        event.cancel = true
+      })
+      let hookCallCount = 0
+      agent.addHook(AfterToolCallEvent, (event: AfterToolCallEvent) => {
+        hookCallCount++
+        agent.cancel()
+        event.retry = true
+      })
+
+      const result = await agent.invoke('Test')
+
+      expect(result.stopReason).toBe('cancelled')
+      expect(toolCallCount).toBe(0)
+      expect(hookCallCount).toBe(1)
+    })
+
     it('does not retry tool call when retry is not set', async () => {
       let toolCallCount = 0
       const tool = createMockTool('failingTool', () => {
@@ -1717,6 +1778,22 @@ describe('Agent Hooks Integration', () => {
       await agent.invoke('Hi')
 
       expect(queue).toHaveLength(0)
+    })
+  })
+
+  describe('plugin initialization failure', () => {
+    it('keeps a plugin initialization failure fail-closed across retries', async () => {
+      const initializationError = new Error('plugin initialization failed')
+      const plugin: Plugin = {
+        name: 'failing-plugin',
+        initAgent: () => {
+          throw initializationError
+        },
+      }
+      const agent = new Agent({ model: new MockMessageModel(), plugins: [plugin] })
+
+      await expect(agent.initialize()).rejects.toBe(initializationError)
+      await expect(agent.initialize()).rejects.toBe(initializationError)
     })
   })
 })

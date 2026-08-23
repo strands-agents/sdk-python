@@ -19,7 +19,7 @@ from typing import Any, AsyncGenerator, cast
 
 from google import genai
 from google.genai import types as genai_types
-from google.genai.types import LiveConnectConfigOrDict, LiveServerMessage
+from google.genai.types import LiveConnectConfigOrDict, LiveServerContent, LiveServerMessage, UsageMetadata
 
 from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
@@ -97,14 +97,13 @@ class BidiGeminiLiveModel(BidiModel):
         self._connection_id: str | None = None
 
     def _resolve_client_config(self, config: dict[str, Any]) -> dict[str, Any]:
-        """Resolve client config (sets default http_options if not provided)."""
-        resolved = config.copy()
+        """Resolve client config.
 
-        # Set default http_options if not provided
-        if "http_options" not in resolved:
-            resolved["http_options"] = {"api_version": "v1alpha"}
-
-        return resolved
+        The google-genai SDK uses the correct default API version.
+        Users requiring v1alpha for 2.5-specific features (affective dialog,
+        proactive audio) can pass client_config={"http_options": {"api_version": "v1alpha"}}.
+        """
+        return config.copy()
 
     def _resolve_provider_config(self, config: dict[str, Any]) -> dict[str, Any]:
         """Merge user config with defaults (user takes precedence)."""
@@ -152,8 +151,15 @@ class BidiGeminiLiveModel(BidiModel):
 
         self._connection_id = str(uuid.uuid4())
 
-        # Build live config
-        live_config = self._build_live_config(system_prompt, tools, **kwargs)
+        # Build live config — only enable initial-history mode when text content exists
+        # (tool-only history is dropped by _send_message_history and would leave the server
+        # stuck waiting for turn_complete that never arrives)
+        has_messages = (
+            messages is not None
+            and any("text" in block for message in messages for block in message["content"])
+            and "live_session_handle" not in kwargs
+        )
+        live_config = self._build_live_config(system_prompt, tools, has_messages=has_messages, **kwargs)
 
         # Create the context manager and session
         self._live_session_context_manager = self._client.aio.live.connect(
@@ -168,14 +174,15 @@ class BidiGeminiLiveModel(BidiModel):
     async def _send_message_history(self, messages: Messages) -> None:
         """Send conversation history to Gemini Live API.
 
-        Sends each message as a separate turn with the correct role to maintain
-        proper conversation context. Follows the same pattern as the non-bidirectional
-        Gemini model implementation.
+        Collects text content from messages into a list of turns and sends them
+        in a single send_client_content call with turn_complete=True to signal
+        that history seeding is complete and realtime mode can begin.
         """
         if not messages:
             return
 
-        # Convert each message to Gemini format and send separately
+        # Collect all content turns
+        turns_to_send: list[genai_types.Content] = []
         for message in messages:
             content_parts = []
             for content_block in message["content"]:
@@ -183,11 +190,11 @@ class BidiGeminiLiveModel(BidiModel):
                     content_parts.append(genai_types.Part(text=content_block["text"]))
 
             if content_parts:
-                # Map role correctly - Gemini uses "user" and "model" roles
-                # "assistant" role from Messages format maps to "model" in Gemini
                 role = "model" if message["role"] == "assistant" else message["role"]
-                content = genai_types.Content(role=role, parts=content_parts)
-                await self._live_session.send_client_content(turns=content)
+                turns_to_send.append(genai_types.Content(role=role, parts=content_parts))
+
+        if turns_to_send:
+            await self._live_session.send_client_content(turns=turns_to_send, turn_complete=True)
 
     async def receive(self) -> AsyncGenerator[BidiOutputEvent, None]:
         """Receive Gemini Live API events and convert to provider-agnostic format."""
@@ -212,6 +219,9 @@ class BidiGeminiLiveModel(BidiModel):
         - modelTurn text: Text response from the model
         - usageMetadata: Token usage information
 
+        `usageMetadata` sits outside the `messageType` union, so it can accompany any other field and
+        is collected independently of the content events.
+
         Returns:
             List of event dicts (empty list if no events to emit).
 
@@ -223,93 +233,31 @@ class BidiGeminiLiveModel(BidiModel):
                 message.go_away.model_dump_json(), live_session_handle=self._live_session_handle
             )
 
+        events: list[BidiOutputEvent] = []
+
         if message.session_resumption_update:
             resumption_update = message.session_resumption_update
             if resumption_update.resumable and resumption_update.new_handle:
                 self._live_session_handle = resumption_update.new_handle
                 logger.debug("session_handle=<%s> | updating gemini session handle", self._live_session_handle)
-            return []
 
-        # Handle interruption first (from server_content)
-        if message.server_content and message.server_content.interrupted:
-            return [BidiInterruptionEvent(reason="user_speech")]
-
-        # Handle input transcription (user's speech) - emit as transcript event
-        if message.server_content and message.server_content.input_transcription:
-            input_transcript = message.server_content.input_transcription
-            # Check if the transcription object has text content
-            if hasattr(input_transcript, "text") and input_transcript.text:
-                transcription_text = input_transcript.text
-                logger.debug("text_length=<%d> | gemini input transcription detected", len(transcription_text))
-                return [
-                    BidiTranscriptStreamEvent(
-                        delta={"text": transcription_text},
-                        text=transcription_text,
-                        role="user",
-                        # TODO: https://github.com/googleapis/python-genai/issues/1504
-                        is_final=bool(input_transcript.finished),
-                        current_transcript=transcription_text,
-                    )
-                ]
-
-        # Handle output transcription (model's audio) - emit as transcript event
-        if message.server_content and message.server_content.output_transcription:
-            output_transcript = message.server_content.output_transcription
-            # Check if the transcription object has text content
-            if hasattr(output_transcript, "text") and output_transcript.text:
-                transcription_text = output_transcript.text
-                logger.debug("text_length=<%d> | gemini output transcription detected", len(transcription_text))
-                return [
-                    BidiTranscriptStreamEvent(
-                        delta={"text": transcription_text},
-                        text=transcription_text,
-                        role="assistant",
-                        # TODO: https://github.com/googleapis/python-genai/issues/1504
-                        is_final=bool(output_transcript.finished),
-                        current_transcript=transcription_text,
-                    )
-                ]
+        if message.server_content:
+            events.extend(self._convert_server_content(message.server_content, has_audio=bool(message.data)))
 
         # Handle audio output using SDK's built-in data property
-        # Check this BEFORE text to avoid triggering warning on mixed content
         if message.data:
             # Convert bytes to base64 string for JSON serializability
             audio_b64 = base64.b64encode(message.data).decode("utf-8")
-            return [
+            events.append(
                 BidiAudioStreamEvent(
                     audio=audio_b64,
                     format="pcm",
                     sample_rate=cast(AudioSampleRate, self.config["audio"]["output_rate"]),
                     channels=cast(AudioChannel, self.config["audio"]["channels"]),
                 )
-            ]
+            )
 
-        # Handle text output from model_turn (avoids warning by checking parts directly)
-        if message.server_content and message.server_content.model_turn:
-            model_turn = message.server_content.model_turn
-            if model_turn.parts:
-                # Concatenate all text parts (Gemini may send multiple parts)
-                text_parts = []
-                for part in model_turn.parts:
-                    # Check if part has text attribute and it's not empty
-                    if hasattr(part, "text") and part.text:
-                        text_parts.append(part.text)
-
-                if text_parts:
-                    full_text = " ".join(text_parts)
-                    return [
-                        BidiTranscriptStreamEvent(
-                            delta={"text": full_text},
-                            text=full_text,
-                            role="assistant",
-                            is_final=True,
-                            current_transcript=full_text,
-                        )
-                    ]
-
-        # Handle tool calls - return list to support multiple tool calls
         if message.tool_call and message.tool_call.function_calls:
-            tool_events: list[BidiOutputEvent] = []
             for func_call in message.tool_call.function_calls:
                 tool_use_event: ToolUse = {
                     "toolUseId": cast(str, func_call.id),
@@ -317,58 +265,121 @@ class BidiGeminiLiveModel(BidiModel):
                     "input": func_call.args or {},
                 }
                 # Create ToolUseStreamEvent for consistency with standard agent
-                tool_events.append(
+                events.append(
                     ToolUseStreamEvent(delta={"toolUse": tool_use_event}, current_tool_use=dict(tool_use_event))
                 )
-            return tool_events
 
-        # Handle usage metadata
-        if hasattr(message, "usage_metadata") and message.usage_metadata:
-            usage = message.usage_metadata
+        if message.usage_metadata:
+            events.append(self._convert_usage_metadata(message.usage_metadata))
 
-            # Build modality details from token details
-            modality_details = []
+        # setup_complete and generation_complete carry no content and are silently ignored
+        return events
 
-            # Process prompt tokens details
-            if usage.prompt_tokens_details:
-                for detail in usage.prompt_tokens_details:
-                    if detail.modality and detail.token_count:
+    def _convert_server_content(self, server_content: LiveServerContent, has_audio: bool) -> list[BidiOutputEvent]:
+        """Convert the server content of a Gemini Live message.
+
+        Args:
+            server_content: Server content to convert.
+            has_audio: Whether the enclosing message carries audio output. Text from `model_turn` is
+                skipped when it does, since the two represent the same response in different modalities.
+
+        Returns:
+            List of events derived from the server content.
+        """
+        events: list[BidiOutputEvent] = []
+
+        if server_content.interrupted:
+            events.append(BidiInterruptionEvent(reason="user_speech"))
+
+        # Transcriptions arrive independently of other fields and of each other
+        input_transcript = server_content.input_transcription
+        if input_transcript and input_transcript.text:
+            logger.debug("text_length=<%d> | gemini input transcription detected", len(input_transcript.text))
+            events.append(
+                BidiTranscriptStreamEvent(
+                    delta={"text": input_transcript.text},
+                    text=input_transcript.text,
+                    role="user",
+                    # TODO: https://github.com/googleapis/python-genai/issues/1504
+                    is_final=bool(input_transcript.finished),
+                    current_transcript=input_transcript.text,
+                )
+            )
+
+        output_transcript = server_content.output_transcription
+        if output_transcript and output_transcript.text:
+            logger.debug("text_length=<%d> | gemini output transcription detected", len(output_transcript.text))
+            events.append(
+                BidiTranscriptStreamEvent(
+                    delta={"text": output_transcript.text},
+                    text=output_transcript.text,
+                    role="assistant",
+                    # TODO: https://github.com/googleapis/python-genai/issues/1504
+                    is_final=bool(output_transcript.finished),
+                    current_transcript=output_transcript.text,
+                )
+            )
+
+        # Reading model_turn parts directly avoids the mixed-content warning raised by message.data
+        if not has_audio and server_content.model_turn and server_content.model_turn.parts:
+            # Concatenate all text parts (Gemini may send multiple parts)
+            text_parts = [part.text for part in server_content.model_turn.parts if part.text]
+            if text_parts:
+                full_text = " ".join(text_parts)
+                events.append(
+                    BidiTranscriptStreamEvent(
+                        delta={"text": full_text},
+                        text=full_text,
+                        role="assistant",
+                        is_final=True,
+                        current_transcript=full_text,
+                    )
+                )
+
+        return events
+
+    def _convert_usage_metadata(self, usage: UsageMetadata) -> BidiUsageEvent:
+        """Convert Gemini usage metadata into a usage event.
+
+        Args:
+            usage: Usage metadata reported by Gemini.
+
+        Returns:
+            Usage event carrying token counts and per-modality details.
+        """
+        modality_details: list[dict[str, Any]] = []
+
+        if usage.prompt_tokens_details:
+            for detail in usage.prompt_tokens_details:
+                if detail.modality and detail.token_count:
+                    modality_details.append(
+                        {
+                            "modality": str(detail.modality).lower(),
+                            "input_tokens": detail.token_count,
+                            "output_tokens": 0,
+                        }
+                    )
+
+        if usage.response_tokens_details:
+            for detail in usage.response_tokens_details:
+                if detail.modality and detail.token_count:
+                    # Find or create modality entry
+                    modality_str = str(detail.modality).lower()
+                    existing = next((m for m in modality_details if m["modality"] == modality_str), None)
+                    if existing:
+                        existing["output_tokens"] = detail.token_count
+                    else:
                         modality_details.append(
-                            {
-                                "modality": str(detail.modality).lower(),
-                                "input_tokens": detail.token_count,
-                                "output_tokens": 0,
-                            }
+                            {"modality": modality_str, "input_tokens": 0, "output_tokens": detail.token_count}
                         )
 
-            # Process response tokens details
-            if usage.response_tokens_details:
-                for detail in usage.response_tokens_details:
-                    if detail.modality and detail.token_count:
-                        # Find or create modality entry
-                        modality_str = str(detail.modality).lower()
-                        existing = next((m for m in modality_details if m["modality"] == modality_str), None)
-                        if existing:
-                            existing["output_tokens"] = detail.token_count
-                        else:
-                            modality_details.append(
-                                {"modality": modality_str, "input_tokens": 0, "output_tokens": detail.token_count}
-                            )
-
-            return [
-                BidiUsageEvent(
-                    input_tokens=usage.prompt_token_count or 0,
-                    output_tokens=usage.response_token_count or 0,
-                    total_tokens=usage.total_token_count or 0,
-                    modality_details=cast(list[ModalityUsage], modality_details) if modality_details else None,
-                    cache_read_input_tokens=usage.cached_content_token_count
-                    if usage.cached_content_token_count
-                    else None,
-                )
-            ]
-
-        # Silently ignore setup_complete and generation_complete messages
-        return []
+        return BidiUsageEvent(
+            input_tokens=usage.prompt_token_count or 0,
+            output_tokens=usage.response_token_count or 0,
+            total_tokens=usage.total_token_count or 0,
+            modality_details=cast(list[ModalityUsage], modality_details) if modality_details else None,
+            cache_read_input_tokens=usage.cached_content_token_count if usage.cached_content_token_count else None,
+        )
 
     async def send(
         self,
@@ -429,12 +440,14 @@ class BidiGeminiLiveModel(BidiModel):
         await self._live_session.send(input=msg)
 
     async def _send_text_content(self, text: str) -> None:
-        """Internal: Send text content using Gemini Live API."""
-        # Create content with text
-        content = genai_types.Content(role="user", parts=[genai_types.Part(text=text)])
+        """Internal: Send text content using Gemini Live API.
 
-        # Send as client content
-        await self._live_session.send_client_content(turns=content)
+        Uses send_realtime_input for mid-session text input. Turn completion
+        is handled by Gemini's automatic activity detection rather than
+        explicit turn boundaries. send_client_content is reserved for
+        seeding initial history at session start (see _send_message_history).
+        """
+        await self._live_session.send_realtime_input(text=text)
 
     async def _send_tool_result(self, tool_result: ToolResult) -> None:
         """Internal: Send tool result using Gemini Live API."""
@@ -491,7 +504,14 @@ class BidiGeminiLiveModel(BidiModel):
         """
         config_dict: dict[str, Any] = self.config["inference"].copy()
 
-        config_dict["session_resumption"] = {"handle": kwargs.get("live_session_handle")}
+        live_session_handle = kwargs.get("live_session_handle")
+        config_dict["session_resumption"] = genai_types.SessionResumptionConfig(handle=live_session_handle)
+
+        # Enables send_client_content for initial history seeding before realtime mode.
+        # Not supported on Vertex AI; HistoryConfig requires google-genai>=1.67 (floor bump tracked separately).
+        has_messages = kwargs.get("has_messages", False)
+        if has_messages and getattr(self._client, "vertexai", False) is not True:
+            config_dict["history_config"] = genai_types.HistoryConfig(initial_history_in_client_content=True)
 
         # Add system instruction if provided
         if system_prompt:
