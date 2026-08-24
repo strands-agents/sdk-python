@@ -134,7 +134,7 @@ class BaseModelConfig(TypedDict, total=False):
 class CacheConfig:
     """Configuration for prompt caching.
 
-    Providers consume only the fields they support and warn otherwise.
+    Providers consume only the fields they support.
 
     Attributes:
         strategy: Caching strategy to use.

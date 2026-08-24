@@ -67,7 +67,7 @@ class CitationAccumulator {
 /**
  * Configuration for prompt caching.
  *
- * Providers consume only the fields they support and warn otherwise.
+ * Providers consume only the fields they support.
  */
 export interface CacheConfig {
   /**
