@@ -48,8 +48,8 @@ from __future__ import annotations
 
 import copy
 import inspect
+import json
 import logging
-import math
 from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, TypeAlias
@@ -74,34 +74,17 @@ logger = logging.getLogger(__name__)
 _JSONValue: TypeAlias = str | int | float | bool | None | list["_JSONValue"] | dict[str, "_JSONValue"]
 
 
-def _copy_json_value(value: object) -> _JSONValue:
-    """Validate and copy one JSON value."""
-    if value is None or isinstance(value, (str, bool, int)):
-        return value
-    if isinstance(value, float):
-        if not math.isfinite(value):
-            raise ValueError("metadata numbers must be finite")
-        return value
-    if isinstance(value, list):
-        return [_copy_json_value(item) for item in value]
-    if isinstance(value, Mapping):
-        if not all(isinstance(key, str) for key in value):
-            raise TypeError("metadata object keys must be strings")
-        return {key: _copy_json_value(item) for key, item in value.items()}
-    raise TypeError("metadata must contain only JSON values")
-
-
 @dataclass(frozen=True)
 class RoutingCandidate:
     """A model or model group with optional classifier-facing evidence.
 
     ``model`` may be a nested ``ModelRouter``, which contributes one opaque candidate. Its strategy selects from its
-    own candidates, and the group performs no internal failover. Metadata keys and values must be JSON-serializable;
-    classifier-based strategies may send them across provider boundaries, so they must not contain secrets.
+    own candidates, and the group performs no internal failover. Metadata must be a JSON-serializable mapping;
+    classifier-based strategies may send it across provider boundaries, so it must not contain secrets. The candidate
+    stores the caller's mapping without copying, so it must not be mutated after construction.
 
     Raises:
-        TypeError: If metadata is not a mapping containing only JSON values with string keys.
-        ValueError: If metadata contains a non-finite number.
+        TypeError: If metadata is not a JSON-serializable mapping.
     """
 
     model: Model | ModelRouter
@@ -110,13 +93,15 @@ class RoutingCandidate:
     metadata: Mapping[str, _JSONValue] | None = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
-        """Validate and detach caller-owned metadata."""
+        """Validate caller-owned metadata."""
         if self.metadata is None:
             return
         if not isinstance(self.metadata, Mapping):
             raise TypeError("metadata must be a mapping")
-        normalized = _copy_json_value(self.metadata)
-        object.__setattr__(self, "metadata", normalized)
+        try:
+            json.dumps(self.metadata, ensure_ascii=False, allow_nan=False)
+        except (TypeError, ValueError) as error:
+            raise TypeError(f"metadata must be JSON-serializable: {error}") from error
 
 
 _ROUTING_KEY_PREFIX = "strands:model_routing"
