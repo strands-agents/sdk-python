@@ -74,9 +74,6 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-Amazon Bedrock has no default bidirectional provider. Select
-`BedrockNovaSonicModel` explicitly.
-
 ## Cross-Modal Input
 
 Nova Sonic accepts text input at any point during an active voice session, without interrupting or waiting on the audio stream. Send a [`BidiTextInputEvent`](../events.md#biditextinputevent) the same way you would outside of a live conversation:
