@@ -119,6 +119,24 @@ def test_update_config(model, model_id):
     assert tru_model_id == exp_model_id
 
 
+def test_cache_key_round_trips_through_config(model):
+    """Anthropic accepts and preserves cache_config.cache_key through update_config/get_config."""
+    model.update_config(cache_config=CacheConfig(cache_key="tenant-42"))
+
+    assert model.get_config()["cache_config"].cache_key == "tenant-42"
+
+
+def test_cache_key_does_not_change_request_shape(anthropic_client, messages, model_id, max_tokens):
+    """Anthropic ignores cache_key: two configs differing only in cache_key format identically."""
+    _ = anthropic_client
+    without_key = AnthropicModel(model_id=model_id, max_tokens=max_tokens, cache_config=CacheConfig())
+    with_key = AnthropicModel(
+        model_id=model_id, max_tokens=max_tokens, cache_config=CacheConfig(cache_key="tenant-42")
+    )
+
+    assert with_key.format_request(messages) == without_key.format_request(messages)
+
+
 def test_format_request_default(model, messages, model_id, max_tokens):
     tru_request = model.format_request(messages)
     exp_request = {

@@ -2563,6 +2563,23 @@ describe('BedrockModel', () => {
           { cachePoint: { type: 'default', ttl: '1h' } },
         ])
       })
+
+      it('ignores cacheKey: it does not change the request shape', () => {
+        // Bedrock does not consume cacheKey, so it must not reach the request.
+        const withoutKey = new BedrockModel({ modelId: 'anthropic.claude-test-model', cacheConfig: {} })
+        const withKey = new BedrockModel({
+          modelId: 'anthropic.claude-test-model',
+          cacheConfig: { cacheKey: 'tenant-42' },
+        })
+
+        collectIterator(withoutKey.stream(messages, { toolSpecs }))
+        const withoutKeyRequest = mockConverseStreamCommand.mock.lastCall?.[0]
+
+        collectIterator(withKey.stream(messages, { toolSpecs }))
+        const withKeyRequest = mockConverseStreamCommand.mock.lastCall?.[0]
+
+        expect(withKeyRequest).toStrictEqual(withoutKeyRequest)
+      })
     })
 
     describe('per-call trailing blocks', () => {
