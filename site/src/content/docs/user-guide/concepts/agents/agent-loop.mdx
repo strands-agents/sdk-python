@@ -121,7 +121,7 @@ The `agent.cancel()` method provides a way to stop the loop from outside, such a
   | Model response streaming | Partial output is discarded | Usage metrics may be inaccurate since the stream is closed before the model sends its final metadata event |
   | Before tool execution | Tool calls are skipped with error results added to maintain valid conversation state | |
   | During MCP tool execution | The in-flight MCP request is cancelled without closing the shared MCP session | Remote cancellation is best-effort; the agent stops locally even if the server does not acknowledge cancellation |
-  | After tool execution | The agent stops before the next model call | Non-MCP tools finish before cancellation is observed |
+  | After tool execution | The agent stops before the next model call | Non-cooperative tools finish before cancellation is observed |
 
   The agent returns a result with `stop_reason="cancelled"`. `cancel()` is thread-safe and idempotent. Calling it multiple times or from different threads is safe.
 
@@ -149,6 +149,28 @@ The `agent.cancel()` method provides a way to stop the loop from outside, such a
 
   if result.stop_reason == "cancelled":
       print("Agent was cancelled due to timeout")
+  ```
+
+  #### Cancellation within tool execution
+
+  Once a tool starts, cancellation is cooperative. Tools can check
+  `tool_context.cancel_signal.is_set()` between steps or pass the event to APIs that
+  accept a `threading.Event`. A tool that does neither runs to completion before the
+  agent resumes cancellation handling.
+
+  ```python
+  import asyncio
+
+  from strands import ToolContext, tool
+
+
+  @tool(context=True)
+  async def long_running_task(tool_context: ToolContext) -> str:
+      for _ in range(300):
+          if tool_context.cancel_signal.is_set():
+              return "Cancelled"
+          await asyncio.sleep(0.1)
+      return "Done"
   ```
 
   Cancellation differs from [interrupts](../interrupts.mdx) in that it stops the agent entirely rather than pausing for human input. Interrupts allow the agent to resume from where it left off; cancellation does not.

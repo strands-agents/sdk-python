@@ -45,4 +45,5 @@ When no client is provided, a default `httpx.AsyncClient()` is created per reque
 
 - The tool delegates entirely to the provided (or default) httpx client for timeouts, redirects, and connection management.
 - Request errors (`httpx.TimeoutException`, `httpx.TooManyRedirects`, `httpx.RequestError`) are wrapped in `HttpRequestError`.
-- The parent agent's cancel signal is read via the injected `ToolContext`. A set signal raises `asyncio.CancelledError` before the request is sent.
+- The tool execution's cancel signal is checked before the request is sent and
+  while the response body is streamed. A set signal raises `asyncio.CancelledError`.

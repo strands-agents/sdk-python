@@ -10,6 +10,7 @@ via ``get_available_skills()`` with no agent.
 """
 
 import logging
+import threading
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -78,7 +79,12 @@ def _mock_agent():
 def _mock_tool_context(agent: MagicMock) -> ToolContext:
     """Create a mock ToolContext with the given agent."""
     tool_use = {"toolUseId": "test-id", "name": "skills", "input": {}}
-    return ToolContext(tool_use=tool_use, agent=agent, invocation_state={"agent": agent})
+    return ToolContext(
+        tool_use=tool_use,
+        agent=agent,
+        invocation_state={"agent": agent},
+        cancel_signal=threading.Event(),
+    )
 
 
 def _set_system_prompt(agent: MagicMock, value: str | list | None) -> None:

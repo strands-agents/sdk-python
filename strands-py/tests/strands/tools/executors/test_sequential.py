@@ -1,3 +1,5 @@
+import threading
+
 import pytest
 from pydantic import BaseModel
 
@@ -101,6 +103,52 @@ async def test_sequential_executor_cancellation_skips_remaining_tools(
     ]
     assert tru_events == exp_events
     assert tool_results == [event.tool_result for event in exp_events]
+
+
+@pytest.mark.asyncio
+async def test_sequential_executor_uses_supplied_cancel_signal(
+    executor, agent, tool_results, cycle_trace, cycle_span, invocation_state, alist
+):
+    execution_signal = threading.Event()
+    executed_tools = []
+
+    @tool(name="first_tool")
+    def first_tool():
+        executed_tools.append("first")
+        execution_signal.set()
+        return "done"
+
+    @tool(name="second_tool")
+    def second_tool():
+        executed_tools.append("second")
+        return "unexpected"
+
+    agent.tool_registry.register_tool(first_tool)
+    agent.tool_registry.register_tool(second_tool)
+    tool_uses = [
+        {"name": "first_tool", "toolUseId": "1", "input": {}},
+        {"name": "second_tool", "toolUseId": "2", "input": {}},
+    ]
+
+    tru_events = await alist(
+        executor._execute(
+            agent,
+            tool_uses,
+            tool_results,
+            cycle_trace,
+            cycle_span,
+            invocation_state,
+            cancel_signal=execution_signal,
+        )
+    )
+
+    exp_events = [
+        ToolResultEvent({"toolUseId": "1", "status": "success", "content": [{"text": "done"}]}),
+        ToolResultEvent({"toolUseId": "2", "status": "error", "content": [{"text": "Tool execution cancelled"}]}),
+    ]
+    assert not agent._cancel_signal.is_set()
+    assert executed_tools == ["first"]
+    assert tru_events == exp_events
 
 
 @pytest.mark.asyncio

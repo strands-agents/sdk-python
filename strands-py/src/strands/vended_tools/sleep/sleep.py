@@ -2,12 +2,9 @@
 
 Provides :func:`make_sleep` (a factory that lets the caller configure the
 maximum permitted duration) and :data:`sleep` (a default instance with a 60-second
-cap). Sleeps are implemented with :func:`asyncio.sleep`, which unblocks
-immediately when the surrounding task is cancelled. When the tool is invoked
-through the standard :class:`DecoratedFunctionTool` path, the raised
-:class:`asyncio.CancelledError` is caught by the tool executor and surfaced as
-a tool-error result; direct callers awaiting the underlying coroutine observe
-the cancellation directly.
+cap). Sleeps are implemented with :func:`asyncio.sleep` and poll the current tool
+execution's cancellation signal. Cancellation raises :class:`RuntimeError`, which
+the standard tool executor surfaces as a tool-error result.
 """
 
 from __future__ import annotations
@@ -17,6 +14,7 @@ import math
 from typing import TYPE_CHECKING
 
 from ...tools.decorator import tool
+from ...types.tools import ToolContext
 from .types import DEFAULT_MAX_DURATION, sleep_description
 
 if TYPE_CHECKING:
@@ -32,11 +30,8 @@ def make_sleep(
     """Create a sleep tool with a configurable maximum duration.
 
     The returned tool pauses execution for ``duration`` seconds via
-    :func:`asyncio.sleep`. Cancelling the surrounding task unblocks the sleep
-    immediately rather than waiting for the full duration; the resulting
-    :class:`asyncio.CancelledError` is caught by the standard tool executor
-    when the tool is invoked through :class:`DecoratedFunctionTool` and
-    surfaced as a tool-error result to the model.
+    :func:`asyncio.sleep`. Setting the tool execution's cancellation signal
+    aborts the sleep rather than waiting for the full duration.
 
     Args:
         max_duration: Upper bound on ``duration`` in seconds. Must be a finite,
@@ -58,17 +53,19 @@ def make_sleep(
     resolved_max = float(max_duration)
     resolved_description = description if description is not None else sleep_description(resolved_max)
 
-    @tool(name=name, description=resolved_description)
-    async def sleep_tool(duration: float) -> str:
+    @tool(name=name, description=resolved_description, context=True)
+    async def sleep_tool(duration: float, tool_context: ToolContext | None = None) -> str:
         """Pauses execution for the given number of seconds.
 
-        The sleep is cooperative: it uses :func:`asyncio.sleep` and aborts
-        immediately if the enclosing task is cancelled. Negative, non-finite,
-        non-numeric, or oversized durations are rejected before the sleep begins.
+        The sleep is cooperative: it uses :func:`asyncio.sleep` and checks the
+        tool execution's cancellation signal between short intervals. Negative,
+        non-finite, non-numeric, or oversized durations are rejected before the
+        sleep begins.
 
         Args:
             duration: Seconds to pause. Must be a finite, non-negative number
                 no larger than the tool's configured maximum.
+            tool_context: Framework-injected execution context.
         """
         if isinstance(duration, bool) or not isinstance(duration, (int, float)):
             raise ValueError(f"duration must be a number, got {type(duration).__name__}")
@@ -80,7 +77,17 @@ def make_sleep(
         if seconds > resolved_max:
             raise ValueError(f"duration {seconds} exceeds maximum of {resolved_max} seconds")
 
-        await asyncio.sleep(seconds)
+        if tool_context is None:
+            await asyncio.sleep(seconds)
+        else:
+            deadline = asyncio.get_running_loop().time() + seconds
+            while True:
+                if tool_context.cancel_signal.is_set():
+                    raise RuntimeError("Sleep cancelled")
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    break
+                await asyncio.sleep(min(remaining, 0.05))
         return f"Slept for {duration} seconds"
 
     return sleep_tool

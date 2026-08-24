@@ -6,6 +6,7 @@ spawn ``sh`` and require POSIX, so they are skipped on Windows.
 """
 
 import sys
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -22,7 +23,12 @@ pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell req
 def _tool_context(sandbox: NotASandboxLocalEnvironment | None = None) -> ToolContext:
     """Build a ToolContext whose agent exposes a sandbox (or a fresh one)."""
     agent = SimpleNamespace(sandbox=sandbox or NotASandboxLocalEnvironment())
-    return ToolContext(tool_use={"name": "shell", "toolUseId": "id", "input": {}}, agent=agent, invocation_state={})
+    return ToolContext(
+        tool_use={"name": "shell", "toolUseId": "id", "input": {}},
+        agent=agent,
+        invocation_state={},
+        cancel_signal=threading.Event(),
+    )
 
 
 class TestMakeShell:

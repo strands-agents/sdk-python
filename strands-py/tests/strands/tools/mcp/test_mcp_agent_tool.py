@@ -147,6 +147,30 @@ async def test_stream(mcp_agent_tool, mock_mcp_client, alist):
     )
 
 
+@pytest.mark.asyncio
+async def test_stream_uses_execution_cancel_signal(mcp_agent_tool, mock_mcp_client, alist):
+    tool_use = {"toolUseId": "test-123", "name": "test_tool", "input": {"param": "value"}}
+    agent_cancel_signal = threading.Event()
+    execution_cancel_signal = threading.Event()
+    invocation_state = {"agent": MagicMock(_cancel_signal=agent_cancel_signal)}
+
+    await alist(
+        mcp_agent_tool.stream(
+            tool_use,
+            invocation_state,
+            cancel_signal=execution_cancel_signal,
+        )
+    )
+
+    mock_mcp_client.call_tool_async.assert_called_once_with(
+        tool_use_id="test-123",
+        name="test_tool",
+        arguments={"param": "value"},
+        read_timeout_seconds=None,
+        cancel_signal=execution_cancel_signal,
+    )
+
+
 def test_timeout_initialization(mock_mcp_tool, mock_mcp_client):
     timeout = timedelta(seconds=30)
     agent_tool = MCPAgentTool(mock_mcp_tool, mock_mcp_client, timeout=timeout)

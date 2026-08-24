@@ -217,7 +217,12 @@ class _AgentAsTool(AgentTool):
             logger.debug("tool_name=<%s>, tool_use_id=<%s> | invoking agent", self._tool_name, tool_use_id)
 
             result = None
-            async for event in self._agent.stream_async(prompt):
+            cancel_signal = kwargs.get("cancel_signal")
+            if isinstance(cancel_signal, threading.Event):
+                stream = self._agent.stream_async(prompt, _execution_cancel_signal=cancel_signal)
+            else:
+                stream = self._agent.stream_async(prompt)
+            async for event in stream:
                 if "result" in event:
                     result = event["result"]
                 else:
@@ -236,6 +241,16 @@ class _AgentAsTool(AgentTool):
             # Propagate sub-agent interrupts to the parent agent.
             if result.stop_reason == "interrupt" and result.interrupts:
                 yield ToolInterruptEvent(tool_use, list(result.interrupts))
+                return
+
+            if result.stop_reason == "cancelled":
+                yield ToolResultEvent(
+                    {
+                        "toolUseId": tool_use_id,
+                        "status": "error",
+                        "content": [{"text": f"Agent '{self._tool_name}' cancelled"}],
+                    }
+                )
                 return
 
             if result.structured_output:

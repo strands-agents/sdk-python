@@ -64,7 +64,8 @@ def exception_tool():
     def func():
         pass
 
-    async def mock_stream(_tool_use, _invocation_state):
+    async def mock_stream(tool_use, invocation_state, **kwargs):
+        del tool_use, invocation_state, kwargs
         raise RuntimeError("Tool error")
         yield  # make generator
 

@@ -10,6 +10,7 @@ POSIX, so these are skipped on Windows.
 """
 
 import sys
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -29,6 +30,7 @@ def _tool_context(sandbox: NotASandboxLocalEnvironment | None = None) -> ToolCon
         tool_use={"name": "file_editor", "toolUseId": "test-id", "input": {}},
         agent=agent,
         invocation_state={},
+        cancel_signal=threading.Event(),
     )
 
 

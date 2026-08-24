@@ -1,14 +1,19 @@
 """Tests for _AgentAsTool - the agent-as-tool adapter."""
 
+import asyncio
+import threading
 from unittest.mock import MagicMock
 
 import pytest
 
 from strands.agent._agent_as_tool import _AgentAsTool
+from strands.agent.agent import Agent
 from strands.agent.agent_result import AgentResult
+from strands.hooks import BeforeModelCallEvent
 from strands.interrupt import Interrupt, _InterruptState
 from strands.telemetry.metrics import EventLoopMetrics
 from strands.types._events import AgentAsToolStreamEvent, ToolInterruptEvent, ToolResultEvent, ToolStreamEvent
+from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 
 async def _mock_stream_async(result, intermediate_events=None):
@@ -182,6 +187,111 @@ async def test_stream_error(tool, mock_agent, tool_use):
     assert len(events) == 1
     assert events[0]["tool_result"]["status"] == "error"
     assert "boom" in events[0]["tool_result"]["content"][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_stream_returns_error_when_execution_signal_cancels_wrapped_agent(tool_use):
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "reused"}]}])
+    child = Agent(name="test_agent", model=model, callback_handler=None)
+    tool = _AgentAsTool(child, name="test_agent", preserve_context=True)
+    execution_signal = threading.Event()
+    cancel_once = True
+
+    async def cancel_during_model_call(event):
+        nonlocal cancel_once
+        del event
+        if cancel_once:
+            cancel_once = False
+            execution_signal.set()
+            while not child._cancel_signal.is_set():
+                await asyncio.sleep(0)
+
+    child.hooks.add_callback(BeforeModelCallEvent, cancel_during_model_call)
+
+    events = [
+        event
+        async for event in tool.stream(
+            tool_use,
+            {},
+            cancel_signal=execution_signal,
+        )
+    ]
+
+    assert model.index == 0
+    assert events[-1] == ToolResultEvent(
+        {
+            "toolUseId": "tool-123",
+            "status": "error",
+            "content": [{"text": "Agent 'test_agent' cancelled"}],
+        }
+    )
+    assert not child._cancel_signal.is_set()
+
+    reused_result = await child.invoke_async("reuse")
+
+    assert reused_result.stop_reason == "end_turn"
+    assert model.index == 1
+
+
+@pytest.mark.asyncio
+async def test_stream_pre_cancelled_signal_does_not_cancel_unrelated_child_invocation(tool_use):
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "direct result"}]}])
+    child = Agent(name="test_agent", model=model, callback_handler=None)
+    tool = _AgentAsTool(child, name="test_agent", preserve_context=True)
+    invocation_started = asyncio.Event()
+    release_invocation = asyncio.Event()
+
+    async def pause_before_model_call(event):
+        del event
+        invocation_started.set()
+        await release_invocation.wait()
+
+    child.hooks.add_callback(BeforeModelCallEvent, pause_before_model_call)
+    direct_invocation = asyncio.create_task(child.invoke_async("direct"))
+    await invocation_started.wait()
+    execution_signal = threading.Event()
+    execution_signal.set()
+
+    try:
+        events = [
+            event
+            async for event in tool.stream(
+                tool_use,
+                {},
+                cancel_signal=execution_signal,
+            )
+        ]
+    finally:
+        release_invocation.set()
+
+    direct_result = await asyncio.wait_for(direct_invocation, timeout=1)
+
+    assert direct_result.stop_reason == "end_turn"
+    assert events[-1]["tool_result"]["status"] == "error"
+    assert "already processing a request" in events[-1]["tool_result"]["content"][0]["text"]
+    assert not child._cancel_signal.is_set()
+
+
+@pytest.mark.asyncio
+async def test_stream_stops_forwarding_execution_signal_after_completion(tool_use):
+    model = MockedModelProvider(
+        [
+            {"role": "assistant", "content": [{"text": "tool result"}]},
+            {"role": "assistant", "content": [{"text": "direct result"}]},
+        ]
+    )
+    child = Agent(name="test_agent", model=model, callback_handler=None)
+    tool = _AgentAsTool(child, name="test_agent", preserve_context=True)
+    execution_signal = threading.Event()
+
+    events = [event async for event in tool.stream(tool_use, {}, cancel_signal=execution_signal)]
+    execution_signal.set()
+    await asyncio.sleep(0.02)
+    direct_result = await child.invoke_async("direct")
+
+    assert events[-1]["tool_result"]["status"] == "success"
+    assert direct_result.stop_reason == "end_turn"
+    assert not child._cancel_signal.is_set()
 
 
 @pytest.mark.asyncio

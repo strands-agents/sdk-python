@@ -8,6 +8,7 @@ import pytest
 
 from strands import Agent, tool
 from strands.hooks import AfterModelCallEvent, BeforeToolCallEvent, BeforeToolsEvent
+from strands.types.tools import ToolContext
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 # Default agent response for simple tests
@@ -115,6 +116,60 @@ async def test_agent_cancel_with_tools():
     result = await agent.invoke_async("Use the tool")
 
     assert result.stop_reason == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_agent_tools_receive_invocation_cancel_signal():
+    received_signal = None
+
+    @tool(context=True)
+    def cancel_probe(tool_context: ToolContext) -> str:
+        nonlocal received_signal
+        received_signal = tool_context.cancel_signal
+        return "ok"
+
+    tool_use_response = {
+        "role": "assistant",
+        "content": [
+            {
+                "toolUse": {
+                    "toolUseId": "tool_1",
+                    "name": "cancel_probe",
+                    "input": {},
+                }
+            }
+        ],
+    }
+    agent = Agent(
+        model=MockedModelProvider([tool_use_response, DEFAULT_RESPONSE]),
+        tools=[cancel_probe],
+        callback_handler=None,
+    )
+
+    result = await agent.invoke_async("Use the tool")
+
+    assert result.stop_reason == "end_turn"
+    assert received_signal is agent._cancel_signal
+
+
+@pytest.mark.asyncio
+async def test_agent_honors_pre_set_execution_cancel_signal():
+    model = MockedModelProvider([DEFAULT_RESPONSE])
+    agent = Agent(model=model, callback_handler=None)
+    execution_signal = threading.Event()
+    execution_signal.set()
+
+    events = [
+        event
+        async for event in agent.stream_async(
+            "Hello",
+            _execution_cancel_signal=execution_signal,
+        )
+    ]
+
+    assert events[-1]["result"].stop_reason == "cancelled"
+    assert model.index == 0
+    assert not agent._cancel_signal.is_set()
 
 
 @pytest.mark.asyncio

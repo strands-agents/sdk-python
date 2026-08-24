@@ -842,7 +842,14 @@ async def _handle_tool_execution(
             tool_results.extend(result for result in validation_results if result["toolUseId"] in pending_tool_use_ids)
 
             tool_events = agent.tool_executor._execute(
-                agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
+                agent,
+                tool_uses,
+                tool_results,
+                cycle_trace,
+                cycle_span,
+                invocation_state,
+                structured_output_context,
+                cancel_signal=agent._cancel_signal,
             )
             async for tool_event in tool_events:
                 if isinstance(tool_event, ToolInterruptEvent):

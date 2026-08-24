@@ -3,6 +3,7 @@
 import json
 import logging
 import math
+import threading
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -470,7 +471,12 @@ class TestRetrievalTool:
     @pytest.fixture
     def tool_context(self, mock_agent):
         tool_use = ToolUse(toolUseId="retrieve_1", name="retrieve_offloaded_content", input={})
-        return ToolContext(tool_use=tool_use, agent=mock_agent, invocation_state={})
+        return ToolContext(
+            tool_use=tool_use,
+            agent=mock_agent,
+            invocation_state={},
+            cancel_signal=threading.Event(),
+        )
 
     def test_retrieval_tool_registered_when_enabled(self, plugin):
         tool_names = [t.tool_name for t in plugin.tools]
@@ -549,7 +555,12 @@ class TestRetrievalToolSearch:
     @pytest.fixture
     def tool_context(self, mock_agent):
         tool_use = ToolUse(toolUseId="retrieve_1", name="retrieve_offloaded_content", input={})
-        return ToolContext(tool_use=tool_use, agent=mock_agent, invocation_state={})
+        return ToolContext(
+            tool_use=tool_use,
+            agent=mock_agent,
+            invocation_state={},
+            cancel_signal=threading.Event(),
+        )
 
     @pytest.mark.asyncio
     async def test_finds_matching_lines_with_context(self, plugin, storage, tool_context):

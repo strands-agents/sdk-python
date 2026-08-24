@@ -8,6 +8,7 @@ running a full event loop end-to-end (that is covered by
 short-circuits the loop).
 """
 
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -22,6 +23,7 @@ def _tool_context(invocation_state: dict | None = None) -> ToolContext:
         tool_use={"name": "stop", "toolUseId": "id", "input": {}},
         agent=SimpleNamespace(),
         invocation_state=invocation_state if invocation_state is not None else {},
+        cancel_signal=threading.Event(),
     )
 
 

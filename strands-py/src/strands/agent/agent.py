@@ -9,6 +9,7 @@ The Agent interface supports two complementary interaction patterns:
 2. Method-style for direct tool access: `agent.tool.tool_name(param1="value")`
 """
 
+import asyncio
 import copy
 import logging
 import threading
@@ -1199,6 +1200,7 @@ class Agent(AgentBase):
             ```
         """
         self._validate_limits(limits)
+        execution_cancel_signal: threading.Event | None = kwargs.pop("_execution_cancel_signal", None)
 
         begin = self._concurrency.begin(idempotency_token)
 
@@ -1226,8 +1228,15 @@ class Agent(AgentBase):
             raise exc
 
         result: AgentResult | None = None
+        cancel_watcher: asyncio.Task[None] | None = None
 
         try:
+            if execution_cancel_signal is not None:
+                if execution_cancel_signal.is_set():
+                    self._cancel_signal.set()
+                else:
+                    cancel_watcher = asyncio.create_task(self._forward_execution_cancellation(execution_cancel_signal))
+
             self._interrupt_state.resume(prompt)
 
             self.event_loop_metrics.reset_usage_metrics()
@@ -1295,12 +1304,22 @@ class Agent(AgentBase):
                     raise
 
         finally:
+            if cancel_watcher is not None:
+                cancel_watcher.cancel()
+                await asyncio.gather(cancel_watcher, return_exceptions=True)
+
             # Clear cancel signal to allow agent reuse after cancellation
             self._cancel_signal.clear()
 
             self._concurrency.complete(begin.registered_token, result=result)
             if self._concurrency.mode == ConcurrentInvocationMode.THROW:
                 self._concurrency.release_lock()
+
+    async def _forward_execution_cancellation(self, cancel_signal: threading.Event) -> None:
+        """Forward an execution-scoped cancellation signal to this invocation."""
+        while not cancel_signal.is_set():
+            await asyncio.sleep(0.01)
+        self._cancel_signal.set()
 
     async def _run_loop(
         self,

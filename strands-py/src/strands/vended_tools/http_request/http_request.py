@@ -8,16 +8,16 @@ networking to the client instance provided by the operator, giving full
 control over transport configuration, authentication, proxies, timeouts,
 redirects, and connection pooling.
 
-The parent agent's cancel signal (``Agent._cancel_signal``) is propagated so
-an in-flight fetch aborts when the agent is cancelled. Cancellation is
-signalled with :class:`asyncio.CancelledError`.
+The current tool execution's cancel signal is checked before sending and while
+streaming the response body. Cancellation is signalled with
+:class:`asyncio.CancelledError`.
 """
 
 from __future__ import annotations
 
 import asyncio
 import threading
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import httpx
 
@@ -77,7 +77,7 @@ def make_http_request(
                 is provided, capped at the client's configured timeout.
                 When no client is provided, used as-is.
             tool_context: Framework-injected. Not model-visible. Carries the
-                agent so the tool can read its cancel signal mid-flight.
+                current tool execution's cancel signal.
         """
         cancel_signal = _extract_cancel_signal(tool_context)
         effective_timeout = _resolve_timeout(timeout, external_client)
@@ -148,7 +148,7 @@ async def _perform_request(
     """Perform the HTTP request, delegating all behavior to the client.
 
     The response body is streamed so the cancel signal can be checked between
-    chunks, giving mid-flight abort granularity similar to AbortSignal in fetch.
+    chunks.
     """
     owns_client = client is None
 
@@ -240,15 +240,13 @@ def _response_headers(response: httpx.Response) -> dict[str, str]:
 
 
 def _extract_cancel_signal(tool_context: ToolContext | None) -> threading.Event | None:
-    """Return the agent's cancellation event when available."""
+    """Return the current tool execution's cancellation event when available."""
     if tool_context is None:
         return None
-    agent: Any = getattr(tool_context, "agent", None)
-    signal: Any = getattr(agent, "_cancel_signal", None)
-    return signal if isinstance(signal, threading.Event) else None
+    return tool_context.cancel_signal
 
 
 def _check_cancelled(cancel_signal: threading.Event | None) -> None:
-    """Raise :class:`asyncio.CancelledError` if the agent's cancel signal has been set."""
+    """Raise :class:`asyncio.CancelledError` if the tool execution was cancelled."""
     if cancel_signal is not None and cancel_signal.is_set():
         raise asyncio.CancelledError("Request cancelled")

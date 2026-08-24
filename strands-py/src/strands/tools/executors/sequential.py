@@ -1,5 +1,6 @@
 """Sequential tool executor implementation."""
 
+import threading
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any
 
@@ -28,6 +29,7 @@ class SequentialToolExecutor(ToolExecutor):
         cycle_span: Any,
         invocation_state: dict[str, Any],
         structured_output_context: "StructuredOutputContext | None" = None,
+        cancel_signal: threading.Event | None = None,
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute tools sequentially.
 
@@ -41,14 +43,16 @@ class SequentialToolExecutor(ToolExecutor):
             cycle_span: Span object for tracing the cycle.
             invocation_state: Context for the tool invocation.
             structured_output_context: Context for structured output handling.
+            cancel_signal: Cooperative cancellation signal scoped to this execution.
 
         Yields:
             Events from the tool execution stream.
         """
         interrupted = False
+        resolved_cancel_signal = cancel_signal or agent._cancel_signal
 
         for tool_use in tool_uses:
-            if agent._cancel_signal.is_set():
+            if resolved_cancel_signal.is_set():
                 cancel_result: ToolResult = {
                     "toolUseId": str(tool_use.get("toolUseId")),
                     "status": "error",
@@ -59,7 +63,14 @@ class SequentialToolExecutor(ToolExecutor):
                 continue
 
             events = ToolExecutor._stream_with_trace(
-                agent, tool_use, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
+                agent,
+                tool_use,
+                tool_results,
+                cycle_trace,
+                cycle_span,
+                invocation_state,
+                structured_output_context,
+                cancel_signal=resolved_cancel_signal,
             )
             async for event in events:
                 if isinstance(event, ToolInterruptEvent):

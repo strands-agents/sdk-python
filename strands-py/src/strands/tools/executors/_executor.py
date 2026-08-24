@@ -6,6 +6,7 @@ thread pools, etc.).
 
 import abc
 import logging
+import threading
 import time
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any, cast
@@ -95,7 +96,10 @@ class ToolExecutor(abc.ABC):
         return await agent.hooks.invoke_callbacks_async(event)
 
     @staticmethod
-    def _should_retry(agent: "Agent | BidiAgent", after_event: AfterToolCallEvent | BidiAfterToolCallEvent) -> bool:
+    def _should_retry(
+        after_event: AfterToolCallEvent | BidiAfterToolCallEvent,
+        cancel_signal: threading.Event,
+    ) -> bool:
         """Return whether a hook-requested retry should run.
 
         Cancellation is terminal: retrying a locally cancelled tool can spin indefinitely
@@ -105,9 +109,7 @@ class ToolExecutor(abc.ABC):
             return False
         if cast(dict[str, Any], after_event.result).get("cancelled") is True:
             return False
-        if not ToolExecutor._is_agent(agent):
-            return True
-        return not cast("Agent", agent)._cancel_signal.is_set()
+        return not cancel_signal.is_set()
 
     @staticmethod
     async def _stream(
@@ -116,6 +118,7 @@ class ToolExecutor(abc.ABC):
         tool_results: list[ToolResult],
         invocation_state: dict[str, Any],
         structured_output_context: StructuredOutputContext | None = None,
+        cancel_signal: threading.Event | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[TypedEvent, None]:
         """Stream tool events.
@@ -134,6 +137,7 @@ class ToolExecutor(abc.ABC):
             tool_results: List of tool results from each tool execution.
             invocation_state: Context for the tool invocation.
             structured_output_context: Context for structured output management.
+            cancel_signal: Cooperative cancellation signal scoped to this execution.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
@@ -142,6 +146,12 @@ class ToolExecutor(abc.ABC):
         logger.debug("tool_use=<%s> | streaming", tool_use)
         tool_name = tool_use["name"]
         structured_output_context = structured_output_context or StructuredOutputContext()
+        resolved_cancel_signal = cancel_signal
+        if resolved_cancel_signal is None:
+            agent_cancel_signal = getattr(agent, "_cancel_signal", None)
+            resolved_cancel_signal = (
+                agent_cancel_signal if isinstance(agent_cancel_signal, threading.Event) else threading.Event()
+            )
 
         tool_info = agent.tool_registry.dynamic_tools.get(tool_name)
         tool_func = tool_info if tool_info is not None else agent.tool_registry.registry.get(tool_name)
@@ -239,6 +249,7 @@ class ToolExecutor(abc.ABC):
                     tool=selected_tool,
                     tool_use=dict(tool_use),  # type: ignore[arg-type]
                     invocation_state=invocation_state,
+                    cancel_signal=resolved_cancel_signal,
                     _interrupt_state=agent._interrupt_state,
                 )
 
@@ -246,7 +257,7 @@ class ToolExecutor(abc.ABC):
                 async for event in agent._middleware_registry.invoke(
                     ExecuteToolStage,
                     middleware_context,
-                    _make_execute_tool_terminal(kwargs),
+                    _make_execute_tool_terminal(kwargs, resolved_cancel_signal),
                 ):
                     # Tool-originated interrupt: a ToolInterruptEvent yielded from tool.stream()
                     # (including sub-agent interrupts propagated via _AgentAsTool). Distinct from
@@ -290,7 +301,7 @@ class ToolExecutor(abc.ABC):
                     duration=tool_duration,
                 )
 
-                if ToolExecutor._should_retry(agent, after_event):
+                if ToolExecutor._should_retry(after_event, resolved_cancel_signal):
                     logger.debug("tool_name=<%s> | retry requested, retrying tool call", tool_name)
                     continue
 
@@ -321,7 +332,7 @@ class ToolExecutor(abc.ABC):
                 after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
                     agent, selected_tool, tool_use, invocation_state, error_result, exception=e, duration=tool_duration
                 )
-                if ToolExecutor._should_retry(agent, after_event):
+                if ToolExecutor._should_retry(after_event, resolved_cancel_signal):
                     logger.debug("tool_name=<%s> | retry requested after exception, retrying tool call", tool_name)
                     continue
                 yield ToolResultEvent(after_event.result, exception=after_event.exception)
@@ -337,6 +348,7 @@ class ToolExecutor(abc.ABC):
         cycle_span: Any,
         invocation_state: dict[str, Any],
         structured_output_context: StructuredOutputContext | None = None,
+        cancel_signal: threading.Event | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute tool with tracing and metrics collection.
@@ -349,6 +361,7 @@ class ToolExecutor(abc.ABC):
             cycle_span: Span object for tracing the cycle.
             invocation_state: Context for the tool invocation.
             structured_output_context: Context for structured output management.
+            cancel_signal: Cooperative cancellation signal scoped to this execution.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
@@ -367,7 +380,13 @@ class ToolExecutor(abc.ABC):
 
         with trace_api.use_span(tool_call_span):
             async for event in ToolExecutor._stream(
-                agent, tool_use, tool_results, invocation_state, structured_output_context, **kwargs
+                agent,
+                tool_use,
+                tool_results,
+                invocation_state,
+                structured_output_context,
+                cancel_signal=cancel_signal,
+                **kwargs,
             ):
                 yield event
 
@@ -402,6 +421,7 @@ class ToolExecutor(abc.ABC):
         cycle_span: Any,
         invocation_state: dict[str, Any],
         structured_output_context: "StructuredOutputContext | None" = None,
+        cancel_signal: threading.Event | None = None,
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute the given tools according to this executor's strategy.
 
@@ -413,6 +433,7 @@ class ToolExecutor(abc.ABC):
             cycle_span: Span object for tracing the cycle.
             invocation_state: Context for the tool invocation.
             structured_output_context: Context for structured output management.
+            cancel_signal: Cooperative cancellation signal scoped to this execution.
 
         Yields:
             Events from the tool execution stream.
@@ -422,6 +443,7 @@ class ToolExecutor(abc.ABC):
 
 def _make_execute_tool_terminal(
     extra_kwargs: dict[str, Any],
+    cancel_signal: threading.Event,
 ) -> "Any":
     """Build the terminal for the ExecuteToolStage middleware chain.
 
@@ -442,6 +464,7 @@ def _make_execute_tool_terminal(
 
     Args:
         extra_kwargs: Extra keyword arguments forwarded to ``tool.stream()``.
+        cancel_signal: Executor-owned cancellation signal forwarded to the tool.
 
     Returns:
         An async generator function suitable as a middleware terminal.
@@ -471,7 +494,12 @@ def _make_execute_tool_terminal(
         yielded_any = False
         last_raw_event: Any = None
         try:
-            async for event in ctx.tool.stream(tool_use, ctx.invocation_state, **extra_kwargs):
+            async for event in ctx.tool.stream(
+                tool_use,
+                ctx.invocation_state,
+                cancel_signal=cancel_signal,
+                **extra_kwargs,
+            ):
                 if isinstance(event, ToolInterruptEvent):
                     yield event
                     return

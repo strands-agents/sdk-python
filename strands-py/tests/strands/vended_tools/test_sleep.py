@@ -10,11 +10,14 @@ spans input validation, the configurable cap, and cooperative cancellation.
 import asyncio
 import importlib
 import math
+import threading
 import types
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from strands.types.tools import ToolContext
 from strands.vended_tools.sleep import make_sleep, sleep
 from strands.vended_tools.sleep.types import DEFAULT_MAX_DURATION
 
@@ -96,7 +99,7 @@ class TestFactoryValidation:
 
 
 class TestCooperativeCancellation:
-    """The sleep must abort promptly when the enclosing task is cancelled."""
+    """The sleep must abort promptly when its task or execution signal is cancelled."""
 
     @pytest.mark.asyncio
     async def test_cancellation_propagates_before_full_duration(self):
@@ -128,6 +131,26 @@ class TestCooperativeCancellation:
         # sleep was 5 s.
         assert elapsed < 1.0
 
+    @pytest.mark.asyncio
+    async def test_execution_signal_cancels_sleep_without_agent_signal(self):
+        execution_signal = threading.Event()
+        agent_signal = threading.Event()
+        context = ToolContext(
+            tool_use={"name": "sleep", "toolUseId": "sleep-1", "input": {"duration": 5}},
+            agent=SimpleNamespace(_cancel_signal=agent_signal),
+            invocation_state={},
+            cancel_signal=execution_signal,
+        )
+        capped = make_sleep(max_duration=10)
+
+        execution = asyncio.create_task(capped(duration=5, tool_context=context))
+        await asyncio.sleep(0)
+        execution_signal.set()
+
+        with pytest.raises(RuntimeError, match="Sleep cancelled"):
+            await asyncio.wait_for(execution, timeout=1)
+        assert not agent_signal.is_set()
+
 
 class TestHappyPath:
     """Successful sleeps return a completion message."""
@@ -135,6 +158,19 @@ class TestHappyPath:
     @pytest.mark.asyncio
     async def test_zero_duration_returns_immediately(self):
         result = await sleep(duration=0)
+        assert result == "Slept for 0 seconds"
+
+    @pytest.mark.asyncio
+    async def test_zero_duration_with_context_returns_immediately(self):
+        context = ToolContext(
+            tool_use={"name": "sleep", "toolUseId": "sleep-1", "input": {"duration": 0}},
+            agent=SimpleNamespace(_cancel_signal=threading.Event()),
+            invocation_state={},
+            cancel_signal=threading.Event(),
+        )
+
+        result = await sleep(duration=0, tool_context=context)
+
         assert result == "Slept for 0 seconds"
 
     @pytest.mark.asyncio

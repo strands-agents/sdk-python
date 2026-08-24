@@ -1,16 +1,19 @@
+import threading
 import unittest.mock
+from dataclasses import replace
 from unittest.mock import ANY, MagicMock
 
 import pytest
 
 import strands
+from strands._middleware.stages import ExecuteToolStage
 from strands.experimental.hooks.events import BidiAfterToolCallEvent
 from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent
 from strands.interrupt import Interrupt
 from strands.telemetry.metrics import Trace
 from strands.tools.executors._executor import ToolExecutor
 from strands.types._events import ToolCancelEvent, ToolInterruptEvent, ToolResultEvent, ToolStreamEvent
-from strands.types.tools import ToolUse
+from strands.types.tools import ToolContext, ToolUse
 
 
 @pytest.fixture
@@ -74,6 +77,46 @@ async def test_executor_stream_yields_result(
     after_event = tru_hook_events[1]
     assert isinstance(after_event.duration, float)
     assert 0 <= after_event.duration < 10
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_keeps_middleware_and_tool_on_supplied_cancel_signal(
+    executor, agent, tool_results, invocation_state, alist
+):
+    execution_signal = threading.Event()
+    replacement_signal = threading.Event()
+    middleware_signal = None
+    tool_signal = None
+
+    @strands.tool(name="cancel_probe", context=True)
+    def cancel_probe(tool_context: ToolContext) -> str:
+        nonlocal tool_signal
+        tool_signal = tool_context.cancel_signal
+        return "ok"
+
+    async def replace_middleware_signal(context, next_fn):
+        nonlocal middleware_signal
+        middleware_signal = context.cancel_signal
+        async for event in next_fn(replace(context, cancel_signal=replacement_signal)):
+            yield event
+
+    agent.tool_registry.register_tool(cancel_probe)
+    agent._middleware_registry.add_middleware(ExecuteToolStage, replace_middleware_signal)
+    tool_use: ToolUse = {"name": "cancel_probe", "toolUseId": "1", "input": {}}
+
+    await alist(
+        executor._stream(
+            agent,
+            tool_use,
+            tool_results,
+            invocation_state,
+            cancel_signal=execution_signal,
+        )
+    )
+
+    assert execution_signal is not agent._cancel_signal
+    assert middleware_signal is execution_signal
+    assert tool_signal is execution_signal
 
 
 @pytest.mark.asyncio
@@ -764,6 +807,42 @@ async def test_executor_stream_does_not_retry_cancelled_tool_result(
     assert len(tru_events) == 1
     assert tru_events[0].tool_result["status"] == "error"
     assert len(tool_results) == 1
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_does_not_retry_after_supplied_signal_is_set(
+    executor, agent, tool_results, invocation_state, alist
+):
+    execution_signal = threading.Event()
+    tool_call_count = 0
+
+    @strands.tool(name="retryable_tool")
+    def retryable_tool():
+        nonlocal tool_call_count
+        tool_call_count += 1
+        return "done"
+
+    def retry_after_cancelling(event):
+        if isinstance(event, AfterToolCallEvent):
+            execution_signal.set()
+            event.retry = True
+
+    agent.tool_registry.register_tool(retryable_tool)
+    agent.hooks.add_callback(AfterToolCallEvent, retry_after_cancelling)
+    tool_use: ToolUse = {"name": "retryable_tool", "toolUseId": "1", "input": {}}
+
+    await alist(
+        executor._stream(
+            agent,
+            tool_use,
+            tool_results,
+            invocation_state,
+            cancel_signal=execution_signal,
+        )
+    )
+
+    assert not agent._cancel_signal.is_set()
+    assert tool_call_count == 1
 
 
 @pytest.mark.asyncio

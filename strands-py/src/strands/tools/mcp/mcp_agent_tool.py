@@ -119,11 +119,15 @@ class MCPAgentTool(AgentTool):
         """
         logger.debug("tool_name=<%s>, tool_use_id=<%s> | streaming", self.tool_name, tool_use["toolUseId"])
 
+        cancel_signal = kwargs.get("cancel_signal")
+        if cancel_signal is None:
+            cancel_signal = getattr(invocation_state.get("agent"), "_cancel_signal", None)
+
         result = await self.mcp_client.call_tool_async(
             tool_use_id=tool_use["toolUseId"],
             name=self.mcp_tool.name,  # Use original MCP name for server communication
             arguments=tool_use["input"],
             read_timeout_seconds=self.timeout,
-            cancel_signal=getattr(invocation_state.get("agent"), "_cancel_signal", None),
+            cancel_signal=cancel_signal,
         )
         yield ToolResultEvent(result)

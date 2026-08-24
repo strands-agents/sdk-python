@@ -1,4 +1,5 @@
 import asyncio
+import threading
 
 import pytest
 
@@ -8,6 +9,7 @@ from strands.interrupt import Interrupt
 from strands.tools.executors import ConcurrentToolExecutor
 from strands.tools.structured_output._structured_output_context import StructuredOutputContext
 from strands.types._events import ToolInterruptEvent, ToolResultEvent
+from strands.types.tools import ToolContext
 
 
 @pytest.fixture
@@ -71,6 +73,40 @@ async def test_concurrent_executor_preserves_tool_use_result_order(
     await alist(stream)
 
     assert [result["toolUseId"] for result in tool_results] == ["slow", "fast"]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_executor_uses_supplied_cancel_signal(
+    executor, agent, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context, alist
+):
+    execution_signal = threading.Event()
+    received_signals = []
+
+    @strands.tool(name="cancel_probe", context=True)
+    async def cancel_probe(tool_context: ToolContext, value: str):
+        received_signals.append(tool_context.cancel_signal)
+        return value
+
+    agent.tool_registry.register_tool(cancel_probe)
+    tool_uses = [
+        {"name": "cancel_probe", "toolUseId": "1", "input": {"value": "one"}},
+        {"name": "cancel_probe", "toolUseId": "2", "input": {"value": "two"}},
+    ]
+
+    await alist(
+        executor._execute(
+            agent,
+            tool_uses,
+            tool_results,
+            cycle_trace,
+            cycle_span,
+            invocation_state,
+            structured_output_context,
+            cancel_signal=execution_signal,
+        )
+    )
+
+    assert received_signals == [execution_signal, execution_signal]
 
 
 @pytest.mark.asyncio

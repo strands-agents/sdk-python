@@ -8,6 +8,7 @@ from strands import Agent, tool
 from strands.experimental.bidi import BidiAgent, BidiModel
 from strands.tools.tool_provider import ToolProvider
 from strands.types.exceptions import ConcurrencyException
+from strands.types.tools import ToolContext
 
 
 @pytest.fixture
@@ -59,6 +60,23 @@ def test_agent_tool(randint, agent):
 
     assert tru_result == exp_result
     conversation_manager_spy.apply_management.assert_called_with(agent)
+
+
+def test_agent_tool_passes_agent_cancel_signal(randint, model):
+    received_signal = None
+
+    @tool(name="cancel_probe", context=True)
+    def cancel_probe(tool_context: ToolContext) -> str:
+        nonlocal received_signal
+        received_signal = tool_context.cancel_signal
+        return "ok"
+
+    agent = Agent(model=model, tools=[cancel_probe])
+    randint.return_value = 1
+
+    agent.tool.cancel_probe()
+
+    assert received_signal is agent._cancel_signal
 
 
 @pytest.mark.asyncio

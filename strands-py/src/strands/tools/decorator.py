@@ -45,6 +45,7 @@ import functools
 import inspect
 import json
 import logging
+import threading
 from collections.abc import Callable
 from typing import (
     Annotated,
@@ -393,7 +394,11 @@ class FunctionToolMetadata:
             raise ValueError(f"Validation failed for input parameters: {error_msg}") from e
 
     def inject_special_parameters(
-        self, validated_input: dict[str, Any], tool_use: ToolUse, invocation_state: dict[str, Any]
+        self,
+        validated_input: dict[str, Any],
+        tool_use: ToolUse,
+        invocation_state: dict[str, Any],
+        cancel_signal: threading.Event,
     ) -> None:
         """Inject special framework-provided parameters into the validated input.
 
@@ -405,10 +410,14 @@ class FunctionToolMetadata:
             tool_use: The tool use request containing tool invocation details.
             invocation_state: Caller-provided kwargs that were passed to the agent when it was invoked (agent(),
                               agent.invoke_async(), etc.).
+            cancel_signal: Cooperative cancellation signal scoped to this tool execution.
         """
         if self._context_param and self._context_param in self.signature.parameters:
             tool_context = ToolContext(
-                tool_use=tool_use, agent=invocation_state["agent"], invocation_state=invocation_state
+                tool_use=tool_use,
+                agent=invocation_state["agent"],
+                invocation_state=invocation_state,
+                cancel_signal=cancel_signal,
             )
             validated_input[self._context_param] = tool_context
 
@@ -615,7 +624,13 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
             validated_input = self._metadata.validate_input(tool_input)
 
             # Inject special framework-provided parameters
-            self._metadata.inject_special_parameters(validated_input, tool_use, invocation_state)
+            cancel_signal = kwargs.get("cancel_signal")
+            if not isinstance(cancel_signal, threading.Event):
+                agent_cancel_signal = getattr(invocation_state.get("agent"), "_cancel_signal", None)
+                cancel_signal = (
+                    agent_cancel_signal if isinstance(agent_cancel_signal, threading.Event) else threading.Event()
+                )
+            self._metadata.inject_special_parameters(validated_input, tool_use, invocation_state, cancel_signal)
 
             # Note: "Too few arguments" expected for the _tool_func calls, hence the type ignore
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -113,6 +114,8 @@ class ExecuteToolContext:
     place still leaks. ``invocation_state`` is likewise shared by reference (matching how
     hooks receive it). Middleware that needs a fully isolated ``tool_use`` should build a
     new one and pass a modified context via ``dataclasses.replace()``.
+    ``cancel_signal`` is executor-owned: middleware can observe it, but replacing it does
+    not change the signal passed to the tool.
 
     Supports middleware-initiated interrupts via ``interrupt()`` for human-in-the-loop
     approval flows.
@@ -122,6 +125,7 @@ class ExecuteToolContext:
     tool: AgentTool | None
     tool_use: ToolUse
     invocation_state: dict[str, Any]
+    cancel_signal: threading.Event
     # Interrupt state is threaded in from the agent so interrupt() can register/resolve
     # interrupts. Required (the executor is the sole constructor and always supplies it);
     # excluded from repr to avoid dumping unrelated interrupt bookkeeping.
