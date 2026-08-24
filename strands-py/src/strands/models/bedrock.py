@@ -852,8 +852,7 @@ class BedrockModel(Model):
         Some models (e.g., Amazon Nova) hallucinate when tool results contain JSON content
         blocks. Converting them to their text representation avoids this issue.
         """
-        model_id = self.config.get("model_id", "").lower()
-        return any(model in model_id for model in _MODELS_CONVERT_JSON_TO_TEXT)
+        return any(model in self.config["model_id"] for model in _MODELS_CONVERT_JSON_TO_TEXT)
 
     def _handle_location(self, location: SourceLocation) -> dict[str, Any] | None:
         """Convert location content block to Bedrock format if its an S3Location."""
