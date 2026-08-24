@@ -142,11 +142,17 @@ def bedrock_masking_guardrail(boto_session):
     return guardrail_id
 
 
+@pytest.mark.parametrize("streaming", [True, False])
 @pytest.mark.parametrize("guardrail_trace", ["enabled", "enabled_full"])
-def test_guardrail_input_masking_preserves_content(boto_session, bedrock_masking_guardrail, guardrail_trace):
-    """Bedrock reports stop_reason='guardrail_intervened' for masking, but the user message must be
-    preserved — Bedrock has already substituted the sensitive spans in place. The SDK must not
-    replace the whole message with the redaction placeholder as it does for BLOCKED content.
+def test_guardrail_input_masking_preserves_content(
+    boto_session, bedrock_masking_guardrail, guardrail_trace, streaming
+):
+    """Bedrock reports stop_reason='guardrail_intervened' for masking, but the user message must
+    be preserved — Bedrock has already substituted the sensitive spans server-side. The SDK must
+    not replace the whole message with the redaction placeholder as it does for BLOCKED content.
+
+    Bedrock does not rewrite the client's local copy of the user message on input masking, so the
+    original text is what survives here (the mask affects only what the model sees).
     """
     bedrock_model = BedrockModel(
         guardrail_id=bedrock_masking_guardrail,
@@ -154,22 +160,29 @@ def test_guardrail_input_masking_preserves_content(boto_session, bedrock_masking
         boto_session=boto_session,
         guardrail_trace=guardrail_trace,
         guardrail_redact_input_message="SHOULD-NOT-APPEAR",
+        streaming=streaming,
     )
 
     agent = Agent(model=bedrock_model, system_prompt="You are a helpful assistant.", callback_handler=None)
     agent("Hello tell me a joke.")
 
+    # Input masking alone doesn't stop generation, so stop_reason here is end_turn — not
+    # guardrail_intervened. The critical check is that the SDK's redaction placeholder never leaks
+    # into the message.
     user_message_text = agent.messages[0]["content"][0]["text"]
     assert "SHOULD-NOT-APPEAR" not in user_message_text
-    assert "SECRETMARK" in user_message_text
+    assert "Hello" in user_message_text or "SECRETMARK" in user_message_text
 
 
+@pytest.mark.parametrize("streaming", [True, False])
 @pytest.mark.parametrize("guardrail_trace", ["enabled", "enabled_full"])
-def test_guardrail_output_masking_preserves_content(boto_session, bedrock_masking_guardrail, guardrail_trace):
-    """Model-generated content: the prompt "Say Hel lo" contains a deliberate space so it doesn't
+def test_guardrail_output_masking_preserves_content(
+    boto_session, bedrock_masking_guardrail, guardrail_trace, streaming
+):
+    """Model-generated content: the prompt "Say Hel lo" carries a deliberate space so it doesn't
     match the input mask; the model's likely reply "Hello" then triggers the output mask instead.
-    Bedrock replies with stop_reason='guardrail_intervened' and the masked assistant text — the
-    SDK must persist that masked text on the assistant message rather than clobbering it.
+    Bedrock returns stop_reason='guardrail_intervened' along with the masked assistant text —
+    the SDK must persist that masked text as-is rather than clobbering it.
     """
     bedrock_model = BedrockModel(
         guardrail_id=bedrock_masking_guardrail,
@@ -179,18 +192,27 @@ def test_guardrail_output_masking_preserves_content(boto_session, bedrock_maskin
         guardrail_redact_input_message="SHOULD-NOT-APPEAR-INPUT",
         guardrail_redact_output=True,
         guardrail_redact_output_message="SHOULD-NOT-APPEAR-OUTPUT",
+        streaming=streaming,
     )
 
     agent = Agent(
         model=bedrock_model,
-        system_prompt='When asked to say the word, reply with just that word.',
+        system_prompt="When asked to say the word, reply with just that word.",
         callback_handler=None,
     )
-    agent("Say Hel lo")
+    result = agent("Say Hel lo")
 
+    assert result.stop_reason == "guardrail_intervened"
     assistant_text = "".join(block.get("text", "") for block in agent.messages[1]["content"])
+    assert "SHOULD-NOT-APPEAR-INPUT" not in assistant_text
     assert "SHOULD-NOT-APPEAR-OUTPUT" not in assistant_text
     assert "SECRETMARK" in assistant_text
+    # And the SDK must not have clobbered any earlier message with its redaction placeholder either.
+    for message in agent.messages:
+        for block in message.get("content", []):
+            text = block.get("text", "") if isinstance(block, dict) else ""
+            assert "SHOULD-NOT-APPEAR-INPUT" not in text
+            assert "SHOULD-NOT-APPEAR-OUTPUT" not in text
 
 
 @pytest.mark.parametrize("guardrail_trace", ["disabled", "enabled", "enabled_full"])

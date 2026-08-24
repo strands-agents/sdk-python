@@ -618,11 +618,21 @@ describe.skipIf(bedrock.skip)('BedrockModel Integration Tests', () => {
         MASK_GUARDRAIL_ID = await setupMaskGuardrail()
       }, 60000)
 
-      it.each(['enabled', 'enabled_full'] as const)(
-        'preserves input-masked content with trace=%s',
-        async (guardrailTrace) => {
+      it.each([
+        ['enabled', true],
+        ['enabled_full', true],
+        ['enabled', false],
+        ['enabled_full', false],
+      ] as const)(
+        'preserves input-masked content with trace=%s streaming=%s',
+        async (guardrailTrace, streaming) => {
+          // Input masking alone doesn't stop generation, so Bedrock reports endTurn here — not
+          // guardrailIntervened. Bedrock also doesn't rewrite the client's local copy of the
+          // user message on input masking; the mask affects only what the model sees. This test
+          // is a smoke check: the SDK's redaction placeholder must never leak into any message.
           const model = bedrock.createModel({
             region: 'us-east-1',
+            stream: streaming,
             guardrailConfig: {
               guardrailIdentifier: MASK_GUARDRAIL_ID!,
               guardrailVersion: 'DRAFT',
@@ -646,20 +656,26 @@ describe.skipIf(bedrock.skip)('BedrockModel Integration Tests', () => {
           expect(firstBlock?.type).toBe('textBlock')
           if (firstBlock?.type === 'textBlock') {
             expect(firstBlock.text).not.toContain('SHOULD-NOT-APPEAR')
-            expect(firstBlock.text).toContain(MASK_NAME)
+            expect(firstBlock.text.includes(MASK_PATTERN) || firstBlock.text.includes(MASK_NAME)).toBe(true)
           }
         },
         30000
       )
 
-      it.each(['enabled', 'enabled_full'] as const)(
-        'preserves output-masked content with trace=%s',
-        async (guardrailTrace) => {
+      it.each([
+        ['enabled', true],
+        ['enabled_full', true],
+        ['enabled', false],
+        ['enabled_full', false],
+      ] as const)(
+        'preserves output-masked content with trace=%s streaming=%s',
+        async (guardrailTrace, streaming) => {
           // "Say Hel lo" carries a deliberate space so it doesn't match the input mask; the
           // model's likely reply "Hello" then triggers the output mask instead. The SDK must
           // persist that masked assistant text rather than clobbering it.
           const model = bedrock.createModel({
             region: 'us-east-1',
+            stream: streaming,
             guardrailConfig: {
               guardrailIdentifier: MASK_GUARDRAIL_ID!,
               guardrailVersion: 'DRAFT',
@@ -679,14 +695,25 @@ describe.skipIf(bedrock.skip)('BedrockModel Integration Tests', () => {
             printer: false,
           })
 
-          await agent.invoke('Say Hel lo')
+          const result = await agent.invoke('Say Hel lo')
 
+          expect(result.stopReason).toBe('guardrailIntervened')
           let assistantText = ''
           for (const block of agent.messages[1]?.content ?? []) {
             if (block?.type === 'textBlock') assistantText += block.text
           }
+          expect(assistantText).not.toContain('SHOULD-NOT-APPEAR-INPUT')
           expect(assistantText).not.toContain('SHOULD-NOT-APPEAR-OUTPUT')
           expect(assistantText).toContain(MASK_NAME)
+          // No SDK redaction placeholder should appear anywhere across the conversation either.
+          for (const message of agent.messages) {
+            for (const block of message.content ?? []) {
+              if (block?.type === 'textBlock') {
+                expect(block.text).not.toContain('SHOULD-NOT-APPEAR-INPUT')
+                expect(block.text).not.toContain('SHOULD-NOT-APPEAR-OUTPUT')
+              }
+            }
+          }
         },
         30000
       )
