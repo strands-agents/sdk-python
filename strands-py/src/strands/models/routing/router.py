@@ -84,7 +84,7 @@ class RoutingCandidate:
     stores the caller's mapping without copying, so it must not be mutated after construction.
 
     Raises:
-        TypeError: If metadata is not a mapping.
+        TypeError: If metadata is not a mapping with string keys.
         ValueError: If metadata is not JSON-serializable.
     """
 
@@ -99,6 +99,8 @@ class RoutingCandidate:
             return
         if not isinstance(self.metadata, Mapping):
             raise TypeError("metadata must be a mapping")
+        if not all(isinstance(key, str) for key in self.metadata):
+            raise TypeError("metadata keys must be strings")
         try:
             json.dumps(self.metadata, ensure_ascii=False, allow_nan=False)
         except (TypeError, ValueError) as error:

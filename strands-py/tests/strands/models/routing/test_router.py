@@ -171,11 +171,12 @@ def _circular_metadata():
     ("metadata", "error_type", "match"),
     [
         ("not-a-mapping", TypeError, "metadata must be a mapping"),
+        ({1: "one"}, TypeError, "metadata keys must be strings"),
         ({"value": object()}, ValueError, "metadata must be JSON-serializable"),
         ({"nested": {"value": float("nan")}}, ValueError, "metadata must be JSON-serializable"),
         (_circular_metadata(), ValueError, "metadata must be JSON-serializable"),
     ],
-    ids=["non-mapping", "non-json-value", "non-finite-number", "circular-reference"],
+    ids=["non-mapping", "non-string-key", "non-json-value", "non-finite-number", "circular-reference"],
 )
 def test_routing_candidate_rejects_non_json_metadata(metadata, error_type, match):
     with pytest.raises(error_type, match=match):

@@ -69,7 +69,7 @@ def _build_candidate_profiles(
         profiles.append(
             {"candidate_index": index, **{key: value for key, value in evidence.items() if value is not None}}
         )
-    serialized_size = len(json.dumps(profiles, ensure_ascii=False, separators=(",", ":")))
+    serialized_size = len(json.dumps(profiles, ensure_ascii=False, separators=(",", ":"), allow_nan=False))
     if serialized_size > character_limit:
         raise ValueError(
             f"candidate evidence serializes to {serialized_size} characters, exceeding max_candidate_chars="
@@ -304,7 +304,7 @@ def _build_classifier_system_prompt(
         "agent_instructions": _extract_bounded_agent_instructions(agent_system_prompt, agent_instructions_limit),
         "candidates": list(profiles),
     }
-    serialized_context = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
+    serialized_context = json.dumps(context, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
     escaped_context = serialized_context.replace("&", "\\u0026").replace("<", "\\u003c").replace(">", "\\u003e")
     return (
         f"{system_prompt}\n\n"
