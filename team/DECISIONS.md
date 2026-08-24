@@ -205,12 +205,14 @@ But the principle extends beyond size — wherever there is an LLM-native concep
 
 ### Decision
 
-When handling input, the SDK distinguishes two "no value" states:
+This decision governs **pass-through values**: fields the caller supplies for the SDK to forward to a downstream service, such as a provider's `params` bag or `additional_request_fields`. For those, the SDK distinguishes two "no value" states:
 
 - **`null` means explicit removal.** The user is deliberately opting a field out. When plumbing information through to a downstream service, a `null` field SHOULD be removed from the request — not sent as `null`, and not replaced with an SDK default.
 - **`undefined` (or an absent field) means the default case.** The SDK is free to apply its own logic for sensible defaults — which may itself be to omit the field.
 
-In Python, which has no `undefined`, an absent key plays the `undefined` role and, for inputs plumbed through to a downstream service, an explicit `None` SHOULD be treated as `null`. This does not reinterpret parameters where `None` already means "unspecified" — `Agent(model=None)` still applies the default model.
+In Python, which has no `undefined`, an absent key plays the `undefined` role and an explicit `None` SHOULD be treated as `null`. This does not reinterpret parameters where `None` already means "unspecified" — `Agent(model=None)` still applies the default model.
+
+It does **not** govern **feature enablement**. Parameters that switch an SDK-managed feature on or off keep `false`/`False` as the explicit off-switch (e.g. `MemoryManager(injection=False)`, `sandbox: false`). The two kinds cannot share a sentinel: a pass-through field may legitimately carry the value `false` (`store: false`, `parallel_tool_calls: false`), so `false` cannot mean "remove this field" — while a toggle's value is never forwarded, so `false` is unambiguous there.
 
 ### Rationale
 
