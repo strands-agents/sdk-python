@@ -448,7 +448,7 @@ in the trace:
 |----------|-----------------|-------|
 | Bedrock Nova Sonic | One per content block | A single spoken turn can produce several `bidi_response` spans. All but the last close as `interrupted`, and time to first audio re-baselines on each. Count spoken turns from interruption events and finish reasons rather than by counting response spans. No cache tokens or modality breakdown reported. |
 | OpenAI Realtime | One per turn | Reports cache read tokens and a modality breakdown when available. |
-| Google Live | None | Emits no response lifecycle events, so a session produces no `bidi_response` spans. Interruptions, token usage including cache reads, and the modality breakdown are still reported. |
+| Google Gemini Live | None | Emits no response lifecycle events, so a session produces no `bidi_response` spans. Interruptions, token usage including cache reads, and the modality breakdown are still reported. |
 
 ## Best Practices
 
@@ -471,7 +471,7 @@ in the trace:
 | Issue | Solution |
 |-------|----------|
 | No spans at all | Install the `otel` extra and configure an exporter before agent start |
-| No `bidi_response` spans | Expected on Google Live, which emits no response lifecycle |
+| No `bidi_response` spans | Expected on Google Gemini Live, which emits no response lifecycle |
 | Session span has no token attributes | The session is still open, or usage was never reported |
 | More response spans than spoken turns | Expected on Bedrock Nova Sonic, one response per content block |
 | `gen_ai.system_instructions` reads `[REDACTED]` | Add it to the unredacted allowlist |

@@ -205,7 +205,7 @@ Build real-time voice and audio conversations with persistent streaming connecti
 
 **Supported Model Providers:**
 - Amazon Bedrock Nova Sonic (v1, v2)
-- Google Live (Gemini Live API)
+- Google Gemini Live
 - OpenAI Realtime API
 
 **Installation:**

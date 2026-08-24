@@ -1,7 +1,7 @@
 ---
 title: Voice & Realtime Quickstart
 tags: [bidi-streaming, quickstart]
-description: "Build voice-enabled AI agents with real-time audio streaming. Works with Bedrock Nova Sonic, Google Live, and OpenAI Realtime."
+description: "Build voice-enabled AI agents with real-time audio streaming. Works with Bedrock Nova Sonic, Google Gemini Live, and OpenAI Realtime."
 experimental: true
 ---
 
@@ -30,7 +30,7 @@ To install with support for all bidirectional streaming providers and local audi
 pip install "strands-agents[bidi-all]"
 ```
 
-This includes all 3 supported providers (Bedrock Nova Sonic, Google Live, and OpenAI Realtime) plus `BidiAudioIO` and `BidiTextIO` for local development.
+This includes all 3 supported providers (Bedrock Nova Sonic, Google Gemini Live, and OpenAI Realtime) plus `BidiAudioIO` and `BidiTextIO` for local development.
 
 ### For Specific Providers
 
@@ -57,7 +57,7 @@ pip install "strands-agents[bidi-io,bidi-openai]"
 pip install "strands-agents[bidi-openai]"
 ```
 </Tab>
-<Tab label="Google Live">
+<Tab label="Google Gemini Live">
 
 ```bash
 # With local audio I/O
@@ -125,7 +125,7 @@ For OpenAI's Realtime API, set your API key:
 export OPENAI_API_KEY=your_api_key
 ```
 </Tab>
-<Tab label="Google Live">
+<Tab label="Google Gemini Live">
 
 For Google's Gemini Live API, set your API key:
 
@@ -300,7 +300,7 @@ Strands supports three bidirectional streaming providers:
 
 - **[Bedrock Nova Sonic](models/bedrock.md)** - Amazon's bidirectional streaming model via AWS Bedrock
 - **[OpenAI Realtime](models/openai.md)** - OpenAI's Realtime API for voice conversations
-- **[Google Live](models/google.md)** - Google's Gemini Live multimodal streaming API
+- **[Google Gemini Live](models/google.md)** - Google's Gemini Live multimodal streaming API
 
 Each provider has different features, timeout limits, and audio quality. See the individual provider documentation for detailed configuration options.
 
@@ -312,10 +312,10 @@ Customize audio configuration for both the model and I/O:
 import asyncio
 
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
-from strands.experimental.bidi.models import GoogleLiveModel
+from strands.experimental.bidi.models import GoogleGeminiLiveModel
 
 # Configure model audio settings
-model = GoogleLiveModel(
+model = GoogleGeminiLiveModel(
     provider_config={
         "audio": {
             "input_rate": 48000,   # Higher quality input
@@ -555,5 +555,5 @@ Ready to learn more? Check out these resources:
 - **Model Providers:**
     - [Bedrock Nova Sonic](models/bedrock.md) - Amazon Bedrock's bidirectional streaming model
     - [OpenAI Realtime](models/openai.md) - OpenAI's Realtime API
-    - [Google Live](models/google.md) - Google's Gemini Live API
+    - [Google Gemini Live](models/google.md) - Google's Gemini Live API
 - [Python API Reference](@api/python/strands.experimental.bidi.agent.agent) - Complete API documentation

@@ -14,7 +14,7 @@ import pytest
 
 from strands import tool
 from strands.experimental.bidi.agent.agent import BidiAgent
-from strands.experimental.bidi.models import BedrockNovaSonicModel, GoogleLiveModel, OpenAIRealtimeModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel, GoogleGeminiLiveModel, OpenAIRealtimeModel
 
 from .context import BidirectionalTestContext
 from .hook_utils import HookEventCollector
@@ -88,12 +88,12 @@ PROVIDER_CONFIGS = {
         "env_vars": ["OPENAI_API_KEY"],
         "skip_reason": "OPENAI_API_KEY not available",
     },
-    "google_live": {
-        "model_class": GoogleLiveModel,
+    "google_gemini_live": {
+        "model_class": GoogleGeminiLiveModel,
         "model_kwargs": {
             # Uses default model and config (audio output + transcription enabled)
         },
-        "silence_duration": 1.5,  # Google Live has good VAD, similar to OpenAI
+        "silence_duration": 1.5,  # Google Gemini Live has good VAD, similar to OpenAI
         "env_vars": ["GOOGLE_API_KEY"],
         "skip_reason": "GOOGLE_API_KEY not available",
     },

@@ -19,20 +19,12 @@ def __getattr__(name: str) -> Any:
         from .bedrock import BedrockNovaSonicModel
 
         return BedrockNovaSonicModel
-    if name == "GoogleLiveModel":
-        from .google import GoogleLiveModel
+    if name == "GoogleGeminiLiveModel":
+        from .google import GoogleGeminiLiveModel
 
-        return GoogleLiveModel
-    if name == "GoogleModel":
-        from .google import GoogleModel
-
-        return GoogleModel
+        return GoogleGeminiLiveModel
     if name == "OpenAIRealtimeModel":
         from .openai import OpenAIRealtimeModel
 
         return OpenAIRealtimeModel
-    if name == "OpenAIModel":
-        from .openai import OpenAIModel
-
-        return OpenAIModel
     raise AttributeError(f"cannot import name '{name}' from '{__name__}' ({__file__})")

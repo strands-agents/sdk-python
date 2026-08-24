@@ -15,7 +15,6 @@ import unittest.mock
 
 import pytest
 
-from strands.experimental.bidi.models import OpenAIModel
 from strands.experimental.bidi.models.model import BidiModelTimeoutError
 from strands.experimental.bidi.models.openai import OpenAIRealtimeModel
 from strands.experimental.bidi.types.events import (
@@ -30,11 +29,6 @@ from strands.experimental.bidi.types.events import (
 )
 from strands.types._events import ToolResultEvent
 from strands.types.tools import ToolResult
-
-
-def test_openai_model_is_realtime_alias() -> None:
-    assert OpenAIModel is OpenAIRealtimeModel
-
 
 @pytest.fixture
 def mock_websocket():
