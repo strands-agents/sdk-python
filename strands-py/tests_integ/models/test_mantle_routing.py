@@ -128,9 +128,12 @@ def _serves(base_path: str, model_id: str, token: str) -> bool | None:
 
 
 @retry_on_flaky(
-    "Mantle can be transiently unavailable during a catalog sweep; retry the whole sweep "
-    "once so a throttled probe gets another chance to settle before it skips or fails",
+    "Mantle can transiently fail the catalog listing or throttle a probe during a sweep; "
+    "retry the whole sweep once so it gets another chance before it fails or skips. Real "
+    "drift (misrouted/unserved) and the CI no-entitlement failure are deterministic and "
+    "are not retried.",
     max_attempts=2,
+    retry_on=[urllib.error.URLError, "mantle routing could not be verified"],
 )
 @pytest.mark.timeout(600)
 def test_mantle_base_path_table_matches_live_catalog():

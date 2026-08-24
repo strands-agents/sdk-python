@@ -139,7 +139,7 @@ async function listModels(token: string): Promise<string[] | null> {
 describe.skipIf(bedrock.skip)('Bedrock Mantle base-path routing', () => {
   it(
     'routes every live Mantle model to the base path it is actually served from',
-    { timeout: 600_000, retry: 2 },
+    { timeout: 600_000 },
     async (ctx) => {
       const catalog = await listModels(await mintToken())
       if (catalog === null) {
