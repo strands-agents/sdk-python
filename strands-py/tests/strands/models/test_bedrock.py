@@ -5202,7 +5202,7 @@ def test_nova_model_converts_json_to_text_in_tool_result(bedrock_client):
         }
     ]
 
-    formatted_request = model._format_request(messages)
+    formatted_request = model.format_request(messages)
     tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
 
     assert len(tool_result["content"]) == 1
@@ -5231,7 +5231,7 @@ def test_nova_model_converts_mixed_json_and_text_in_tool_result(bedrock_client):
         }
     ]
 
-    formatted_request = model._format_request(messages)
+    formatted_request = model.format_request(messages)
     tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
 
     assert len(tool_result["content"]) == 2
@@ -5256,7 +5256,7 @@ def test_claude_model_preserves_json_in_tool_result(bedrock_client):
         }
     ]
 
-    formatted_request = model._format_request(messages)
+    formatted_request = model.format_request(messages)
     tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
 
     assert len(tool_result["content"]) == 1
@@ -5288,7 +5288,7 @@ def test_nova_model_handles_nested_json_in_tool_result(bedrock_client):
         }
     ]
 
-    formatted_request = model._format_request(messages)
+    formatted_request = model.format_request(messages)
     tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
 
     assert "text" in tool_result["content"][0]
