@@ -663,29 +663,39 @@ export class BedrockModel extends Model<BedrockModelConfig> {
         if (response.stream) {
           let lastStopReason: string | undefined
           let redactionEmitted = false
+          let sawGuardrailTrace = false
           for await (const chunk of response.stream) {
-            // Map Bedrock events to SDK events
             const result = this._mapStreamedBedrockEventToSDKEvent(chunk, lastStopReason)
             lastStopReason = result.stopReason
-            // Redaction keys off the stop reason (see _generateRedactionEvents), but the guardrail
-            // trace only arrives with the metadata event. Emit exactly once, on the first metadata
-            // event that follows a guardrail_intervened stop reason.
-            if (
-              !redactionEmitted &&
-              result.guardrailData &&
-              lastStopReason === 'guardrail_intervened' &&
-              this._config.guardrailConfig
-            ) {
-              redactionEmitted = true
-              yield* this._generateRedactionEvents(result.guardrailData)
+            // The guardrail trace arrives with the metadata event and is authoritative for
+            // BLOCKED vs ANONYMIZED (masking) — Bedrock reports guardrail_intervened for both
+            // but only BLOCKED content warrants SDK redaction. Wait for the metadata chunk to
+            // decide, and fall back to the stop reason only when no trace was carried.
+            if (!redactionEmitted && this._config.guardrailConfig && 'metadata' in chunk) {
+              const guardrailData = chunk.metadata?.trace?.guardrail
+              if (guardrailData !== undefined) {
+                sawGuardrailTrace = true
+                if (this._hasBlockedGuardrailPolicy(guardrailData)) {
+                  redactionEmitted = true
+                  yield* this._generateRedactionEvents(guardrailData)
+                }
+              } else if (lastStopReason === 'guardrail_intervened') {
+                redactionEmitted = true
+                yield* this._generateRedactionEvents({})
+              }
             }
             for (const event of result.events) {
               yield event
             }
           }
 
-          // Guardrail intervened but no metadata event carried a trace: still redact.
-          if (!redactionEmitted && lastStopReason === 'guardrail_intervened' && this._config.guardrailConfig) {
+          // Safety net: guardrail_intervened but no metadata event ever arrived.
+          if (
+            !redactionEmitted &&
+            !sawGuardrailTrace &&
+            lastStopReason === 'guardrail_intervened' &&
+            this._config.guardrailConfig
+          ) {
             yield* this._generateRedactionEvents({})
           }
         }
@@ -1574,11 +1584,16 @@ export class BedrockModel extends Model<BedrockModelConfig> {
       metadataEvent.trace = event.trace
     }
 
-    // Redaction keys off the stop reason, not the trace: `trace: 'disabled'` still reports
-    // `guardrail_intervened` but carries no assessment, and blocked content must still be redacted.
+    // Bedrock reports guardrail_intervened for both BLOCKED and ANONYMIZED (masking). When the
+    // trace is carried it is authoritative — only BLOCKED policies warrant redaction. When it
+    // isn't (typically guardrailConfig.trace='disabled'), fall back to the stop reason.
     if (this._config.guardrailConfig && stopReasonRaw === 'guardrail_intervened') {
-      for (const redactionEvent of this._generateRedactionEvents(event.trace?.guardrail ?? {})) {
-        events.push(redactionEvent)
+      const guardrail = event.trace?.guardrail
+      const shouldRedact = guardrail !== undefined ? this._hasBlockedGuardrailPolicy(guardrail) : true
+      if (shouldRedact) {
+        for (const redactionEvent of this._generateRedactionEvents(guardrail ?? {})) {
+          events.push(redactionEvent)
+        }
       }
     }
 
@@ -1592,16 +1607,14 @@ export class BedrockModel extends Model<BedrockModelConfig> {
    *
    * @param chunk - Bedrock event chunk
    * @param lastStopReason - Stop reason from previous messageStop event
-   * @returns Object containing events array, optional stopReason, and the guardrail trace
-   *   assessment when the chunk is a metadata event (redaction is driven by the caller)
+   * @returns Object containing events array and optional stopReason
    */
   private _mapStreamedBedrockEventToSDKEvent(
     chunk: ConverseStreamOutput,
     lastStopReason?: string
-  ): { events: ModelStreamEvent[]; stopReason?: string; guardrailData?: GuardrailTraceAssessment } {
+  ): { events: ModelStreamEvent[]; stopReason?: string } {
     const events: ModelStreamEvent[] = []
     let stopReason = lastStopReason
-    let guardrailData: GuardrailTraceAssessment | undefined
 
     // Extract the event type key
     const eventType = ensureDefined(Object.keys(chunk)[0], 'eventType') as keyof ConverseStreamOutput
@@ -1764,9 +1777,6 @@ export class BedrockModel extends Model<BedrockModelConfig> {
           event.trace = data.trace
         }
 
-        // Surface the guardrail trace so stream() can drive redaction once across the whole stream.
-        guardrailData = data.trace?.guardrail ?? {}
-
         events.push(event)
         break
       }
@@ -1787,11 +1797,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
         break
     }
 
-    return {
-      events,
-      ...(stopReason !== undefined && { stopReason }),
-      ...(guardrailData !== undefined && { guardrailData }),
-    }
+    return stopReason !== undefined ? { events, stopReason } : { events }
   }
 
   /**
@@ -1934,6 +1940,28 @@ export class BedrockModel extends Model<BedrockModelConfig> {
       default:
         return location as unknown as BedrockCitationLocation
     }
+  }
+
+  /**
+   * Recursively check a guardrail trace assessment for any detected-and-blocked policy.
+   *
+   * Bedrock reports guardrail_intervened for both BLOCKED and ANONYMIZED (masking) actions, so
+   * the trace is the only signal that distinguishes them: only BLOCKED entries warrant
+   * SDK-level redaction — masked spans have already been substituted in place server-side.
+   *
+   * @param guardrailData - The guardrail trace assessment
+   * @returns True if any assessment contains action='BLOCKED' with detected=true
+   */
+  private _hasBlockedGuardrailPolicy(guardrailData: GuardrailTraceAssessment): boolean {
+    const visit = (value: unknown): boolean => {
+      if (value === null || value === undefined) return false
+      if (Array.isArray(value)) return value.some(visit)
+      if (typeof value !== 'object') return false
+      const record = value as Record<string, unknown>
+      if (record.action === 'BLOCKED' && record.detected === true) return true
+      return Object.values(record).some(visit)
+    }
+    return visit(guardrailData)
   }
 
   /**

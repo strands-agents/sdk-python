@@ -4363,6 +4363,98 @@ describe('BedrockModel', () => {
           },
         ])
       })
+
+      it('does not emit redaction events when the trace only reports ANONYMIZED (masking)', async () => {
+        // Bedrock reports stopReason=guardrail_intervened for masked content too, but the
+        // masked spans have already been substituted in place and the surrounding message
+        // must be preserved. The trace disambiguates: only BLOCKED actions warrant redaction.
+        setupMockSend(async function* () {
+          yield { messageStart: { role: 'assistant' } }
+          yield { contentBlockStart: {} }
+          yield { contentBlockDelta: { delta: { text: '{BLOCKING_HELLO}! 👋' } } }
+          yield { contentBlockStop: {} }
+          yield { messageStop: { stopReason: 'guardrail_intervened' } }
+          yield {
+            metadata: {
+              usage: { inputTokens: 13, outputTokens: 17, totalTokens: 30 },
+              trace: {
+                guardrail: {
+                  outputAssessments: {
+                    '8oi5sp73w4ca': [
+                      {
+                        sensitiveInformationPolicy: {
+                          regexes: [
+                            {
+                              action: 'ANONYMIZED',
+                              detected: true,
+                              match: 'Hello',
+                              name: 'BLOCKING_HELLO',
+                              regex: 'Hello',
+                            },
+                          ],
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+          }
+        })
+
+        const provider = new BedrockModel({
+          guardrailConfig: {
+            guardrailIdentifier: 'my-guardrail-id',
+            guardrailVersion: '1',
+          },
+        })
+        const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+        const events = await collectIterator(provider.stream(messages))
+
+        expect(events.some((e) => e.type === 'modelRedactionEvent')).toBe(false)
+      })
+
+      it('does not emit redaction events for masking in non-streaming path', async () => {
+        const mockSend = vi.fn(async () => ({
+          output: { message: { role: 'assistant', content: [{ text: '{BLOCKING_HELLO}! 👋' }] } },
+          stopReason: 'guardrail_intervened',
+          usage: { inputTokens: 13, outputTokens: 17, totalTokens: 30 },
+          trace: {
+            guardrail: {
+              outputAssessments: {
+                '8oi5sp73w4ca': [
+                  {
+                    sensitiveInformationPolicy: {
+                      regexes: [
+                        {
+                          action: 'ANONYMIZED',
+                          detected: true,
+                          match: 'Hello',
+                          name: 'BLOCKING_HELLO',
+                          regex: 'Hello',
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        }))
+        mockBedrockClientImplementation({ send: mockSend })
+
+        const provider = new BedrockModel({
+          stream: false,
+          guardrailConfig: {
+            guardrailIdentifier: 'my-guardrail-id',
+            guardrailVersion: '1',
+          },
+        })
+        const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+        const events = await collectIterator(provider.stream(messages))
+
+        expect(events.some((e) => e.type === 'modelRedactionEvent')).toBe(false)
+      })
     })
 
     describe('redaction event generation', () => {

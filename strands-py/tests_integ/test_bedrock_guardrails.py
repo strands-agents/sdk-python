@@ -101,6 +101,98 @@ def wait_for_guardrail_active(bedrock_client, guardrail_id, max_attempts=10, del
     raise RuntimeError("Guardrail did not become active.")
 
 
+@pytest.fixture(scope="module")
+def bedrock_masking_guardrail(boto_session):
+    """
+    Provisions a guardrail whose only policy ANONYMIZES (masks) a regex match.
+    """
+    client = boto_session.client("bedrock")
+
+    guardrail_name = "test-guardrail-mask-hello"
+    guardrail_id = get_guardrail_id(client, guardrail_name)
+
+    if guardrail_id:
+        print(f"Guardrail {guardrail_name} already exists with ID: {guardrail_id}")
+    else:
+        print(f"Creating guardrail {guardrail_name}")
+        response = client.create_guardrail(
+            name=guardrail_name,
+            description="Testing masking guardrail",
+            sensitiveInformationPolicyConfig={
+                "regexesConfig": [
+                    # Pattern and placeholder name share no substring, so a test can tell from the
+                    # message text alone whether the original leaked through or Bedrock's mask ran.
+                    {
+                        "name": "SECRETMARK",
+                        "pattern": "Hello",
+                        "action": "ANONYMIZE",
+                        "inputAction": "ANONYMIZE",
+                        "outputAction": "ANONYMIZE",
+                        "inputEnabled": True,
+                        "outputEnabled": True,
+                    }
+                ]
+            },
+            blockedInputMessaging=BLOCKED_INPUT,
+            blockedOutputsMessaging=BLOCKED_OUTPUT,
+        )
+        guardrail_id = response.get("guardrailId")
+        print(f"Created masking guardrail with ID: {guardrail_id}")
+        wait_for_guardrail_active(client, guardrail_id)
+    return guardrail_id
+
+
+@pytest.mark.parametrize("guardrail_trace", ["enabled", "enabled_full"])
+def test_guardrail_input_masking_preserves_content(boto_session, bedrock_masking_guardrail, guardrail_trace):
+    """Bedrock reports stop_reason='guardrail_intervened' for masking, but the user message must be
+    preserved — Bedrock has already substituted the sensitive spans in place. The SDK must not
+    replace the whole message with the redaction placeholder as it does for BLOCKED content.
+    """
+    bedrock_model = BedrockModel(
+        guardrail_id=bedrock_masking_guardrail,
+        guardrail_version="DRAFT",
+        boto_session=boto_session,
+        guardrail_trace=guardrail_trace,
+        guardrail_redact_input_message="SHOULD-NOT-APPEAR",
+    )
+
+    agent = Agent(model=bedrock_model, system_prompt="You are a helpful assistant.", callback_handler=None)
+    agent("Hello tell me a joke.")
+
+    user_message_text = agent.messages[0]["content"][0]["text"]
+    assert "SHOULD-NOT-APPEAR" not in user_message_text
+    assert "SECRETMARK" in user_message_text
+
+
+@pytest.mark.parametrize("guardrail_trace", ["enabled", "enabled_full"])
+def test_guardrail_output_masking_preserves_content(boto_session, bedrock_masking_guardrail, guardrail_trace):
+    """Model-generated content: the prompt "Say Hel lo" contains a deliberate space so it doesn't
+    match the input mask; the model's likely reply "Hello" then triggers the output mask instead.
+    Bedrock replies with stop_reason='guardrail_intervened' and the masked assistant text — the
+    SDK must persist that masked text on the assistant message rather than clobbering it.
+    """
+    bedrock_model = BedrockModel(
+        guardrail_id=bedrock_masking_guardrail,
+        guardrail_version="DRAFT",
+        boto_session=boto_session,
+        guardrail_trace=guardrail_trace,
+        guardrail_redact_input_message="SHOULD-NOT-APPEAR-INPUT",
+        guardrail_redact_output=True,
+        guardrail_redact_output_message="SHOULD-NOT-APPEAR-OUTPUT",
+    )
+
+    agent = Agent(
+        model=bedrock_model,
+        system_prompt='When asked to say the word, reply with just that word.',
+        callback_handler=None,
+    )
+    agent("Say Hel lo")
+
+    assistant_text = "".join(block.get("text", "") for block in agent.messages[1]["content"])
+    assert "SHOULD-NOT-APPEAR-OUTPUT" not in assistant_text
+    assert "SECRETMARK" in assistant_text
+
+
 @pytest.mark.parametrize("guardrail_trace", ["disabled", "enabled", "enabled_full"])
 def test_guardrail_input_intervention(boto_session, bedrock_guardrail, guardrail_trace):
     bedrock_model = BedrockModel(
