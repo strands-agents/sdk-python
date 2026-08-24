@@ -13,6 +13,7 @@
 
 export * from './bash/index.js'
 export * from './file-editor/index.js'
+export * from './shell/index.js'
 export * from './http-request/index.js'
 export * from './notebook/index.js'
 export * from './sleep/index.js'

@@ -326,13 +326,16 @@ describe('Agent tracer integration', () => {
       expect(tracer.endModelInvokeSpan).toHaveBeenCalledTimes(2)
     })
 
-    it('model span records post-middleware messages when InvokeModelStage middleware transforms input', async () => {
-      const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Hello' })
+    it('model span records post-middleware context when InvokeModelStage middleware transforms input', async () => {
+      const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Default response' })
+      const selectedModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Selected response' })
+      selectedModel.updateConfig({ modelId: 'selected-model' })
       const agent = new Agent({ model, systemPrompt: 'Original prompt' })
       const tracer = getLatestTracer()
 
       agent.addMiddleware(InvokeModelStage.Input, async (context) => ({
         ...context,
+        model: selectedModel,
         systemPrompt: 'Transformed prompt',
       }))
 
@@ -340,6 +343,7 @@ describe('Agent tracer integration', () => {
 
       expect(tracer.startModelInvokeSpan).toHaveBeenCalledWith(
         expect.objectContaining({
+          modelId: 'selected-model',
           systemPrompt: 'Transformed prompt',
         })
       )

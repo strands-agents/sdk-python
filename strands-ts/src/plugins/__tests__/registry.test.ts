@@ -162,6 +162,20 @@ describe('PluginRegistry', () => {
       expect(plugin.initialized).toBe(true)
     })
 
+    it('preserves initAgent failures across initialization attempts', async () => {
+      const initializationError = new Error('plugin initialization failed')
+      const initAgent = vi.fn(() => {
+        throw initializationError
+      })
+      registry = new PluginRegistry([{ name: 'failing-plugin', initAgent }])
+
+      // Keeps plugin initialization fail-closed across retries.
+      await expect(registry.initialize(mockAgent)).rejects.toBe(initializationError)
+      await expect(registry.initialize(mockAgent)).rejects.toBe(initializationError)
+
+      expect(initAgent).toHaveBeenCalledTimes(1)
+    })
+
     it('is idempotent — calling initialize twice only runs plugins once', async () => {
       const plugin = new InitializableTestPlugin()
       registry = new PluginRegistry([plugin])

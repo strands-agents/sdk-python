@@ -637,10 +637,15 @@ class OpenAIResponsesModel(Model):
                     "reasoningContent is not yet supported in multi-turn conversations with the Responses API"
                 )
 
+            if any("cachePoint" in content for content in contents):
+                logger.warning("cachePoint content block is not supported by OpenAI Responses | skipping")
+
             formatted_contents = [
                 cls._format_request_message_content(content, role=role)
                 for content in contents
-                if not any(block_type in content for block_type in ["toolResult", "toolUse", "reasoningContent"])
+                if not any(
+                    block_type in content for block_type in ["toolResult", "toolUse", "reasoningContent", "cachePoint"]
+                )
             ]
 
             formatted_tool_calls = [
@@ -709,7 +714,7 @@ class OpenAIResponsesModel(Model):
         if "document" in content:
             doc = content["document"]
             data_url = _encode_media_to_data_url(doc["source"]["bytes"], doc["format"], "document")
-            return {"type": "input_file", "file_url": data_url}
+            return {"type": "input_file", "filename": doc.get("name", "document"), "file_data": data_url}
 
         if "image" in content:
             img = content["image"]
@@ -779,7 +784,10 @@ class OpenAIResponsesModel(Model):
                 has_media = True
                 doc = content["document"]
                 data_url = _encode_media_to_data_url(doc["source"]["bytes"], doc["format"], "document")
-                output_parts.append({"type": "input_file", "file_url": data_url})
+                name = doc.get("name", "document")
+                suffix = f".{doc['format']}"
+                filename = name if name.endswith(suffix) else f"{name}{suffix}"
+                output_parts.append({"type": "input_file", "filename": filename, "file_data": data_url})
 
         # Return array if has media content, otherwise join as string for simpler text-only cases
         output: list[dict[str, Any]] | str

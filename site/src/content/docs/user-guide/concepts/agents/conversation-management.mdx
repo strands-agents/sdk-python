@@ -6,9 +6,11 @@ sourceLinks:
   - path: strands-py/src/strands/agent/conversation_manager/conversation_manager.py
   - path: strands-py/src/strands/agent/conversation_manager/sliding_window_conversation_manager.py
   - path: strands-py/src/strands/agent/conversation_manager/summarizing_conversation_manager.py
+  - path: strands-py/src/strands/models/model.py
   - path: strands-ts/src/conversation-manager/conversation-manager.ts
   - path: strands-ts/src/conversation-manager/sliding-window-conversation-manager.ts
   - path: strands-ts/src/conversation-manager/summarizing-conversation-manager.ts
+  - path: strands-ts/src/models/model.ts
 ---
 
 In the Strands Agents SDK, context refers to the information provided to the agent for understanding and reasoning. This includes:
@@ -43,11 +45,18 @@ or [build your own manager](#creating-a-conversationmanager) that matches your r
 
 ### NullConversationManager
 
-The [`NullConversationManager`](@api/python/strands.agent.conversation_manager.null_conversation_manager#NullConversationManager) is a simple implementation that does not modify the conversation history. It's useful for:
+The [`NullConversationManager`](@api/python/strands.agent.conversation_manager.null_conversation_manager#NullConversationManager) is a simple implementation that does not modify the conversation history. Pass it explicitly to turn off the default [`SlidingWindowConversationManager`](#slidingwindowconversationmanager) and keep the full conversation history. It's useful for:
 
 - Short conversations that won't exceed context limits
 - Debugging purposes
 - Cases where you want to manage context manually
+
+:::note
+Omitting <Syntax py="conversation_manager" ts="conversationManager" /> — or passing
+<Syntax py="conversation_manager=None" ts="conversationManager: undefined" /> — selects
+the default sliding window. It does **not** disable trimming. To keep the full history,
+pass a `NullConversationManager` instance explicitly.
+:::
 
 <Tabs>
 <Tab label="Python">
@@ -73,7 +82,7 @@ agent = Agent(
 
 ### SlidingWindowConversationManager
 
-The [`SlidingWindowConversationManager`](@api/python/strands.agent.conversation_manager.sliding_window_conversation_manager#SlidingWindowConversationManager) implements a sliding window strategy that maintains a fixed number of recent messages. This is the default conversation manager used by the Agent class.
+The [`SlidingWindowConversationManager`](@api/python/strands.agent.conversation_manager.sliding_window_conversation_manager#SlidingWindowConversationManager) implements a sliding window strategy that maintains a fixed number of recent messages. This is the default conversation manager used by the Agent class when no <Syntax py="conversation_manager" ts="conversationManager" /> is specified. To turn it off and keep the full history, pass a [`NullConversationManager`](#nullconversationmanager).
 
 <Tabs>
 <Tab label="Python">
@@ -516,6 +525,50 @@ The `countTokens()` method uses a character-based heuristic to estimate token co
 - [Google Gemini](../model-providers/google/#token-counting)
 - [OpenAI Responses](../model-providers/openai-responses/#token-counting)
 - [llama.cpp](../model-providers/llamacpp/#token-counting)
+
+### Utilization Estimation
+
+The Model base class provides an
+<Syntax
+  py="estimate_utilization(input_tokens)"
+  ts="estimateUtilization(inputTokens)"
+/> method that computes the fraction of the context window
+consumed by a given input token count. It uses the model's
+configured
+<Syntax
+  py="context_window_limit"
+  ts="contextWindowLimit"
+/> as the denominator, falling back to a default of 200,000
+tokens when not set:
+
+<Tabs>
+<Tab label="Python">
+
+```python
+ratio = model.estimate_utilization(input_tokens=projected_tokens)
+# ratio is 0–1+ (above 1.0 means overflow)
+```
+
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+const ratio = model.estimateUtilization(projectedTokens)
+// ratio is 0–1+ (above 1.0 means overflow)
+```
+
+</Tab>
+</Tabs>
+
+This method resolves the model's
+<Syntax
+  py="context_window_limit"
+  ts="contextWindowLimit"
+/> (falling back to the 200,000 default with a warning when
+not configured) and returns `inputTokens / contextWindowLimit`.
+The SDK's built-in conversation managers use this internally for
+proactive compression decisions, but you can also call it
+directly when building custom context management logic.
 
 ## Creating a ConversationManager
 

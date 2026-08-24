@@ -16,3 +16,8 @@ import { Agent } from '@strands-agents/sdk'
 import { AnthropicModel } from '@strands-agents/sdk/models/anthropic'
 import { z } from 'zod'
 // --8<-- [end:structured_output_imports]
+
+// --8<-- [start:prompt_caching_imports]
+import { Agent } from '@strands-agents/sdk'
+import { AnthropicModel } from '@strands-agents/sdk/models/anthropic'
+// --8<-- [end:prompt_caching_imports]

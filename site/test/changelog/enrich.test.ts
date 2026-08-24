@@ -134,4 +134,58 @@ describe('enrich', () => {
     const e = await enrichFromPr('r', 1, f)
     expect(e.languages).toBe(null)
   })
+
+  it('a root-npm-lockfile-only PR is attributed to typescript', async () => {
+    // Guards the leak in the python/v1.51.0 changelog sync (#3712): five npm bumps
+    // that touch only the root lockfile were listed on the python stream.
+    const npmBump = async () => ({
+      labels: [],
+      merge_commit_sha: 'abc1234',
+      user: 'dependabot[bot]',
+      files: ['package-lock.json'],
+    })
+    expect((await enrichFromPr('r', 1, npmBump)).languages).toEqual(['typescript'])
+  })
+
+  it('a root lockfile alongside SDK code keeps the dir signal', async () => {
+    const f = async () => ({
+      labels: [],
+      merge_commit_sha: 'abc1234',
+      user: 'x',
+      files: ['package-lock.json', 'strands-py/pyproject.toml'],
+    })
+    const e = await enrichFromPr('r', 1, f)
+    expect(e.languages).toEqual(['python'])
+  })
+
+  it('root manifests and non-root lockfiles stay language-neutral', async () => {
+    // package.json/pyproject.toml configure repo-wide tooling, and a nested
+    // lockfile belongs to its own dir (site = docs, .github = ci).
+    const files = [
+      'package.json',
+      'pyproject.toml',
+      'site/package-lock.json',
+      '.github/scripts/pr-metrics/tools/package-lock.json',
+    ]
+    for (const file of files) {
+      const e = await enrichFromPr('r', 1, async () => ({
+        labels: [],
+        merge_commit_sha: 'abc1234',
+        user: 'x',
+        files: [file],
+      }))
+      expect(e.languages, file).toEqual([])
+    }
+  })
+
+  it('a lockfile bump carrying any other file stays language-neutral', async () => {
+    const f = async () => ({
+      labels: [],
+      merge_commit_sha: 'abc1234',
+      user: 'x',
+      files: ['package-lock.json', '.github/workflows/ci.yml'],
+    })
+    const e = await enrichFromPr('r', 1, f)
+    expect(e.languages).toEqual([])
+  })
 })

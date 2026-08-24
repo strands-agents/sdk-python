@@ -7,10 +7,7 @@ sourceLinks:
   - path: strands-py/src/strands/vended_plugins/goal/judge.py
   - path: strands-ts/src/vended-plugins/goal/plugin.ts
   - path: strands-ts/src/vended-plugins/goal/judge.ts
-sidebar:
-  badge:
-    text: New
-    variant: tip
+addedDate: 2026-06-15
 ---
 
 When your agent's response needs to meet a quality bar before returning, `GoalLoop` handles the retry loop. It validates the response after each invocation, feeds feedback back as a user message on failure, and re-invokes the agent. This continues until validation passes, a max attempt count is reached, or a timeout elapses.

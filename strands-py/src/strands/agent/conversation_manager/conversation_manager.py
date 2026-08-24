@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 DEFAULT_COMPRESSION_THRESHOLD = 0.7
-DEFAULT_CONTEXT_WINDOW_LIMIT = 200_000
 
 
 class ProactiveCompressionConfig(TypedDict, total=False):
@@ -93,7 +92,6 @@ class ConversationManager(ABC, HookProvider):
 
         self.removed_message_count = 0
         self._compression_threshold = threshold
-        self._context_window_limit_warned = False
 
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
         """Register hooks for agent lifecycle events.
@@ -125,28 +123,17 @@ class ConversationManager(ABC, HookProvider):
         if self._compression_threshold is None:
             return
 
-        context_window_limit = event.agent.model.context_window_limit
-        if context_window_limit is None:
-            context_window_limit = DEFAULT_CONTEXT_WINDOW_LIMIT
-            if not self._context_window_limit_warned:
-                self._context_window_limit_warned = True
-                logger.warning(
-                    "context_window_limit=<%s> | context_window_limit not set on model, using default."
-                    " Set context_window_limit in your model config for accurate proactive compression",
-                    DEFAULT_CONTEXT_WINDOW_LIMIT,
-                )
-
         if event.projected_input_tokens is None:
             logger.debug("projected_input_tokens=<None> | skipping proactive compression")
             return
 
-        ratio = event.projected_input_tokens / context_window_limit
+        ratio = event.agent.model.estimate_utilization(event.projected_input_tokens)
         if ratio >= self._compression_threshold:
             logger.debug(
-                "projected_tokens=<%s>, limit=<%s>, ratio=<%.2f>, compression_threshold=<%s>"
+                "projected_tokens=<%s>, context_window_limit=<%s>, ratio=<%.2f>, compression_threshold=<%s>"
                 " | compression threshold exceeded, reducing context",
                 event.projected_input_tokens,
-                context_window_limit,
+                event.agent.model.context_window_limit,
                 ratio,
                 self._compression_threshold,
             )
