@@ -1,4 +1,5 @@
 import os
+import uuid
 
 import pydantic
 import pytest
@@ -6,20 +7,16 @@ import pytest
 import strands
 from strands import Agent
 from strands.agent import NullConversationManager
+from strands.models import CacheConfig, CacheToolsConfig
 from strands.models.anthropic import AnthropicModel
 from strands.types.content import ContentBlock, Message
 from strands.types.exceptions import ContextWindowOverflowException
+from tests_integ.models import providers
 
-"""
-These tests only run if we have the anthropic api key
+# these tests only run if we have the anthropic api key
+pytestmark = providers.anthropic.mark
 
-Because of infrequent burst usage, Anthropic tests are unreliable, failing tests with 529s.
-{'type': 'error', 'error': {'details': None, 'type': 'overloaded_error', 'message': 'Overloaded'}}
-https://docs.anthropic.com/en/api/errors#http-errors
-"""
-pytestmark = pytest.skip(
-    "Because of infrequent burst usage, Anthropic tests are unreliable, failing with 529s", allow_module_level=True
-)
+MODEL_ID = "claude-sonnet-4-6"
 
 
 @pytest.fixture
@@ -28,7 +25,7 @@ def model():
         client_args={
             "api_key": os.getenv("ANTHROPIC_API_KEY"),
         },
-        model_id="claude-sonnet-4-6",
+        model_id=MODEL_ID,
         max_tokens=512,
     )
 
@@ -165,11 +162,11 @@ def test_input_and_max_tokens_exceed_context_limit(quiet_strands_logging):
     # verify behavior
 
     model = AnthropicModel(
-        model_id="claude-sonnet-4-20250514",
+        model_id=MODEL_ID,
         max_tokens=64000,
     )
 
-    large_message = "This is a very long text. " * 10000
+    large_message = "This is a very long text. " * 60000
 
     messages = [
         Message(role="user", content=[ContentBlock(text=large_message)]),
@@ -184,12 +181,66 @@ def test_input_and_max_tokens_exceed_context_limit(quiet_strands_logging):
         agent(messages)
 
 
+def test_cache_config_earns_a_read_on_the_second_turn():
+    """Automatic cache-point placement produces a reusable prefix rather than rewriting it every turn."""
+    # Salted so a rerun cannot read an entry an earlier run wrote, and sized past the model's cache minimum.
+    prefix = f"Dossier {uuid.uuid4()}. " + ("The subject prefers concise written answers. " * 600)
+    model = AnthropicModel(
+        client_args={"api_key": os.getenv("ANTHROPIC_API_KEY")},
+        model_id=MODEL_ID,
+        max_tokens=256,
+        cache_config=CacheConfig(strategy="auto"),
+    )
+    agent = Agent(model=model, load_tools_from_directory=False, callback_handler=None)
+
+    first = agent(f"{prefix}\n\nReply ALPHA.")
+    assert first.metrics.latest_agent_invocation.usage.get("cacheWriteInputTokens", 0) > 0, (
+        "first turn should have written the prefix"
+    )
+
+    second = agent("Reply BETA.")
+    assert second.metrics.latest_agent_invocation.usage.get("cacheReadInputTokens", 0) > 0, (
+        "second turn rewrote the prefix instead of reading it"
+    )
+
+
+def test_cache_tools_earns_a_read_on_the_second_turn():
+    """A cached tool block is accepted by the API and read back on a later turn."""
+    # Salted so a rerun within the TTL cannot read the block an earlier run wrote
+    long_description = f"Look up a reference entry {uuid.uuid4()}. " + (
+        "The catalog is exhaustive and stable across requests. " * 600
+    )
+
+    @strands.tool(description=long_description)
+    def lookup_reference(topic: str) -> str:
+        return f"No entry for {topic}."
+
+    model = AnthropicModel(
+        client_args={"api_key": os.getenv("ANTHROPIC_API_KEY")},
+        model_id=MODEL_ID,
+        max_tokens=256,
+        cache_tools=CacheToolsConfig(ttl="5m"),
+    )
+    agent = Agent(model=model, tools=[lookup_reference], load_tools_from_directory=False, callback_handler=None)
+
+    first = agent("Reply ALPHA. Do not call any tool.")
+    assert first.metrics.latest_agent_invocation.usage.get("cacheWriteInputTokens", 0) > 0, (
+        "first turn should have written the tool block"
+    )
+
+    second = agent("Reply BETA. Do not call any tool.")
+    assert second.metrics.latest_agent_invocation.usage.get("cacheReadInputTokens", 0) > 0, (
+        "second turn rewrote the tool block instead of reading it"
+    )
+
+
 class TestCountTokens:
     @pytest.fixture
     def model(self):
         return AnthropicModel(
-            model_id="claude-sonnet-4-20250514",
+            model_id=MODEL_ID,
             max_tokens=1024,
+            use_native_token_count=True,
             client_args={"api_key": os.environ["ANTHROPIC_API_KEY"]},
         )
 

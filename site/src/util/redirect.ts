@@ -8,7 +8,7 @@
  * The path-normalization fallback never returns an external URL (prevents open redirects).
  */
 
-import { exactly, startsWith } from '../utils/regex'
+import { exactly, startsWith } from './regex'
 
 // ── Slug-level rename rules ───────────────────────────────────────────────────
 
@@ -36,6 +36,41 @@ export const STATIC_SLUG_REDIRECTS: Record<string, string> = {
 
   // Vanity URLs for community links
   discord: 'https://discord.gg/strands',
+
+  // /learn/ hub was renamed to /community/
+  'learn': 'community',
+
+  // docs/community/learning/ lessons moved to docs/learning/
+  // Explicit entries prevent the COMMUNITY_PREFIX_RULE catch-all from sending
+  // 404-fallback requests to docs/integrations/learning/* (wrong).
+  'docs/community/learning/lesson1-how-agents-really-work':
+    'docs/learning/how-agents-really-work',
+  'docs/community/learning/lesson2-switching-model-providers':
+    'docs/learning/switching-model-providers',
+  'docs/community/learning/lesson3-give-your-agent-tools-using-mcp':
+    'docs/learning/give-your-agent-tools-using-mcp',
+  'docs/community/learning/lesson4-adding-callbacks-and-response-streaming':
+    'docs/learning/adding-callbacks-and-response-streaming',
+  'docs/community/learning/lesson5-control-your-agent-with-hooks':
+    'docs/learning/control-your-agent-with-hooks',
+  'docs/community/learning/lesson6-agent-plugins-and-skills':
+    'docs/learning/agent-plugins-and-skills',
+  'docs/community/learning/lesson7-improve-agent-reliability-with-strands-steering':
+    'docs/learning/improve-agent-reliability-with-strands-steering',
+  'docs/community/learning/lesson8-context-engineering-and-conversation-management':
+    'docs/learning/context-engineering-and-conversation-management',
+  'docs/community/learning/lesson9-persistent-memory-with-session-managers':
+    'docs/learning/persistent-memory-with-session-managers',
+  'docs/community/learning/lesson10-multi-agent-patterns-agents-as-tools':
+    'docs/learning/multi-agent-patterns-agents-as-tools',
+  'docs/community/learning/lesson11-multi-agent-patterns-graph-workflows':
+    'docs/learning/multi-agent-patterns-graph-workflows',
+  'docs/community/learning/lesson12-multi-agent-patterns-agent-swarms':
+    'docs/learning/multi-agent-patterns-agent-swarms',
+  'docs/community/learning/lesson13-evaluating-agents':
+    'docs/learning/evaluating-agents',
+  'docs/community/learning/lesson14-deploying-agents-to-the-cloud':
+    'docs/learning/deploying-agents-to-the-cloud',
 
   // cli-reference-agent was archived (strands-agents/agent-builder)
   'docs/examples/python/cli-reference-agent': 'docs/examples',
@@ -113,9 +148,7 @@ export const STATIC_SLUG_REDIRECTS: Record<string, string> = {
     'https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/typescript/deploy_to_bedrock_agentcore/README.md',
 }
 
-type SlugRule =
-  | { match: RegExp; to: string }
-  | { match: RegExp; to: (m: RegExpMatchArray) => string }
+type SlugRule = { match: RegExp; to: string } | { match: RegExp; to: (m: RegExpMatchArray) => string }
 
 // Exact-match rules generated from STATIC_SLUG_REDIRECTS, plus any dynamic
 // (regex-based) rules. Dynamic rules can't be enumerated into static stubs,
@@ -173,10 +206,7 @@ export function resolveRedirect(slug: string, redirectFromMap?: Record<string, s
  * @param path - The URL path to resolve (e.g. "/docs/user-guide/...")
  * @param redirectFromMap - Optional map of source slugs to target slugs (from frontmatter redirectFrom)
  */
-export function resolveRedirectFromUrl(
-  path: string,
-  redirectFromMap?: Record<string, string>
-): string | null {
+export function resolveRedirectFromUrl(path: string, redirectFromMap?: Record<string, string>): string | null {
   // Strip leading version segment: /latest/, /1.x/, /1.5.x/, etc.
   path = path.replace(/^\/?(latest|[\d]+(?:\.[\dx]+)*)\//, '/')
 

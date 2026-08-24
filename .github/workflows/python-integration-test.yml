@@ -177,10 +177,12 @@ jobs:
         uses: actions/download-artifact@v8.0.1
         with:
           name: test-results
+          path: ${{ runner.temp }}/test-results
 
       - name: Publish test metrics to CloudWatch
         env:
           REPO_NAME: ${{ github.event.repository.name }}
+          TEST_RESULTS_FILE: ${{ runner.temp }}/test-results/test-results.xml
         run: |
           pip install --no-cache-dir boto3
-          python .github/scripts/upload-integ-test-metrics.py test-results.xml "$REPO_NAME"
+          python .github/scripts/upload-integ-test-metrics.py "$TEST_RESULTS_FILE" "$REPO_NAME"

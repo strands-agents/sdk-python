@@ -39,6 +39,7 @@ class InvokeModelContext:
     invocation_state: dict[str, Any]
     model: Model
     projected_input_tokens: int | None = None
+    dynamic_trailing_blocks: int = 0
 
 
 InvokeModelStage: MiddlewareStage[InvokeModelContext, ModelStopReason, TypedEvent] = MiddlewareStage(name="invokeModel")

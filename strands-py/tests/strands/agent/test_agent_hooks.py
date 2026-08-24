@@ -142,6 +142,7 @@ def test_agent_tool_call(agent, hook_provider, agent_tool):
         tool_use=tool_use,
         invocation_state=ANY,
         result=result,
+        duration=ANY,
     )
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[0])
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[1])
@@ -149,6 +150,12 @@ def test_agent_tool_call(agent, hook_provider, agent_tool):
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[3])
 
     assert len(agent.messages) == 4
+
+    # Verify duration is a realistic positive value (mocked tool should complete in under 10s)
+    after_tool_events = [e for e in hook_provider.events_received if isinstance(e, AfterToolCallEvent)]
+    assert len(after_tool_events) == 1
+    assert isinstance(after_tool_events[0].duration, float)
+    assert 0 <= after_tool_events[0].duration < 10
 
 
 def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_use):
@@ -194,6 +201,7 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_u
         tool_use=tool_use,
         invocation_state=ANY,
         result={"content": [{"text": "!loot a dekovni I"}], "status": "success", "toolUseId": "123"},
+        duration=ANY,
     )
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[2])
     assert next(events) == BeforeModelCallEvent(agent=agent, invocation_state=ANY, projected_input_tokens=ANY)
@@ -216,6 +224,12 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_u
     assert next(events) == AfterInvocationEvent(agent=agent, invocation_state=ANY, result=result)
 
     assert len(agent.messages) == 4
+
+    # Verify duration is a realistic positive value
+    after_tool_events = [e for e in hook_provider.events_received if isinstance(e, AfterToolCallEvent)]
+    assert len(after_tool_events) == 1
+    assert isinstance(after_tool_events[0].duration, float)
+    assert 0 <= after_tool_events[0].duration < 10
 
 
 @pytest.mark.asyncio
@@ -274,6 +288,7 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
         tool_use=tool_use,
         invocation_state=ANY,
         result={"content": [{"text": "!loot a dekovni I"}], "status": "success", "toolUseId": "123"},
+        duration=ANY,
     )
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[2])
     assert next(events) == BeforeModelCallEvent(agent=agent, invocation_state=ANY, projected_input_tokens=ANY)
@@ -296,6 +311,12 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
     assert next(events) == AfterInvocationEvent(agent=agent, invocation_state=ANY, result=result)
 
     assert len(agent.messages) == 4
+
+    # Verify duration is a realistic positive value
+    after_tool_events = [e for e in hook_provider.events_received if isinstance(e, AfterToolCallEvent)]
+    assert len(after_tool_events) == 1
+    assert isinstance(after_tool_events[0].duration, float)
+    assert 0 <= after_tool_events[0].duration < 10
 
 
 @pytest.mark.filterwarnings("ignore:Agent.structured_output method is deprecated:DeprecationWarning")

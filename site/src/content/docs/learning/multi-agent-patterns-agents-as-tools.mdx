@@ -1,0 +1,118 @@
+---
+title: "Lesson 10: Multi-Agent Patterns: Agents as Tools"
+description: "This is where we cross from single-agent patterns into multi-agent orchestration, and we start with the most intuitive version: an agent that can call other agents the same way it calls any other tool."
+redirectFrom:
+  - docs/community/learning/lesson10-multi-agent-patterns-agents-as-tools
+---
+
+<YouTube id="_QcD5KBe3ZQ" title="Lesson 10: Multi-Agent Patterns: Agents as Tools" />
+*[Watch on YouTube](https://www.youtube.com/watch?v=_QcD5KBe3ZQ&list=PLDzwjhH-4yhU&index=10)*
+
+*Code for this lesson can be found
+[**here**](https://github.com/aws-samples/sample-building-with-strands-course/tree/main/samples/10-agents-as-tools).*
+
+### Why Use Multi-Agent Architectures?
+
+Multi-agent architectures are useful for many different things:
+
+* **Isolating noisy tools:** You can prevent large, verbose tool results from cluttering
+  your main agent's context.
+* **Specialized expertise:** You can partition tasks that require different kinds of
+  expertise, such as research versus writing versus code generation.
+* **Optimizing cost and capabilities:** You can use different models for different parts
+  of the workflow, utilizing cheaper models for simple tasks and premium models only where
+  specialized reasoning is required.
+
+Multi-agent architectures let you decompose a complex problem so that each agent does one
+thing well, resulting in a system that performs better and more reliably overall.
+
+Let's say you want to create an agent that does trends research and writes technical
+summaries. To do this, it will need to be able to search the web. You could give one
+single agent both capabilities along with a massive system prompt explaining when to use
+each. Or, you could create specialized agents and chain them together: the writer agent
+calls the researcher agent as a tool when it needs information.
+
+This is an excellent context engineering pattern. For noisy tools like web search, instead
+of letting distracting or irrelevant information fill up the main agent's context window,
+you use the "agent as a tool" pattern. Each agent maintains its own isolated context
+window. The researcher agent does all of the searching and filtering, and then relays back
+only the highly relevant, synthesized information to the writer agent. This keeps the
+orchestrator's context window clean and focused.
+
+### Implementation Patterns: Direct Delegation vs. Functional Wrapping
+
+There are two primary ways to provide an agent as a tool within Strands.
+
+#### 1. Direct Agent Delegation
+
+This is the simplest version where you create both agents and then directly pass the
+sub-agent to the orchestrator agent as a tool.
+
+In this setup, we define the `researcher_agent` (which has its own system prompt and
+utilizes the HTTP request tool). Then, we create the `writer_agent` with a different
+system prompt, passing the `researcher_agent` directly into its tool list:
+
+```python
+writer_agent = Agent(
+    system_prompt="...",
+    tools=[researcher_agent]
+)
+
+```
+
+You can pass multiple agents and traditional tools into this list simultaneously.
+
+#### 2. Functional Wrapping with the Tool Decorator
+
+Another way to do this is to wrap the sub-agent inside a Python function decorated with
+`@tool`.
+
+Inside the function, you instantiate the agent with its respective tools and system
+prompt. This method allows you to accept explicit parameters (such as `query` and `depth`)
+so the orchestrator can control how the researcher works. Because the agent is created
+inside the function, it starts completely fresh on every call. This is a deliberate design
+choice to guarantee a clean context window every time the tool is invoked.
+
+Additionally, in this functional wrapper, you can set the sub-agent's callback handler to
+`None`. This suppresses its default streaming output to standard out, allowing the
+sub-agent to run silently while the orchestrator programmatically captures and processes
+the final result string.
+
+### How Data Flows Between Agents
+
+When implementing this pattern, it is important to understand how data is passed:
+
+* **The Interface is a String:** When the orchestrator calls a specialist agent, it sends
+  a string payload. The specialist receives this string as a new user message, runs its
+  own independent agent loop (using its own system prompt and tools), and returns a
+  string response back to the orchestrator.
+* **Strict Context Isolation:** The specialist agent has absolutely no access to the
+  orchestrator's conversation history.
+* **Stateless by Default:** By default, the specialist's context resets between calls. If
+  the orchestrator calls the researcher agent twice during a conversation, the researcher
+  does not remember the first call.
+
+When running this setup, you can see the orchestrator invoke the researcher, which
+silently executes its web search tasks, and then hands the clean, condensed research data
+back to the writer to compile the final report.
+
+### When to Use This Pattern (and Its Limitations)
+
+The **agents as tools** pattern is the right choice when:
+
+* You have clearly separable domains.
+* You want one central orchestrator maintaining absolute control over the final response.
+* The orchestrator needs to dynamically decide who to talk to and when.
+
+However, there are a few limitations to keep in mind:
+
+* **The Orchestrator is a Bottleneck:** Every specialist agent must report back to the
+  central coordinator; specialists cannot communicate directly with one another.
+* **Model-Driven Execution:** Because the coordination is model-driven, you cannot
+  guarantee a strict execution order between specialists.
+
+If your workflow requires a guaranteed execution order, parallel fan-out, or agents that
+build directly on each other's work without routing through a central coordinator, you
+will need to use a graph. We will cover that in the next lesson.
+
+*Learn more: [Agents as Tools with Strands Agents SDK](/docs/user-guide/concepts/multi-agent/agents-as-tools/)*

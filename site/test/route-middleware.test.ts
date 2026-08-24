@@ -4,9 +4,11 @@ import {
   findCurrentNavSection,
   filterSidebarByBasePath,
   applyCollapse,
+  onRequest,
 } from '../src/route-middleware'
 import { type NavLink } from '../src/config/navbar'
 import { loadSidebarFromConfig, type StarlightSidebarItem } from '../src/sidebar'
+import { buildCourseSidebar, getPrevNextLinks, type DocInfo } from '../src/dynamic-sidebar'
 
 // Sidebar entry types matching Starlight's runtime structure
 type SidebarLink = { type: 'link'; label: string; href: string; isCurrent: boolean }
@@ -22,10 +24,6 @@ const testNavLinks: NavLink[] = [
   { label: 'Contribute', href: 'https://github.com/example', external: true },
 ]
 
-/**
- * Convert build-time sidebar config to runtime format.
- * Starlight transforms { slug: "examples" } to { type: "link", href: "/examples/", ... }
- */
 function convertToRuntimeFormat(items: StarlightSidebarItem[]): SidebarEntry[] {
   return items.map((item) => {
     if ('slug' in item) {
@@ -245,6 +243,36 @@ describe('Integration: Full filtering flow', () => {
       expect(link.href.startsWith('/docs/integrations/')).toBe(true)
     })
   })
+
+  it('lesson pagination prev is the previous lesson, not the All-courses back-link', () => {
+    // Mirrors the middleware's lesson branch: sidebar from buildCourseSidebar,
+    // pagination from the lesson group's entries only.
+    const lessonIds = [
+      'docs/learning/how-agents-really-work',
+      'docs/learning/switching-model-providers',
+      'docs/learning/give-your-agent-tools-using-mcp',
+    ]
+    const lessonDocs: DocInfo[] = [
+      { id: 'docs/learning/how-agents-really-work', title: 'Lesson 1: How Agents Really Work' },
+      { id: 'docs/learning/switching-model-providers', title: 'Lesson 2: Switching Model Providers' },
+      { id: 'docs/learning/give-your-agent-tools-using-mcp', title: 'Lesson 3: Give Your Agent Tools Using MCP' },
+    ]
+    const currentSlug = 'docs/learning/switching-model-providers'
+    const course = { title: 'Agent Fundamentals with Strands', lessonIds }
+    const courseSidebar = buildCourseSidebar(lessonDocs, currentSlug, course)
+
+    // The sidebar leads with the All-courses back-link
+    expect(courseSidebar[0]?.type).toBe('link')
+    expect((courseSidebar[0] as { label: string }).label).toBe('← All courses')
+
+    const lessonGroup = courseSidebar.find((entry) => entry.type === 'group')
+    const lessonsOnly = lessonGroup?.type === 'group' ? lessonGroup.entries : []
+    const { prev, next } = getPrevNextLinks(lessonsOnly)
+
+    expect(prev?.label).toBe('Lesson 1: How Agents Really Work')
+    expect(prev?.label).not.toBe('← All courses')
+    expect(next?.label).toBe('Lesson 3: Give Your Agent Tools Using MCP')
+  })
 })
 
 describe('applyCollapse', () => {
@@ -273,8 +301,7 @@ describe('applyCollapse', () => {
   })
 
   it('should collapse nested groups by default when no explicit value', () => {
-    // Note: in production Starlight pre-normalizes all unset collapsed to false,
-    // so this path (no collapsed property) is only exercised outside Starlight.
+    // Starlight pre-normalizes unset collapsed to false; this path (missing property) only runs outside Starlight.
     const nested = { type: 'group' as const, label: 'Nested', entries: [] }
     const input = [{ type: 'group' as const, label: 'Top', entries: [nested] }]
 
@@ -286,10 +313,7 @@ describe('applyCollapse', () => {
   })
 
   it('should collapse nested groups when Starlight has normalized collapsed to false', () => {
-    // Starlight normalizes unset collapsed to false before the middleware runs,
-    // making collapsed: false indistinguishable from "not set". Depth-based
-    // default still applies — only explicit collapsed: true in navigation.yml
-    // can override it.
+    // Starlight normalizes unset collapsed to false; depth-based default still applies.
     const nested: SidebarGroup = { type: 'group', label: 'Nested', collapsed: false, entries: [] }
     const input: SidebarEntry[] = [{ type: 'group', label: 'Top', collapsed: false, entries: [nested] }]
 
@@ -417,5 +441,38 @@ describe('filterSidebarByBasePath with base path in URLs', () => {
     expect(result.length).toBe(2)
     expect((result[0] as SidebarLink).href).toBe('/docs/examples/')
     expect((result[1] as SidebarLink).href).toBe('/docs/examples/python/')
+  })
+})
+
+describe('onRequest integration: lesson pagination via real collection', () => {
+  it('lesson1 has no prev — back-link must not appear as prev', async () => {
+    // Guards lessonsOnly: back-link is the entry preceding lesson1 in the full sidebar;
+    // passing the full sidebar to getPrevNextLinks would make it lesson1's prev.
+    const currentSlug = 'docs/learning/how-agents-really-work'
+
+    const starlightRoute: Record<string, unknown> = {
+      id: currentSlug,
+      sidebar: [],
+      hasSidebar: true,
+      pagination: { prev: undefined, next: undefined },
+    }
+
+    const context = {
+      locals: { starlightRoute },
+      url: new URL(`https://example.com/${currentSlug}/`),
+    }
+
+    const noopNext = async (): Promise<void> => {}
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await onRequest(context as any, noopNext)
+
+    const sidebar = starlightRoute.sidebar as SidebarEntry[]
+    expect(sidebar[0]?.type).toBe('link')
+    expect((sidebar[0] as SidebarLink).label).toBe('← All courses')
+
+    const pagination = starlightRoute.pagination as { prev?: SidebarLink; next?: SidebarLink }
+    expect(pagination.prev).toBeUndefined()
+    expect(pagination.next?.label).toBe('Lesson 2: Switching Model Providers')
   })
 })

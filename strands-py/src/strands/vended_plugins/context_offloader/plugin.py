@@ -51,6 +51,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from typing_extensions import TypedDict
 
+from ...agent._agent_as_tool import _AgentAsTool
 from ...hooks.events import AfterToolCallEvent, BeforeModelCallEvent
 from ...plugins import Plugin, hook
 from ...storage import Storage
@@ -471,6 +472,11 @@ class ContextOffloader(Plugin):
             return
 
         if self._include_retrieval_tool and event.tool_use.get("name") == self.retrieve_offloaded_content.tool_name:
+            return
+
+        # Never offload delegation tool results — they become the final user-facing answer
+        # and no subsequent model call can retrieve the offloaded content.
+        if isinstance(event.selected_tool, _AgentAsTool) and event.selected_tool.delegate:
             return
 
         result = event.result
