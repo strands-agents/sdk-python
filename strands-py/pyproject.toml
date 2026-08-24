@@ -88,7 +88,7 @@ bidi-gemini = ["google-genai>=1.67.0,<3.0.0"]
 bidi-openai = ["websockets>=15.0.0,<17.0.0"]
 # bidi-aec depends on bidi-io: audio processing is wired in through BidiAudioIO (io/audio.py), which imports
 # pyaudio at module scope. Pulling in bidi-io makes `pip install strands-agents[bidi-aec]` usable on its own.
-bidi-aec = ["strands-agents[bidi-io]", "pywebrtc-audio>=0.1.0,<1.0.0", "numpy>=1.21.0,<3.0.0"]
+bidi-aec = ["strands-agents[bidi-io]", "pywebrtc-audio>=0.1.0,<0.2.0", "numpy>=2.0.0,<3.0.0"]
 
 cedar = ["cedarpy==4.8.7", "cedar-policy-mcp-schema-generator==0.6.0"]
 
@@ -236,12 +236,6 @@ exclude = ["src/strands/experimental/bidi"]
 module = ["cedarpy", "cedar_mcp_schema_generator"]
 ignore_missing_imports = true
 
-# pywebrtc-audio is an optional dependency (bidi-aec extra). Ignore its missing stubs so type-checking
-# passes whether or not it is installed in the current environment.
-[[tool.mypy.overrides]]
-module = ["pywebrtc_audio", "pywebrtc_audio.*"]
-ignore_missing_imports = true
-
 [[tool.mypy.overrides]]
 module = ["strands.experimental.bidi.*"]
 follow_imports = "skip"
@@ -335,13 +329,12 @@ prepare = [
 template = "bidi"
 
 [tool.hatch.envs.bidi-lint.scripts]
-# Glob both the top level (*.py) and one directory down (**/*.py without globstar). This keeps top-level
-# modules like audio.py in the lint/type gate; a bare **/*.py silently skips them.
+# Use POSIX find/xargs for recursive discovery; explicit paths bypass the global Ruff and mypy exclusions.
 format-check = "format-fix --check"
-format-fix = "ruff format {args} --target-version py312 ./src/strands/experimental/bidi/*.py ./src/strands/experimental/bidi/**/*.py"
-quality-check = "ruff check {args} --target-version py312 ./src/strands/experimental/bidi/*.py ./src/strands/experimental/bidi/**/*.py"
+format-fix = "find ./src/strands/experimental/bidi -type f -name '*.py' -print0 | xargs -0 ruff format {args} --target-version py312"
+quality-check = "find ./src/strands/experimental/bidi -type f -name '*.py' -print0 | xargs -0 ruff check {args} --target-version py312"
 quality-fix = "quality-check --fix"
-type-check = "mypy {args} --python-version 3.12 ./src/strands/experimental/bidi/*.py ./src/strands/experimental/bidi/**/*.py"
+type-check = "find ./src/strands/experimental/bidi -type f -name '*.py' -print0 | xargs -0 mypy {args} --python-version 3.12"
 
 [tool.hatch.envs.bidi-test]
 template = "bidi"

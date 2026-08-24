@@ -66,6 +66,7 @@ __all__ = [
     "BidiModel",
     # IO channels and configuration
     "AudioProcessorConfig",
+    "BidiAudioIOConfig",
     "BidiAudioIO",
     "BidiTextIO",
     # Built-in tools (deprecated)
@@ -79,9 +80,13 @@ def __getattr__(name: str) -> Any:
     This defers the import of optional dependencies until actually needed.
     """
     if name == "AudioProcessorConfig":
-        from .audio import AudioProcessorConfig
+        from .io.audio import AudioProcessorConfig
 
         return AudioProcessorConfig
+    if name == "BidiAudioIOConfig":
+        from .io.audio import BidiAudioIOConfig
+
+        return BidiAudioIOConfig
     if name == "BidiAudioIO":
         from .io.audio import BidiAudioIO
 
