@@ -79,6 +79,14 @@ export interface ModelRouterOptions {
   readonly maxSwitches?: number
 }
 
+/**
+ * Per-invocation routing state for one agent/router pair.
+ *
+ * `attempts` is the record the strategy reads to make its next decision; the router appends to it but
+ * never reads it. `switchedTo` holds the candidates this failure round has already used, which is what
+ * bounds the round; a success resets it to the candidate that succeeded, since that candidate opens the
+ * next round. `switches` counts model changes so `maxSwitches` can cap them.
+ */
 interface RoutingState {
   candidate: RoutingCandidate
   model: Model
@@ -88,8 +96,11 @@ interface RoutingState {
 }
 
 const ROUTING_KEY_PREFIX = 'strands:modelRouting'
+
+/** Lazily minted per-object identity numbers (the `id()` equivalent for state keys), weakly held. */
 const OBJECT_IDS = new WeakMap<object, number>()
 let nextObjectId = 1
+
 /**
  * Routes each agent invocation among an immutable set of candidate models.
  *
@@ -184,6 +195,7 @@ export class ModelRouter implements Plugin {
       order: HookOrder.SDK_FIRST,
     })
   }
+
   /**
    * Return the current routed model after hooks may have changed the selection.
    *
@@ -196,6 +208,7 @@ export class ModelRouter implements Plugin {
     return this._getState(agent, invocationState)?.model
   }
 
+  /** Apply the per-invocation selection to the model call, opening one on the first call. */
   private async _selectionMiddleware(context: InvokeModelContext): Promise<InvokeModelContext> {
     let state = this._getState(context.agent, context.invocationState)
     if (state === undefined) {
@@ -210,6 +223,7 @@ export class ModelRouter implements Plugin {
     return { ...context, model: state.model } as InvokeModelContext
   }
 
+  /** Make the opening choice and store its state in the invocation state under this pair's key. */
   private async _openAndCache(
     agent: LocalAgent,
     invocationState: InvocationState,
@@ -220,6 +234,7 @@ export class ModelRouter implements Plugin {
       candidate,
       model,
       attempts: [],
+      // The opening candidate counts as used for this round.
       switchedTo: new Set([candidate]),
       switches: 0,
     }
@@ -227,6 +242,13 @@ export class ModelRouter implements Plugin {
     invocationState[this._stateKey(agent)] = state
     return state
   }
+
+  /**
+   * Choose and resolve the candidate to start on.
+   *
+   * A decline serves the default model. A strategy that throws, and a candidate that will not resolve
+   * to a model, both propagate.
+   */
   private async _open(context: RoutingContext): Promise<readonly [RoutingCandidate, Model]> {
     const candidate = await this._ask(context)
     if (candidate === undefined) {
@@ -238,10 +260,12 @@ export class ModelRouter implements Plugin {
     return [candidate, await this._resolve(candidate, context)]
   }
 
+  /** Ask the strategy for a candidate and validate the answer. */
   private async _ask(context: RoutingContext): Promise<RoutingCandidate | undefined> {
     return this._validated(await this._strategy.select(context), context)
   }
 
+  /** Return the candidate, throwing if the strategy broke its contract. */
   private _validated(candidate: unknown, context: RoutingContext): RoutingCandidate | undefined {
     if (candidate === undefined) return undefined
     if (!(candidate instanceof RoutingCandidate)) {
@@ -253,6 +277,12 @@ export class ModelRouter implements Plugin {
     return candidate
   }
 
+  /**
+   * Resolve a candidate to a concrete model, recursing into a nested router's selection.
+   *
+   * A nested router is asked with its own candidates and no attempts, so it contributes one candidate
+   * and never advances internally.
+   */
   private async _resolve(candidate: RoutingCandidate, context: RoutingContext): Promise<Model> {
     if (!(candidate.model instanceof ModelRouter)) return candidate.model
     return candidate.model._selectModel(
@@ -266,21 +296,26 @@ export class ModelRouter implements Plugin {
     )
   }
 
+  /** Resolve this router's chosen candidate, or its default model if the strategy declines. */
   private async _selectModel(context: RoutingContext): Promise<Model> {
     const candidate = await this._ask(context)
     if (candidate === undefined) return this.defaultModel
     return this._resolve(candidate, context)
   }
 
+  /** Strategy class name, for logs that explain a routing decision. */
   private get _strategyName(): string {
     return this._strategy.constructor.name
   }
+
+  /** Record the outcome and, after an unclaimed failure, apply the strategy's next choice. */
   private async _onModelResult(event: AfterModelCallEvent): Promise<void> {
     const state = this._getState(event.agent, event.invocationState)
     if (state === undefined) return
 
     if (event.stopData !== undefined) {
       state.attempts.push(makeAttempt(state.candidate))
+      // The candidate that succeeded opens the next round, counting as used like any opening choice.
       state.switchedTo = new Set([state.candidate])
       return
     }
@@ -295,6 +330,15 @@ export class ModelRouter implements Plugin {
     if (await this._advance(event, state)) event.retry = true
   }
 
+  /**
+   * Switch to the strategy's next candidate, returning whether the call should be retried.
+   *
+   * A usable new candidate is switched to. A strategy that throws, declines, or names a candidate the
+   * round already used leaves the model's error to surface. A candidate that will not resolve is
+   * unusable rather than unlucky, so it takes its slot in the round and the strategy is asked once
+   * more. Each pass either switches or consumes a slot, so the round stays bounded by the candidate
+   * count.
+   */
   private async _advance(event: AfterModelCallEvent, state: RoutingState): Promise<boolean> {
     while (true) {
       const context = this._routingContext(
@@ -307,6 +351,8 @@ export class ModelRouter implements Plugin {
 
       let candidate: RoutingCandidate | undefined
       try {
+        // Validated inside the try: a model error is already pending, so a broken answer must not
+        // replace it. The opening choice has nothing pending and lets the error surface.
         candidate = this._validated(await this._strategy.select(context), context)
       } catch (error) {
         logger.warn(
@@ -315,6 +361,8 @@ export class ModelRouter implements Plugin {
         return false
       }
       if (candidate === undefined) return false
+      // A round uses each candidate at most once, so a strategy that cycles cannot keep resetting
+      // the retry budget.
       if (state.switchedTo.has(candidate)) {
         logger.info(`candidate=<${candidateLabel(candidate)}> | already used this round, leaving the error to surface`)
         return false
@@ -328,6 +376,8 @@ export class ModelRouter implements Plugin {
         logger.warn(
           `candidate=<${candidateLabel(candidate)}>, error=<${resolutionError}> | candidate could not be resolved, asking again`
         )
+        // Recorded so a strategy reading attempts stops offering it, and slot-burned so termination
+        // does not depend on the strategy doing that.
         state.attempts.push(makeAttempt(candidate, resolutionError))
         state.switchedTo.add(candidate)
         continue
@@ -343,6 +393,14 @@ export class ModelRouter implements Plugin {
       return true
     }
   }
+
+  /**
+   * Build a {@link RoutingContext} over this router's candidates.
+   *
+   * Every ask goes through here, so the request a strategy sees is always a copy: the agent's messages
+   * and the registry's own tool specs are never handed over directly. Mirrors the copy the agent loop
+   * makes for each model call.
+   */
   private _routingContext(
     messages: readonly Message[],
     systemPrompt: SystemPrompt | undefined,
@@ -361,25 +419,40 @@ export class ModelRouter implements Plugin {
     return Object.freeze(context)
   }
 
+  /** Drop this agent's routing state so it never spans invocations. */
   private _clearState(agent: LocalAgent, invocationState: InvocationState): void {
     const key = this._stateKey(agent)
     if (this._getState(agent, invocationState) !== undefined) delete invocationState[key]
   }
 
+  /** Return the routing state stored under this pair's key, ignoring any foreign value. */
   private _getState(agent: LocalAgent, invocationState: InvocationState): RoutingState | undefined {
     const value = invocationState[this._stateKey(agent)]
     return isObject(value) && this._states.has(value as RoutingState) ? (value as RoutingState) : undefined
   }
 
+  /**
+   * Scope routing state to one agent/router pair.
+   *
+   * One invocation state can serve several agents, and one router several agents, so neither identity
+   * alone is a sufficient key. `agentId` cannot serve either: it is caller-supplied and defaults, so
+   * two agents sharing a router could collide. Object identity is unique among live agents, and the
+   * state is cleared at both ends of an invocation, so a recycled entry cannot match a live one.
+   *
+   * The key carries no per-invocation component, so isolation between concurrent invocations relies on
+   * the agent allowing only one at a time, which is its default.
+   */
   private _stateKey(agent: LocalAgent): string {
     return `${ROUTING_KEY_PREFIX}:${objectId(agent).toString(16)}:${objectId(this).toString(16)}`
   }
 }
 
+/** Freeze a routing attempt, omitting `exception` for a success. */
 function makeAttempt(candidate: RoutingCandidate, exception?: Error): RoutingAttempt {
   return Object.freeze({ candidate, ...(exception !== undefined && { exception }) })
 }
 
+/** Return a stable identity number for the object, minting one on first use. */
 function objectId(value: object): number {
   let identity = OBJECT_IDS.get(value)
   if (identity === undefined) {
@@ -389,11 +462,14 @@ function objectId(value: object): number {
   }
   return identity
 }
+
+/** Coerce the input array into {@link RoutingCandidate} objects, validating candidate types. */
 function normalize(models: unknown): RoutingCandidate[] {
   if (!Array.isArray(models)) throw new TypeError('models must be a sequence of candidates')
   return models.map(asCandidate)
 }
 
+/** Wrap a candidate input in a {@link RoutingCandidate}, validating its model type. */
 function asCandidate(item: unknown): RoutingCandidate {
   const candidate = item instanceof RoutingCandidate ? item : new RoutingCandidate({ model: item as Model })
   if (!(candidate.model instanceof Model) && !(candidate.model instanceof ModelRouter)) {
@@ -402,6 +478,7 @@ function asCandidate(item: unknown): RoutingCandidate {
   return candidate
 }
 
+/** Reject any stateful candidate model. */
 function rejectStateful(candidates: readonly RoutingCandidate[]): void {
   for (const candidate of candidates) {
     if (candidate.model instanceof Model && candidate.model.stateful) {
@@ -412,6 +489,13 @@ function rejectStateful(candidates: readonly RoutingCandidate[]): void {
   }
 }
 
+/**
+ * Reject repeated candidates, repeated models, or colliding names.
+ *
+ * Strategies track health per candidate, so one model behind two candidates would get two failure
+ * budgets and never be demoted. The model check reaches through a nested router; names stay per level,
+ * since a strategy only chooses among the candidates it is shown.
+ */
 function rejectDuplicates(candidates: readonly RoutingCandidate[]): void {
   const seenCandidates = new Set<RoutingCandidate>()
   const seenModels = new Set<Model>()
@@ -436,6 +520,7 @@ function rejectDuplicates(candidates: readonly RoutingCandidate[]): void {
   }
 }
 
+/** Yield every concrete model this candidate can run, descending into a nested router. */
 function* reachableModels(candidate: RoutingCandidate): Generator<Model> {
   if (candidate.model instanceof ModelRouter) {
     for (const nested of candidate.model.candidates) yield* reachableModels(nested)
@@ -443,11 +528,19 @@ function* reachableModels(candidate: RoutingCandidate): Generator<Model> {
     yield candidate.model
   }
 }
+
+/** Return the candidate's name, or its provider and model id when it has none. */
 function candidateLabel(candidate: RoutingCandidate): string {
   if (candidate.name !== undefined && candidate.name.length > 0) return candidate.name
   return candidate.model instanceof Model ? modelLabel(candidate.model) : candidate.model.constructor.name
 }
 
+/**
+ * Label a model by provider and model id.
+ *
+ * Labels are built eagerly, as log arguments and by the construction guards, so one must never fail a
+ * routed call or mask a construction error.
+ */
 function modelLabel(model: Model): string {
   const provider = model.constructor.name
   try {
@@ -458,6 +551,7 @@ function modelLabel(model: Model): string {
   }
 }
 
+/** Check whether the value structurally implements {@link RoutingStrategy}. */
 function isRoutingStrategy(strategy: unknown): strategy is RoutingStrategy {
   return isObject(strategy) && 'select' in strategy && typeof strategy.select === 'function'
 }
@@ -466,6 +560,7 @@ function isObject(value: unknown): value is object {
   return typeof value === 'object' && value !== null
 }
 
+/** Describe a value's type for error messages. */
 function typeName(value: unknown): string {
   if (value === null) return 'null'
   if (value === undefined) return 'undefined'

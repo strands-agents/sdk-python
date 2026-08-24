@@ -423,8 +423,14 @@ const DEFAULT_AGENT_ID = 'agent'
 /** Result returned by tool-execution generators, threading the AfterToolsEvent back to the main loop. */
 type ToolsExecutionResult = { message: Message; afterToolsEvent: AfterToolsEvent; toolsSkipped: boolean }
 
-/** Effective model and result returned by one middleware-backed model call. */
-type ModelInvocationOutcome = { result: StreamAggregatedResult; model: Model }
+/**
+ * Call-scoped slot the middleware terminal fills with the model it actually invoked.
+ *
+ * Middleware can replace `context.model`, and on failure the generator throws without a return
+ * value, so the effective model is threaded out by reference for both outcomes. Empty when
+ * middleware short-circuits before the terminal runs.
+ */
+type InvokedModelRef = { model?: Model }
 
 /**
  * Orchestrates the interaction between a model, a set of tools, and MCP clients.
@@ -457,7 +463,6 @@ export class Agent implements LocalAgent, InvokableAgent {
    */
   public model: Model
   private readonly _modelRouter?: ModelRouter
-  private _failedInvocationModel: Model | undefined
 
   /**
    * The system prompt to pass to the model provider.
@@ -2121,16 +2126,17 @@ export class Agent implements LocalAgent, InvokableAgent {
         }
       }
 
+      const invokedModelRef: InvokedModelRef = {}
       try {
-        this._failedInvocationModel = undefined
-        const invocation = yield* this._invokeModelWithMiddleware(
+        const result = yield* this._invokeModelWithMiddleware(
           invocationState,
           selectedModel,
+          invokedModelRef,
           toolChoice,
           projectedInputTokens
         )
-        const { result, model } = invocation
         const routedModel = this._modelRouter?.getRoutedModel(this, invocationState) ?? selectedModel
+        const model = invokedModelRef.model ?? selectedModel
 
         this._meter.updateCycle(result.metadata)
 
@@ -2168,8 +2174,8 @@ export class Agent implements LocalAgent, InvokableAgent {
         return result
       } catch (error) {
         const routedModel = this._modelRouter?.getRoutedModel(this, invocationState) ?? selectedModel
-        const failedModel = this._failedInvocationModel ?? routedModel
-        this._failedInvocationModel = undefined
+        // A failure before the terminal ran (e.g. in input middleware) is attributed to the routed model.
+        const failedModel = invokedModelRef.model ?? routedModel
         const modelError = normalizeError(error)
         const errorEvent = new AfterModelCallEvent({
           agent: this,
@@ -2211,15 +2217,18 @@ export class Agent implements LocalAgent, InvokableAgent {
    * using context fields directly (not re-derived from the agent).
    *
    * @param invocationState - Per-invocation state shared across hooks and tools
+   * @param selectedModel - Model the chain starts with; middleware may replace it
+   * @param invokedModelRef - Slot filled with the model the terminal actually invoked
    * @param toolChoice - Optional tool choice to force specific tool usage
    * @returns StreamAggregatedResult from the model (or middleware short-circuit)
    */
   private async *_invokeModelWithMiddleware(
     invocationState: InvocationState,
     selectedModel: Model,
+    invokedModelRef: InvokedModelRef,
     toolChoice?: ToolChoice,
     projectedInputTokens?: number
-  ): AsyncGenerator<AgentStreamEvent, ModelInvocationOutcome, undefined> {
+  ): AsyncGenerator<AgentStreamEvent, StreamAggregatedResult, undefined> {
     const context: InvokeModelContext = {
       agent: this,
       model: selectedModel,
@@ -2236,7 +2245,6 @@ export class Agent implements LocalAgent, InvokableAgent {
     // cannot affect modelState at any point (before or after next()).
     const modelStateSnapshot = this.modelState.getAll()
     let tempModelState: StateStore | undefined
-    let invokedModel = selectedModel
 
     // async function* doesn't bind lexical `this`; capture for the terminal callback.
     // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -2245,8 +2253,7 @@ export class Agent implements LocalAgent, InvokableAgent {
       InvokeModelStage,
       context,
       async function* (ctx: InvokeModelContext): AsyncGenerator<AgentStreamEvent, InvokeModelResult, undefined> {
-        invokedModel = ctx.model
-        self._failedInvocationModel = undefined
+        invokedModelRef.model = ctx.model
         const modelId = ctx.model.modelId
         const modelSpan = self._tracer.startModelInvokeSpan({
           messages: ctx.messages as Message[],
@@ -2286,7 +2293,6 @@ export class Agent implements LocalAgent, InvokableAgent {
           return { result: iterResult.value }
         } catch (error) {
           self._tracer.endModelInvokeSpan(modelSpan, { error: normalizeError(error) })
-          self._failedInvocationModel = ctx.model
           throw error
         }
       }
@@ -2299,7 +2305,7 @@ export class Agent implements LocalAgent, InvokableAgent {
       loadStateSerializable(this.modelState, serializeStateSerializable(tempModelState))
     }
 
-    return { result: middlewareResult.result, model: invokedModel }
+    return middlewareResult.result
   }
 
   /**
