@@ -84,7 +84,8 @@ class RoutingCandidate:
     stores the caller's mapping without copying, so it must not be mutated after construction.
 
     Raises:
-        TypeError: If metadata is not a JSON-serializable mapping.
+        TypeError: If metadata is not a mapping.
+        ValueError: If metadata is not JSON-serializable.
     """
 
     model: Model | ModelRouter
@@ -101,7 +102,7 @@ class RoutingCandidate:
         try:
             json.dumps(self.metadata, ensure_ascii=False, allow_nan=False)
         except (TypeError, ValueError) as error:
-            raise TypeError(f"metadata must be JSON-serializable: {error}") from error
+            raise ValueError(f"metadata must be JSON-serializable: {error}") from error
 
 
 _ROUTING_KEY_PREFIX = "strands:model_routing"
