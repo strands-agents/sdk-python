@@ -1033,8 +1033,7 @@ async def test_stream(openai_client, model_id, model, agenerator, alist):
         {"contentBlockStop": {}},  # reasoning_content ends
         {"contentBlockStart": {"start": {}}},  # text starts
         {"contentBlockDelta": {"delta": {"text": "I'll calculate"}}},
-        {"contentBlockDelta": {"delta": {"text": "that for you"}}},
-        {"contentBlockStop": {}},  # text ends
+        {"contentBlockStop": {}},  # text ends, the first tool call takes over the stream
         {
             "contentBlockStart": {
                 "start": {
@@ -1044,6 +1043,9 @@ async def test_stream(openai_client, model_id, model, agenerator, alist):
         },
         {"contentBlockDelta": {"delta": {"toolUse": {"input": mock_tool_call_1_part_1.function.arguments}}}},
         {"contentBlockDelta": {"delta": {"toolUse": {"input": mock_tool_call_1_part_2.function.arguments}}}},
+        {"contentBlockStop": {}},
+        {"contentBlockStart": {"start": {}}},  # text held back while the tool block was open
+        {"contentBlockDelta": {"delta": {"text": "that for you"}}},
         {"contentBlockStop": {}},
         {
             "contentBlockStart": {
@@ -1079,6 +1081,122 @@ async def test_stream(openai_client, model_id, model, agenerator, alist):
         "tools": [],
     }
     openai_client.chat.completions.create.assert_called_once_with(**expected_request)
+
+
+def _tool_call_fragment(index, arguments, tool_use_id=None, tool_name=None):
+    """Build a streamed tool call fragment; only the opening fragment of an index carries id and name."""
+    function = unittest.mock.Mock(arguments=arguments)
+    function.name = tool_name
+    return unittest.mock.Mock(index=index, id=tool_use_id, function=function)
+
+
+def _tool_call_event(fragments, finish_reason=None):
+    delta = unittest.mock.Mock(content=None, reasoning_content=None, tool_calls=fragments)
+    return unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=finish_reason, delta=delta)])
+
+
+def _assemble_tool_uses(events):
+    """Assemble streamed events into (toolUseId, input) pairs the way the event loop accumulates them."""
+    tool_uses = []
+    for event in events:
+        if tool_use := event.get("contentBlockStart", {}).get("start", {}).get("toolUse"):
+            tool_uses.append([tool_use["toolUseId"], ""])
+        elif tool_use_delta := event.get("contentBlockDelta", {}).get("delta", {}).get("toolUse"):
+            tool_uses[-1][1] += tool_use_delta["input"]
+
+    return [tuple(tool_use) for tool_use in tool_uses]
+
+
+@pytest.mark.asyncio
+async def test_stream_yields_tool_input_deltas_while_the_turn_is_in_flight(openai_client, model, messages):
+    """Guards against tool argument fragments only becoming observable after finish_reason (#3946)."""
+    events = [
+        _tool_call_event([_tool_call_fragment(0, '{"expression"', tool_use_id="c1", tool_name="calculator")]),
+        _tool_call_event([_tool_call_fragment(0, ': "2+2"}')]),
+        _tool_call_event([], finish_reason="tool_calls"),
+        unittest.mock.Mock(usage=None),
+    ]
+
+    consumed = 0
+
+    async def source():
+        nonlocal consumed
+        for event in events:
+            consumed += 1
+            yield event
+
+    openai_client.chat.completions.create = unittest.mock.AsyncMock(return_value=source())
+
+    consumed_at_first_input_delta = None
+    streamed_events = []
+    async for chunk in model.stream(messages):
+        streamed_events.append(chunk)
+        if consumed_at_first_input_delta is None and "toolUse" in chunk.get("contentBlockDelta", {}).get("delta", {}):
+            consumed_at_first_input_delta = consumed
+
+    tru_consumed_at_first_input_delta = consumed_at_first_input_delta
+    exp_consumed_at_first_input_delta = 1
+    assert tru_consumed_at_first_input_delta == exp_consumed_at_first_input_delta
+
+    tru_tool_uses = _assemble_tool_uses(streamed_events)
+    exp_tool_uses = [("c1", '{"expression": "2+2"}')]
+    assert tru_tool_uses == exp_tool_uses
+
+
+@pytest.mark.asyncio
+async def test_stream_closes_tool_block_when_the_stream_ends_without_finish_reason(openai_client, model, messages):
+    """Guards against an inline tool block being left open when no finish_reason arrives (#3946)."""
+    events = [
+        _tool_call_event([_tool_call_fragment(0, '{"expression"', tool_use_id="c1", tool_name="calculator")]),
+        _tool_call_event([_tool_call_fragment(0, ': "2+2"}')]),
+    ]
+
+    async def source():
+        for event in events:
+            yield event
+
+    openai_client.chat.completions.create = unittest.mock.AsyncMock(return_value=source())
+
+    streamed_events = [chunk async for chunk in model.stream(messages)]
+
+    tru_block_counts = (
+        len([chunk for chunk in streamed_events if "contentBlockStart" in chunk]),
+        len([chunk for chunk in streamed_events if "contentBlockStop" in chunk]),
+    )
+    exp_block_counts = (1, 1)
+    assert tru_block_counts == exp_block_counts
+
+    tru_tool_uses = _assemble_tool_uses(streamed_events)
+    exp_tool_uses = [("c1", '{"expression": "2+2"}')]
+    assert tru_tool_uses == exp_tool_uses
+
+
+@pytest.mark.asyncio
+async def test_stream_parallel_tool_calls_keep_inputs_separate(openai_client, model, messages, alist):
+    """Guards against interleaved parallel tool call fragments merging into one input (#3946)."""
+    events = [
+        _tool_call_event(
+            [
+                _tool_call_fragment(0, '{"expression"', tool_use_id="c1", tool_name="calculator"),
+                _tool_call_fragment(1, '{"city"', tool_use_id="c2", tool_name="weather"),
+            ]
+        ),
+        _tool_call_event([_tool_call_fragment(0, ': "2+2"}'), _tool_call_fragment(1, ': "Paris"}')]),
+        _tool_call_event([], finish_reason="tool_calls"),
+        unittest.mock.Mock(usage=None),
+    ]
+
+    async def source():
+        for event in events:
+            yield event
+
+    openai_client.chat.completions.create = unittest.mock.AsyncMock(return_value=source())
+
+    streamed_events = await alist(model.stream(messages))
+
+    tru_tool_uses = _assemble_tool_uses(streamed_events)
+    exp_tool_uses = [("c1", '{"expression": "2+2"}'), ("c2", '{"city": "Paris"}')]
+    assert tru_tool_uses == exp_tool_uses
 
 
 @pytest.mark.asyncio
