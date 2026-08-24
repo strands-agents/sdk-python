@@ -637,10 +637,15 @@ class OpenAIResponsesModel(Model):
                     "reasoningContent is not yet supported in multi-turn conversations with the Responses API"
                 )
 
+            if any("cachePoint" in content for content in contents):
+                logger.warning("cachePoint content block is not supported by OpenAI Responses | skipping")
+
             formatted_contents = [
                 cls._format_request_message_content(content, role=role)
                 for content in contents
-                if not any(block_type in content for block_type in ["toolResult", "toolUse", "reasoningContent"])
+                if not any(
+                    block_type in content for block_type in ["toolResult", "toolUse", "reasoningContent", "cachePoint"]
+                )
             ]
 
             formatted_tool_calls = [
