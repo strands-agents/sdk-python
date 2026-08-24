@@ -161,6 +161,32 @@ def test_routing_candidate_metadata_is_preserved_without_changing_positional_con
     assert tru_candidate == exp_candidate
 
 
+def test_routing_candidate_detaches_nested_metadata_from_caller_mutation():
+    metadata = {"scores": [1.5, None, True], "nested": {"provider": "private"}}
+    candidate = RoutingCandidate(_model(), metadata=metadata)
+
+    metadata["nested"]["provider"] = "mutated"
+
+    tru_metadata = candidate.metadata
+    exp_metadata = {"scores": [1.5, None, True], "nested": {"provider": "private"}}
+    assert tru_metadata == exp_metadata
+
+
+@pytest.mark.parametrize(
+    ("metadata", "error_type", "match"),
+    [
+        ("not-a-mapping", TypeError, "metadata must be a mapping"),
+        ({"value": object()}, TypeError, "metadata must contain only JSON values"),
+        ({1: "one"}, TypeError, "metadata object keys must be strings"),
+        ({"nested": {"value": float("nan")}}, ValueError, "metadata numbers must be finite"),
+    ],
+    ids=["non-mapping", "non-json-value", "non-string-key", "non-finite-number"],
+)
+def test_routing_candidate_rejects_non_json_metadata(metadata, error_type, match):
+    with pytest.raises(error_type, match=match):
+        RoutingCandidate(_model(), metadata=metadata)
+
+
 @pytest.mark.parametrize(
     "build",
     [

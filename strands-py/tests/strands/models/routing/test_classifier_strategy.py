@@ -12,6 +12,8 @@ from strands.models import ClassifierStrategy, ModelRouter, RoutingAttempt, Rout
 from strands.models.routing.classifier_strategy import (
     _CLASSIFICATION_OMISSION_MARKER,
     _DEFAULT_MESSAGE_CHARACTER_LIMIT,
+    _NO_REQUEST_TEXT,
+    _build_candidate_profiles,
     _latest_request_text,
 )
 from strands.models.routing.strategy import RoutingContext
@@ -45,6 +47,7 @@ class _ClassifierModel(MockedModelProvider):
         if self.error is not None:
             raise self.error
         output = self.output or output_model(selected_candidate_index=self.selected_index)
+        yield {"contentBlockDelta": {"delta": {"text": ""}}}
         yield {"output": output}
 
 
@@ -131,37 +134,27 @@ async def test_select_uses_only_explicit_candidate_evidence():
         "candidates": [
             {
                 "candidate_index": 0,
-                "evidence": json.dumps(
-                    {
-                        "name": "multimodal",
-                        "description": "Handles complex multimodal analysis.",
-                        "metadata": {
-                            "provider": "private",
-                            "model_id": "private-reasoner-v2",
-                            "input_modalities": ["text", "image"],
-                            "output_modalities": ["text"],
-                            "context_window_limit": 200_000,
-                            "max_output_tokens": 16_000,
-                            "supports_tool_use": True,
-                            "supports_parallel_tool_use": False,
-                            "supports_structured_output": True,
-                            "supports_reasoning": True,
-                            "supports_system_prompt": True,
-                        },
-                    },
-                    separators=(",", ":"),
-                ),
+                "name": "multimodal",
+                "description": "Handles complex multimodal analysis.",
+                "metadata": {
+                    "provider": "private",
+                    "model_id": "private-reasoner-v2",
+                    "input_modalities": ["text", "image"],
+                    "output_modalities": ["text"],
+                    "context_window_limit": 200_000,
+                    "max_output_tokens": 16_000,
+                    "supports_tool_use": True,
+                    "supports_parallel_tool_use": False,
+                    "supports_structured_output": True,
+                    "supports_reasoning": True,
+                    "supports_system_prompt": True,
+                },
             },
             {
                 "candidate_index": 1,
-                "evidence": json.dumps(
-                    {
-                        "name": "routine",
-                        "description": "Model suitable for routine requests.",
-                        "metadata": {"model_id": "private-fast-v1", "supports_tool_use": True},
-                    },
-                    separators=(",", ":"),
-                ),
+                "name": "routine",
+                "description": "Model suitable for routine requests.",
+                "metadata": {"model_id": "private-fast-v1", "supports_tool_use": True},
             },
         ],
     }
@@ -182,7 +175,7 @@ async def test_select_classifies_candidates_without_optional_metadata():
 
     assert tru_candidate is router.candidates[1]
     assert classifier.calls == 1
-    assert tru_context["candidates"] == [{"candidate_index": index, "evidence": "{}"} for index in range(2)]
+    assert tru_context["candidates"] == [{"candidate_index": index} for index in range(2)]
 
 
 @pytest.mark.asyncio
@@ -270,6 +263,59 @@ def test_latest_request_is_bounded_and_excludes_opaque_payloads():
     ) == exp_shape
     secrets = ("guarded-secret", "tool-secret", "payload", "image-secret", "document-secret", "video-secret")
     assert all(secret not in tru_request for secret in secrets)
+
+
+def test_latest_request_sentinel_respects_tiny_character_limit():
+    tru_request = _latest_request_text([], 1)
+
+    assert tru_request == _NO_REQUEST_TEXT[:1]
+
+
+def test_request_detection_ignores_malformed_guard_content():
+    messages = [{"role": "user", "content": [{"guardContent": {"text": "raw string, not a text block"}}]}]
+
+    tru_request = _latest_request_text(messages)
+
+    assert tru_request == _NO_REQUEST_TEXT
+
+
+def test_build_candidate_profiles_rejects_evidence_exceeding_budget():
+    candidates = (_candidate("routine", notes="x" * 500), _candidate("complex"))
+
+    with pytest.raises(ValueError, match="exceeding max_candidate_chars=100; trim candidate"):
+        _build_candidate_profiles(candidates, 100)
+
+
+@pytest.mark.asyncio
+async def test_select_propagates_oversized_candidate_evidence_without_classifying():
+    classifier = _ClassifierModel()
+    strategy = ClassifierStrategy(classifier, max_candidate_chars=10)
+    router = ModelRouter(models=[_candidate("first"), _candidate("second")], strategy=strategy)
+
+    with pytest.raises(ValueError, match="exceeding max_candidate_chars=10"):
+        await strategy.select(_context(router))
+
+    assert classifier.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_select_joins_agent_instruction_text_blocks_and_omits_structured_blocks():
+    classifier = _ClassifierModel(selected_index=1)
+    strategy = ClassifierStrategy(classifier)
+    router = ModelRouter(models=[_candidate("routine"), _candidate("complex")], strategy=strategy)
+    base_context = _context(router)
+    context = RoutingContext(
+        messages=base_context.messages,
+        system_prompt=[{"text": "Be precise"}, {"cachePoint": {"type": "default"}}, {"text": "Cite sources"}],
+        tool_specs=base_context.tool_specs,
+        candidates=base_context.candidates,
+        invocation_state=base_context.invocation_state,
+    )
+
+    await strategy.select(context)
+
+    tru_instructions = _classification_context(classifier.system_prompts[0])["agent_instructions"]
+    assert tru_instructions == "Be precise\nCite sources"
 
 
 @pytest.mark.asyncio
@@ -411,3 +457,24 @@ def test_constructor_rejects_non_numeric_timeout(timeout):
 def test_constructor_rejects_non_positive_or_non_finite_timeout(timeout):
     with pytest.raises(ValueError, match="timeout must be finite and greater than zero"):
         ClassifierStrategy(_ClassifierModel(), timeout=timeout)
+
+
+def test_constructor_rejects_non_string_system_prompt():
+    with pytest.raises(TypeError, match="system_prompt must be a string or None"):
+        ClassifierStrategy(_ClassifierModel(), system_prompt=123)
+
+
+@pytest.mark.parametrize("name", ["max_message_chars", "max_agent_instructions_chars", "max_candidate_chars"])
+@pytest.mark.parametrize(
+    ("value", "error_type", "match_suffix"),
+    [
+        ("100", TypeError, "must be an integer"),
+        (True, TypeError, "must be an integer"),
+        (0, ValueError, "must be greater than zero"),
+        (-1, ValueError, "must be greater than zero"),
+    ],
+    ids=["string", "bool", "zero", "negative"],
+)
+def test_constructor_rejects_invalid_character_limits(name, value, error_type, match_suffix):
+    with pytest.raises(error_type, match=f"{name} {match_suffix}"):
+        ClassifierStrategy(_ClassifierModel(), **{name: value})
