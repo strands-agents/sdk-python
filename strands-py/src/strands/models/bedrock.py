@@ -1063,6 +1063,12 @@ class BedrockModel(Model):
     def _should_redact_guardrail_content(self, guardrail_data: dict[str, Any] | None, stop_reason: str | None) -> bool:
         """Check whether a guardrail blocked content and redaction should occur.
 
+        Bedrock reports stop_reason=guardrail_intervened for both blocked and masked content, so the
+        stop reason alone cannot distinguish the two. When Bedrock carries a trace we defer to it:
+        redact only when a policy's action is BLOCKED. ANONYMIZED (masked) spans are already
+        substituted in place server-side and the surrounding message must be preserved. When the
+        trace is absent (typically guardrail_trace='disabled'), we fall back to the stop reason.
+
         Args:
             guardrail_data: Guardrail assessment from trace information, if any.
             stop_reason: The stop reason reported by Bedrock, if any.
@@ -1070,24 +1076,17 @@ class BedrockModel(Model):
         Returns:
             True if blocked content should be redacted, False otherwise.
         """
-        if stop_reason == "guardrail_intervened":
-            return True
+        if guardrail_data is not None:
+            input_assessment = guardrail_data.get("inputAssessment", {})
+            output_assessments = guardrail_data.get("outputAssessments", {})
 
-        if guardrail_data is None:
+            if any(self._find_detected_and_blocked_policy(assessment) for assessment in input_assessment.values()):
+                return True
+            if any(self._find_detected_and_blocked_policy(assessment) for assessment in output_assessments.values()):
+                return True
             return False
 
-        input_assessment = guardrail_data.get("inputAssessment", {})
-        output_assessments = guardrail_data.get("outputAssessments", {})
-
-        # Check input assessments
-        if any(self._find_detected_and_blocked_policy(assessment) for assessment in input_assessment.values()):
-            return True
-
-        # Check output assessments
-        if any(self._find_detected_and_blocked_policy(assessment) for assessment in output_assessments.values()):
-            return True
-
-        return False
+        return stop_reason == "guardrail_intervened"
 
     def _generate_redaction_events(self) -> list[StreamEvent]:
         """Generate redaction events based on configuration.
@@ -1335,24 +1334,33 @@ class BedrockModel(Model):
             logger.debug("got response from model")
             if streaming:
                 redaction_emitted = False
+                saw_guardrail_trace = False
+                last_stop_reason: str | None = None
                 for chunk in response["stream"]:
-                    guardrail_data = None
-                    stop_reason = None
-                    if (
-                        "metadata" in chunk
-                        and "trace" in chunk["metadata"]
-                        and "guardrail" in chunk["metadata"]["trace"]
-                    ):
-                        guardrail_data = chunk["metadata"]["trace"]["guardrail"]
                     if "messageStop" in chunk:
-                        stop_reason = chunk["messageStop"].get("stopReason")
+                        last_stop_reason = chunk["messageStop"].get("stopReason")
 
-                    if not redaction_emitted and self._should_redact_guardrail_content(guardrail_data, stop_reason):
-                        for event in self._generate_redaction_events():
-                            callback(event)
-                        redaction_emitted = True
+                    # Wait for a metadata chunk before deciding: the guardrail trace arrives there
+                    # and is authoritative for BLOCKED vs ANONYMIZED (masking).
+                    if not redaction_emitted and "metadata" in chunk:
+                        guardrail_data = chunk["metadata"].get("trace", {}).get("guardrail")
+                        if guardrail_data is not None:
+                            saw_guardrail_trace = True
+                        if self._should_redact_guardrail_content(guardrail_data, last_stop_reason):
+                            for event in self._generate_redaction_events():
+                                callback(event)
+                            redaction_emitted = True
 
                     callback(chunk)
+
+                # Safety net: guardrail_intervened but no metadata chunk arrived.
+                if (
+                    not redaction_emitted
+                    and not saw_guardrail_trace
+                    and last_stop_reason == "guardrail_intervened"
+                ):
+                    for event in self._generate_redaction_events():
+                        callback(event)
 
             else:
                 for event in self.convert_non_streaming_to_streaming(response):

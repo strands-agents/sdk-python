@@ -1543,8 +1543,8 @@ async def test_stream_stream_guardrails_redacts_without_trace(
 
     tru_chunks = await alist(response)
     exp_chunks = [
-        {"redactContent": {"redactUserContentMessage": "[User input redacted.]"}},
         message_stop_event,
+        {"redactContent": {"redactUserContentMessage": "[User input redacted.]"}},
         metadata_event,
     ]
 
@@ -1598,8 +1598,8 @@ async def test_stream_guardrails_redacts_exactly_once_across_metadata_events(
 
     tru_chunks = await alist(response)
     exp_chunks = [
-        {"redactContent": {"redactUserContentMessage": "[User input redacted.]"}},
         message_stop_event,
+        {"redactContent": {"redactUserContentMessage": "[User input redacted.]"}},
         metadata_event,
         metadata_event,
     ]
@@ -1623,6 +1623,86 @@ async def test_stream_non_guardrail_stop_reason_doesnt_redact(bedrock_client, mo
     exp_chunks = [message_stop_event, metadata_event]
 
     assert tru_chunks == exp_chunks
+
+
+@pytest.mark.asyncio
+async def test_stream_guardrails_masked_content_does_not_redact(bedrock_client, model, messages, alist):
+    """Bedrock reports guardrail_intervened even when a policy only ANONYMIZED (masked) content.
+
+    The SDK must preserve the masked message rather than replacing it with the redaction placeholder,
+    since Bedrock has already substituted the sensitive spans in place.
+    """
+    message_stop_event = {"messageStop": {"stopReason": "guardrail_intervened"}}
+    metadata_event = {
+        "metadata": {
+            "usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+            "trace": {
+                "guardrail": {
+                    "outputAssessments": {
+                        "8oi5sp73w4ca": [
+                            {
+                                "sensitiveInformationPolicy": {
+                                    "regexes": [
+                                        {
+                                            "action": "ANONYMIZED",
+                                            "detected": True,
+                                            "match": "Hello",
+                                            "name": "BLOCKING_HELLO",
+                                            "regex": "Hello",
+                                        }
+                                    ]
+                                },
+                            }
+                        ]
+                    },
+                }
+            },
+        }
+    }
+    bedrock_client.converse_stream.return_value = {"stream": [message_stop_event, metadata_event]}
+
+    response = model.stream(messages)
+
+    tru_chunks = await alist(response)
+    exp_chunks = [message_stop_event, metadata_event]
+
+    assert tru_chunks == exp_chunks
+
+
+@pytest.mark.asyncio
+async def test_stream_guardrails_masked_content_does_not_redact_non_streaming(bedrock_client, alist, messages):
+    """Non-streaming: guardrail_intervened + ANONYMIZED-only trace must not trigger redaction."""
+    bedrock_client.converse.return_value = {
+        "output": {"message": {"role": "assistant", "content": [{"text": "{BLOCKING_HELLO}! 👋"}]}},
+        "stopReason": "guardrail_intervened",
+        "trace": {
+            "guardrail": {
+                "outputAssessments": {
+                    "8oi5sp73w4ca": [
+                        {
+                            "sensitiveInformationPolicy": {
+                                "regexes": [
+                                    {
+                                        "action": "ANONYMIZED",
+                                        "detected": True,
+                                        "match": "Hello",
+                                        "name": "BLOCKING_HELLO",
+                                        "regex": "Hello",
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                }
+            }
+        },
+    }
+
+    model = BedrockModel(model_id="test-model", streaming=False)
+    response = model.stream(messages)
+
+    tru_events = await alist(response)
+    assert not any("redactContent" in event for event in tru_events)
 
 
 @pytest.mark.asyncio
