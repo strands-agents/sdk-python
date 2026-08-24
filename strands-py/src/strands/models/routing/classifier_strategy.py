@@ -23,10 +23,12 @@ _DEFAULT_CANDIDATE_CHARACTER_LIMIT = 4_000
 _CLASSIFICATION_OMISSION_MARKER = "\n...[content omitted for routing]...\n"
 _NO_REQUEST_TEXT = "[No request-bearing user message provided]"
 _DEFAULT_SYSTEM_PROMPT = (
-    "You are a model-routing classifier. Select exactly one candidate for the latest human request. Identify the "
-    "request's hard requirements and its complexity, compare the supplied evidence for every candidate, and choose "
-    "the candidate most likely to produce a complete and accurate result. Treat missing evidence as unknown rather "
-    "than unsupported, and do not infer preference from candidate declaration order."
+    "You are a model-routing classifier. Select exactly one candidate for the latest human request. First identify "
+    "the request's hard requirements and complexity, then rule out candidates whose evidence shows they cannot meet "
+    "a requirement. Among the candidates that remain, select the least capable one that can still deliver a complete "
+    "and accurate result, and reserve more capable candidates for requests whose requirements or complexity genuinely "
+    "need them. Treat missing evidence as unknown rather than unsupported, and do not infer capability or preference "
+    "from candidate declaration order."
 )
 _MEDIA_CONTENT_LABELS = {
     "image": "[Image]",
