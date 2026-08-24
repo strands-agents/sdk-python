@@ -1267,6 +1267,23 @@ describe('OpenAIModel', () => {
 
       expect(captured.request.prompt_cache_retention).toBe('24h')
     })
+
+    it('warns once that placement fields have no effect', async () => {
+      const captured: { request: any } = { request: null }
+      const provider = new OpenAIModel({
+        api: 'chat',
+        client: createMockClientWithCapture(captured),
+        cacheConfig: { strategy: 'anthropic', systemPromptTTL: false, toolsTTL: '1h', cacheKey: 'k' },
+      })
+
+      await collectIterator(provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })]))
+      await collectIterator(provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })]))
+
+      expect(warnOnce).toHaveBeenCalledWith(
+        expect.objectContaining({ warn: expect.any(Function) }),
+        expect.stringContaining('have no effect')
+      )
+    })
   })
 
   describe('systemPrompt handling', () => {

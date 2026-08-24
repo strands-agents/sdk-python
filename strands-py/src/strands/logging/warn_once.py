@@ -1,12 +1,8 @@
-"""Process-global warn-once logging.
-
-Mirrors the TypeScript SDK's ``warnOnce`` so both SDKs suppress repeated nudges identically.
-"""
+"""Process-global warn-once logging."""
 
 import logging
 from typing import Any
 
-# Formatted messages already warned this process, keyed on the interpolated text.
 _warned: set[str] = set()
 
 

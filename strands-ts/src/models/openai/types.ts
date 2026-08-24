@@ -54,7 +54,7 @@ interface OpenAIBaseConfig extends BaseModelConfig {
   params?: Record<string, unknown>
 
   /**
-   * Prompt-caching configuration. OpenAI routes cache reads on `cacheKey` (mapped to `prompt_cache_key`) and honors `ttl` only when it names an OpenAI retention literal (`in_memory` or `24h`, mapped to `prompt_cache_retention`); any other `ttl` and the placement fields have no effect here. An explicit `prompt_cache_key` / `prompt_cache_retention` in `params` takes precedence.
+   * Prompt-caching configuration. OpenAI routes cache reads on `cacheKey` and honors `ttl` when it names an OpenAI retention literal. Any other `ttl` and the placement fields have no effect here. An explicit `prompt_cache_key` / `prompt_cache_retention` in `params` takes precedence.
    */
   cacheConfig?: CacheConfig
 }

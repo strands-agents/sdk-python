@@ -2,8 +2,7 @@
 
 OpenAI caches prompt prefixes automatically server-side and routes reads on a caller-supplied
 ``prompt_cache_key``. It exposes no cache-point placement knobs, so of ``CacheConfig`` only
-``cache_key`` (and, when it already names a valid retention literal, ``ttl``) maps onto the request;
-``strategy`` and ``system_prompt_ttl`` have no effect here.
+``cache_key`` (and, when it already names a valid retention literal, ``ttl``) maps onto the request.
 """
 
 import logging
@@ -16,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 # OpenAI's prompt_cache_retention accepts only these literals. ttl maps through only on an exact
 # match - the SDK never guesses a conversion from an arbitrary duration string.
+#
+# prompt_cache_retention is deprecated in openai 2.54.0 in favor of prompt_cache_options.ttl, whose only
+# accepted value today is "30m" - so "24h"/"in_memory" remain expressible only through this field.
 _RETENTION_LITERALS = frozenset({"in_memory", "24h"})
 
 
@@ -43,7 +45,7 @@ def apply_cache_config(request: dict[str, Any], cache_config: CacheConfig | None
         else:
             warn_once(
                 logger,
-                "ttl=<%s> | cache_config.ttl is not an openai retention value (in_memory, 24h), ignoring",
+                "ttl=<%s> | cache_config.ttl is not an openai retention value, ignoring",
                 cache_config.ttl,
             )
 
