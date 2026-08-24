@@ -9,7 +9,7 @@ import sys
 if sys.version_info < (3, 12):
     import pytest
 
-    pytest.skip(reason="BidiNovaSonicModel is only supported for Python 3.12+", allow_module_level=True)
+    pytest.skip(reason="BedrockNovaSonicModel is only supported for Python 3.12+", allow_module_level=True)
 
 import asyncio
 import base64
@@ -20,12 +20,12 @@ import pytest
 import pytest_asyncio
 from aws_sdk_bedrock_runtime.models import ModelTimeoutException, ValidationException
 
-from strands.experimental.bidi.models.model import BidiModelTimeoutError
-from strands.experimental.bidi.models.nova_sonic import (
-    BidiNovaSonicModel,
+from strands.experimental.bidi.models.bedrock import (
     NOVA_SONIC_V1_MODEL_ID,
     NOVA_SONIC_V2_MODEL_ID,
+    BedrockNovaSonicModel,
 )
+from strands.experimental.bidi.models.model import BidiModelTimeoutError
 from strands.experimental.bidi.types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
@@ -66,7 +66,7 @@ def mock_stream():
 @pytest.fixture
 def mock_client(mock_stream):
     """Mock Bedrock Runtime client."""
-    with patch("strands.experimental.bidi.models.nova_sonic.BedrockRuntimeClient") as mock_cls:
+    with patch("strands.experimental.bidi.models.bedrock.BedrockRuntimeClient") as mock_cls:
         mock_instance = AsyncMock()
         mock_instance.invoke_model_with_bidirectional_stream = AsyncMock(return_value=mock_stream)
         mock_cls.return_value = mock_instance
@@ -79,7 +79,7 @@ def nova_model(model_id, boto_session, mock_client):
     """Create Nova Sonic model instance."""
     _ = mock_client
 
-    model = BidiNovaSonicModel(model_id=model_id, client_config={"boto_session": boto_session})
+    model = BedrockNovaSonicModel(model_id=model_id, client_config={"boto_session": boto_session})
     yield model
 
 
@@ -89,7 +89,7 @@ def nova_model(model_id, boto_session, mock_client):
 @pytest.mark.asyncio
 async def test_model_initialization(model_id, boto_session):
     """Test model initialization with configuration."""
-    model = BidiNovaSonicModel(model_id=model_id, client_config={"boto_session": boto_session})
+    model = BedrockNovaSonicModel(model_id=model_id, client_config={"boto_session": boto_session})
 
     assert model.model_id == model_id
     assert model.region == "us-east-1"
@@ -99,12 +99,12 @@ async def test_model_initialization(model_id, boto_session):
 @pytest.mark.asyncio
 async def test_start_sets_strands_user_agent_on_bedrock_runtime_client(model_id, boto_session, mock_stream):
     """Always set the Strands user agent marker on the generated Bedrock Runtime client."""
-    with patch("strands.experimental.bidi.models.nova_sonic.BedrockRuntimeClient") as mock_cls:
+    with patch("strands.experimental.bidi.models.bedrock.BedrockRuntimeClient") as mock_cls:
         mock_instance = AsyncMock()
         mock_instance.invoke_model_with_bidirectional_stream = AsyncMock(return_value=mock_stream)
         mock_cls.return_value = mock_instance
 
-        model = BidiNovaSonicModel(model_id=model_id, client_config={"boto_session": boto_session})
+        model = BedrockNovaSonicModel(model_id=model_id, client_config={"boto_session": boto_session})
 
         await model.start()
 
@@ -117,7 +117,7 @@ async def test_start_sets_strands_user_agent_on_bedrock_runtime_client(model_id,
 @pytest.mark.parametrize("region", ["us-east-1", "ap-southeast-1", "us-gov-east-1"])
 async def test_valid_region_accepted(model_id, region):
     """A well-formed region resolves successfully and is used for the model."""
-    model = BidiNovaSonicModel(model_id=model_id, client_config={"region": region})
+    model = BedrockNovaSonicModel(model_id=model_id, client_config={"region": region})
 
     assert model.region == region
 
@@ -127,7 +127,7 @@ async def test_valid_region_accepted(model_id, region):
 async def test_invalid_region_rejected(model_id, region):
     """A malformed region is rejected before it can reach the endpoint URL."""
     with pytest.raises(ValueError, match="invalid AWS region"):
-        BidiNovaSonicModel(model_id=model_id, client_config={"region": region})
+        BedrockNovaSonicModel(model_id=model_id, client_config={"region": region})
 
 
 # Audio Configuration Tests
@@ -136,7 +136,7 @@ async def test_invalid_region_rejected(model_id, region):
 @pytest.mark.asyncio
 async def test_audio_config_defaults(model_id, boto_session):
     """Test default audio configuration."""
-    model = BidiNovaSonicModel(model_id=model_id, client_config={"boto_session": boto_session})
+    model = BedrockNovaSonicModel(model_id=model_id, client_config={"boto_session": boto_session})
 
     assert model.config["audio"]["input_rate"] == 16000
     assert model.config["audio"]["output_rate"] == 16000
@@ -149,7 +149,7 @@ async def test_audio_config_defaults(model_id, boto_session):
 async def test_audio_config_partial_override(model_id, boto_session):
     """Test partial audio configuration override."""
     provider_config = {"audio": {"output_rate": 24000, "voice": "ruth"}}
-    model = BidiNovaSonicModel(
+    model = BedrockNovaSonicModel(
         model_id=model_id, client_config={"boto_session": boto_session}, provider_config=provider_config
     )
 
@@ -175,7 +175,7 @@ async def test_audio_config_full_override(model_id, boto_session):
             "voice": "stephen",
         }
     }
-    model = BidiNovaSonicModel(
+    model = BedrockNovaSonicModel(
         model_id=model_id, client_config={"boto_session": boto_session}, provider_config=provider_config
     )
 
@@ -576,7 +576,7 @@ async def test_custom_audio_rates_in_events(model_id, boto_session):
     """Test that audio events use configured sample rates."""
     # Create model with custom audio configuration
     provider_config = {"audio": {"output_rate": 48000, "channels": 2}}
-    model = BidiNovaSonicModel(
+    model = BedrockNovaSonicModel(
         model_id=model_id, client_config={"boto_session": boto_session}, provider_config=provider_config
     )
 
@@ -598,7 +598,7 @@ async def test_custom_audio_rates_in_events(model_id, boto_session):
 async def test_default_audio_rates_in_events(model_id, boto_session):
     """Test that audio events use default sample rates when no custom config."""
     # Create model without custom audio configuration
-    model = BidiNovaSonicModel(model_id=model_id, client_config={"boto_session": boto_session})
+    model = BedrockNovaSonicModel(model_id=model_id, client_config={"boto_session": boto_session})
 
     # Test audio output event uses defaults
     audio_bytes = b"test audio data"
@@ -629,14 +629,14 @@ async def test_nova_sonic_v1_instantiation(boto_session, mock_client):
     _ = mock_client  # Ensure mock is active
 
     # Test default creation
-    model = BidiNovaSonicModel(model_id=NOVA_SONIC_V1_MODEL_ID, client_config={"boto_session": boto_session})
+    model = BedrockNovaSonicModel(model_id=NOVA_SONIC_V1_MODEL_ID, client_config={"boto_session": boto_session})
     assert model.model_id == NOVA_SONIC_V1_MODEL_ID
     assert model.region == "us-east-1"
 
     # Test with custom config
     provider_config = {"audio": {"voice": "joanna", "output_rate": 24000}}
     client_config = {"boto_session": boto_session}
-    model_custom = BidiNovaSonicModel(
+    model_custom = BedrockNovaSonicModel(
         model_id=NOVA_SONIC_V1_MODEL_ID, provider_config=provider_config, client_config=client_config
     )
 
@@ -651,14 +651,14 @@ async def test_nova_sonic_v2_instantiation(boto_session, mock_client):
     _ = mock_client  # Ensure mock is active
 
     # Test default creation
-    model = BidiNovaSonicModel(model_id=NOVA_SONIC_V2_MODEL_ID, client_config={"boto_session": boto_session})
+    model = BedrockNovaSonicModel(model_id=NOVA_SONIC_V2_MODEL_ID, client_config={"boto_session": boto_session})
     assert model.model_id == NOVA_SONIC_V2_MODEL_ID
     assert model.region == "us-east-1"
 
     # Test with custom config
     provider_config = {"audio": {"voice": "ruth", "input_rate": 48000}, "inference": {"temperature": 0.8}}
     client_config = {"boto_session": boto_session}
-    model_custom = BidiNovaSonicModel(
+    model_custom = BedrockNovaSonicModel(
         model_id=NOVA_SONIC_V2_MODEL_ID, provider_config=provider_config, client_config=client_config
     )
 
@@ -677,10 +677,10 @@ async def test_nova_sonic_v1_v2_compatibility(boto_session, mock_client):
     provider_config = {"audio": {"voice": "matthew"}}
     client_config = {"boto_session": boto_session}
 
-    model_v1 = BidiNovaSonicModel(
+    model_v1 = BedrockNovaSonicModel(
         model_id=NOVA_SONIC_V1_MODEL_ID, provider_config=provider_config, client_config=client_config
     )
-    model_v2 = BidiNovaSonicModel(
+    model_v2 = BedrockNovaSonicModel(
         model_id=NOVA_SONIC_V2_MODEL_ID, provider_config=provider_config, client_config=client_config
     )
 
@@ -700,17 +700,17 @@ async def test_backward_compatibility(boto_session, mock_client):
     _ = mock_client  # Ensure mock is active
 
     # Test that default behavior now uses v2 (updated default)
-    model_default = BidiNovaSonicModel(client_config={"boto_session": boto_session})
+    model_default = BedrockNovaSonicModel(client_config={"boto_session": boto_session})
     assert model_default.model_id == NOVA_SONIC_V2_MODEL_ID
 
     # Test that existing explicit v1 usage still works
-    model_explicit_v1 = BidiNovaSonicModel(
+    model_explicit_v1 = BedrockNovaSonicModel(
         model_id=NOVA_SONIC_V1_MODEL_ID, client_config={"boto_session": boto_session}
     )
     assert model_explicit_v1.model_id == NOVA_SONIC_V1_MODEL_ID
 
     # Test that explicit v2 usage works
-    model_explicit_v2 = BidiNovaSonicModel(
+    model_explicit_v2 = BedrockNovaSonicModel(
         model_id=NOVA_SONIC_V2_MODEL_ID, client_config={"boto_session": boto_session}
     )
     assert model_explicit_v2.model_id == NOVA_SONIC_V2_MODEL_ID
@@ -723,14 +723,14 @@ async def test_turn_detection_v1_validation(boto_session, mock_client):
 
     # Test that turn_detection with v1 raises ValueError
     with pytest.raises(ValueError, match="turn_detection is only supported in Nova Sonic v2"):
-        BidiNovaSonicModel(
+        BedrockNovaSonicModel(
             model_id=NOVA_SONIC_V1_MODEL_ID,
             provider_config={"turn_detection": {"endpointingSensitivity": "MEDIUM"}},
             client_config={"boto_session": boto_session},
         )
 
     # Test that turn_detection with v2 works fine
-    model_v2 = BidiNovaSonicModel(
+    model_v2 = BedrockNovaSonicModel(
         model_id=NOVA_SONIC_V2_MODEL_ID,
         provider_config={"turn_detection": {"endpointingSensitivity": "MEDIUM"}},
         client_config={"boto_session": boto_session},
@@ -738,7 +738,7 @@ async def test_turn_detection_v1_validation(boto_session, mock_client):
     assert model_v2.config["turn_detection"]["endpointingSensitivity"] == "MEDIUM"
 
     # Test that empty turn_detection dict doesn't raise error for v1
-    model_v1_empty = BidiNovaSonicModel(
+    model_v1_empty = BedrockNovaSonicModel(
         model_id=NOVA_SONIC_V1_MODEL_ID,
         provider_config={"turn_detection": {}},
         client_config={"boto_session": boto_session},
@@ -753,7 +753,7 @@ async def test_turn_detection_sensitivity_validation(boto_session, mock_client):
 
     # Test invalid sensitivity value raises ValueError at init
     with pytest.raises(ValueError, match="Invalid endpointingSensitivity.*Must be HIGH, MEDIUM, or LOW"):
-        BidiNovaSonicModel(
+        BedrockNovaSonicModel(
             model_id=NOVA_SONIC_V2_MODEL_ID,
             provider_config={"turn_detection": {"endpointingSensitivity": "INVALID"}},
             client_config={"boto_session": boto_session},
@@ -761,7 +761,7 @@ async def test_turn_detection_sensitivity_validation(boto_session, mock_client):
 
     # Test valid sensitivity values work
     for sensitivity in ["HIGH", "MEDIUM", "LOW"]:
-        model = BidiNovaSonicModel(
+        model = BedrockNovaSonicModel(
             model_id=NOVA_SONIC_V2_MODEL_ID,
             provider_config={"turn_detection": {"endpointingSensitivity": sensitivity}},
             client_config={"boto_session": boto_session},
@@ -769,7 +769,7 @@ async def test_turn_detection_sensitivity_validation(boto_session, mock_client):
         assert model.config["turn_detection"]["endpointingSensitivity"] == sensitivity
 
     # Test that turn_detection without sensitivity works (sensitivity is optional)
-    model_no_sensitivity = BidiNovaSonicModel(
+    model_no_sensitivity = BedrockNovaSonicModel(
         model_id=NOVA_SONIC_V2_MODEL_ID,
         provider_config={"turn_detection": {}},
         client_config={"boto_session": boto_session},

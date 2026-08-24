@@ -51,8 +51,10 @@ GEMINI_OUTPUT_SAMPLE_RATE: AudioSampleRate = 24000
 GEMINI_CHANNELS: AudioChannel = 1
 
 
-class BidiGeminiLiveModel(BidiModel):
-    """Gemini Live API implementation using official Google GenAI SDK.
+class GoogleLiveModel(BidiModel):
+    """Google Live API implementation using the official Google GenAI SDK.
+
+    ``GoogleModel`` is an alias for this default Google model provider.
 
     Combines model configuration and connection state in a single class.
     Provides a clean interface to Gemini Live API using the official SDK,
@@ -545,3 +547,6 @@ class BidiGeminiLiveModel(BidiModel):
                 ],
             ),
         ]
+
+
+GoogleModel = GoogleLiveModel

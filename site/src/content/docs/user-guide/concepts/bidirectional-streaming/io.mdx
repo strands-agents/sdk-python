@@ -195,14 +195,14 @@ WebSockets are a common I/O channel for bidi-agents. To learn how to setup WebSo
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models.openai_realtime import BidiOpenAIRealtimeModel
+from strands.experimental.bidi.models import OpenAIRealtimeModel
 
 app = FastAPI()
 
 
 @app.websocket("/text-chat")
 async def text_chat(websocket: WebSocket) -> None:
-    model = BidiOpenAIRealtimeModel(client_config={"api_key": "<OPENAI_API_KEY>"})
+    model = OpenAIRealtimeModel(client_config={"api_key": "<OPENAI_API_KEY>"})
     agent = BidiAgent(model=model)
 
     try:

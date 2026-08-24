@@ -132,14 +132,14 @@ def test_bidi_agent_init_with_various_configurations():
     assert config["audio"]["channels"] == 1
 
 
-@pytest.mark.skipif(sys.version_info < (3, 12), reason="BidiNovaSonicModel is only supported for Python 3.12+")
+@pytest.mark.skipif(sys.version_info < (3, 12), reason="BedrockNovaSonicModel is only supported for Python 3.12+")
 def test_bidi_agent_init_with_model_id():
-    from strands.experimental.bidi.models.nova_sonic import BidiNovaSonicModel
+    from strands.experimental.bidi.models.bedrock import BedrockNovaSonicModel
 
     model_id = "amazon.nova-sonic-v1:0"
     agent = BidiAgent(model=model_id)
 
-    assert isinstance(agent.model, BidiNovaSonicModel)
+    assert isinstance(agent.model, BedrockNovaSonicModel)
     assert agent.model.model_id == model_id
 
 

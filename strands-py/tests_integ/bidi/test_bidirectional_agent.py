@@ -14,9 +14,7 @@ import pytest
 
 from strands import tool
 from strands.experimental.bidi.agent.agent import BidiAgent
-from strands.experimental.bidi.models.gemini_live import BidiGeminiLiveModel
-from strands.experimental.bidi.models.nova_sonic import BidiNovaSonicModel
-from strands.experimental.bidi.models.openai_realtime import BidiOpenAIRealtimeModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel, GoogleLiveModel, OpenAIRealtimeModel
 
 from .context import BidirectionalTestContext
 from .hook_utils import HookEventCollector
@@ -54,21 +52,21 @@ def calculator(operation: str, x: float, y: float) -> float:
 # Provider configurations
 PROVIDER_CONFIGS = {
     "nova_sonic": {
-        "model_class": BidiNovaSonicModel,
+        "model_class": BedrockNovaSonicModel,
         "model_kwargs": {"region": "us-east-1"},  # Uses v2 by default
         "silence_duration": 2.5,  # Nova Sonic needs 2+ seconds of silence
         "env_vars": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
         "skip_reason": "AWS credentials not available",
     },
     "nova_sonic_v1": {
-        "model_class": BidiNovaSonicModel,
+        "model_class": BedrockNovaSonicModel,
         "model_kwargs": {"model_id": "amazon.nova-sonic-v1:0", "region": "us-east-1"},
         "silence_duration": 2.5,  # Nova Sonic v1 needs 2+ seconds of silence
         "env_vars": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
         "skip_reason": "AWS credentials not available",
     },
     "openai": {
-        "model_class": BidiOpenAIRealtimeModel,
+        "model_class": OpenAIRealtimeModel,
         "model_kwargs": {
             "model": "gpt-4o-realtime-preview-2024-12-17",
             "session": {
@@ -91,7 +89,7 @@ PROVIDER_CONFIGS = {
         "skip_reason": "OPENAI_API_KEY not available",
     },
     "gemini_live": {
-        "model_class": BidiGeminiLiveModel,
+        "model_class": GoogleLiveModel,
         "model_kwargs": {
             # Uses default model and config (audio output + transcription enabled)
         },

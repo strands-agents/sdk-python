@@ -77,8 +77,10 @@ DEFAULT_SESSION_CONFIG = {
 }
 
 
-class BidiOpenAIRealtimeModel(BidiModel):
+class OpenAIRealtimeModel(BidiModel):
     """OpenAI Realtime API implementation for bidirectional streaming.
+
+    ``OpenAIModel`` is an alias for this default OpenAI model provider.
 
     Combines model configuration and connection state in a single class.
     Manages WebSocket connection to OpenAI's Realtime API with automatic VAD,
@@ -789,3 +791,6 @@ class BidiOpenAIRealtimeModel(BidiModel):
         message = json.dumps(event)
         await self._websocket.send(message)
         logger.debug("event_type=<%s> | openai event sent", event.get("type"))
+
+
+OpenAIModel = OpenAIRealtimeModel

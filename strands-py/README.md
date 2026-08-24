@@ -225,13 +225,13 @@ pip install strands-agents[bidi,bidi-io]
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 from strands.experimental.bidi.io import BidiAudioIO, BidiTextIO
 from strands_tools import calculator, stop
 
 async def main():
     # Create bidirectional agent with Nova Sonic v2
-    model = BidiNovaSonicModel()
+    model = BedrockNovaSonicModel()
     agent = BidiAgent(model=model, tools=[calculator, stop])
 
     # Setup audio and text I/O (requires bidi-io extra)
@@ -254,10 +254,10 @@ if __name__ == "__main__":
 **Configuration Options:**
 
 ```python
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
 # Configure audio settings and turn detection (v2 only)
-model = BidiNovaSonicModel(
+model = BedrockNovaSonicModel(
     provider_config={
         "audio": {
             "input_rate": 16000,

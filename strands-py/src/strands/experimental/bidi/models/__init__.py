@@ -15,16 +15,24 @@ def __getattr__(name: str) -> Any:
 
     This defers the import of optional dependencies until actually needed.
     """
-    if name == "BidiGeminiLiveModel":
-        from .gemini_live import BidiGeminiLiveModel
+    if name == "BedrockNovaSonicModel":
+        from .bedrock import BedrockNovaSonicModel
 
-        return BidiGeminiLiveModel
-    if name == "BidiNovaSonicModel":
-        from .nova_sonic import BidiNovaSonicModel
+        return BedrockNovaSonicModel
+    if name == "GoogleLiveModel":
+        from .google import GoogleLiveModel
 
-        return BidiNovaSonicModel
-    if name == "BidiOpenAIRealtimeModel":
-        from .openai_realtime import BidiOpenAIRealtimeModel
+        return GoogleLiveModel
+    if name == "GoogleModel":
+        from .google import GoogleModel
 
-        return BidiOpenAIRealtimeModel
+        return GoogleModel
+    if name == "OpenAIRealtimeModel":
+        from .openai import OpenAIRealtimeModel
+
+        return OpenAIRealtimeModel
+    if name == "OpenAIModel":
+        from .openai import OpenAIModel
+
+        return OpenAIModel
     raise AttributeError(f"cannot import name '{name}' from '{__name__}' ({__file__})")

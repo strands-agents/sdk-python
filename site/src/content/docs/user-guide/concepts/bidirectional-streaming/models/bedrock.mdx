@@ -4,7 +4,7 @@ description: 'Build real-time speech-to-speech agents with Amazon Nova Sonic and
 experimental: true
 tags: [bidi-streaming, aws, bedrock]
 sourceLinks:
-  - path: strands-py/src/strands/experimental/bidi/models/nova_sonic.py
+  - path: strands-py/src/strands/experimental/bidi/models/bedrock.py
 ---
 
 
@@ -46,14 +46,14 @@ import asyncio
 
 from strands.experimental.bidi import BidiAgent
 from strands.experimental.bidi.io import BidiAudioIO, BidiTextIO
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 from strands_tools import stop
 
 from strands_tools import calculator
 
 
 async def main() -> None:
-    model = BidiNovaSonicModel(
+    model = BedrockNovaSonicModel(
         model_id="amazon.nova-2-sonic-v1:0",
         provider_config={
             "audio": {
@@ -74,6 +74,9 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
+Amazon Bedrock has no default bidirectional provider. Select
+`BedrockNovaSonicModel` explicitly.
+
 ## Cross-Modal Input
 
 Nova Sonic accepts text input at any point during an active voice session, without interrupting or waiting on the audio stream. Send a [`BidiTextInputEvent`](../events.md#biditextinputevent) the same way you would outside of a live conversation:
@@ -91,7 +94,7 @@ Text and audio input can be interleaved freely; sending text does not require pa
 :::caution[Nova Sonic is available in us-east-1, us-west-2, eu-north-1, and ap-northeast-1.]
 :::
 
-Nova Sonic requires AWS credentials for access. Under the hook, `BidiNovaSonicModel` uses an experimental [Bedrock client](https://github.com/aws/aws-sdk-python/tree/develop/clients/aws-sdk-bedrock-runtime/src/aws_sdk_bedrock_runtime), which allows for credentials to be configured in the following ways:
+Nova Sonic requires AWS credentials for access. Under the hook, `BedrockNovaSonicModel` uses an experimental [Bedrock client](https://github.com/aws/aws-sdk-python/tree/develop/clients/aws-sdk-bedrock-runtime/src/aws_sdk_bedrock_runtime), which allows for credentials to be configured in the following ways:
 
 **Option 1: Environment Variables**
 
@@ -106,7 +109,7 @@ export AWS_REGION=your_region_name
 
 ```python
 import boto3
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
 
 boto_session = boto3.Session(
@@ -116,7 +119,7 @@ boto_session = boto3.Session(
     region_name="your_region_name",
     profile_name="your_profile"  # Optional: Use a specific profile
 )
-model = BidiNovaSonicModel(client_config={"boto_session": boto_session})
+model = BedrockNovaSonicModel(client_config={"boto_session": boto_session})
 ```
 
 For more details on this approach, please refer to the [boto3 session docs](https://boto3.amazonaws.com/v1/documentation/api/latest/reference/core/session.html).
@@ -166,4 +169,4 @@ As a reminder, Nova Sonic is only available in us-east-1, us-west-2, eu-north-1,
 
 - [Nova Sonic](https://docs.aws.amazon.com/nova/latest/nova2-userguide/using-conversational-speech.html)
 - [Experimental Bedrock Client](https://github.com/aws/aws-sdk-python/tree/develop/clients/aws-sdk-bedrock-runtime)
-- [Python API Reference](@api/python/strands.experimental.bidi.models.nova_sonic#BidiNovaSonicModel)
+- [Python API Reference](@api/python/strands.experimental.bidi.models.bedrock#BedrockNovaSonicModel)

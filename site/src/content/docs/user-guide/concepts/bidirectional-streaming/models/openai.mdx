@@ -4,7 +4,7 @@ description: 'Build low-latency voice agents with the OpenAI Realtime API and St
 experimental: true
 tags: [bidi-streaming]
 sourceLinks:
-  - path: strands-py/src/strands/experimental/bidi/models/openai_realtime.py
+  - path: strands-py/src/strands/experimental/bidi/models/openai.py
 ---
 
 
@@ -41,14 +41,14 @@ import asyncio
 
 from strands.experimental.bidi import BidiAgent
 from strands.experimental.bidi.io import BidiAudioIO, BidiTextIO
-from strands.experimental.bidi.models import BidiOpenAIRealtimeModel
+from strands.experimental.bidi.models import OpenAIRealtimeModel
 from strands_tools import stop
 
 from strands_tools import calculator
 
 
 async def main() -> None:
-    model = BidiOpenAIRealtimeModel(
+    model = OpenAIRealtimeModel(
         model_id="gpt-realtime",
         provider_config={
             "audio": {
@@ -68,6 +68,9 @@ async def main() -> None:
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+
+`OpenAIRealtimeModel` is the default bidirectional OpenAI provider, so
+`OpenAIModel(...)` creates the same provider.
 
 ## Configuration
 
@@ -103,4 +106,4 @@ Ensure your OpenAI API key is properly configured. Set the `OPENAI_API_KEY` envi
 
 - [OpenAI Realtime API](https://platform.openai.com/docs/guides/realtime)
 - [OpenAI API Reference](https://platform.openai.com/docs/api-reference/realtime)
-- [Python API Reference](@api/python/strands.experimental.bidi.models.openai_realtime#BidiOpenAIRealtimeModel)
+- [Python API Reference](@api/python/strands.experimental.bidi.models.openai#OpenAIRealtimeModel)

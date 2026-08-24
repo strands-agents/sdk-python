@@ -39,7 +39,7 @@ are produced automatically:
 import asyncio
 
 from strands.experimental.bidi import BidiAgent, BidiConnectionStartEvent
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 from strands.telemetry import StrandsTelemetry
 
 strands_telemetry = StrandsTelemetry()
@@ -49,7 +49,7 @@ strands_telemetry.setup_console_exporter()  # Print spans to stdout
 
 async def main():
     agent = BidiAgent(
-        model=BidiNovaSonicModel(),
+        model=BedrockNovaSonicModel(),
         system_prompt="You are a helpful voice assistant.",
         name="Voice Assistant",
     )
