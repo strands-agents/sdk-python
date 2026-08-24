@@ -15,14 +15,15 @@ import asyncio
 import base64
 import logging
 import queue
+from types import ModuleType
 from typing import TYPE_CHECKING, Any
-
-import pyaudio
 
 from ..types.events import BidiAudioInputEvent, BidiAudioStreamEvent, BidiInterruptionEvent, BidiOutputEvent
 from ..types.io import BidiInput, BidiOutput
 
 if TYPE_CHECKING:
+    import pyaudio
+
     from ..agent.agent import BidiAgent
     from ..audio import AudioProcessorConfig, _AudioProcessor
 
@@ -143,23 +144,30 @@ class _BidiAudioInput(BidiInput):
         _buffer: Buffer for sharing audio data between agent and PyAudio.
     """
 
-    _audio: pyaudio.PyAudio
-    _stream: pyaudio.Stream
+    _audio: "pyaudio.PyAudio"
+    _stream: "pyaudio.Stream"
 
     _BUFFER_SIZE = None
     _DEVICE_INDEX = None
     _FRAMES_PER_BUFFER = 512
 
-    def __init__(self, config: dict[str, Any], processor: "_AudioProcessor | None" = None) -> None:
+    def __init__(
+        self,
+        config: dict[str, Any],
+        pyaudio: ModuleType,
+        processor: "_AudioProcessor | None" = None,
+    ) -> None:
         """Extract configs.
 
         Args:
             config: Audio device configuration.
+            pyaudio: PyAudio module used by the device stream.
             processor: Shared audio processor for echo cancellation, or None to disable processing.
         """
         self._buffer_size = config.get("input_buffer_size", _BidiAudioInput._BUFFER_SIZE)
         self._device_index = config.get("input_device_index", _BidiAudioInput._DEVICE_INDEX)
         self._configured_frames_per_buffer = config.get("input_frames_per_buffer", _BidiAudioInput._FRAMES_PER_BUFFER)
+        self._pyaudio = pyaudio
         self._processor = processor
 
         # When echo cancellation is on, bound the mic buffer to the same frame horizon as the reference
@@ -207,10 +215,10 @@ class _BidiAudioInput(BidiInput):
             frames_per_buffer = self._configured_frames_per_buffer
 
         self._buffer.start()
-        self._audio = pyaudio.PyAudio()
+        self._audio = self._pyaudio.PyAudio()
         self._stream = self._audio.open(
             channels=self._channels,
-            format=pyaudio.paInt16,
+            format=self._pyaudio.paInt16,
             frames_per_buffer=frames_per_buffer,
             input=True,
             input_device_index=self._device_index,
@@ -247,10 +255,14 @@ class _BidiAudioInput(BidiInput):
             sample_rate=self._rate,
         )
 
-    def _callback(self, in_data: bytes, *_: Any) -> tuple[None, Any]:
+    def _callback(
+        self,
+        in_data: bytes | None,
+        *_: Any,
+    ) -> tuple[None, int]:
         """Callback to receive audio data from PyAudio."""
-        self._buffer.put(in_data)
-        return (None, pyaudio.paContinue)
+        self._buffer.put(in_data or b"")
+        return (None, self._pyaudio.paContinue)
 
 
 class _BidiAudioOutput(BidiOutput):
@@ -262,18 +274,24 @@ class _BidiAudioOutput(BidiOutput):
         _buffer: Buffer for sharing audio data between agent and PyAudio.
     """
 
-    _audio: pyaudio.PyAudio
-    _stream: pyaudio.Stream
+    _audio: "pyaudio.PyAudio"
+    _stream: "pyaudio.Stream"
 
     _BUFFER_SIZE = None
     _DEVICE_INDEX = None
     _FRAMES_PER_BUFFER = 512
 
-    def __init__(self, config: dict[str, Any], processor: "_AudioProcessor | None" = None) -> None:
+    def __init__(
+        self,
+        config: dict[str, Any],
+        pyaudio: ModuleType,
+        processor: "_AudioProcessor | None" = None,
+    ) -> None:
         """Extract configs.
 
         Args:
             config: Audio device configuration.
+            pyaudio: PyAudio module used by the device stream.
             processor: Shared audio processor — output records played frames as the AEC reference.
         """
         self._buffer_size = config.get("output_buffer_size", _BidiAudioOutput._BUFFER_SIZE)
@@ -281,6 +299,7 @@ class _BidiAudioOutput(BidiOutput):
         self._configured_frames_per_buffer = config.get("output_frames_per_buffer", _BidiAudioOutput._FRAMES_PER_BUFFER)
 
         self._buffer = _BidiAudioBuffer(self._buffer_size)
+        self._pyaudio = pyaudio
         self._processor = processor
 
     async def start(self, agent: "BidiAgent") -> None:
@@ -304,10 +323,10 @@ class _BidiAudioOutput(BidiOutput):
             frames_per_buffer = self._configured_frames_per_buffer
 
         self._buffer.start()
-        self._audio = pyaudio.PyAudio()
+        self._audio = self._pyaudio.PyAudio()
         self._stream = self._audio.open(
             channels=self._channels,
-            format=pyaudio.paInt16,
+            format=self._pyaudio.paInt16,
             frames_per_buffer=frames_per_buffer,
             output=True,
             output_device_index=self._device_index,
@@ -343,19 +362,24 @@ class _BidiAudioOutput(BidiOutput):
             if self._processor is not None:
                 self._processor.clear_reference()
 
-    def _callback(self, _in_data: None, frame_count: int, *_: Any) -> tuple[bytes, Any]:
+    def _callback(
+        self,
+        _in_data: bytes | None,
+        frame_count: int,
+        *_: Any,
+    ) -> tuple[bytes, int]:
         """Callback to send audio data to PyAudio.
 
         When processing is enabled, records the played audio as the echo reference at the moment it exits the
         speaker — the correct temporal alignment point for echo cancellation.
         """
-        byte_count = frame_count * pyaudio.get_sample_size(pyaudio.paInt16)
+        byte_count = frame_count * self._pyaudio.get_sample_size(self._pyaudio.paInt16)
         data = self._buffer.get(byte_count)
 
         if self._processor is not None:
             self._processor.record_playback(data)
 
-        return (data, pyaudio.paContinue)
+        return (data, self._pyaudio.paContinue)
 
 
 class BidiAudioIO:
@@ -373,6 +397,9 @@ class BidiAudioIO:
 
     Audio processing requires pywebrtc-audio (``pip install strands-agents[bidi-aec]``) and a microphone
     sample rate of 16000, 32000, or 48000 Hz (set via the model's audio config).
+
+    Device audio requires PyAudio. Install the PortAudio system library, then install
+    ``strands-agents[bidi-pyaudio]``.
 
     Example:
         ```python
@@ -416,8 +443,10 @@ class BidiAudioIO:
                 - output_frames_per_buffer (int): Output buffer size (default: 512, ignored when processing is on)
 
         Raises:
-            ImportError: If a processor config is set but pywebrtc-audio is not installed.
+            ImportError: If PyAudio is not installed, or a processor config is set but pywebrtc-audio is not
+                installed.
         """
+        self._pyaudio = self._import_pyaudio()
         processor_config: AudioProcessorConfig | None = config.pop("processor", None)
         self._config = config
 
@@ -429,10 +458,26 @@ class BidiAudioIO:
         else:
             self._processor = None
 
+    def _import_pyaudio(self) -> ModuleType:
+        """Import the PyAudio device backend.
+
+        Raises:
+            ImportError: If PyAudio is not installed.
+        """
+        try:
+            import pyaudio
+        except ImportError as error:
+            raise ImportError(
+                "PyAudio is required for BidiAudioIO. Install the PortAudio system library, then install "
+                "strands-agents[bidi-pyaudio]."
+            ) from error
+
+        return pyaudio
+
     def input(self) -> _BidiAudioInput:
         """Return audio processing BidiInput."""
-        return _BidiAudioInput(self._config, processor=self._processor)
+        return _BidiAudioInput(self._config, self._pyaudio, self._processor)
 
     def output(self) -> _BidiAudioOutput:
         """Return audio processing BidiOutput."""
-        return _BidiAudioOutput(self._config, processor=self._processor)
+        return _BidiAudioOutput(self._config, self._pyaudio, self._processor)

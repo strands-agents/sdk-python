@@ -93,14 +93,14 @@ class _ToolCaller:
 
             from ..agent import Agent  # Locally imported to avoid circular reference
 
-            acquired_lock = (
-                should_lock and isinstance(self._agent, Agent) and self._agent._concurrency.try_acquire_lock()
-            )
-            if should_lock and not acquired_lock:
-                raise ConcurrencyException(
-                    "Direct tool call cannot be made while the agent is in the middle of an invocation. "
-                    "Set record_direct_tool_call=False to allow direct tool calls during agent invocation."
-                )
+            acquired_lock = False
+            if should_lock and isinstance(self._agent, Agent):
+                acquired_lock = self._agent._concurrency.try_acquire_lock()
+                if not acquired_lock:
+                    raise ConcurrencyException(
+                        "Direct tool call cannot be made while the agent is in the middle of an invocation. "
+                        "Set record_direct_tool_call=False to allow direct tool calls during agent invocation."
+                    )
 
             try:
                 normalized_name = self._find_normalized_tool_name(name)

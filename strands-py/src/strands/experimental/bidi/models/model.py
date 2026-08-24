@@ -14,7 +14,8 @@ Features:
 """
 
 import logging
-from typing import Any, AsyncIterable, Protocol, runtime_checkable
+from collections.abc import AsyncIterable
+from typing import Any, Protocol, runtime_checkable
 
 from ....types._events import ToolResultEvent
 from ....types.content import Messages
