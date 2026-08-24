@@ -1,3 +1,5 @@
+import { z } from 'zod'
+
 import {
   type ContentBlock,
   Message,
@@ -12,6 +14,7 @@ import {
 import { CitationsBlock } from '../types/citations.js'
 import type { Citation, CitationGeneratedContent } from '../types/citations.js'
 import type { StateStore } from '../state-store.js'
+import { StructuredOutputTool } from '../tools/structured-output-tool.js'
 import type { ToolChoice, ToolSpec } from '../tools/types.js'
 import {
   ModelContentBlockDeltaEvent,
@@ -23,7 +26,7 @@ import {
   ModelRedactionEvent,
   type ModelStreamEvent,
 } from './streaming.js'
-import { MaxTokensError, ModelError, normalizeError } from '../errors.js'
+import { MaxTokensError, ModelError, StructuredOutputError, normalizeError } from '../errors.js'
 import type { Redaction } from '../hooks/events.js'
 import { logger } from '../logging/logger.js'
 import { DEFAULT_CONTEXT_WINDOW_LIMIT, getContextWindowLimit } from './defaults.js'
@@ -232,6 +235,9 @@ export interface StreamOptions {
   dynamicTrailingBlocks?: number
 }
 
+/** Options for one-shot structured model output. */
+export type StructuredOutputOptions = Omit<StreamOptions, 'toolSpecs' | 'toolChoice'>
+
 /**
  * Options for counting tokens in a set of messages.
  */
@@ -332,6 +338,65 @@ export abstract class Model<T extends BaseModelConfig = BaseModelConfig> {
    * @returns Async iterable of streaming events
    */
   abstract stream(messages: Message[], options?: StreamOptions): AsyncIterable<ModelStreamEvent>
+
+  /**
+   * Returns one model response validated against a Zod schema.
+   *
+   * This performs one forced structured-output tool call without Agent hooks, history mutation,
+   * retries, or validation-feedback turns.
+   *
+   * @param schema - Zod schema describing the required output
+   * @param messages - Conversation messages sent to the model
+   * @param options - Optional model invocation configuration
+   * @returns The validated structured output
+   * @throws StructuredOutputError - When the model does not invoke the required tool or returns invalid input
+   * @throws ModelError - When model invocation fails
+   */
+  async structuredOutput<Schema extends z.ZodType>(
+    schema: Schema,
+    messages: Message[],
+    options?: StructuredOutputOptions
+  ): Promise<z.output<Schema>> {
+    const tool = new StructuredOutputTool(schema)
+    const stream = this.streamAggregated(messages, {
+      ...options,
+      toolSpecs: [tool.toolSpec],
+      toolChoice: { tool: { name: tool.name } },
+    })
+
+    let result: StreamAggregatedResult | undefined
+    try {
+      for (;;) {
+        const event = await stream.next()
+        if (event.done) {
+          result = event.value
+          break
+        }
+      }
+    } catch (error) {
+      if (error instanceof ModelError && error.cause instanceof SyntaxError) {
+        throw new StructuredOutputError('The model returned malformed structured output.', { cause: error.cause })
+      }
+      throw error
+    }
+
+    if (result.stopReason !== 'toolUse') {
+      throw new StructuredOutputError('The model failed to invoke the structured output tool.')
+    }
+
+    const toolUse = result.message.content.find(
+      (block): block is ToolUseBlock => block instanceof ToolUseBlock && block.name === tool.name
+    )
+    if (!toolUse) {
+      throw new StructuredOutputError('The model returned no matching structured output tool use.')
+    }
+
+    try {
+      return schema.parse(toolUse.input) as z.output<Schema>
+    } catch (error) {
+      throw new StructuredOutputError('The model returned invalid structured output.', { cause: error })
+    }
+  }
 
   /**
    * Count tokens for the given input before sending to the model.

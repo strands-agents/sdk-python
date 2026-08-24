@@ -11,7 +11,6 @@ from strands import Agent, Plugin
 from strands.event_loop._retry import ModelRetryStrategy
 from strands.models import BedrockModel
 from strands.models.routing import (
-    CandidateMetadata,
     ModelRouter,
     RoutingAttempt,
     RoutingCandidate,
@@ -90,9 +89,8 @@ def test_routing_surface_is_re_exported_from_strands_models():
     import strands.models as models
 
     for symbol in (
-        "CandidateMetadata",
         "FallbackStrategy",
-        "InputComplexityStrategy",
+        "ClassifierStrategy",
         "ModelRouter",
         "RoutingCandidate",
         "RoutingContext",
@@ -148,14 +146,14 @@ def test_a_provider_whose_config_raises_neither_masks_a_guard_nor_breaks_routing
 
 def test_routing_candidate_metadata_is_preserved_without_changing_positional_construction():
     model = _model()
-    metadata = CandidateMetadata(
-        provider="private",
-        model_id="reasoner-v2",
-        input_modalities=("text", "image"),
-        context_window_limit=200_000,
-        supports_tool_use=True,
-        supports_reasoning=True,
-    )
+    metadata = {
+        "provider": "private",
+        "model_id": "reasoner-v2",
+        "input_modalities": ["text", "image"],
+        "context_window_limit": 200_000,
+        "supports_tool_use": True,
+        "supports_reasoning": True,
+    }
     router = ModelRouter(models=[RoutingCandidate(model, "routine", "simple tasks", metadata=metadata)])
 
     tru_candidate = router.candidates[0]

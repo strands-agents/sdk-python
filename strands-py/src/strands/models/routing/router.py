@@ -49,9 +49,10 @@ from __future__ import annotations
 import copy
 import inspect
 import logging
+import math
 from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, Literal, TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 from ..._middleware.stages import InvokeModelStage
 from ...hooks.events import AfterInvocationEvent, AfterModelCallEvent, BeforeInvocationEvent
@@ -69,42 +70,25 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-ModelModality: TypeAlias = Literal["text", "image", "audio", "video", "document"]
+
+_JSONValue: TypeAlias = str | int | float | bool | None | list["_JSONValue"] | dict[str, "_JSONValue"]
 
 
-@dataclass(frozen=True)
-class CandidateMetadata:
-    """Typed facts available to routing strategies.
-
-    Every field is optional. ``None`` means unknown, while ``False`` explicitly means a feature is unsupported.
-    Classifier-based strategies may send provided values to the classifier provider. Do not include secrets.
-
-    Attributes:
-        provider: Provider identifier.
-        model_id: Provider-specific model identifier.
-        input_modalities: Exhaustive supported input modalities. Valid values are ``text``, ``image``, ``audio``,
-            ``video``, and ``document``; an omitted modality is unsupported when this tuple is provided.
-        output_modalities: Exhaustive supported output modalities using the same vocabulary as ``input_modalities``.
-        context_window_limit: Maximum supported context-window size in tokens.
-        max_output_tokens: Maximum supported output size in tokens.
-        supports_tool_use: Whether the model supports tool use.
-        supports_parallel_tool_use: Whether the model supports parallel tool use.
-        supports_structured_output: Whether the model supports structured output.
-        supports_reasoning: Whether the model supports reasoning features.
-        supports_system_prompt: Whether the model supports system prompts.
-    """
-
-    provider: str | None = None
-    model_id: str | None = None
-    input_modalities: tuple[ModelModality, ...] | None = None
-    output_modalities: tuple[ModelModality, ...] | None = None
-    context_window_limit: int | None = None
-    max_output_tokens: int | None = None
-    supports_tool_use: bool | None = None
-    supports_parallel_tool_use: bool | None = None
-    supports_structured_output: bool | None = None
-    supports_reasoning: bool | None = None
-    supports_system_prompt: bool | None = None
+def _copy_json_value(value: object) -> _JSONValue:
+    """Validate and copy one JSON value."""
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("metadata numbers must be finite")
+        return value
+    if isinstance(value, list):
+        return [_copy_json_value(item) for item in value]
+    if isinstance(value, Mapping):
+        if not all(isinstance(key, str) for key in value):
+            raise TypeError("metadata object keys must be strings")
+        return {key: _copy_json_value(item) for key, item in value.items()}
+    raise TypeError("metadata must contain only JSON values")
 
 
 @dataclass(frozen=True)
@@ -112,14 +96,27 @@ class RoutingCandidate:
     """A model or model group with optional classifier-facing evidence.
 
     ``model`` may be a nested ``ModelRouter``, which contributes one opaque candidate. Its strategy selects from its
-    own candidates, and the group performs no internal failover. Candidate metadata may cross the classifier model's
-    provider boundary and must not contain secrets.
+    own candidates, and the group performs no internal failover. Metadata keys and values must be JSON-serializable;
+    classifier-based strategies may send them across provider boundaries, so they must not contain secrets.
+
+    Raises:
+        TypeError: If metadata is not a mapping containing only JSON values with string keys.
+        ValueError: If metadata contains a non-finite number.
     """
 
     model: Model | ModelRouter
     name: str | None = None
     description: str | None = None
-    metadata: CandidateMetadata | None = field(default=None, kw_only=True)
+    metadata: Mapping[str, _JSONValue] | None = field(default=None, kw_only=True)
+
+    def __post_init__(self) -> None:
+        """Validate and detach caller-owned metadata."""
+        if self.metadata is None:
+            return
+        if not isinstance(self.metadata, Mapping):
+            raise TypeError("metadata must be a mapping")
+        normalized = _copy_json_value(self.metadata)
+        object.__setattr__(self, "metadata", normalized)
 
 
 _ROUTING_KEY_PREFIX = "strands:model_routing"
@@ -158,7 +155,7 @@ class ModelRouter(Plugin):
 
         Args:
             models: The models to route among, as a sequence. Each is a ``Model``, a nested
-                ``ModelRouter``, or a ``RoutingCandidate`` wrapping one with a name, description, and typed metadata.
+                ``ModelRouter``, or a ``RoutingCandidate`` wrapping one with a name, description, and metadata.
                 The first is the router's default, used when a strategy declines, and each is normalized into the
                 ``RoutingCandidate`` a strategy chooses from.
             strategy: Chooses the candidate for each model call, and is asked again after a failed

@@ -8,16 +8,15 @@ candidate with the fewest recorded failures, breaking ties by declaration order,
 once a later call succeeds. The API is provisional and may change before it is finalized.
 """
 
+from .classifier_strategy import ClassifierStrategy
 from .fallback_strategy import FallbackStrategy
-from .input_complexity_strategy import InputComplexityStrategy
-from .router import CandidateInput, CandidateMetadata, ModelRouter, RoutingCandidate
+from .router import CandidateInput, ModelRouter, RoutingCandidate
 from .strategy import RoutingAttempt, RoutingContext, RoutingStrategy
 
 __all__ = [
     "CandidateInput",
-    "CandidateMetadata",
+    "ClassifierStrategy",
     "FallbackStrategy",
-    "InputComplexityStrategy",
     "ModelRouter",
     "RoutingAttempt",
     "RoutingCandidate",

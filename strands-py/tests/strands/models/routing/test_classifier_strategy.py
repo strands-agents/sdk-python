@@ -8,10 +8,10 @@ from typing import Any
 import pytest
 
 from strands import Agent
-from strands.models import CandidateMetadata, InputComplexityStrategy, ModelRouter, RoutingAttempt, RoutingCandidate
-from strands.models.routing.input_complexity_strategy import (
-    _CLASSIFICATION_MESSAGE_CHARACTER_LIMIT,
+from strands.models import ClassifierStrategy, ModelRouter, RoutingAttempt, RoutingCandidate
+from strands.models.routing.classifier_strategy import (
     _CLASSIFICATION_OMISSION_MARKER,
+    _DEFAULT_MESSAGE_CHARACTER_LIMIT,
     _latest_request_text,
 )
 from strands.models.routing.strategy import RoutingContext
@@ -73,7 +73,7 @@ def _candidate(text: str, **metadata: Any) -> RoutingCandidate:
         model=_response_model(text),
         name=text,
         description=f"Model suitable for {text} requests.",
-        metadata=CandidateMetadata(**metadata),
+        metadata=metadata,
     )
 
 
@@ -87,7 +87,7 @@ def _classification_context(system_prompt: str) -> dict[str, Any]:
 @pytest.mark.asyncio
 async def test_select_single_candidate_bypasses_classifier():
     classifier = _ClassifierModel(error=RuntimeError("classifier should not run"))
-    strategy = InputComplexityStrategy(classifier)
+    strategy = ClassifierStrategy(classifier)
     nested = ModelRouter(models=[_response_model("nested")])
     router = ModelRouter(models=[RoutingCandidate(nested)], strategy=strategy)
 
@@ -105,23 +105,23 @@ async def test_select_uses_only_explicit_candidate_evidence():
         first_model,
         name="multimodal",
         description="Handles complex multimodal analysis.",
-        metadata=CandidateMetadata(
-            provider="private",
-            model_id="private-reasoner-v2",
-            input_modalities=("text", "image"),
-            output_modalities=("text",),
-            context_window_limit=200_000,
-            max_output_tokens=16_000,
-            supports_tool_use=True,
-            supports_parallel_tool_use=False,
-            supports_structured_output=True,
-            supports_reasoning=True,
-            supports_system_prompt=True,
-        ),
+        metadata={
+            "provider": "private",
+            "model_id": "private-reasoner-v2",
+            "input_modalities": ["text", "image"],
+            "output_modalities": ["text"],
+            "context_window_limit": 200_000,
+            "max_output_tokens": 16_000,
+            "supports_tool_use": True,
+            "supports_parallel_tool_use": False,
+            "supports_structured_output": True,
+            "supports_reasoning": True,
+            "supports_system_prompt": True,
+        },
     )
     second = _candidate("routine", model_id="private-fast-v1", supports_tool_use=True)
     classifier = _ClassifierModel(selected_index=1)
-    strategy = InputComplexityStrategy(classifier)
+    strategy = ClassifierStrategy(classifier)
     router = ModelRouter(models=[first, second], strategy=strategy)
 
     tru_candidate = await strategy.select(_context(router))
@@ -131,26 +131,37 @@ async def test_select_uses_only_explicit_candidate_evidence():
         "candidates": [
             {
                 "candidate_index": 0,
-                "provider": "private",
-                "model_id": "private-reasoner-v2",
-                "input_modalities": ["text", "image"],
-                "output_modalities": ["text"],
-                "context_window_limit": 200_000,
-                "max_output_tokens": 16_000,
-                "supports_tool_use": True,
-                "supports_parallel_tool_use": False,
-                "supports_structured_output": True,
-                "supports_reasoning": True,
-                "supports_system_prompt": True,
-                "name": "multimodal",
-                "description": "Handles complex multimodal analysis.",
+                "evidence": json.dumps(
+                    {
+                        "name": "multimodal",
+                        "description": "Handles complex multimodal analysis.",
+                        "metadata": {
+                            "provider": "private",
+                            "model_id": "private-reasoner-v2",
+                            "input_modalities": ["text", "image"],
+                            "output_modalities": ["text"],
+                            "context_window_limit": 200_000,
+                            "max_output_tokens": 16_000,
+                            "supports_tool_use": True,
+                            "supports_parallel_tool_use": False,
+                            "supports_structured_output": True,
+                            "supports_reasoning": True,
+                            "supports_system_prompt": True,
+                        },
+                    },
+                    separators=(",", ":"),
+                ),
             },
             {
                 "candidate_index": 1,
-                "model_id": "private-fast-v1",
-                "supports_tool_use": True,
-                "name": "routine",
-                "description": "Model suitable for routine requests.",
+                "evidence": json.dumps(
+                    {
+                        "name": "routine",
+                        "description": "Model suitable for routine requests.",
+                        "metadata": {"model_id": "private-fast-v1", "supports_tool_use": True},
+                    },
+                    separators=(",", ":"),
+                ),
             },
         ],
     }
@@ -163,7 +174,7 @@ async def test_select_uses_only_explicit_candidate_evidence():
 @pytest.mark.asyncio
 async def test_select_classifies_candidates_without_optional_metadata():
     classifier = _ClassifierModel(selected_index=1)
-    strategy = InputComplexityStrategy(classifier)
+    strategy = ClassifierStrategy(classifier)
     router = ModelRouter(models=[_response_model("first"), _response_model("second")], strategy=strategy)
 
     tru_candidate = await strategy.select(_context(router))
@@ -171,7 +182,7 @@ async def test_select_classifies_candidates_without_optional_metadata():
 
     assert tru_candidate is router.candidates[1]
     assert classifier.calls == 1
-    assert tru_context["candidates"] == [{"candidate_index": index} for index in range(2)]
+    assert tru_context["candidates"] == [{"candidate_index": index, "evidence": "{}"} for index in range(2)]
 
 
 @pytest.mark.asyncio
@@ -179,7 +190,7 @@ async def test_select_declines_attempt_without_reclassification():
     classifier = _ClassifierModel()
     router = ModelRouter(models=[_candidate("first"), _candidate("second")])
     attempts = (RoutingAttempt(router.candidates[0], ValueError("down")),)
-    strategy = InputComplexityStrategy(classifier)
+    strategy = ClassifierStrategy(classifier)
 
     tru_candidate = await strategy.select(_context(router, attempts=attempts))
 
@@ -190,7 +201,7 @@ async def test_select_declines_attempt_without_reclassification():
 @pytest.mark.asyncio
 async def test_select_latest_request_skips_tool_result_payloads():
     classifier = _ClassifierModel(selected_index=1)
-    strategy = InputComplexityStrategy(classifier)
+    strategy = ClassifierStrategy(classifier)
     router = ModelRouter(models=[_candidate("routine"), _candidate("complex")], strategy=strategy)
     original_request = "Compare rollback safety across both migration plans"
     messages = [
@@ -250,7 +261,7 @@ def test_latest_request_is_bounded_and_excludes_opaque_payloads():
     ]
 
     tru_request = _latest_request_text(messages)
-    exp_shape = (_CLASSIFICATION_MESSAGE_CHARACTER_LIMIT, True, True)
+    exp_shape = (_DEFAULT_MESSAGE_CHARACTER_LIMIT, True, True)
 
     assert (
         len(tru_request),
@@ -277,10 +288,10 @@ async def test_select_custom_policy_preserves_mandatory_framing():
             RoutingCandidate(
                 _response_model("second"),
                 description=delimiter_injection,
-                metadata=CandidateMetadata(model_id="second-v1"),
+                metadata={"model_id": "second-v1"},
             ),
         ],
-        strategy=InputComplexityStrategy(classifier, classifier_system_prompt=policy),
+        strategy=ClassifierStrategy(classifier, system_prompt=policy),
     )
     base_context = _context(router, messages=[{"role": "user", "content": [{"text": malicious_instruction}]}])
     context = RoutingContext(
@@ -314,7 +325,7 @@ async def test_select_custom_policy_preserves_mandatory_framing():
 )
 async def test_select_classifier_failure_warns_safely_and_declines(classifier, reason, error_type, caplog):
     timeout = 0.001 if reason == "classifier_timeout" else 30
-    strategy = InputComplexityStrategy(classifier, classifier_timeout=timeout)
+    strategy = ClassifierStrategy(classifier, timeout=timeout)
     router = ModelRouter(models=[_candidate("first"), _candidate("second")], strategy=strategy)
 
     with caplog.at_level(logging.WARNING):
@@ -330,7 +341,7 @@ def test_agent_classifier_failure_serves_candidate_zero():
     classifier = _ClassifierModel(error=RuntimeError("classifier unavailable"))
     router = ModelRouter(
         models=[_candidate("default"), _candidate("other")],
-        strategy=InputComplexityStrategy(classifier),
+        strategy=ClassifierStrategy(classifier),
     )
     agent = Agent(model=router, retry_strategy=None, callback_handler=None)
 
@@ -350,10 +361,10 @@ def test_agent_selected_model_failure_surfaces_without_switching():
     failing = _SelectedModelFailure([])
     router = ModelRouter(
         models=[
-            RoutingCandidate(failing, description="Selected model.", metadata=CandidateMetadata(model_id="failing")),
+            RoutingCandidate(failing, description="Selected model.", metadata={"model_id": "failing"}),
             _candidate("healthy", model_id="healthy"),
         ],
-        strategy=InputComplexityStrategy(classifier),
+        strategy=ClassifierStrategy(classifier),
     )
     agent = Agent(model=router, retry_strategy=None, callback_handler=None)
 
@@ -371,11 +382,11 @@ def test_agent_selects_opaque_nested_router():
             RoutingCandidate(
                 nested,
                 description="Specialized reasoning model group.",
-                metadata=CandidateMetadata(model_id="reasoning-group", supports_reasoning=True),
+                metadata={"model_id": "reasoning-group", "supports_reasoning": True},
             ),
             _candidate("other", model_id="other"),
         ],
-        strategy=InputComplexityStrategy(classifier),
+        strategy=ClassifierStrategy(classifier),
     )
     agent = Agent(model=router, callback_handler=None)
 
@@ -386,17 +397,17 @@ def test_agent_selects_opaque_nested_router():
 
 
 def test_constructor_rejects_non_model_classifier():
-    with pytest.raises(TypeError, match="classifier_model must be a Model"):
-        InputComplexityStrategy(object())
+    with pytest.raises(TypeError, match="model must be a Model"):
+        ClassifierStrategy(object())
 
 
 @pytest.mark.parametrize("timeout", [None, "30", object(), True, False])
-def test_constructor_rejects_non_numeric_classifier_timeout(timeout):
-    with pytest.raises(TypeError, match="classifier_timeout must be a number"):
-        InputComplexityStrategy(_ClassifierModel(), classifier_timeout=timeout)
+def test_constructor_rejects_non_numeric_timeout(timeout):
+    with pytest.raises(TypeError, match="timeout must be a number"):
+        ClassifierStrategy(_ClassifierModel(), timeout=timeout)
 
 
 @pytest.mark.parametrize("timeout", [0, -1, float("nan"), float("inf"), float("-inf")])
-def test_constructor_rejects_non_positive_or_non_finite_classifier_timeout(timeout):
-    with pytest.raises(ValueError, match="classifier_timeout must be finite and greater than zero"):
-        InputComplexityStrategy(_ClassifierModel(), classifier_timeout=timeout)
+def test_constructor_rejects_non_positive_or_non_finite_timeout(timeout):
+    with pytest.raises(ValueError, match="timeout must be finite and greater than zero"):
+        ClassifierStrategy(_ClassifierModel(), timeout=timeout)

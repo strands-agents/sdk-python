@@ -201,8 +201,14 @@ export class ToolValidationError extends Error {
  * even after being forced via toolChoice.
  */
 export class StructuredOutputError extends Error {
-  constructor(message: string) {
-    super(message)
+  /**
+   * Creates a structured output error.
+   *
+   * @param message - Error message describing the failure
+   * @param options - Optional error options including the original cause
+   */
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
     this.name = 'StructuredOutputError'
   }
 }

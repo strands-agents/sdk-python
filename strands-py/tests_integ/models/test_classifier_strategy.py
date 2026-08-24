@@ -3,7 +3,7 @@
 import logging
 
 from strands import Agent
-from strands.models import BedrockModel, CandidateMetadata, InputComplexityStrategy, ModelRouter, RoutingCandidate
+from strands.models import BedrockModel, ClassifierStrategy, ModelRouter, RoutingCandidate
 from strands.types.exceptions import ModelThrottledException
 from tests_integ.conftest import retry_on_flaky
 
@@ -28,22 +28,22 @@ def test_model_router_selects_expected_model_from_three_candidates(caplog):
                 fast_model,
                 name="fast model",
                 description="Best suited to concise factual questions and routine requests.",
-                metadata=CandidateMetadata(provider="bedrock", model_id=_HAIKU_MODEL_ID),
+                metadata={"provider": "bedrock", "model_id": _HAIKU_MODEL_ID},
             ),
             RoutingCandidate(
                 advanced_model,
                 name="advanced model",
                 description="Best suited to complex systems design with several interacting constraints.",
-                metadata=CandidateMetadata(provider="bedrock", model_id=_NOVA_PRO_MODEL_ID),
+                metadata={"provider": "bedrock", "model_id": _NOVA_PRO_MODEL_ID},
             ),
             RoutingCandidate(
                 balanced_model,
                 name="balanced model",
                 description="Best suited to summaries and moderately complex general requests.",
-                metadata=CandidateMetadata(provider="bedrock", model_id=_NOVA_LITE_MODEL_ID),
+                metadata={"provider": "bedrock", "model_id": _NOVA_LITE_MODEL_ID},
             ),
         ],
-        strategy=InputComplexityStrategy(
+        strategy=ClassifierStrategy(
             BedrockModel(
                 model_id=_HAIKU_MODEL_ID,
                 max_tokens=64,
@@ -70,7 +70,7 @@ def test_model_router_selects_expected_model_from_three_candidates(caplog):
     assert result.stop_reason == "end_turn"
     assert str(result).strip()
     expected_log = (
-        "strategy=<InputComplexityStrategy>, candidate=<advanced model>, "
+        "strategy=<ClassifierStrategy>, candidate=<advanced model>, "
         f"model=<BedrockModel/{_NOVA_PRO_MODEL_ID}> | candidate selected"
     )
     assert any(expected_log in record.getMessage() for record in caplog.records)
