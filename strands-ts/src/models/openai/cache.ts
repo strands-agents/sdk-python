@@ -63,10 +63,7 @@ export function applyCacheConfig(request: CacheableRequest, cacheConfig: CacheCo
     if (RETENTION_LITERALS.has(cacheConfig.ttl)) {
       request.prompt_cache_retention = cacheConfig.ttl as 'in_memory' | '24h'
     } else {
-      warnOnce(
-        logger,
-        `ttl=<${cacheConfig.ttl}> | cacheConfig.ttl is not an openai retention value, ignoring`
-      )
+      warnOnce(logger, `ttl=<${cacheConfig.ttl}> | cacheConfig.ttl is not an openai retention value, ignoring`)
     }
   }
 
