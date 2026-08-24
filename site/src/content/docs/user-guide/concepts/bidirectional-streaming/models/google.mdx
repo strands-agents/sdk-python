@@ -1,6 +1,6 @@
 ---
 title: Google Live
-description: 'Build real-time voice agents with Gemini Live and Strands. Stream audio and text over WebSocket with interruptions and tool calling.'
+description: "Build real-time voice agents with Google's Gemini Live API and Strands. Stream audio and text over WebSocket with interruptions and tool calling."
 experimental: true
 tags: [bidi-streaming]
 sourceLinks:
@@ -19,12 +19,12 @@ The [Gemini Live API](https://ai.google.dev/gemini-api/docs/live) lets developer
 
 ## Installation
 
-Gemini Live is configured as an optional dependency in Strands Agents. 
+The Google Live provider is configured as an optional dependency in Strands Agents.
 
 To install it, run:
 
 ```bash
-pip install 'strands-agents[bidi-gemini]'
+pip install 'strands-agents[bidi-google]'
 ```
 
 Or to install all bidirectional streaming providers at once:
@@ -35,7 +35,7 @@ pip install 'strands-agents[bidi-all]'
 
 ## Usage
 
-After installing `strands-agents[bidi-gemini]`, you can import and initialize the Strands Agents' Gemini Live provider as follows:
+After installing `strands-agents[bidi-google]`, you can import and initialize the Strands Agents' Google Live provider as follows:
 
 ```python
 import asyncio
@@ -56,7 +56,7 @@ async def main() -> None:
                 "voice": "Kore",
             },
         },
-        client_config={"api_key": "<GOOGLE_AI_API_KEY>"},
+        client_config={"api_key": "<GOOGLE_API_KEY>"},
     )
     # stop tool allows user to verbally stop agent execution.
     agent = BidiAgent(model=model, tools=[calculator, stop])
@@ -90,13 +90,13 @@ For the list of supported voices and languages, see [here](https://docs.cloud.go
 
 ## Session Management
 
-Currently, `GoogleLiveModel` does not produce a message history and so has limited compatability with the Strands [session manager](../session-management.md). However, the provider does utilize Gemini's [Session Resumption](https://ai.google.dev/gemini-api/docs/live-session) as part of the [connection restart](../agent.md#connection-restart) workflow. This allows Gemini Live connections to persist up to 24 hours. After this time limit, a new `GoogleLiveModel` instance must be created to continue conversations.
+Currently, `GoogleLiveModel` does not produce a message history and so has limited compatibility with the Strands [session manager](../session-management.md). However, the provider does utilize Gemini's [Session Resumption](https://ai.google.dev/gemini-api/docs/live-session) as part of the [connection restart](../agent.md#connection-restart) workflow. This allows Gemini Live connections to persist up to 24 hours. After this time limit, a new `GoogleLiveModel` instance must be created to continue conversations.
 
 ## Troubleshooting
 
 ### Module Not Found
 
-If you encounter the error `ModuleNotFoundError: No module named 'google.genai'`, this means the `google-genai` dependency hasn't been properly installed in your environment. To fix this, run `pip install 'strands-agents[bidi-gemini]'`.
+If you encounter the error `ModuleNotFoundError: No module named 'google.genai'`, this means the `google-genai` dependency hasn't been properly installed in your environment. To fix this, run `pip install 'strands-agents[bidi-google]'`.
 
 ### API Key Issues
 

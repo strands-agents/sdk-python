@@ -204,21 +204,21 @@ It's also available on GitHub via [strands-agents/tools](https://github.com/stra
 Build real-time voice and audio conversations with persistent streaming connections. Unlike traditional request-response patterns, bidirectional streaming maintains long-running conversations where users can interrupt, provide continuous input, and receive real-time audio responses. Get started with your first BidiAgent by following the [Quickstart](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/quickstart/) guide. 
 
 **Supported Model Providers:**
-- Amazon Nova Sonic (v1, v2)
-- Google Gemini Live
+- Amazon Bedrock Nova Sonic (v1, v2)
+- Google Live (Gemini Live API)
 - OpenAI Realtime API
 
 **Installation:**
 
 ```bash
 # Server-side only (no audio I/O dependencies)
-pip install strands-agents[bidi]
+pip install strands-agents[bidi-bedrock]
 
 # With audio I/O support (includes PyAudio dependency)
-pip install strands-agents[bidi,bidi-io]
+pip install strands-agents[bidi-bedrock,bidi-io]
 ```
 
-> **Note**: Amazon Nova Sonic requires Python 3.12+ due to its experimental AWS SDK dependency.
+> **Note**: Bedrock Nova Sonic requires Python 3.12+ due to its experimental AWS SDK dependency.
 
 **Quick Example:**
 
@@ -249,7 +249,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-> **Note**: `BidiAudioIO` and `BidiTextIO` require the `bidi-io` extra. For server-side deployments where audio I/O is handled by clients (browsers, mobile apps), install only `strands-agents[bidi]` and implement custom input/output handlers using the `BidiInput` and `BidiOutput` protocols.
+> **Note**: `BidiAudioIO` and `BidiTextIO` require the `bidi-io` extra. For server-side deployments where audio I/O is handled by clients (browsers, mobile apps), install only `strands-agents[bidi-bedrock]` and implement custom input/output handlers using the `BidiInput` and `BidiOutput` protocols.
 
 **Configuration Options:**
 

@@ -1,6 +1,6 @@
 """Parameterized integration tests for bidirectional streaming.
 
-Tests fundamental functionality across multiple model providers (Nova Sonic, OpenAI, etc.)
+Tests fundamental functionality across multiple model providers (Bedrock, Google, and OpenAI),
 including multi-turn conversations, audio I/O, text transcription, and tool execution.
 
 This demonstrates the provider-agnostic design of the bidirectional streaming system.
@@ -51,21 +51,21 @@ def calculator(operation: str, x: float, y: float) -> float:
 
 # Provider configurations
 PROVIDER_CONFIGS = {
-    "nova_sonic": {
+    "bedrock_nova_sonic": {
         "model_class": BedrockNovaSonicModel,
         "model_kwargs": {"region": "us-east-1"},  # Uses v2 by default
         "silence_duration": 2.5,  # Nova Sonic needs 2+ seconds of silence
         "env_vars": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
         "skip_reason": "AWS credentials not available",
     },
-    "nova_sonic_v1": {
+    "bedrock_nova_sonic_v1": {
         "model_class": BedrockNovaSonicModel,
         "model_kwargs": {"model_id": "amazon.nova-sonic-v1:0", "region": "us-east-1"},
         "silence_duration": 2.5,  # Nova Sonic v1 needs 2+ seconds of silence
         "env_vars": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
         "skip_reason": "AWS credentials not available",
     },
-    "openai": {
+    "openai_realtime": {
         "model_class": OpenAIRealtimeModel,
         "model_kwargs": {
             "model": "gpt-4o-realtime-preview-2024-12-17",
@@ -88,14 +88,14 @@ PROVIDER_CONFIGS = {
         "env_vars": ["OPENAI_API_KEY"],
         "skip_reason": "OPENAI_API_KEY not available",
     },
-    "gemini_live": {
+    "google_live": {
         "model_class": GoogleLiveModel,
         "model_kwargs": {
             # Uses default model and config (audio output + transcription enabled)
         },
-        "silence_duration": 1.5,  # Gemini has good VAD, similar to OpenAI
-        "env_vars": ["GOOGLE_AI_API_KEY"],
-        "skip_reason": "GOOGLE_AI_API_KEY not available",
+        "silence_duration": 1.5,  # Google Live has good VAD, similar to OpenAI
+        "env_vars": ["GOOGLE_API_KEY"],
+        "skip_reason": "GOOGLE_API_KEY not available",
     },
 }
 
@@ -168,7 +168,7 @@ def agent_with_calculator(provider_config, hook_collector):
 async def test_bidirectional_agent(agent_with_calculator, audio_generator, provider_config, hook_collector):
     """Test multi-turn conversation with follow-up questions across providers.
 
-    This test runs against all configured providers (Nova Sonic, OpenAI, etc.)
+    This test runs against all configured providers (Bedrock, Google, and OpenAI)
     to validate provider-agnostic functionality.
 
     Validates:

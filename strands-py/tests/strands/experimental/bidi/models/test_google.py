@@ -1,4 +1,4 @@
-"""Unit tests for Gemini Live bidirectional streaming model.
+"""Unit tests for the Google Live bidirectional streaming model.
 
 Tests the unified GoogleLiveModel interface including:
 - Model initialization and configuration

@@ -135,7 +135,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # bidi requires Python >= 3.12 (see the bidi extra markers in pyproject.toml).
+        # The bidi test environment includes the Bedrock provider, which requires Python >= 3.12.
         python-version: ["3.12", "3.13"]
     defaults:
       run:

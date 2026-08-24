@@ -1,4 +1,4 @@
-"""Unit tests for Nova Sonic bidirectional model implementation.
+"""Unit tests for the Bedrock Nova Sonic bidirectional model implementation.
 
 Tests the unified BidirectionalModel interface implementation for Amazon Nova Sonic,
 covering connection lifecycle, event conversion, audio streaming, and tool execution.

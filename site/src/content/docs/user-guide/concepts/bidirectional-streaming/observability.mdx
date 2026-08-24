@@ -24,10 +24,10 @@ agent, see [Traces](../../observability-evaluation/traces.md),
 ## Enabling Tracing
 
 :::note[Install OpenTelemetry Dependencies]
-To run the Nova Sonic example below and export OTEL data, install both optional dependencies:
+To run the Bedrock Nova Sonic example below and export OTEL data, install both optional dependencies:
 
 ```shell
-pip install 'strands-agents[bidi,otel]'
+pip install 'strands-agents[bidi-bedrock,otel]'
 ```
 :::
 
@@ -446,9 +446,9 @@ in the trace:
 
 | Provider | Response spans | Notes |
 |----------|-----------------|-------|
-| Nova Sonic | One per content block | A single spoken turn can produce several `bidi_response` spans. All but the last close as `interrupted`, and time to first audio re-baselines on each. Count spoken turns from interruption events and finish reasons rather than by counting response spans. No cache tokens or modality breakdown reported. |
+| Bedrock Nova Sonic | One per content block | A single spoken turn can produce several `bidi_response` spans. All but the last close as `interrupted`, and time to first audio re-baselines on each. Count spoken turns from interruption events and finish reasons rather than by counting response spans. No cache tokens or modality breakdown reported. |
 | OpenAI Realtime | One per turn | Reports cache read tokens and a modality breakdown when available. |
-| Gemini Live | None | Emits no response lifecycle events, so a session produces no `bidi_response` spans. Interruptions, token usage including cache reads, and the modality breakdown are still reported. |
+| Google Live | None | Emits no response lifecycle events, so a session produces no `bidi_response` spans. Interruptions, token usage including cache reads, and the modality breakdown are still reported. |
 
 ## Best Practices
 
@@ -471,9 +471,9 @@ in the trace:
 | Issue | Solution |
 |-------|----------|
 | No spans at all | Install the `otel` extra and configure an exporter before agent start |
-| No `bidi_response` spans | Expected on Gemini Live, which emits no response lifecycle |
+| No `bidi_response` spans | Expected on Google Live, which emits no response lifecycle |
 | Session span has no token attributes | The session is still open, or usage was never reported |
-| More response spans than spoken turns | Expected on Nova Sonic, one response per content block |
+| More response spans than spoken turns | Expected on Bedrock Nova Sonic, one response per content block |
 | `gen_ai.system_instructions` reads `[REDACTED]` | Add it to the unredacted allowlist |
 | Restart span has an error message but status `OK` | The reconnect succeeded; the message is the timeout that triggered it |
 

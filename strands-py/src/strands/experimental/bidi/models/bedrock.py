@@ -1,4 +1,4 @@
-"""Nova Sonic bidirectional model provider for real-time streaming conversations.
+"""Amazon Bedrock Nova Sonic provider for real-time streaming conversations.
 
 Implements the BidiModel interface for Amazon's Nova Sonic, handling the
 complex event sequencing and audio processing required by Nova Sonic's
@@ -104,7 +104,7 @@ _STRANDS_USER_AGENT_EXTRA = "strands-agents"
 
 
 class BedrockNovaSonicModel(BidiModel):
-    """Nova Sonic implementation for bidirectional streaming.
+    """Amazon Bedrock Nova Sonic implementation for bidirectional streaming.
 
     Combines model configuration and connection state in a single class.
     Manages Nova Sonic's complex event sequencing, audio format conversion, and

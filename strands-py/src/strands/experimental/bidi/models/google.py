@@ -1,4 +1,4 @@
-"""Gemini Live API bidirectional model provider using official Google GenAI SDK.
+"""Google Live model provider using the Gemini Live API and official Google GenAI SDK.
 
 Implements the BidiModel interface for Google's Gemini Live API using the
 official Google GenAI SDK for simplified and robust WebSocket communication.
@@ -68,7 +68,7 @@ class GoogleLiveModel(BidiModel):
         client_config: dict[str, Any] | None = None,
         **kwargs: Any,
     ):
-        """Initialize Gemini Live API bidirectional model.
+        """Initialize the Google Live bidirectional model.
 
         Args:
             model_id: Model identifier (default: gemini-2.5-flash-native-audio-preview-09-2025)
