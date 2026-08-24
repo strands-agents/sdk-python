@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest'
 import { FileMemoryStore } from '../store.js'
+import { createKeyAwareExtractor } from '../index.js'
 import { InMemoryStorage } from '../../../storage/in-memory-storage.js'
 import type { Storage } from '../../../storage/storage.js'
 import type { ExtractionConfig } from '../../../memory/extraction/types.js'
@@ -263,6 +264,16 @@ describe('FileMemoryStore', () => {
   })
 
   describe('extraction (key-aware extractor)', () => {
+    const createMockModel = (modelId: string): { modelId: string; streamAggregated: Mock } => ({
+      modelId,
+      streamAggregated: vi.fn().mockReturnValue({
+        next: vi.fn().mockResolvedValue({
+          done: true,
+          value: { message: { content: [{ text: '[]' }] }, stopReason: 'end_turn', metadata: {} },
+        }),
+      }),
+    })
+
     it('includes existing topic headings in the system prompt', async () => {
       const extractionStore = new FileMemoryStore({ name: 'ext-test', storage, extraction: true })
       await extractionStore.add('User preferences\nPrefers dark mode\nUses vim')
@@ -322,6 +333,39 @@ describe('FileMemoryStore', () => {
       const callArgs = mockModel.streamAggregated.mock.calls[0]!
       const systemPrompt = callArgs[1].systemPrompt as string
       expect(systemPrompt).not.toContain('Existing topics:')
+    })
+
+    it('uses the configured model over the context default model', async () => {
+      const configuredModel = createMockModel('configured')
+      const contextDefaultModel = createMockModel('context-default')
+      const extractor = createKeyAwareExtractor(scoped, configuredModel as never)
+
+      const messages: MessageData[] = [{ role: 'user', content: [{ text: 'I prefer light themes' }] }]
+      await extractor.extract(messages, { defaultModel: contextDefaultModel as never })
+
+      expect(configuredModel.streamAggregated).toHaveBeenCalledTimes(1)
+      expect(contextDefaultModel.streamAggregated).not.toHaveBeenCalled()
+    })
+
+    it('falls back to the context default model when no model is configured', async () => {
+      const contextDefaultModel = createMockModel('context-default')
+      const extractor = createKeyAwareExtractor(scoped)
+
+      const messages: MessageData[] = [{ role: 'user', content: [{ text: 'I prefer light themes' }] }]
+      await extractor.extract(messages, { defaultModel: contextDefaultModel as never })
+
+      expect(contextDefaultModel.streamAggregated).toHaveBeenCalledTimes(1)
+    })
+
+    it('builds the system prompt on the base extraction instruction', async () => {
+      const mockModel = createMockModel('mock')
+      const extractor = createKeyAwareExtractor(scoped)
+
+      const messages: MessageData[] = [{ role: 'user', content: [{ text: 'Hello' }] }]
+      await extractor.extract(messages, { defaultModel: mockModel as never })
+
+      const systemPrompt = mockModel.streamAggregated.mock.calls[0]![1].systemPrompt as string
+      expect(systemPrompt).toContain('You extract durable facts worth remembering')
     })
   })
 })

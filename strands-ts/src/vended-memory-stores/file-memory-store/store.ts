@@ -10,6 +10,7 @@ import type { ExtractionConfig, ExtractionResult, Extractor, ExtractorContext } 
 import type { JSONValue } from '../../types/json.js'
 import type { MessageData } from '../../types/messages.js'
 import type { Storage } from '../../storage/storage.js'
+import type { Model } from '../../models/model.js'
 
 /**
  * Configuration for {@link FileMemoryStore}.
@@ -61,8 +62,20 @@ function slugify(text: string): string {
     .replace(/-+$/, '')
 }
 
-/** Creates an extractor that injects existing topic headings so the model reuses them. */
-function createKeyAwareExtractor(storage: Storage): Extractor {
+/**
+ * Creates an {@link Extractor} that injects the store's existing topic headings into the extraction
+ * prompt so the model reuses them, keeping related facts in one entry instead of fragmenting.
+ *
+ * Headings are read from `storage` via `list`, so pass the same (namespaced) storage the entries are
+ * written to. {@link FileMemoryStore} scopes storage to `memory/<name>/` internally; to pair this
+ * extractor with a store from the outside, give it `rawStorage.namespace('memory/<name>')` so the
+ * listing lines up — otherwise no existing headings are found.
+ *
+ * @param storage - Storage the entries live under, listed to derive existing headings
+ * @param model - Model used to extract facts. Defaults to the agent's own model; set a cheaper one to cut cost.
+ * @returns An extractor that reuses existing topic headings.
+ */
+export function createKeyAwareExtractor(storage: Storage, model?: Model): Extractor {
   return {
     async extract(messages: MessageData[], context?: ExtractorContext): Promise<ExtractionResult[]> {
       const existingKeys = await storage.list('')
@@ -73,7 +86,7 @@ function createKeyAwareExtractor(storage: Storage): Extractor {
         systemPrompt += `\n\nExisting topics: ${headings.join(', ')}. Reuse an existing topic heading when new facts belong to it.`
       }
 
-      return new ModelExtractor({ systemPrompt }).extract(messages, context)
+      return new ModelExtractor({ systemPrompt, ...(model !== undefined && { model }) }).extract(messages, context)
     },
   }
 }
