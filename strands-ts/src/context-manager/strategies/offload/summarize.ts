@@ -20,9 +20,12 @@ import {
 import {
   BaseOffloadStrategy,
   collectRemovableWithPair,
+  formatStashRefs,
+  spliceWithPairs,
   repairAlternation,
   type OffloadConditions,
   type OffloadTarget,
+  type StashRef,
 } from './base.js'
 
 export class SummarizeStrategy extends BaseOffloadStrategy {
@@ -86,14 +89,7 @@ export class SummarizeStrategy extends BaseOffloadStrategy {
       ],
     })
 
-    // Remove summarized messages, tracking the lowest removal point for insertion
-    let lowestIndex = messages.length
-    for (const message of safe) {
-      const index = messages.indexOf(message)
-      if (index === -1) continue
-      if (index < lowestIndex) lowestIndex = index
-      messages.splice(index, 1)
-    }
+    const { lowestIndex } = spliceWithPairs(messages, safe)
 
     const insertIndex = Math.max(1, Math.min(lowestIndex, messages.length))
     messages.splice(insertIndex, 0, summaryMessage)
@@ -107,7 +103,8 @@ export class SummarizeStrategy extends BaseOffloadStrategy {
     block: TextBlock | ToolResultBlock,
     tokens: number,
     message: Message,
-    agent: LocalAgent
+    agent: LocalAgent,
+    stashRefs: StashRef[]
   ): Promise<ContentBlock | null> {
     const model = this._resolveModel(agent)
     if (!model) return null
@@ -116,11 +113,14 @@ export class SummarizeStrategy extends BaseOffloadStrategy {
       const summary = await summarizeContent(toolResultToContentBlocks(block.content), model, this._config)
       if (!summary) return null
 
+      const refSuffix = stashRefs.length > 0 ? ` ${formatStashRefs(stashRefs)}` : ''
       logger.debug(`toolUseId=<${block.toolUseId}>, tokens=<${tokens}> | summarized tool result`)
       return new ToolResultBlock({
         toolUseId: block.toolUseId,
         status: block.status,
-        content: [new TextBlock(`${SUMMARIZED_PREFIX} ~${tokens.toLocaleString()} tokens]\n\n${summary}`)],
+        content: [
+          new TextBlock(`${SUMMARIZED_PREFIX} ~${tokens.toLocaleString()} tokens |${refSuffix}]\n\n${summary}`),
+        ],
       })
     }
 

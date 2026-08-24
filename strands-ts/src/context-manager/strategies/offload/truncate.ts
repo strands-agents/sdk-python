@@ -12,10 +12,12 @@ import type { ContextStrategy, ContextState } from '../../types.js'
 import { truncateToolResultBlock, truncateTextBlock, type TruncateConfig } from '../../methods/truncate.js'
 import {
   BaseOffloadStrategy,
+  formatStashRefs,
   spliceWithPairs,
   repairAlternation,
   type OffloadConditions,
   type OffloadTarget,
+  type StashRef,
 } from './base.js'
 
 export class TruncateStrategy extends BaseOffloadStrategy {
@@ -85,13 +87,34 @@ export class TruncateStrategy extends BaseOffloadStrategy {
     block: TextBlock | ToolResultBlock,
     tokens: number,
     message: Message,
-    _agent: LocalAgent
+    _agent: LocalAgent,
+    stashRefs: StashRef[]
   ): Promise<ContentBlock | null> {
     if (block instanceof ToolResultBlock) {
       logger.debug(`toolUseId=<${block.toolUseId}>, tokens=<${tokens}> | truncated tool result`)
-      return truncateToolResultBlock(block, this._truncateConfig)
+      const truncated = truncateToolResultBlock(block, this._truncateConfig)
+      if (stashRefs.length > 0 && truncated !== block) {
+        return appendStashRefs(truncated, stashRefs)
+      }
+      return truncated
     }
     logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | truncated text block`)
     return truncateTextBlock(block, this._truncateConfig)
   }
+}
+
+function appendStashRefs(block: ToolResultBlock, stashRefs: StashRef[]): ToolResultBlock {
+  const content = [...block.content]
+  for (let index = 0; index < content.length; index++) {
+    const item = content[index]!
+    if (item instanceof TextBlock) {
+      content[index] = new TextBlock(`${item.text}\n\n[Stashed: ${formatStashRefs(stashRefs)}]`)
+      return new ToolResultBlock({
+        toolUseId: block.toolUseId,
+        status: block.status,
+        content,
+      })
+    }
+  }
+  return block
 }

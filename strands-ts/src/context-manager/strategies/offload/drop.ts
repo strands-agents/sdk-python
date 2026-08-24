@@ -9,8 +9,8 @@ import { Message, TextBlock, ToolResultBlock } from '../../../types/messages.js'
 import type { ContentBlock } from '../../../types/messages.js'
 import type { LocalAgent } from '../../../types/agent.js'
 import type { ContextStrategy } from '../../types.js'
-import { BaseOffloadStrategy } from './base.js'
-import type { OffloadConditions } from './base.js'
+import { BaseOffloadStrategy, formatStashRefs } from './base.js'
+import type { OffloadConditions, StashRef } from './base.js'
 
 export const DROPPED_MARKER = '[Dropped]'
 
@@ -29,14 +29,16 @@ export class DropStrategy extends BaseOffloadStrategy {
     block: TextBlock | ToolResultBlock,
     _tokens: number,
     message: Message,
-    _agent: LocalAgent
+    _agent: LocalAgent,
+    stashRefs: StashRef[]
   ): Promise<ContentBlock | null> {
     if (block instanceof ToolResultBlock) {
       logger.debug(`toolUseId=<${block.toolUseId}> | dropped tool result from context window`)
+      const marker = stashRefs.length > 0 ? `${DROPPED_MARKER} ${formatStashRefs(stashRefs)}` : DROPPED_MARKER
       return new ToolResultBlock({
         toolUseId: block.toolUseId,
         status: block.status,
-        content: [new TextBlock(DROPPED_MARKER)],
+        content: [new TextBlock(marker)],
       })
     }
     logger.debug(`trackingId=<${message.trackingId}> | dropped text block from context window`)
