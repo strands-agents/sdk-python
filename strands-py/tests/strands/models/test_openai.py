@@ -1817,6 +1817,17 @@ def test_format_request_filters_s3_source_image(model, caplog):
     assert "Location sources are not supported by OpenAI" in caplog.text
 
 
+def test_format_request_skips_message_cache_point(model, caplog):
+    caplog.set_level(logging.WARNING, logger="strands.models.openai")
+
+    messages = [{"role": "user", "content": [{"text": "durable prefix"}, {"cachePoint": {"type": "default"}}]}]
+
+    request = model.format_request(messages)
+
+    assert request["messages"][0]["content"] == [{"text": "durable prefix", "type": "text"}]
+    assert "cachePoint content block is not supported by OpenAI" in caplog.text
+
+
 def test_format_request_filters_location_source_document(model, caplog):
     """Test that documents with Location sources are filtered out with warning."""
     caplog.set_level(logging.WARNING, logger="strands.models.openai")

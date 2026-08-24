@@ -419,6 +419,16 @@ def test_format_request_messages_assistant_non_text_content_dropped(caplog):
     assert "content_type=<input_image>" in caplog.text
 
 
+def test_format_request_messages_skips_message_cache_point(caplog):
+    messages = [{"role": "user", "content": [{"text": "durable prefix"}, {"cachePoint": {"type": "default"}}]}]
+
+    with caplog.at_level(logging.WARNING, logger="strands.models.openai_responses"):
+        result = OpenAIResponsesModel._format_request_messages(messages)
+
+    assert result == [{"role": "user", "content": [{"type": "input_text", "text": "durable prefix"}]}]
+    assert "cachePoint content block is not supported by OpenAI Responses" in caplog.text
+
+
 def test_format_request_messages_assistant_only_non_text_content_dropped_entirely(caplog):
     """An assistant turn with only non-text content collapses to nothing and is omitted."""
     messages = [
