@@ -8,6 +8,8 @@ import pydantic
 import pytest
 
 import strands
+from strands.logging import warn_once
+from strands.models import CacheConfig
 from strands.models.openai import OpenAIModel
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 
@@ -720,6 +722,64 @@ def test_format_request_respects_legacy_stream_param(openai_client, model_id, me
 
     assert tru_request["stream"] is False
     assert "stream_options" not in tru_request
+
+
+def test_cache_key_maps_to_prompt_cache_key(openai_client, model_id, messages):
+    _ = openai_client
+    model = OpenAIModel(model_id=model_id, cache_config=CacheConfig(cache_key="tenant-42"))
+
+    assert model.format_request(messages)["prompt_cache_key"] == "tenant-42"
+
+
+def test_cache_key_absent_when_unset(openai_client, model_id, messages):
+    _ = openai_client
+    model = OpenAIModel(model_id=model_id, cache_config=CacheConfig())
+
+    assert "prompt_cache_key" not in model.format_request(messages)
+
+
+def test_explicit_prompt_cache_key_in_params_wins(openai_client, model_id, messages):
+    _ = openai_client
+    model = OpenAIModel(
+        model_id=model_id,
+        params={"prompt_cache_key": "explicit"},
+        cache_config=CacheConfig(cache_key="from-config"),
+    )
+
+    assert model.format_request(messages)["prompt_cache_key"] == "explicit"
+
+
+@pytest.mark.parametrize("retention", ["24h", "in_memory"])
+def test_translatable_ttl_maps_to_prompt_cache_retention(openai_client, model_id, messages, retention):
+    _ = openai_client
+    model = OpenAIModel(model_id=model_id, cache_config=CacheConfig(cache_key="k", ttl=retention))
+
+    assert model.format_request(messages)["prompt_cache_retention"] == retention
+
+
+def test_untranslatable_ttl_is_ignored_and_warned_once(openai_client, model_id, messages, caplog):
+    _ = openai_client
+    warn_once._warned.clear()
+    model = OpenAIModel(model_id=model_id, cache_config=CacheConfig(cache_key="k", ttl="5m"))
+
+    with caplog.at_level(logging.WARNING, logger="strands.models._openai_cache"):
+        model.format_request(messages)
+        model.format_request(messages)
+
+    assert "prompt_cache_retention" not in model.format_request(messages)
+    assert sum("not an openai retention value" in record.message for record in caplog.records) == 1
+
+
+def test_placement_fields_are_no_ops_warned_once(openai_client, model_id, messages, caplog):
+    _ = openai_client
+    warn_once._warned.clear()
+    model = OpenAIModel(model_id=model_id, cache_config=CacheConfig(strategy="anthropic", cache_key="k"))
+
+    with caplog.at_level(logging.WARNING, logger="strands.models._openai_cache"):
+        model.format_request(messages)
+        model.format_request(messages)
+
+    assert sum("have no effect" in record.message for record in caplog.records) == 1
 
 
 def test_format_request_with_tool_choice_auto(model, messages, tool_specs, system_prompt):

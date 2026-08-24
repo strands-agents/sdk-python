@@ -130,9 +130,7 @@ def test_cache_key_does_not_change_request_shape(anthropic_client, messages, mod
     """Anthropic ignores cache_key: two configs differing only in cache_key format identically."""
     _ = anthropic_client
     without_key = AnthropicModel(model_id=model_id, max_tokens=max_tokens, cache_config=CacheConfig())
-    with_key = AnthropicModel(
-        model_id=model_id, max_tokens=max_tokens, cache_config=CacheConfig(cache_key="tenant-42")
-    )
+    with_key = AnthropicModel(model_id=model_id, max_tokens=max_tokens, cache_config=CacheConfig(cache_key="tenant-42"))
 
     assert with_key.format_request(messages) == without_key.format_request(messages)
 
