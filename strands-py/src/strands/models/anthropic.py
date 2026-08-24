@@ -46,6 +46,13 @@ _CACHEABLE_BLOCK_TYPES = frozenset({"document", "image", "text", "tool_result", 
 # ``ephemeral`` is the only cache type the Anthropic API supports
 _ANTHROPIC_CACHE_TYPE = "ephemeral"
 
+# anthropic 1.0 removed these sampling parameters from the messages method signatures; the API still
+# accepts them in the request body, so on 1.x they are routed through ``extra_body`` instead.
+# https://github.com/anthropics/anthropic-sdk-python/blob/main/MIGRATION.md
+_ANTHROPIC_REMOVED_SAMPLING_PARAMS = frozenset({"temperature", "top_k", "top_p"})
+
+_ANTHROPIC_MAJOR_VERSION = int(anthropic.__version__.split(".")[0])
+
 
 class AnthropicModel(Model):
     """Anthropic model provider implementation."""
@@ -78,6 +85,8 @@ class AnthropicModel(Model):
                 https://docs.anthropic.com/en/docs/about-claude/models/all-models.
             params: Additional model parameters (e.g., temperature).
                 For a complete list of supported parameters, see https://docs.anthropic.com/en/api/messages.
+                With anthropic>=1.0 installed, temperature, top_k, and top_p are routed through
+                extra_body since the SDK removed them from its method signatures.
             use_native_token_count: Whether to use the native Anthropic count_tokens API.
                 When True, count_tokens() calls the Anthropic API for accurate counts.
                 When False (default), skips the API call and uses the local estimator.
@@ -437,10 +446,30 @@ class AnthropicModel(Model):
             "tools": tools,
             **(self._format_tool_choice(tool_choice)),
             **({"system": system} if system else {}),
-            **(self.config.get("params") or {}),
+            **self._format_request_params(),
         }
 
         return request
+
+    def _format_request_params(self) -> dict[str, Any]:
+        """Return the config params, adapted to the installed anthropic SDK version.
+
+        anthropic 1.0 removed the sampling parameters (temperature, top_k, top_p) from the messages
+        method signatures, so on 1.x they are routed through ``extra_body``, which merges them into
+        the request body. An explicit user ``extra_body`` value wins on key conflicts.
+
+        Returns:
+            The params to spread into the request.
+        """
+        params = dict(self.config.get("params") or {})
+        if _ANTHROPIC_MAJOR_VERSION < 1:
+            return params
+
+        sampling_params = {key: params.pop(key) for key in _ANTHROPIC_REMOVED_SAMPLING_PARAMS & params.keys()}
+        if sampling_params:
+            params["extra_body"] = {**sampling_params, **(params.get("extra_body") or {})}
+
+        return params
 
     def _format_system_prompt(
         self, system_prompt: str | None, system_prompt_content: list[SystemContentBlock] | None
