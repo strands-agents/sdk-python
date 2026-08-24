@@ -35,17 +35,22 @@ async def search_until(
     query: str,
     predicate: Callable[[MemoryEntry], bool] | None = None,
     *,
-    timeout_s: float = 60.0,
+    timeout_s: float = 150.0,
     interval_s: float = 2.0,
 ) -> MemoryEntry | None:
     """Poll a store search until an entry matches ``predicate`` (default: any result), or time out.
 
     Returns the matched entry, or ``None`` on timeout.
 
-    Use to absorb ``Retrieve`` propagation lag: even after a document reports INDEXED, a single search
-    can miss it. Also the only option when the written content has no test-known document id -
-    extraction rephrases what it writes and the add tool mints ids internally, so indexing can't be
-    awaited by id via :func:`wait_for_indexed`.
+    Two usage modes, both covered by the default budget:
+
+    - After :func:`wait_for_indexed`, to absorb ``Retrieve`` propagation lag - even after a document
+      reports INDEXED, a single search can miss it. Here the match lands on the first poll and the
+      budget is never consumed.
+    - Standalone, when the written content has no searchable test-known id: extraction rephrases what
+      it writes across an unknown number of documents, so there is no single id to await via
+      :func:`wait_for_indexed`. Here the poll must cover the whole write->index->retrieve pipeline,
+      so the default spans indexing latency (see :func:`wait_for_indexed`) plus retrieve lag.
     """
     if predicate is None:
         predicate = lambda _entry: True  # noqa: E731 - tiny default predicate
