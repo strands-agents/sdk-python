@@ -1,4 +1,3 @@
-// @ts-nocheck
 // --8<-- [start:direct_tool_calling_imports]
 import { Agent } from '@strands-agents/sdk'
 import { notebook } from '@strands-agents/sdk/vended-tools/notebook'
