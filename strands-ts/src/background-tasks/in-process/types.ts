@@ -2,20 +2,10 @@ import type { InterruptStateData } from '../../interrupt.js'
 import type { ToolResultBlockData } from '../../types/messages.js'
 
 /** Background task lifecycle status. @internal */
-export type TaskStatus = 'queued' | 'working' | 'paused' | 'completed' | 'failed' | 'cancelled'
+export type TaskStatus = 'queued' | 'working' | 'input_required' | 'completed' | 'failed' | 'cancelled'
 
 /** Background task failure category. @internal */
 export type TaskFailureType = 'toolError' | 'executionError' | 'timeout'
-
-/** Identifies the approved tool execution owned by an in-process task. @internal */
-export interface InProcessTaskDescriptor {
-  /** Identifier of the tool use. */
-  readonly toolUseId: string
-  /** Name of the tool to execute. */
-  readonly toolName: string
-  /** Identifier of the manager-owned live execution state. */
-  readonly invocationStateId: string
-}
 
 /** Options and callbacks for bounded in-process task execution. @internal */
 export interface InProcessTaskEngineOptions {
@@ -23,7 +13,7 @@ export interface InProcessTaskEngineOptions {
   readonly maxConcurrency: number
   /** Per-execution timeout in milliseconds, or `Infinity` to disable timeouts. */
   readonly timeout: number
-  /** Runs one task execution and returns whether it completed, paused, or failed. */
+  /** Runs one task execution and returns whether it completed, requires input, or failed. */
   readonly execute: (context: InProcessTaskExecutionContext) => Promise<TaskExecutionOutcome>
   /** Receives committed task updates without blocking or failing the engine. */
   readonly onTaskUpdated: (task: InProcessTaskRecord) => void
@@ -33,9 +23,13 @@ export interface InProcessTaskEngineOptions {
 export interface InProcessTaskExecutionContext {
   /** Identifier of the logical task. */
   readonly taskId: string
-  /** Submitted execution descriptor. */
-  readonly descriptor: InProcessTaskDescriptor
-  /** Execution state supplied when resuming a paused task. */
+  /** Identifier of the tool use. */
+  readonly toolUseId: string
+  /** Name of the tool to execute. */
+  readonly toolName: string
+  /** Identifier of the manager-owned live execution state. */
+  readonly invocationStateId: string
+  /** Interrupt state supplied when resuming a task that requires input. */
   readonly state?: InterruptStateData
   /** Signal aborted when this execution should stop. */
   readonly cancelSignal: AbortSignal
@@ -48,7 +42,7 @@ export type TaskExecutionOutcome =
       readonly result: ToolResultBlockData
     }
   | {
-      readonly status: 'paused'
+      readonly status: 'input_required'
       readonly state: InterruptStateData
     }
   | {
@@ -66,11 +60,15 @@ export interface InProcessTaskRecord {
   readonly taskId: string
   /** Optional key used to deduplicate task admission. */
   readonly idempotencyKey?: string
-  /** Submitted execution descriptor. */
-  readonly descriptor: InProcessTaskDescriptor
+  /** Identifier of the tool use. */
+  readonly toolUseId: string
+  /** Name of the tool to execute. */
+  readonly toolName: string
+  /** Identifier of the manager-owned live execution state. */
+  readonly invocationStateId: string
   /** Current task lifecycle status. */
   status: TaskStatus
-  /** Execution state, required while paused and retained while resuming. */
+  /** Interrupt state, required while the task needs input and retained while resuming. */
   state?: InterruptStateData
   /** Execution result, required while completed and optional while failed. */
   result?: ToolResultBlockData

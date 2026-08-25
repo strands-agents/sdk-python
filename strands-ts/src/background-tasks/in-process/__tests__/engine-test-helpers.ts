@@ -2,17 +2,10 @@ import { expect } from 'vitest'
 import { InProcessTaskEngine } from '../engine.js'
 import type { InterruptStateData } from '../../../interrupt.js'
 import type { ToolResultBlockData } from '../../../types/messages.js'
-import type {
-  InProcessTaskDescriptor,
-  InProcessTaskEngineOptions,
-  InProcessTaskRecord,
-  TaskExecutionOutcome,
-} from '../types.js'
+import type { InProcessTaskEngineOptions, InProcessTaskRecord } from '../types.js'
 
-export type TestOutcome = TaskExecutionOutcome
-export type TestTask = InProcessTaskRecord
-
-type ExpectedTaskFields = Pick<TestTask, 'status'> & Partial<Pick<TestTask, 'state' | 'result' | 'failure'>>
+type ExpectedTaskFields = Pick<InProcessTaskRecord, 'status'> &
+  Partial<Pick<InProcessTaskRecord, 'state' | 'result' | 'failure'>>
 
 export function createEngine(
   execute: InProcessTaskEngineOptions['execute'],
@@ -27,7 +20,9 @@ export function createEngine(
   })
 }
 
-export function createDescriptor(value: string): InProcessTaskDescriptor {
+export function createAdmission(
+  value: string
+): Pick<InProcessTaskRecord, 'toolUseId' | 'toolName' | 'invocationStateId'> {
   return {
     toolUseId: value,
     toolName: value,
@@ -67,11 +62,17 @@ export function deferred<Value>(): { promise: Promise<Value>; resolve(value: Val
   return { promise, resolve }
 }
 
-export function expectTask(actual: TestTask | undefined, task: TestTask, fields: ExpectedTaskFields): void {
+export function expectTask(
+  actual: InProcessTaskRecord | undefined,
+  task: InProcessTaskRecord,
+  fields: ExpectedTaskFields
+): void {
   expect(actual).toEqual({
     taskId: task.taskId,
     ...(task.idempotencyKey !== undefined && { idempotencyKey: task.idempotencyKey }),
-    descriptor: task.descriptor,
+    toolUseId: task.toolUseId,
+    toolName: task.toolName,
+    invocationStateId: task.invocationStateId,
     ...fields,
     createdAt: task.createdAt,
     updatedAt: expect.any(String),

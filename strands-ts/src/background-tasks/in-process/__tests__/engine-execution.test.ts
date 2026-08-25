@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createDescriptor, createEngine, createResult, deferred, expectTask } from './engine-test-helpers.js'
-import type { TestOutcome, TestTask } from './engine-test-helpers.js'
+import { createAdmission, createEngine, createResult, deferred, expectTask } from './engine-test-helpers.js'
+import type { InProcessTaskRecord, TaskExecutionOutcome } from '../types.js'
 
 describe('InProcessTaskEngine', () => {
   describe('admission and updates', () => {
-    it('executes, reports updates, lists, and deduplicates work', async () => {
-      const statuses: TestTask['status'][] = []
+    it('prevents task update callbacks from mutating engine-owned state', async () => {
+      const statuses: InProcessTaskRecord['status'][] = []
       const engine = createEngine(
-        async ({ descriptor }) => ({ status: 'completed', result: createResult(descriptor.toolName.toUpperCase()) }),
+        async ({ toolName }) => ({ status: 'completed', result: createResult(toolName.toUpperCase()) }),
         {
           onTaskUpdated: (task) => {
             statuses.push(task.status)
@@ -16,15 +16,23 @@ describe('InProcessTaskEngine', () => {
           },
         }
       )
-      const admitted = engine.submit({ descriptor: createDescriptor('hello'), idempotencyKey: 'work-1' })
-      const duplicate = engine.submit({ descriptor: createDescriptor('hello'), idempotencyKey: 'work-1' })
+      const admitted = engine.submit({ ...createAdmission('hello'), idempotencyKey: 'work-1' })
+      const duplicate = engine.submit({ ...createAdmission('hello'), idempotencyKey: 'work-1' })
 
       expect(duplicate.taskId).toBe(admitted.taskId)
+      duplicate.status = 'cancelled'
       await engine.waitForIdle()
       const completed = engine.get(admitted.taskId)!
       expectTask(completed, admitted, { status: 'completed', result: createResult('HELLO') })
       expect(engine.list()).toEqual([completed])
       expect(statuses).toEqual(['queued', 'working', 'completed'])
+
+      completed.status = 'cancelled'
+      engine.list()[0]!.status = 'failed'
+      expectTask(engine.get(admitted.taskId), admitted, {
+        status: 'completed',
+        result: createResult('HELLO'),
+      })
 
       engine.remove(admitted.taskId)
       expect(engine.list()).toEqual([])
@@ -33,17 +41,21 @@ describe('InProcessTaskEngine', () => {
 
   describe('execution', () => {
     it('bounds execution concurrency', async () => {
-      const releases = [deferred<TestOutcome>(), deferred<TestOutcome>(), deferred<TestOutcome>()]
+      const releases = [
+        deferred<TaskExecutionOutcome>(),
+        deferred<TaskExecutionOutcome>(),
+        deferred<TaskExecutionOutcome>(),
+      ]
       const started = [deferred<void>(), deferred<void>(), deferred<void>()]
       const engine = createEngine(
-        async ({ descriptor }) => {
-          const index = Number(descriptor.toolName)
+        async ({ toolName }) => {
+          const index = Number(toolName)
           started[index]!.resolve()
           return releases[index]!.promise
         },
         { maxConcurrency: 2 }
       )
-      const tasks = ['0', '1', '2'].map((value) => engine.submit({ descriptor: createDescriptor(value) }))
+      const tasks = ['0', '1', '2'].map((value) => engine.submit(createAdmission(value)))
       await Promise.all(started.slice(0, 2).map(({ promise }) => promise))
       expectTask(engine.get(tasks[2]!.taskId), tasks[2]!, { status: 'queued' })
 
@@ -58,11 +70,19 @@ describe('InProcessTaskEngine', () => {
       const thrownEngine = createEngine(async () => {
         throw new TypeError('Execution exploded')
       })
-      const thrown = thrownEngine.submit({ descriptor: createDescriptor('throw') })
+      const thrown = thrownEngine.submit(createAdmission('throw'))
       await thrownEngine.waitForIdle()
       expectTask(thrownEngine.get(thrown.taskId), thrown, {
         status: 'failed',
         failure: { type: 'executionError', message: 'Execution exploded' },
+      })
+
+      const opaqueEngine = createEngine(() => Promise.reject(Object.create(null)))
+      const opaque = opaqueEngine.submit(createAdmission('opaque'))
+      await opaqueEngine.waitForIdle()
+      expectTask(opaqueEngine.get(opaque.taskId), opaque, {
+        status: 'failed',
+        failure: { type: 'executionError', message: 'Background task execution failed' },
       })
 
       const returnedEngine = createEngine(async () => ({
@@ -70,7 +90,7 @@ describe('InProcessTaskEngine', () => {
         failure: { type: 'toolError', message: 'Tool failed' },
         result: createResult('tool detail'),
       }))
-      const returned = returnedEngine.submit({ descriptor: createDescriptor('return') })
+      const returned = returnedEngine.submit(createAdmission('return'))
       await returnedEngine.waitForIdle()
       expectTask(returnedEngine.get(returned.taskId), returned, {
         status: 'failed',
@@ -80,12 +100,12 @@ describe('InProcessTaskEngine', () => {
     })
 
     it('does not release capacity until a timed-out execution settles', async () => {
-      const release = deferred<TestOutcome>()
+      const release = deferred<TaskExecutionOutcome>()
       const timedOut = deferred<void>()
       let hungSignal: AbortSignal | undefined
       const engine = createEngine(
-        async ({ descriptor, cancelSignal }) => {
-          if (descriptor.toolName === 'hang') {
+        async ({ toolName, cancelSignal }) => {
+          if (toolName === 'hang') {
             hungSignal = cancelSignal
             cancelSignal.addEventListener('abort', () => timedOut.resolve(), { once: true })
             return release.promise
@@ -94,8 +114,8 @@ describe('InProcessTaskEngine', () => {
         },
         { maxConcurrency: 1, timeout: 10 }
       )
-      const hung = engine.submit({ descriptor: createDescriptor('hang') })
-      const next = engine.submit({ descriptor: createDescriptor('next') })
+      const hung = engine.submit(createAdmission('hang'))
+      const next = engine.submit(createAdmission('next'))
       await timedOut.promise
       try {
         expect(hungSignal?.aborted).toBe(true)
@@ -115,10 +135,10 @@ describe('InProcessTaskEngine', () => {
     })
 
     it('allows Infinity to disable execution timeouts', async () => {
-      const finish = deferred<TestOutcome>()
+      const finish = deferred<TaskExecutionOutcome>()
       const timeoutSpy = vi.spyOn(globalThis, 'setTimeout')
       const engine = createEngine(async () => finish.promise, { timeout: Infinity })
-      const task = engine.submit({ descriptor: createDescriptor('work') })
+      const task = engine.submit(createAdmission('work'))
       expect(timeoutSpy).not.toHaveBeenCalled()
       finish.resolve({ status: 'completed', result: createResult('done') })
       await engine.waitForIdle()

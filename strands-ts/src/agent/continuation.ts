@@ -1,3 +1,10 @@
+/**
+ * Internal continuation handling for agent invocations.
+ *
+ * Coordinates continuation inputs contributed by hooks, including preparation,
+ * interrupt deferral, input combination, and append or abandonment callbacks.
+ */
+
 import { AfterInvocationEvent, BeforeModelCallEvent } from '../hooks/events.js'
 import { logger } from '../logging/logger.js'
 

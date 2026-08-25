@@ -1,13 +1,7 @@
 import { normalizeError } from '../../errors.js'
 import { BackgroundTaskNotFoundError } from '../errors.js'
-import { isInProcessTaskTerminalStatus } from './record.js'
 import type { InterruptStateData } from '../../interrupt.js'
-import type {
-  InProcessTaskDescriptor,
-  InProcessTaskEngineOptions,
-  InProcessTaskRecord,
-  TaskExecutionOutcome,
-} from './types.js'
+import type { InProcessTaskEngineOptions, InProcessTaskRecord, TaskExecutionOutcome, TaskStatus } from './types.js'
 
 // Node.js treats delays above the signed 32-bit limit as 1ms.
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1
@@ -43,49 +37,51 @@ export class InProcessTaskEngine {
   /**
    * Submits a task for execution, returning an existing task when its idempotency key matches.
    *
-   * @param admission - Task descriptor and optional idempotency key.
-   * @returns The admitted or matching task.
+   * @param admission - Tool execution details and optional idempotency key.
+   * @returns A snapshot of the admitted or matching task.
    */
   submit(admission: {
-    readonly descriptor: InProcessTaskDescriptor
+    readonly toolUseId: string
+    readonly toolName: string
+    readonly invocationStateId: string
     readonly idempotencyKey?: string
   }): InProcessTaskRecord {
     if (admission.idempotencyKey !== undefined) {
       const existing = [...this._tasks.values()].find((task) => task.idempotencyKey === admission.idempotencyKey)
-      if (existing) return existing
+      if (existing) return globalThis.structuredClone(existing)
     }
     const now = new Date().toISOString()
     const stored: InProcessTaskRecord = {
       taskId: globalThis.crypto.randomUUID(),
-      ...(admission.idempotencyKey !== undefined && { idempotencyKey: admission.idempotencyKey }),
-      descriptor: admission.descriptor,
+      ...admission,
       status: 'queued',
       createdAt: now,
       updatedAt: now,
     }
     this._tasks.set(stored.taskId, stored)
     this._notifyTaskUpdated(stored)
-    this._enqueue(stored.taskId)
-    return stored
+    this._scheduleTask(stored.taskId)
+    return globalThis.structuredClone(stored)
   }
 
   /**
    * Gets a task by ID.
    *
    * @param taskId - ID of the task to retrieve.
-   * @returns The task, or `undefined` when it does not exist.
+   * @returns A snapshot of the task, or `undefined` when it does not exist.
    */
   get(taskId: string): InProcessTaskRecord | undefined {
-    return this._tasks.get(taskId)
+    const task = this._tasks.get(taskId)
+    return task ? globalThis.structuredClone(task) : undefined
   }
 
   /**
    * Lists the tasks tracked by this engine.
    *
-   * @returns The tracked tasks.
+   * @returns Snapshots of the tracked tasks.
    */
   list(): readonly InProcessTaskRecord[] {
-    return [...this._tasks.values()]
+    return [...this._tasks.values()].map((task) => globalThis.structuredClone(task))
   }
 
   /**
@@ -107,12 +103,12 @@ export class InProcessTaskEngine {
    *
    * @param taskId - ID of the task to cancel.
    * @param options - Cancellation options passed to the active execution.
-   * @returns The cancelled task, or the unchanged task if it was already terminal.
+   * @returns A snapshot of the cancelled task, or the unchanged task if it was already terminal.
    * @throws Error if the task does not exist.
    */
   cancel(taskId: string, options: { readonly reason: string }): InProcessTaskRecord {
     const current = this._requireTask(taskId)
-    if (isInProcessTaskTerminalStatus(current.status)) return current
+    if (isInProcessTaskTerminalStatus(current.status)) return globalThis.structuredClone(current)
     const task = this._updateTask(taskId, (record) => {
       record.status = 'cancelled'
       delete record.state
@@ -155,12 +151,16 @@ export class InProcessTaskEngine {
   }
 
   /**
-   * Updates a paused task and queues it when the update marks it ready.
+   * Applies interrupt responses to a task with `input_required` status.
    *
-   * @param taskId - ID of the paused task.
-   * @param update - Applies input to the paused state and determines whether execution can resume.
-   * @returns The updated task.
-   * @throws Error if the task is not paused or has no state.
+   * The task remains `input_required` while interrupts are unanswered and is queued for
+   * execution once the updated interrupt state is ready.
+   *
+   * @param taskId - ID of the task requiring input.
+   * @param update - Applies interrupt responses to the task state and reports when it is ready.
+   * @returns A snapshot of the updated task.
+   * @throws BackgroundTaskNotFoundError if the task does not exist.
+   * @throws Error if the task does not require input or has no state.
    */
   resume(
     taskId: string,
@@ -170,22 +170,24 @@ export class InProcessTaskEngine {
     }
   ): InProcessTaskRecord {
     const task = this._updateTask(taskId, (record) => {
-      if (record.status !== 'paused') {
-        throw new Error(`Background task '${taskId}' cannot be resumed: status is '${record.status}', not 'paused'`)
+      if (record.status !== 'input_required') {
+        throw new Error(
+          `Background task '${taskId}' cannot be resumed: status is '${record.status}', not 'input_required'`
+        )
       }
       if (record.state === undefined) {
-        throw new Error(`Background task '${taskId}' cannot be resumed: paused state is missing`)
+        throw new Error(`Background task '${taskId}' cannot be resumed: interrupt state is missing`)
       }
       const resumed = update(record.state)
       record.state = resumed.state
       if (resumed.ready) record.status = 'queued'
       return true
     })!
-    if (task.status === 'queued') this._enqueue(taskId)
+    if (task.status === 'queued') this._scheduleTask(taskId)
     return task
   }
 
-  private _enqueue(taskId: string): void {
+  private _scheduleTask(taskId: string): void {
     if (this._activeExecutions.has(taskId)) return
     this._queue.add(taskId)
     this._startQueuedTasks()
@@ -230,7 +232,9 @@ export class InProcessTaskEngine {
     try {
       outcome = await this._options.execute({
         taskId,
-        descriptor: working.descriptor,
+        toolUseId: working.toolUseId,
+        toolName: working.toolName,
+        invocationStateId: working.invocationStateId,
         ...(working.state !== undefined && { state: working.state }),
         cancelSignal: activeExecution.controller.signal,
       })
@@ -239,7 +243,7 @@ export class InProcessTaskEngine {
         status: 'failed',
         failure: {
           type: 'executionError',
-          message: normalizeError(error).message || DEFAULT_EXECUTION_FAILURE_MESSAGE,
+          message: getExecutionFailureMessage(error),
         },
       }
     }
@@ -247,10 +251,10 @@ export class InProcessTaskEngine {
   }
 
   private _finishOutcome(taskId: string, outcome: TaskExecutionOutcome): void {
-    if (outcome.status === 'paused') {
+    if (outcome.status === 'input_required') {
       this._updateTask(taskId, (record) => {
         if (record.status !== 'working') return false
-        record.status = 'paused'
+        record.status = 'input_required'
         record.state = outcome.state
         return true
       })
@@ -294,17 +298,17 @@ export class InProcessTaskEngine {
   }
 
   private _updateTask(taskId: string, update: (task: InProcessTaskRecord) => boolean): InProcessTaskRecord | undefined {
-    const current = this._tasks.get(taskId)
-    if (!current) throw new BackgroundTaskNotFoundError(taskId)
+    const current = this._requireTask(taskId)
 
     const next = globalThis.structuredClone(current)
     if (!update(next)) return undefined
 
     next.updatedAt = new Date().toISOString()
-    this._tasks.set(taskId, next)
-    this._notifyTaskUpdated(next)
+    const stored = globalThis.structuredClone(next)
+    this._tasks.set(taskId, stored)
+    this._notifyTaskUpdated(stored)
 
-    return next
+    return globalThis.structuredClone(stored)
   }
 
   private _requireTask(taskId: string): InProcessTaskRecord {
@@ -314,9 +318,9 @@ export class InProcessTaskEngine {
   }
 
   private _notifyTaskUpdated(task: InProcessTaskRecord): void {
-    const snapshot = globalThis.structuredClone(task)
+    const taskSnapshot = globalThis.structuredClone(task)
     void Promise.resolve()
-      .then(() => this._options.onTaskUpdated(snapshot))
+      .then(() => this._options.onTaskUpdated(taskSnapshot))
       .catch(() => undefined)
   }
 
@@ -333,4 +337,16 @@ function assertTimerDelay(name: string, value: number): void {
   if (value > MAX_TIMER_DELAY_MS) {
     throw new TypeError(`${name} must be at most ${MAX_TIMER_DELAY_MS}ms, got ${value}`)
   }
+}
+
+function getExecutionFailureMessage(error: unknown): string {
+  try {
+    return normalizeError(error).message || DEFAULT_EXECUTION_FAILURE_MESSAGE
+  } catch {
+    return DEFAULT_EXECUTION_FAILURE_MESSAGE
+  }
+}
+
+function isInProcessTaskTerminalStatus(status: TaskStatus): boolean {
+  return status === 'completed' || status === 'failed' || status === 'cancelled'
 }
