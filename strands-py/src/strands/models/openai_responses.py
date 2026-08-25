@@ -61,9 +61,10 @@ from ..types.streaming import StreamEvent  # noqa: E402
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse  # noqa: E402
 from ._defaults import resolve_config_metadata  # noqa: E402
 from ._openai_bedrock import BedrockMantleConfig, resolve_bedrock_client_args  # noqa: E402
+from ._openai_cache import apply_cache_config  # noqa: E402
 from ._openai_errors import classify_openai_error  # noqa: E402
 from ._validation import validate_config_keys  # noqa: E402
-from .model import BaseModelConfig, Model  # noqa: E402
+from .model import BaseModelConfig, CacheConfig, Model  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -149,12 +150,17 @@ class OpenAIResponsesModel(Model):
             use_native_token_count: Whether to use the native OpenAI input_tokens.count API.
                 When True, count_tokens() calls the OpenAI API for accurate counts.
                 When False (default), skips the API call and uses the local estimator.
+            cache_config: Prompt-caching configuration. OpenAI routes cache reads on
+                ``cache_key`` (mapped to ``prompt_cache_key``) and honors ``ttl`` only when it names
+                an OpenAI retention value; other fields have no effect. An explicit
+                ``prompt_cache_key``/``prompt_cache_retention`` in ``params`` takes precedence.
         """
 
         model_id: str
         params: dict[str, Any] | None
         stateful: bool
         use_native_token_count: bool
+        cache_config: CacheConfig | None
 
     def __init__(
         self,
@@ -589,6 +595,8 @@ class OpenAIResponsesModel(Model):
                 ),
             ]
             request.update(self._format_request_tool_choice(tool_choice))
+
+        apply_cache_config(request, cast(CacheConfig | None, self.config.get("cache_config")))
 
         return request
 
