@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import OpenAI from 'openai'
+import OpenAI, { APIUserAbortError } from 'openai'
 import { isNode } from '../../../__fixtures__/environment.js'
 import { OpenAIModel } from '../index.js'
 import { ContextWindowOverflowError, ModelThrottledError } from '../../../errors.js'
@@ -26,11 +26,13 @@ function createMockClient(streamGenerator: () => AsyncGenerator<any>, capture: {
 }
 
 // Mock the OpenAI SDK
-vi.mock('openai', () => {
+vi.mock('openai', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('openai')>()
   const mockConstructor = vi.fn(function (this: any) {
     return {}
   })
   return {
+    ...actual,
     default: mockConstructor,
   }
 })
@@ -147,6 +149,53 @@ describe("OpenAIModel (api: 'responses')", () => {
       new OpenAIModel({ api: 'responses', client: {} as OpenAI, params: { reasoning: { summary: 'auto' } } })
       expect(warnSpy).not.toHaveBeenCalled()
       warnSpy.mockRestore()
+    })
+  })
+
+  describe('cancellation', () => {
+    // Guards against provider work continuing after agent cancellation (#3915).
+    it('stops an in-flight responses producer when the signal aborts', async () => {
+      let producedTokens = 0
+      let producerStopped = false
+      let resolveFirstToken!: () => void
+      const firstTokenProduced = new Promise<void>((resolve) => {
+        resolveFirstToken = resolve
+      })
+      const create = vi.fn(async (_request: unknown, requestOptions?: unknown): Promise<AsyncGenerator<unknown>> => {
+        const signal = (requestOptions as { signal?: AbortSignal } | undefined)?.signal
+        return (async function* (): AsyncGenerator<unknown> {
+          yield { type: 'response.created', response: { id: 'response-1' } }
+          while (producedTokens < 20) {
+            if (signal?.aborted) {
+              producerStopped = true
+              return
+            }
+            producedTokens += 1
+            if (producedTokens === 1) {
+              resolveFirstToken()
+            }
+            yield { type: 'response.output_text.delta', delta: 'token ' }
+            await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 1))
+          }
+          yield { type: 'response.completed', response: {} }
+        })()
+      })
+      const client = { responses: { create } } as unknown as OpenAI
+      const controller = new AbortController()
+      const model = new OpenAIModel({ api: 'responses', client })
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+
+      const streamResult = collectIterator(model.stream(messages, { cancelSignal: controller.signal }))
+      await firstTokenProduced
+      const tokensAtCancel = producedTokens
+      controller.abort()
+      await expect(streamResult).rejects.toBeInstanceOf(APIUserAbortError)
+
+      expect(create).toHaveBeenCalledWith(expect.anything(), { signal: controller.signal })
+      expect({ producedTokens, producerStopped }).toEqual({
+        producedTokens: tokensAtCancel,
+        producerStopped: true,
+      })
     })
   })
 

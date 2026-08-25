@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import OpenAI from 'openai'
+import OpenAI, { APIUserAbortError } from 'openai'
 import { isNode } from '../../../__fixtures__/environment.js'
 import { OpenAIModel } from '../index.js'
 import { ContextWindowOverflowError, ModelThrottledError } from '../../../errors.js'
@@ -24,11 +24,13 @@ function createMockClient(streamGenerator: () => AsyncGenerator<any>): OpenAI {
 }
 
 // Mock the OpenAI SDK
-vi.mock('openai', () => {
+vi.mock('openai', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('openai')>()
   const mockConstructor = vi.fn(function (this: any) {
     return {}
   })
   return {
+    ...actual,
     default: mockConstructor,
   }
 })
@@ -389,6 +391,53 @@ describe('OpenAIModel', () => {
   })
 
   describe('stream', () => {
+    describe('cancellation', () => {
+      // Guards against provider work continuing after agent cancellation (#3915).
+      it('stops an in-flight chat completions producer when the signal aborts', async () => {
+        let producedTokens = 0
+        let producerStopped = false
+        let resolveFirstToken!: () => void
+        const firstTokenProduced = new Promise<void>((resolve) => {
+          resolveFirstToken = resolve
+        })
+        const create = vi.fn(async (_request: unknown, requestOptions?: unknown): Promise<AsyncGenerator<unknown>> => {
+          const signal = (requestOptions as { signal?: AbortSignal } | undefined)?.signal
+          return (async function* (): AsyncGenerator<unknown> {
+            yield { choices: [{ delta: { role: 'assistant' }, index: 0 }] }
+            while (producedTokens < 20) {
+              if (signal?.aborted) {
+                producerStopped = true
+                return
+              }
+              producedTokens += 1
+              if (producedTokens === 1) {
+                resolveFirstToken()
+              }
+              yield { choices: [{ delta: { content: 'token ' }, index: 0 }] }
+              await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 1))
+            }
+            yield { choices: [{ finish_reason: 'stop', delta: {}, index: 0 }] }
+          })()
+        })
+        const client = { chat: { completions: { create } } } as unknown as OpenAI
+        const controller = new AbortController()
+        const model = new OpenAIModel({ api: 'chat', client })
+        const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+
+        const streamResult = collectIterator(model.stream(messages, { cancelSignal: controller.signal }))
+        await firstTokenProduced
+        const tokensAtCancel = producedTokens
+        controller.abort()
+        await expect(streamResult).rejects.toBeInstanceOf(APIUserAbortError)
+
+        expect(create).toHaveBeenCalledWith(expect.anything(), { signal: controller.signal })
+        expect({ producedTokens, producerStopped }).toEqual({
+          producedTokens: tokensAtCancel,
+          producerStopped: true,
+        })
+      })
+    })
+
     describe('validation', () => {
       it('throws error when messages array is empty', async () => {
         const mockClient = createMockClient(async function* () {})

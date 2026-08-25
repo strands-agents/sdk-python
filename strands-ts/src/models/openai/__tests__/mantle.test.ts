@@ -3,11 +3,13 @@ import OpenAI from 'openai'
 import { isNode } from '../../../__fixtures__/environment.js'
 import { OpenAIModel } from '../index.js'
 
-vi.mock('openai', () => {
+vi.mock('openai', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('openai')>()
   const mockConstructor = vi.fn(function (this: unknown) {
     return {}
   })
   return {
+    ...actual,
     default: mockConstructor,
   }
 })
