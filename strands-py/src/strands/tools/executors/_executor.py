@@ -105,7 +105,9 @@ class ToolExecutor(abc.ABC):
             return False
         if cast(dict[str, Any], after_event.result).get("cancelled") is True:
             return False
-        return not (ToolExecutor._is_agent(agent) and agent._cancel_signal.is_set())
+        if not ToolExecutor._is_agent(agent):
+            return True
+        return not cast("Agent", agent)._cancel_signal.is_set()
 
     @staticmethod
     async def _stream(

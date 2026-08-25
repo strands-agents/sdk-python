@@ -4,7 +4,6 @@ import sys
 import unittest.mock
 
 import numpy as np
-import pyaudio
 import pytest
 import pytest_asyncio
 
@@ -99,9 +98,18 @@ def agent_mixed_rates():
 
 
 @pytest.fixture
-def py_audio():
-    with unittest.mock.patch("strands.experimental.bidi.io.audio.pyaudio.PyAudio") as mock:
-        yield mock.return_value
+def pyaudio_module():
+    module = unittest.mock.MagicMock()
+    module.paInt16 = 8
+    module.paContinue = 0
+    module.get_sample_size.return_value = 2
+    with unittest.mock.patch("strands.experimental.bidi.io.audio.pyaudio", module):
+        yield module
+
+
+@pytest.fixture
+def py_audio(pyaudio_module):
+    return pyaudio_module.PyAudio.return_value
 
 
 @pytest.fixture
@@ -206,10 +214,10 @@ async def test_bidi_audio_io_input(audio_input):
     assert tru_event == exp_event
 
 
-def test_bidi_audio_io_input_configs(py_audio, audio_input):
+def test_bidi_audio_io_input_configs(pyaudio_module, py_audio, audio_input):
     py_audio.open.assert_called_once_with(
         channels=2,
-        format=pyaudio.paInt16,
+        format=pyaudio_module.paInt16,
         frames_per_buffer=1024,
         input=True,
         input_device_index=1,
@@ -250,10 +258,10 @@ async def test_bidi_audio_io_output_interrupt(audio_output):
     assert tru_data == exp_data
 
 
-def test_bidi_audio_io_output_configs(py_audio, audio_output):
+def test_bidi_audio_io_output_configs(pyaudio_module, py_audio, audio_output):
     py_audio.open.assert_called_once_with(
         channels=2,
-        format=pyaudio.paInt16,
+        format=pyaudio_module.paInt16,
         frames_per_buffer=2048,
         output=True,
         output_device_index=2,
@@ -622,7 +630,8 @@ def test_mic_buffer_rejects_invalid_size_when_ec_on(input_buffer_size):
         BidiAudioIO(processor=AudioProcessorConfig(), input_buffer_size=input_buffer_size)
 
 
-def test_mic_buffer_uses_configured_size_when_ec_off():
+def test_mic_buffer_uses_configured_size_when_ec_off(pyaudio_module):
+    _ = pyaudio_module
     # With echo cancellation off there is no reference to align to, so the user's sizing is respected.
     processor_patch, _, _ = _fake_audio_processor()
     with processor_patch:

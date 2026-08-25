@@ -174,4 +174,5 @@ class _AudioProcessor:
         new_length = max(int(round(len(samples) * ratio)), 1)
         positions = np.linspace(0, len(samples) - 1, new_length)
         resampled = np.interp(positions, np.arange(len(samples)), samples.astype(np.float32))
-        return resampled.astype(np.int16)
+        result: npt.NDArray[np.int16] = resampled.astype(np.int16)
+        return result

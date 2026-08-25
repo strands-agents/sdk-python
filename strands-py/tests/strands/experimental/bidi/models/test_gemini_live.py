@@ -8,6 +8,7 @@ Tests the unified BidiGeminiLiveModel interface including:
 """
 
 import base64
+import json
 import unittest.mock
 
 import pytest
@@ -521,6 +522,8 @@ async def test_event_conversion(mock_genai_client, model, live_message, server_c
     assert "toolUse" in tool_event["delta"]
     assert tool_event["delta"]["toolUse"]["toolUseId"] == "tool-123"
     assert tool_event["delta"]["toolUse"]["name"] == "calculator"
+    assert tool_event["delta"]["toolUse"]["input"] == json.dumps({"expression": "2+2"})
+    assert tool_event["current_tool_use"]["input"] == {"expression": "2+2"}
 
     # Test multiple tool calls (returns list with multiple events)
     mock_func_call_1 = unittest.mock.Mock()
@@ -546,12 +549,14 @@ async def test_event_conversion(mock_genai_client, model, live_message, server_c
     # Verify first tool call
     assert tool_events_multi[0]["delta"]["toolUse"]["toolUseId"] == "tool-123"
     assert tool_events_multi[0]["delta"]["toolUse"]["name"] == "calculator"
-    assert tool_events_multi[0]["delta"]["toolUse"]["input"] == {"expression": "2+2"}
+    assert tool_events_multi[0]["delta"]["toolUse"]["input"] == json.dumps({"expression": "2+2"})
+    assert tool_events_multi[0]["current_tool_use"]["input"] == {"expression": "2+2"}
 
     # Verify second tool call
     assert tool_events_multi[1]["delta"]["toolUse"]["toolUseId"] == "tool-456"
     assert tool_events_multi[1]["delta"]["toolUse"]["name"] == "weather"
-    assert tool_events_multi[1]["delta"]["toolUse"]["input"] == {"location": "Seattle"}
+    assert tool_events_multi[1]["delta"]["toolUse"]["input"] == json.dumps({"location": "Seattle"})
+    assert tool_events_multi[1]["current_tool_use"]["input"] == {"location": "Seattle"}
 
     # Test interruption
     mock_interrupt = live_message(server_content=server_content(interrupted=True))
