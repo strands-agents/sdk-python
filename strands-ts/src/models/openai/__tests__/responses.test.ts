@@ -242,6 +242,42 @@ describe("OpenAIModel (api: 'responses')", () => {
       expect(req.top_p).toBe(0.8)
     })
 
+    it('maps cacheConfig.cacheKey to prompt_cache_key', async () => {
+      const req = await runOnce({ cacheConfig: { cacheKey: 'tenant-42' } })
+      expect(req.prompt_cache_key).toBe('tenant-42')
+    })
+
+    it('omits prompt_cache_key when cacheConfig is unset', async () => {
+      const req = await runOnce()
+      expect(req.prompt_cache_key).toBeUndefined()
+    })
+
+    it('lets an explicit prompt_cache_key in params win over cacheConfig', async () => {
+      const req = await runOnce({ params: { prompt_cache_key: 'explicit' }, cacheConfig: { cacheKey: 'from-config' } })
+      expect(req.prompt_cache_key).toBe('explicit')
+    })
+
+    it.each(['24h', 'in_memory'])(
+      'maps retention-literal cacheConfig.ttl %s to prompt_cache_retention',
+      async (ttl) => {
+        const req = await runOnce({ cacheConfig: { ttl } })
+        expect(req.prompt_cache_retention).toBe(ttl)
+      }
+    )
+
+    it('ignores a non-retention cacheConfig.ttl and warns', async () => {
+      const warnSpy = vi.spyOn(logger, 'warn')
+      const req = await runOnce({ cacheConfig: { ttl: '5m' } })
+      expect(req.prompt_cache_retention).toBeUndefined()
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('not an openai retention value'))
+      warnSpy.mockRestore()
+    })
+
+    it('lets an explicit prompt_cache_retention in params win over cacheConfig', async () => {
+      const req = await runOnce({ params: { prompt_cache_retention: '24h' }, cacheConfig: { ttl: 'in_memory' } })
+      expect(req.prompt_cache_retention).toBe('24h')
+    })
+
     it('passes through extra params fields to the request', async () => {
       const req = await runOnce({ params: { reasoning: { summary: 'auto' } } })
       expect(req.reasoning).toEqual({ summary: 'auto' })
