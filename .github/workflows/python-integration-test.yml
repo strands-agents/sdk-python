@@ -153,7 +153,7 @@ jobs:
     # previous github.event.repository.fork guard did not catch this case
     # because pull_request_target always evaluates that field against the base
     # repo, which is never a fork.
-    if: needs.check-access-and-checkout.result == 'success' || needs.check-access-and-checkout.result == 'failure'
+    if: always() && (needs.check-access-and-checkout.result == 'success' || needs.check-access-and-checkout.result == 'failure')
     permissions:
       id-token: write
       contents: read
