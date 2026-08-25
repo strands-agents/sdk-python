@@ -61,9 +61,10 @@ from ..types.streaming import StreamEvent  # noqa: E402
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse  # noqa: E402
 from ._defaults import resolve_config_metadata  # noqa: E402
 from ._openai_bedrock import BedrockMantleConfig, resolve_bedrock_client_args  # noqa: E402
+from ._openai_cache import apply_cache_config  # noqa: E402
 from ._openai_errors import classify_openai_error  # noqa: E402
 from ._validation import validate_config_keys  # noqa: E402
-from .model import BaseModelConfig, Model  # noqa: E402
+from .model import BaseModelConfig, CacheConfig, Model  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -149,12 +150,17 @@ class OpenAIResponsesModel(Model):
             use_native_token_count: Whether to use the native OpenAI input_tokens.count API.
                 When True, count_tokens() calls the OpenAI API for accurate counts.
                 When False (default), skips the API call and uses the local estimator.
+            cache_config: Prompt-caching configuration. OpenAI routes cache reads on
+                ``cache_key`` (mapped to ``prompt_cache_key``) and honors ``ttl`` only when it names
+                an OpenAI retention value; other fields have no effect. An explicit
+                ``prompt_cache_key``/``prompt_cache_retention`` in ``params`` takes precedence.
         """
 
         model_id: str
         params: dict[str, Any] | None
         stateful: bool
         use_native_token_count: bool
+        cache_config: CacheConfig | None
 
     def __init__(
         self,
@@ -590,6 +596,8 @@ class OpenAIResponsesModel(Model):
             ]
             request.update(self._format_request_tool_choice(tool_choice))
 
+        apply_cache_config(request, cast(CacheConfig | None, self.config.get("cache_config")))
+
         return request
 
     @classmethod
@@ -637,10 +645,15 @@ class OpenAIResponsesModel(Model):
                     "reasoningContent is not yet supported in multi-turn conversations with the Responses API"
                 )
 
+            if any("cachePoint" in content for content in contents):
+                logger.warning("cachePoint content block is not supported by OpenAI Responses | skipping")
+
             formatted_contents = [
                 cls._format_request_message_content(content, role=role)
                 for content in contents
-                if not any(block_type in content for block_type in ["toolResult", "toolUse", "reasoningContent"])
+                if not any(
+                    block_type in content for block_type in ["toolResult", "toolUse", "reasoningContent", "cachePoint"]
+                )
             ]
 
             formatted_tool_calls = [
@@ -709,7 +722,10 @@ class OpenAIResponsesModel(Model):
         if "document" in content:
             doc = content["document"]
             data_url = _encode_media_to_data_url(doc["source"]["bytes"], doc["format"], "document")
-            return {"type": "input_file", "filename": doc.get("name", "document"), "file_data": data_url}
+            name = doc.get("name", "document")
+            suffix = f".{doc['format']}"
+            filename = name if name.endswith(suffix) else f"{name}{suffix}"
+            return {"type": "input_file", "filename": filename, "file_data": data_url}
 
         if "image" in content:
             img = content["image"]
