@@ -8,7 +8,7 @@
  * @see https://platform.openai.com/docs/api-reference/chat
  */
 
-import OpenAI from 'openai'
+import OpenAI, { APIUserAbortError } from 'openai'
 import type { ResponseStreamEvent } from 'openai/resources/responses/responses'
 import { Model, resolveConfigMetadata } from '../model.js'
 import type { StreamOptions } from '../model.js'
@@ -225,6 +225,10 @@ export class OpenAIModel extends Model<OpenAIModelConfig> {
         }
       }
 
+      if (options?.cancelSignal?.aborted) {
+        throw new APIUserAbortError()
+      }
+
       if (bufferedUsage) {
         yield bufferedUsage
       }
@@ -244,6 +248,10 @@ export class OpenAIModel extends Model<OpenAIModelConfig> {
         for (const sdkEvent of mapResponsesEventToSDK(event, state, this.stateful, options?.modelState)) {
           yield sdkEvent
         }
+      }
+
+      if (options?.cancelSignal?.aborted) {
+        throw new APIUserAbortError()
       }
 
       for (const sdkEvent of finalizeResponsesStream(state)) {

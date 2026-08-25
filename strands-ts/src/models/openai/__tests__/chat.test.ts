@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import OpenAI from 'openai'
+import OpenAI, { APIUserAbortError } from 'openai'
 import { isNode } from '../../../__fixtures__/environment.js'
 import { OpenAIModel } from '../index.js'
 import { ContextWindowOverflowError, ModelThrottledError } from '../../../errors.js'
@@ -24,11 +24,13 @@ function createMockClient(streamGenerator: () => AsyncGenerator<any>): OpenAI {
 }
 
 // Mock the OpenAI SDK
-vi.mock('openai', () => {
+vi.mock('openai', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('openai')>()
   const mockConstructor = vi.fn(function (this: any) {
     return {}
   })
   return {
+    ...actual,
     default: mockConstructor,
   }
 })
@@ -405,7 +407,7 @@ describe('OpenAIModel', () => {
             while (producedTokens < 20) {
               if (signal?.aborted) {
                 producerStopped = true
-                break
+                return
               }
               producedTokens += 1
               if (producedTokens === 1) {
@@ -426,7 +428,7 @@ describe('OpenAIModel', () => {
         await firstTokenProduced
         const tokensAtCancel = producedTokens
         controller.abort()
-        await streamResult
+        await expect(streamResult).rejects.toBeInstanceOf(APIUserAbortError)
 
         expect(create).toHaveBeenCalledWith(expect.anything(), { signal: controller.signal })
         expect({ producedTokens, producerStopped }).toEqual({
