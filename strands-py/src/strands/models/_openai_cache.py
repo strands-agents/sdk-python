@@ -5,13 +5,10 @@ OpenAI caches prompt prefixes automatically server-side and routes reads on a ca
 ``cache_key`` (and, when it already names a valid retention literal, ``ttl``) maps onto the request.
 """
 
-import logging
+import warnings
 from typing import Any
 
-from ..logging.warn_once import warn_once
 from .model import CacheConfig
-
-logger = logging.getLogger(__name__)
 
 # OpenAI's prompt_cache_retention accepts only these literals. ttl maps through only on an exact
 # match - the SDK never guesses a conversion from an arbitrary duration string.
@@ -27,7 +24,8 @@ def apply_cache_config(request: dict[str, Any], cache_config: CacheConfig | None
     An explicit value already present in ``request`` (carried in from the user's ``params``) always
     wins; this fills in only what ``params`` did not set. ``strategy`` and ``system_prompt_ttl`` are
     accepted but have no effect, and a ``ttl`` that is not an OpenAI retention literal is ignored;
-    each such no-op is warned once per process.
+    each such no-op is surfaced through ``warnings.warn`` (deduped per call site by the standard
+    library's default filter), matching the config-validation warnings in ``_validation.py``.
 
     Args:
         request: The request dict being assembled; mutated in place.
@@ -43,13 +41,15 @@ def apply_cache_config(request: dict[str, Any], cache_config: CacheConfig | None
         if cache_config.ttl in _RETENTION_LITERALS:
             request["prompt_cache_retention"] = cache_config.ttl
         else:
-            warn_once(
-                logger,
-                "ttl=<%s> | cache_config.ttl is not an openai retention value, ignoring",
-                cache_config.ttl,
+            warnings.warn(
+                f"cache_config.ttl={cache_config.ttl!r} is not an openai retention value "
+                "('in_memory' or '24h') and will be ignored",
+                stacklevel=4,
             )
 
     if cache_config.strategy != "auto" or cache_config.system_prompt_ttl is not True:
-        warn_once(
-            logger, "openai caches prefixes automatically server-side | strategy and system_prompt_ttl have no effect"
+        warnings.warn(
+            "openai caches prompt prefixes automatically server-side; cache_config.strategy and "
+            "system_prompt_ttl have no effect and will be ignored",
+            stacklevel=4,
         )

@@ -10,7 +10,6 @@ from openai.types.responses import Response, ResponseErrorEvent, ResponseFailedE
 from openai.types.responses.response_error import ResponseError
 
 import strands
-from strands.logging import warn_once
 from strands.models import CacheConfig
 from strands.models.openai_responses import _MAX_MEDIA_SIZE_BYTES, OpenAIResponsesModel
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
@@ -534,17 +533,14 @@ def test_translatable_ttl_maps_to_prompt_cache_retention(openai_client, model_id
     assert model._format_request(messages)["prompt_cache_retention"] == retention
 
 
-def test_untranslatable_ttl_is_ignored_and_warned_once(openai_client, model_id, messages, caplog):
+def test_untranslatable_ttl_is_ignored_and_warned(openai_client, model_id, messages):
     _ = openai_client
-    warn_once._warned.clear()
     model = OpenAIResponsesModel(model_id=model_id, cache_config=CacheConfig(cache_key="k", ttl="5m"))
 
-    with caplog.at_level(logging.WARNING, logger="strands.models._openai_cache"):
-        model._format_request(messages)
-        model._format_request(messages)
+    with pytest.warns(UserWarning, match="not an openai retention value"):
+        request = model._format_request(messages)
 
-    assert "prompt_cache_retention" not in model._format_request(messages)
-    assert sum("not an openai retention value" in record.message for record in caplog.records) == 1
+    assert "prompt_cache_retention" not in request
 
 
 @pytest.mark.parametrize(
