@@ -22,9 +22,9 @@ from aws_sdk_bedrock_runtime.models import ModelTimeoutException, ValidationExce
 
 from strands.experimental.bidi.models.model import BidiModelTimeoutError
 from strands.experimental.bidi.models.nova_sonic import (
-    BidiNovaSonicModel,
     NOVA_SONIC_V1_MODEL_ID,
     NOVA_SONIC_V2_MODEL_ID,
+    BidiNovaSonicModel,
 )
 from strands.experimental.bidi.types.events import (
     BidiAudioInputEvent,
@@ -365,7 +365,8 @@ async def test_event_conversion(nova_model):
     tool_use = result["delta"]["toolUse"]
     assert tool_use["toolUseId"] == "tool-123"
     assert tool_use["name"] == "get_weather"
-    assert tool_use["input"] == tool_input
+    assert tool_use["input"] == json.dumps(tool_input)
+    assert result["current_tool_use"]["input"] == tool_input
 
     # Test interruption (now returns BidiInterruptionEvent)
     nova_event = {"stopReason": "INTERRUPTED"}

@@ -495,9 +495,7 @@ async def test_send_edge_cases(mock_websockets_connect, model):
     image_item = image_creates[0].get("item", {})
     assert image_item.get("type") == "message"
     assert image_item.get("role") == "user"
-    assert image_item.get("content") == [
-        {"type": "input_image", "image_url": f"data:image/jpeg;base64,{image_b64}"}
-    ]
+    assert image_item.get("content") == [{"type": "input_image", "image_url": f"data:image/jpeg;base64,{image_b64}"}]
     # Image input must NOT auto-trigger a response — caller decides when to commit.
     assert not any(m.get("type") == "response.create" for m in image_calls)
 
@@ -598,7 +596,8 @@ async def test_event_conversion(model):
     tool_use = converted[0]["delta"]["toolUse"]
     assert tool_use["toolUseId"] == "call-123"
     assert tool_use["name"] == "calculator"
-    assert tool_use["input"]["expression"] == "2+2"
+    assert json.loads(tool_use["input"]) == {"expression": "2+2"}
+    assert converted[0]["current_tool_use"]["input"] == {"expression": "2+2"}
 
     # Test voice activity (now returns list with BidiInterruptionEvent for speech_started)
     speech_started = {"type": "input_audio_buffer.speech_started"}

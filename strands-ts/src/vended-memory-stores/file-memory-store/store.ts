@@ -10,6 +10,7 @@ import type { ExtractionConfig, ExtractionResult, Extractor, ExtractorContext } 
 import type { JSONValue } from '../../types/json.js'
 import type { MessageData } from '../../types/messages.js'
 import type { Storage } from '../../storage/storage.js'
+import type { Model } from '../../models/model.js'
 
 /**
  * Configuration for {@link FileMemoryStore}.
@@ -22,6 +23,28 @@ export interface FileMemoryStoreConfig extends MemoryStoreConfig {
    * backend share storage — give them different names (or separate storage) to isolate them.
    */
   storage?: Storage
+  /**
+   * Automatic-extraction config. Accepts the shared {@link ExtractionConfig} (trigger/extractor/filter)
+   * plus `model` and `systemPrompt` knobs for the built-in key-aware extractor — see
+   * {@link FileMemoryExtractionConfig}.
+   */
+  extraction?: boolean | FileMemoryExtractionConfig
+}
+
+/**
+ * Extraction config for {@link FileMemoryStore}: the shared {@link ExtractionConfig} plus knobs for the
+ * store's built-in key-aware extractor. `model` and `systemPrompt` are ignored when an `extractor` is
+ * supplied — a custom extractor brings its own model and prompt.
+ */
+export interface FileMemoryExtractionConfig extends ExtractionConfig {
+  /** Model the built-in extractor uses to distill facts. Defaults to the agent's own model; set a cheaper one to cut cost. */
+  model?: Model
+  /**
+   * Framing that steers what counts as a durable fact, replacing the default guidance. The store always
+   * appends its own output contract (JSON array shape and heading-first layout) after it, so extraction
+   * stays parseable and append-on-topic keeps grouping — you retune what is extracted, not its structure.
+   */
+  systemPrompt?: string
 }
 import { LocalFileStorage } from '../../storage/local-file-storage.js'
 import { ModelExtractor } from '../../memory/extraction/model-extractor.js'
@@ -29,9 +52,16 @@ import { normalizeKey, resolveNamespace } from '../../storage/storage.js'
 import { tokenize, tokenOverlapScore } from '../../storage/search/keyword.js'
 import { logger } from '../../logging/logger.js'
 
-const DEFAULT_EXTRACTION_PROMPT = `You extract durable facts worth remembering across future conversations from a transcript.
+/** Overridable framing (via {@link FileMemoryExtractionConfig.systemPrompt}) for what to extract. */
+const DEFAULT_EXTRACTION_GUIDANCE = `You extract durable facts worth remembering across future conversations from a transcript.`
 
-Return ONLY a JSON array of objects: {"content": string}.
+/**
+ * Output contract the store owns and always appends after the (possibly overridden) guidance: the JSON
+ * array shape {@link ModelExtractor} parses and the heading-first layout {@link FileMemoryStore.add}
+ * slugifies to group facts. Appending it lets an overridden prompt retune guidance without breaking
+ * parsing or append-on-topic.
+ */
+const EXTRACTION_CONTRACT = `Return ONLY a JSON array of objects: {"content": string}.
 
 Group related facts into a single entry. The first line is a markdown heading (e.g. "# User preferences", "# Project setup", "# Team conventions"). Put each fact on its own line below the heading.
 
@@ -61,19 +91,34 @@ function slugify(text: string): string {
     .replace(/-+$/, '')
 }
 
-/** Creates an extractor that injects existing topic headings so the model reuses them. */
-function createKeyAwareExtractor(storage: Storage): Extractor {
+/**
+ * Creates an {@link Extractor} that injects the store's existing topic headings into the extraction
+ * prompt so the model reuses them, keeping related facts in one entry instead of fragmenting.
+ *
+ * Headings are read via `storage.list`, so this must be the store's own namespaced storage.
+ *
+ * @param storage - Storage the entries live under, listed to derive existing headings
+ * @param model - Model used to extract facts. Defaults to the agent's own model; set a cheaper one to cut cost.
+ * @param systemPrompt - Framing for what to extract, replacing {@link DEFAULT_EXTRACTION_GUIDANCE}. The
+ *   {@link EXTRACTION_CONTRACT} is always appended after it.
+ * @returns An extractor that reuses existing topic headings.
+ */
+function createKeyAwareExtractor(storage: Storage, model?: Model, systemPrompt?: string): Extractor {
   return {
     async extract(messages: MessageData[], context?: ExtractorContext): Promise<ExtractionResult[]> {
       const existingKeys = await storage.list('')
       const headings = existingKeys.map((key) => basename(key).replace(/-/g, ' '))
 
-      let systemPrompt = DEFAULT_EXTRACTION_PROMPT
+      const framing = systemPrompt ?? DEFAULT_EXTRACTION_GUIDANCE
+      let composedPrompt = `${framing}\n\n${EXTRACTION_CONTRACT}`
       if (headings.length > 0) {
-        systemPrompt += `\n\nExisting topics: ${headings.join(', ')}. Reuse an existing topic heading when new facts belong to it.`
+        composedPrompt += `\n\nExisting topics: ${headings.join(', ')}. Reuse an existing topic heading when new facts belong to it.`
       }
 
-      return new ModelExtractor({ systemPrompt }).extract(messages, context)
+      return new ModelExtractor({ systemPrompt: composedPrompt, ...(model !== undefined && { model }) }).extract(
+        messages,
+        context
+      )
     },
   }
 }
@@ -127,10 +172,9 @@ export class FileMemoryStore implements MemoryStore {
     if (config.extraction === true) {
       return { extractor: createKeyAwareExtractor(this._storage) }
     }
-    if (!config.extraction.extractor) {
-      return { ...config.extraction, extractor: createKeyAwareExtractor(this._storage) }
-    }
-    return config.extraction
+    const { model, systemPrompt, ...rest } = config.extraction
+    if (rest.extractor) return rest
+    return { ...rest, extractor: createKeyAwareExtractor(this._storage, model, systemPrompt) }
   }
 
   private _resolveStorage(storage: Storage): Storage {
