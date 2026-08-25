@@ -75,6 +75,12 @@ Structured logging is a cross-SDK rule — see the format in the [root AGENTS.md
 logger.debug("user_id=<%s>, action=<%s> | user performed action", user_id, action)
 ```
 
+**`warnings.warn` vs `logger.warning` — pick by audience, not severity.** The two are not interchangeable; the split runs throughout the codebase:
+- **`warnings.warn(...)` for developer-facing notices about how the SDK is being *used*** — an ignored/invalid config field, a deprecated argument, an unsupported option that will be dropped. These target the developer writing the code, are controllable via `-W` / `PYTHONWARNINGS` / `pytest.warns`, and the standard library already dedupes them *once per call site* under the default filter — so do **not** hand-roll a warn-once helper for this. Pass an explicit `stacklevel` so the warning points at the caller, not the SDK internals (see `models/_validation.py`, the reference: `validate_config_keys` and `warn_on_tool_choice_not_supported` both use `warnings.warn(..., stacklevel=4)`).
+- **`logger.warning(...)` for runtime/operational diagnostics** — something went wrong while the SDK was *running* that an operator would want in their logs (an MCP server failed to start, a tool failed to load, a store write failed). These are for log aggregation, not the developer's console.
+
+If you catch yourself building a process-global "warn once" set over the logger, you almost certainly want `warnings.warn` instead.
+
 ### Type Annotations
 
 All code is fully type-annotated (mypy strict enforces parameter/return types and rejects implicit optionals). Use `typing` / `typing_extensions` for complex types. Beyond what the type checker catches:
@@ -330,7 +336,7 @@ hatch build                    # Build package
 
 ### Code Comments
 
-Comments explain WHAT/WHY and stay evergreen — the full rule (including how it applies to tests, and the deprecated/legacy nuance) is in the [root AGENTS.md](../AGENTS.md).
+Comments are to-the-point, state only what cannot be inferred from the code, and stay evergreen. The full rule (including how it applies to tests, and the deprecated/legacy nuance) is in the [root AGENTS.md](../AGENTS.md).
 
 ### Code Review Considerations
 

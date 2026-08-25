@@ -18,7 +18,7 @@ from opentelemetry import trace as trace_api
 
 from .._middleware.stages import InvokeModelContext, InvokeModelStage
 from ..experimental.checkpoint import Checkpoint, CheckpointPosition
-from ..hooks import AfterModelCallEvent, BeforeModelCallEvent
+from ..hooks import AfterModelCallEvent, AfterToolsEvent, BeforeModelCallEvent, BeforeToolsEvent
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import Tracer, get_tracer
 from ..tools._validator import validate_and_prepare_tools
@@ -32,6 +32,7 @@ from ..types._events import (
     StartEventLoopEvent,
     StructuredOutputEvent,
     ToolInterruptEvent,
+    ToolResultEvent,
     ToolResultMessageEvent,
     TypedEvent,
 )
@@ -51,7 +52,10 @@ from ._retry import ModelRetryStrategy
 from .streaming import stream_messages
 
 if TYPE_CHECKING:
+    from pydantic import BaseModel
+
     from ..agent import Agent
+    from ..interrupt import Interrupt
 
 logger = logging.getLogger(__name__)
 
@@ -279,8 +283,8 @@ async def event_loop_cycle(
 
     with trace_api.use_span(cycle_span, end_on_exit=False):
         try:
-            # Skipping model invocation if in interrupt state as interrupts are currently only supported for tool calls.
-            if agent._interrupt_state.activated:
+            # Resume a tool interrupt by replaying its stored message instead of calling the model.
+            if agent._interrupt_state.activated and "tool_use_message" in agent._interrupt_state.context:
                 stop_reason: StopReason = "tool_use"
                 message = agent._interrupt_state.context["tool_use_message"]
             # Skip model invocation if the latest message contains ToolUse
@@ -314,8 +318,12 @@ async def event_loop_cycle(
                 )
 
             if stop_reason == "tool_use":
-                # Emit after_model checkpoint, unless we just resumed from one.
-                if agent._checkpointing and not agent._cancel_signal.is_set():
+                # Emit after_model checkpoint, unless we just resumed from one or a tool interrupt.
+                if (
+                    agent._checkpointing
+                    and not agent._cancel_signal.is_set()
+                    and not agent._interrupt_state.has_pending_tool_execution
+                ):
                     resume_position = agent._checkpoint_resume_position
                     agent._checkpoint_resume_position = None
                     if resume_position != "after_model":
@@ -592,6 +600,7 @@ async def _handle_model_execution(
 
             # Check if hooks want to retry the model call
             if after_model_call_event.retry:
+                agent.event_loop_metrics.update_usage(usage)
                 logger.debug(
                     "stop_reason=<%s>, retry_requested=<True> | hook requested model retry",
                     stop_reason,
@@ -683,6 +692,7 @@ def _make_invoke_model_terminal(
                     tool_choice=ctx.tool_choice,
                     invocation_state=ctx.invocation_state,
                     model_state=model_state,
+                    dynamic_trailing_blocks=ctx.dynamic_trailing_blocks,
                     cancel_signal=agent._cancel_signal,
                 ):
                     yield event
@@ -694,6 +704,41 @@ def _make_invoke_model_terminal(
                 raise
 
     return terminal
+
+
+async def _stop_for_interrupts(
+    agent: "Agent",
+    message: Message,
+    tool_results: list[ToolResult],
+    interrupts: list["Interrupt"],
+    cycle_start_time: float,
+    cycle_trace: Trace,
+    cycle_span: Any,
+    invocation_state: dict[str, Any],
+    tracer: Tracer,
+    structured_output_result: "BaseModel | None" = None,
+) -> AsyncGenerator[TypedEvent, None]:
+    """Persist interrupt state and emit the interrupt stop event.
+
+    Shared by both the pre-execution and post-execution interrupt paths
+    so interrupt persistence logic lives in one place.
+    """
+    # Session state stored on AfterInvocationEvent.
+    agent._interrupt_state.context = {"tool_use_message": message, "tool_results": tool_results}
+    agent._interrupt_state.activate()
+
+    agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
+    yield EventLoopStopEvent(
+        "interrupt",
+        message,
+        agent.event_loop_metrics,
+        invocation_state["request_state"],
+        interrupts,
+        structured_output=structured_output_result,
+    )
+    # End the cycle span before yielding the recursive cycle.
+    if cycle_span:
+        tracer.end_event_loop_cycle_span(span=cycle_span, message=message)
 
 
 async def _handle_tool_execution(
@@ -730,104 +775,125 @@ async def _handle_tool_execution(
             - The updated event loop metrics,
             - The updated request state.
     """
-    tool_uses: list[ToolUse] = []
+    tool_uses: list[ToolUse] = [content["toolUse"] for content in message["content"] if "toolUse" in content]
     tool_results: list[ToolResult] = []
-    invalid_tool_use_ids: list[str] = []
 
-    validate_and_prepare_tools(message, tool_uses, tool_results, invalid_tool_use_ids)
-    tool_uses = [tool_use for tool_use in tool_uses if tool_use.get("toolUseId") not in invalid_tool_use_ids]
-
-    if agent._interrupt_state.activated:
+    # Merge tool results from a resumed tool interrupt.
+    if agent._interrupt_state.activated and "tool_results" in agent._interrupt_state.context:
         tool_results.extend(agent._interrupt_state.context["tool_results"])
 
         # Filter to only the interrupted tools when resuming from interrupt (tool uses without results)
         tool_use_ids = {tool_result["toolUseId"] for tool_result in tool_results}
         tool_uses = [tool_use for tool_use in tool_uses if tool_use["toolUseId"] not in tool_use_ids]
 
-    interrupts = []
+    before_tools_event = BeforeToolsEvent(
+        agent=agent,
+        message=message,
+        invocation_state=invocation_state,
+    )
+    before_tools_event, interrupts = await agent.hooks.invoke_callbacks_async(before_tools_event)
 
-    # Check for cancellation before tool execution
-    # Add tool_result for each tool_use to maintain valid conversation state
-    if agent._cancel_signal.is_set():
-        logger.debug("tool_count=<%d> | cancellation detected before tool execution", len(tool_uses))
-
-        # Create cancellation tool_result for each tool_use to avoid invalid message state
-        # (tool_use without tool_result would be rejected on next invocation)
-        for tool_use in tool_uses:
-            cancel_result: ToolResult = {
-                "toolUseId": str(tool_use.get("toolUseId")),
-                "status": "error",
-                "content": [{"text": "Tool execution cancelled"}],
-            }
-            tool_results.append(cancel_result)
-
-        # Add tool results message to conversation if any tools were cancelled
-        cancelled_tool_result_message: Message | None = None
-        if tool_results:
-            _cancelled_msg: Message = {
-                "role": "user",
-                "content": [{"toolResult": result} for result in tool_results],
-            }
-            cancelled_tool_result_message = _cancelled_msg
-            await agent._append_messages(_cancelled_msg)
-            yield ToolResultMessageEvent(message=_cancelled_msg)
-
-        agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
-        yield EventLoopStopEvent(
-            "cancelled",
+    if interrupts:
+        async for interrupt_event in _stop_for_interrupts(
+            agent,
             message,
-            agent.event_loop_metrics,
-            invocation_state["request_state"],
-        )
-        if cycle_span:
-            tracer.end_event_loop_cycle_span(
-                span=cycle_span, message=message, tool_result_message=cancelled_tool_result_message
-            )
+            tool_results,
+            interrupts,
+            cycle_start_time,
+            cycle_trace,
+            cycle_span,
+            invocation_state,
+            tracer,
+        ):
+            yield interrupt_event
         return
 
-    tool_events = agent.tool_executor._execute(
-        agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
-    )
-    async for tool_event in tool_events:
-        if isinstance(tool_event, ToolInterruptEvent):
-            interrupts.extend(tool_event["tool_interrupt_event"]["interrupts"])
-
-        yield tool_event
+    cancel_message = None
+    if before_tools_event.cancel:
+        cancel_message = (
+            before_tools_event.cancel if isinstance(before_tools_event.cancel, str) else "Tool cancelled by hook"
+        )
+    elif agent._cancel_signal.is_set():
+        cancel_message = "Tool execution cancelled"
 
     structured_output_result = None
-    if structured_output_context.is_enabled:
-        if structured_output_result := structured_output_context.extract_result(tool_uses):
-            yield StructuredOutputEvent(structured_output=structured_output_result)
-            structured_output_context.stop_loop = True
+    try:
+        if cancel_message:
+            logger.debug("tool_count=<%d> | cancellation detected before tool execution", len(tool_uses))
+            for tool_use in tool_uses:
+                cancel_result: ToolResult = {
+                    "toolUseId": tool_use["toolUseId"],
+                    "status": "error",
+                    "content": [{"text": cancel_message}],
+                }
+                tool_results.append(cancel_result)
+                yield ToolResultEvent(cancel_result)
+        else:
+            pending_tool_use_ids = {tool_use["toolUseId"] for tool_use in tool_uses}
+            validated_tool_uses: list[ToolUse] = []
+            validation_results: list[ToolResult] = []
+            invalid_tool_use_ids: list[str] = []
+            validate_and_prepare_tools(message, validated_tool_uses, validation_results, invalid_tool_use_ids)
+            tool_uses = [
+                tool_use
+                for tool_use in validated_tool_uses
+                if tool_use["toolUseId"] in pending_tool_use_ids and tool_use["toolUseId"] not in invalid_tool_use_ids
+            ]
+            tool_results.extend(result for result in validation_results if result["toolUseId"] in pending_tool_use_ids)
+
+            tool_events = agent.tool_executor._execute(
+                agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
+            )
+            async for tool_event in tool_events:
+                if isinstance(tool_event, ToolInterruptEvent):
+                    interrupts.extend(tool_event["tool_interrupt_event"]["interrupts"])
+
+                yield tool_event
+
+            if structured_output_context.is_enabled:
+                if structured_output_result := structured_output_context.extract_result(tool_uses):
+                    yield StructuredOutputEvent(structured_output=structured_output_result)
+                    structured_output_context.stop_loop = True
+    finally:
+        # Always pair BeforeToolsEvent with AfterToolsEvent, even on cancel/interrupt/error paths.
+        tool_result_message: Message = {
+            "role": "user",
+            "content": [{"toolResult": result} for result in tool_results],
+        }
+        after_tools_event = AfterToolsEvent(agent=agent, message=tool_result_message, invocation_state=invocation_state)
+        try:
+            after_tools_event, _ = await agent.hooks.invoke_callbacks_async(after_tools_event)
+        except Exception:
+            # Persist pending interrupts before re-raising so they aren't lost.
+            if interrupts:
+                agent._interrupt_state.context = {"tool_use_message": message, "tool_results": tool_results}
+                agent._interrupt_state.activate()
+            raise
 
     invocation_state["event_loop_parent_cycle_id"] = invocation_state["event_loop_cycle_id"]
 
     if interrupts:
-        # Session state stored on AfterInvocationEvent.
-        agent._interrupt_state.context = {"tool_use_message": message, "tool_results": tool_results}
-        agent._interrupt_state.activate()
-
-        agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
-        yield EventLoopStopEvent(
-            "interrupt",
+        async for interrupt_event in _stop_for_interrupts(
+            agent,
             message,
-            agent.event_loop_metrics,
-            invocation_state["request_state"],
+            tool_results,
             interrupts,
-            structured_output=structured_output_result,
-        )
-        # End the cycle span before yielding the recursive cycle.
-        if cycle_span:
-            tracer.end_event_loop_cycle_span(span=cycle_span, message=message)
-
+            cycle_start_time,
+            cycle_trace,
+            cycle_span,
+            invocation_state,
+            tracer,
+            structured_output_result,
+        ):
+            yield interrupt_event
         return
 
-    agent._interrupt_state.deactivate()
-
-    tool_result_message: Message = {
-        "role": "user",
-        "content": [{"toolResult": result} for result in tool_results],
-    }
+    # Reset interrupt state if tools ran so the next cycle starts clean.
+    if not agent._cancel_signal.is_set():
+        agent._interrupt_state.end_tool_cycle()
+    # Update stored results so replay filter skips already-executed tools on next resume.
+    elif cancel_message is None and agent._interrupt_state.has_pending_tool_execution:
+        agent._interrupt_state.context["tool_results"] = tool_results
 
     await agent._append_messages(tool_result_message)
 
@@ -838,6 +904,24 @@ async def _handle_tool_execution(
         tracer.end_event_loop_cycle_span(span=cycle_span, message=message, tool_result_message=tool_result_message)
 
     agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
+
+    # Hook requested halt: exit without calling the model again.
+    if after_tools_event.end_turn:
+        end_turn_text = (
+            after_tools_event.end_turn
+            if isinstance(after_tools_event.end_turn, str)
+            else "Turn ended early by hook after tool execution"
+        )
+        end_turn_message: Message = {"role": "assistant", "content": [{"text": end_turn_text}]}
+        await agent._append_messages(end_turn_message)
+        yield EventLoopStopEvent(
+            "end_turn",
+            end_turn_message,
+            agent.event_loop_metrics,
+            invocation_state["request_state"],
+            structured_output=structured_output_result,
+        )
+        return
 
     if invocation_state["request_state"].get("stop_event_loop", False) or structured_output_context.stop_loop:
         yield EventLoopStopEvent(

@@ -8,7 +8,9 @@
 #
 # NOTE: Page (leaf) badges come from page frontmatter, not this file. Group labels
 # have no frontmatter, so a group may declare a `badge` here (text + variant) to
-# surface status on a collapsed section.
+# surface status on a collapsed section. Never hand-write a New badge: set
+# `addedDate` on the group (pages set it in frontmatter) and the badge derives
+# from it for 30 days.
 
 navbar:
   - label: Home
@@ -20,9 +22,15 @@ navbar:
     href: /docs/examples/
     basePath: /docs/examples/
   - label: Community
-    href: /docs/community/community-packages/
+    href: /community/
     basePath:
-      - /docs/community/
+      - /community/
+      - /docs/learning/
+  - label: Integrations
+    href: /integrations/
+    basePath:
+      - /integrations/
+      - /docs/integrations/
       - /docs/labs/
       - /docs/contribute/
   - label: API Reference
@@ -81,9 +89,7 @@ sidebar:
           - docs/user-guide/concepts/context-management
           - label: Memory
             collapsed: true
-            badge:
-              text: New
-              variant: tip
+            addedDate: 2026-06-17
             items:
               - label: "Overview"
                 slug: docs/user-guide/concepts/memory/overview
@@ -91,9 +97,7 @@ sidebar:
               - docs/user-guide/concepts/memory/bedrock-knowledge-base
           - docs/user-guide/concepts/agents/retry-strategies
           - label: Sandbox
-            badge:
-              text: New
-              variant: tip
+            addedDate: 2026-06-17
             items:
               - label: "Overview"
                 slug: docs/user-guide/concepts/sandbox
@@ -115,9 +119,7 @@ sidebar:
               - docs/user-guide/concepts/plugins/context-injector
               - docs/user-guide/concepts/plugins/goal-loop
           - label: Interventions
-            badge:
-              text: New
-              variant: tip
+            addedDate: 2026-06-03
             items:
               - label: "Overview"
                 slug: docs/user-guide/concepts/agents/interventions
@@ -148,6 +150,7 @@ sidebar:
               - docs/user-guide/concepts/bidirectional-streaming/interruption
               - docs/user-guide/concepts/bidirectional-streaming/hooks
               - docs/user-guide/concepts/bidirectional-streaming/session-management
+              - docs/user-guide/concepts/bidirectional-streaming/observability
           - label: Experimental
             items:
               - docs/user-guide/concepts/experimental/agent-config
@@ -296,8 +299,7 @@ sidebar:
 
   - label: Community
     items:
-      - docs/community/community-packages
-      - docs/community/get-featured
+      - docs/integrations/get-featured
       - label: Contribute
         items:
           - docs/contribute
@@ -307,68 +309,106 @@ sidebar:
               - docs/contribute/contributing/documentation
               - docs/contribute/contributing/feature-proposals
               - docs/contribute/contributing/extensions
+      # Feeds llms.txt lesson listing (src/pages/llms.txt.ts extractLinks); visual sidebar built by route-middleware.
+      - label: Learning
+        items:
+          - label: "Lesson 1: How Agents Really Work"
+            slug: docs/learning/how-agents-really-work
+          - label: "Lesson 2: Switching Model Providers"
+            slug: docs/learning/switching-model-providers
+          - label: "Lesson 3: Give Your Agent Tools Using MCP"
+            slug: docs/learning/give-your-agent-tools-using-mcp
+          - label: "Lesson 4: Adding Callbacks & Response Streaming"
+            slug: docs/learning/adding-callbacks-and-response-streaming
+          - label: "Lesson 5: Control Your Agent With Hooks"
+            slug: docs/learning/control-your-agent-with-hooks
+          - label: "Lesson 6: Agent Plugins & Skills"
+            slug: docs/learning/agent-plugins-and-skills
+          - label: "Lesson 7: Improve Agent Reliability With Strands Steering"
+            slug: docs/learning/improve-agent-reliability-with-strands-steering
+          - label: "Lesson 8: Context Engineering & Conversation Management"
+            slug: docs/learning/context-engineering-and-conversation-management
+          - label: "Lesson 9: Persistent Memory With Session Managers"
+            slug: docs/learning/persistent-memory-with-session-managers
+          - label: "Lesson 10: Multi-Agent Patterns: Agents as Tools"
+            slug: docs/learning/multi-agent-patterns-agents-as-tools
+          - label: "Lesson 11: Multi-Agent Patterns: Graph Workflows"
+            slug: docs/learning/multi-agent-patterns-graph-workflows
+          - label: "Lesson 12: Multi-Agent Patterns: Agent Swarms"
+            slug: docs/learning/multi-agent-patterns-agent-swarms
+          - label: "Lesson 13: Evaluating Agents"
+            slug: docs/learning/evaluating-agents
+          - label: "Lesson 14: Deploying Agents to the Cloud"
+            slug: docs/learning/deploying-agents-to-the-cloud
       - label: Labs
         items:
           - docs/labs
           - label: Projects
             items:
               - docs/labs/robots
-              - docs/labs/robots-sim
+              - docs/labs/strands-for-cosmos
+              - docs/labs/benchmark-harnesses
+              - docs/labs/harness-optimizer
               - docs/labs/ai-functions
+              - docs/labs/pywebrtc-audio
       - label: Integrations
         items:
-          - docs/community/integrations/ag-ui
+          - docs/integrations/integrations/ag-ui
+          - docs/integrations/integrations/welt
       - label: Agent Extensions
         items:
-          - docs/community/agent-extensions/strands-code-agent
+          - docs/integrations/agent-extensions/strands-code-agent
       - label: Interventions
         items:
-          - docs/community/interventions/overview
-          - docs/community/interventions/strands-agt
+          - docs/integrations/interventions/overview
+          - docs/integrations/interventions/strands-agt
       - label: Plugins
         items:
-          - docs/community/plugins/agent-control
-          - docs/community/plugins/agentcore-payments
-          - docs/community/plugins/agentcore-tool-search
-          - docs/community/plugins/datadog-ai-guard
-          - docs/community/plugins/s3-vectors-memory
+          - docs/integrations/plugins/agent-control
+          - docs/integrations/plugins/agentcore-payments
+          - docs/integrations/plugins/agentcore-tool-search
+          - docs/integrations/plugins/datadog-ai-guard
+          - docs/integrations/plugins/s3-vectors-memory
       - label: Model Providers
         items:
-          - docs/community/model-providers/cohere
-          - docs/community/model-providers/clova-studio
-          - docs/community/model-providers/fireworksai
-          - docs/community/model-providers/nebius-token-factory
-          - docs/community/model-providers/nvidia-nim
-          - docs/community/model-providers/sglang
-          - docs/community/model-providers/vllm
-          - docs/community/model-providers/mlx
-          - docs/community/model-providers/ovhcloud-ai-endpoints
-          - docs/community/model-providers/xai
+          - docs/integrations/model-providers/cohere
+          - docs/integrations/model-providers/clova-studio
+          - docs/integrations/model-providers/crusoe
+          - docs/integrations/model-providers/fireworksai
+          - docs/integrations/model-providers/nebius-token-factory
+          - docs/integrations/model-providers/nvidia-nim
+          - docs/integrations/model-providers/openrouter
+          - docs/integrations/model-providers/sglang
+          - docs/integrations/model-providers/vllm
+          - docs/integrations/model-providers/mlx
+          - docs/integrations/model-providers/ovhcloud-ai-endpoints
+          - docs/integrations/model-providers/xai
       - label: Memory Stores
         items:
-          - docs/community/memory-stores/overview
-          - docs/community/memory-stores/agentcore-memory-store
-          - docs/community/memory-stores/strands-dakera
+          - docs/integrations/memory-stores/overview
+          - docs/integrations/memory-stores/agentcore-memory-store
+          - docs/integrations/memory-stores/strands-dakera
       - label: Storage
         items:
-          - docs/community/storage/overview
+          - docs/integrations/storage/overview
+          - docs/integrations/storage/github
       - label: Session Managers
         items:
-          - docs/community/session-managers/agentcore-memory
-          - docs/community/session-managers/strands-valkey-session-manager
+          - docs/integrations/session-managers/agentcore-memory
+          - docs/integrations/session-managers/strands-valkey-session-manager
       - label: Tool Protocols
         items:
-          - docs/community/tools/utcp
+          - docs/integrations/tools/utcp
       - label: Tools
         items:
-          - docs/community/tools/strands-apify
-          - docs/community/tools/strands-deepgram
-          - docs/community/tools/strands-hubspot
-          - docs/community/tools/strands-spraay
-          - docs/community/tools/strands-sql
-          - docs/community/tools/strands-teams
-          - docs/community/tools/strands-telegram
-          - docs/community/tools/strands-telegram-listener             
+          - docs/integrations/tools/strands-apify
+          - docs/integrations/tools/strands-deepgram
+          - docs/integrations/tools/strands-hubspot
+          - docs/integrations/tools/strands-spraay
+          - docs/integrations/tools/strands-sql
+          - docs/integrations/tools/strands-teams
+          - docs/integrations/tools/strands-telegram
+          - docs/integrations/tools/strands-telegram-listener             
 
 github:
   sections:

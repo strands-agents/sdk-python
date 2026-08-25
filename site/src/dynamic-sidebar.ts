@@ -223,6 +223,55 @@ export function buildTypeScriptApiSidebar(docs: DocInfo[], currentSlug: string):
 }
 
 /**
+ * Course sidebar: "← All courses" back-link then a group of lesson links.
+ * Compute pagination from group.entries only — the back-link must NOT appear in prev/next.
+ */
+export function buildCourseSidebar(
+  docs: DocInfo[],
+  currentSlug: string,
+  course: { title: string; lessonIds: string[] },
+): SidebarEntry[] {
+  const docById = new Map(docs.map((d) => [d.id, d]))
+
+  const lessonLinks: SidebarLink[] = course.lessonIds
+    .filter((id) => docById.has(id))
+    .map((id) => {
+      const doc = docById.get(id)!
+      return {
+        type: 'link',
+        label: doc.title,
+        href: pathWithBase(`/${doc.id}/`),
+        isCurrent: currentSlug === doc.id,
+        badge: undefined,
+        attrs: {},
+      }
+    })
+
+  const backLink: SidebarLink = {
+    type: 'link',
+    label: '← All courses',
+    href: pathWithBase('/community/'),
+    isCurrent: false,
+    badge: undefined,
+    attrs: {},
+  }
+
+  if (lessonLinks.length === 0) {
+    return [backLink]
+  }
+
+  const group: SidebarGroup = {
+    type: 'group',
+    label: course.title,
+    entries: lessonLinks,
+    collapsed: false,
+    badge: undefined,
+  }
+
+  return [backLink, group]
+}
+
+/**
  * Pagination links for prev/next navigation
  */
 export interface PaginationLinks {

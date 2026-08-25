@@ -74,6 +74,7 @@ class ToolExecutor(abc.ABC):
         result: ToolResult,
         exception: Exception | None = None,
         cancel_message: str | None = None,
+        duration: float | None = None,
     ) -> tuple[AfterToolCallEvent | BidiAfterToolCallEvent, list[Interrupt]]:
         """Invoke the appropriate after tool call hook based on agent type."""
         kwargs = {
@@ -83,6 +84,7 @@ class ToolExecutor(abc.ABC):
             "result": result,
             "exception": exception,
             "cancel_message": cancel_message,
+            "duration": duration,
         }
         event = (
             AfterToolCallEvent(agent=cast("Agent", agent), **kwargs)
@@ -103,7 +105,9 @@ class ToolExecutor(abc.ABC):
             return False
         if cast(dict[str, Any], after_event.result).get("cancelled") is True:
             return False
-        return not (ToolExecutor._is_agent(agent) and agent._cancel_signal.is_set())
+        if not ToolExecutor._is_agent(agent):
+            return True
+        return not cast("Agent", agent)._cancel_signal.is_set()
 
     @staticmethod
     async def _stream(
@@ -198,6 +202,7 @@ class ToolExecutor(abc.ABC):
                 return
 
             try:
+                tool_start_time = time.monotonic()
                 selected_tool = before_event.selected_tool
                 tool_use = before_event.tool_use
                 invocation_state = before_event.invocation_state
@@ -274,8 +279,15 @@ class ToolExecutor(abc.ABC):
                 result = result_event.tool_result
                 exception = result_event.exception
 
+                tool_duration = time.monotonic() - tool_start_time
                 after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
-                    agent, selected_tool, tool_use, invocation_state, result, exception=exception
+                    agent,
+                    selected_tool,
+                    tool_use,
+                    invocation_state,
+                    result,
+                    exception=exception,
+                    duration=tool_duration,
                 )
 
                 if ToolExecutor._should_retry(agent, after_event):
@@ -299,6 +311,7 @@ class ToolExecutor(abc.ABC):
 
             except Exception as e:
                 logger.exception("tool_name=<%s> | failed to process tool", tool_name)
+                tool_duration = time.monotonic() - tool_start_time
                 error_result: ToolResult = {
                     "toolUseId": str(tool_use.get("toolUseId")),
                     "status": "error",
@@ -306,7 +319,7 @@ class ToolExecutor(abc.ABC):
                 }
 
                 after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
-                    agent, selected_tool, tool_use, invocation_state, error_result, exception=e
+                    agent, selected_tool, tool_use, invocation_state, error_result, exception=e, duration=tool_duration
                 )
                 if ToolExecutor._should_retry(agent, after_event):
                     logger.debug("tool_name=<%s> | retry requested after exception, retrying tool call", tool_name)

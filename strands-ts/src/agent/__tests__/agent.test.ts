@@ -16,6 +16,7 @@ import {
   ToolResultBlock,
   ReasoningBlock,
   GuardContentBlock,
+  AudioBlock,
   ImageBlock,
   VideoBlock,
   DocumentBlock,
@@ -1116,6 +1117,10 @@ describe('Agent', () => {
           new ReasoningBlock({ text: 'My reasoning' }),
           new CachePointBlock({ cacheType: 'default' }),
           new GuardContentBlock({ text: { text: 'Guard content', qualifiers: ['grounding_source'] } }),
+          new AudioBlock({
+            format: 'mp3',
+            source: { bytes: new Uint8Array([1, 2, 3]) },
+          }),
           new ImageBlock({
             format: 'png',
             source: { url: 'https://example.com/image.png' },
@@ -1176,6 +1181,12 @@ describe('Agent', () => {
           { cachePoint: { cacheType: 'default' as const } },
           { guardContent: { text: { text: 'Guard text', qualifiers: ['query' as const] } } },
           {
+            audio: {
+              format: 'mp3' as const,
+              source: { bytes: new Uint8Array([1, 2, 3]) },
+            },
+          },
+          {
             image: {
               format: 'png' as const,
               source: { url: 'https://example.com/image.png' },
@@ -1199,7 +1210,7 @@ describe('Agent', () => {
         expect(agent.messages).toHaveLength(2)
         const userMessage = agent.messages[0]!
         expect(userMessage.role).toBe('user')
-        expect(userMessage.content).toHaveLength(9)
+        expect(userMessage.content).toHaveLength(10)
         expect(userMessage.content[0]).toEqual(new TextBlock('Hello from data format'))
         expect(userMessage.content[1]).toEqual(
           new ToolUseBlock({ name: 'testTool', toolUseId: 'id-1', input: { key: 'value' } })

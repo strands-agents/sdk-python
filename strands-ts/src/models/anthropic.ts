@@ -5,8 +5,11 @@ import {
   type CountTokensOptions,
   type StreamOptions,
   resolveConfigMetadata,
+  resolveCacheSection,
+  type CacheConfig,
+  type ResolvedCacheSection,
 } from '../models/model.js'
-import type { Message, ContentBlock } from '../types/messages.js'
+import type { Message, ContentBlock, SystemPrompt } from '../types/messages.js'
 import type { ModelStreamEvent } from '../models/streaming.js'
 import { createEmptyUsage } from '../models/streaming.js'
 import { ContextWindowOverflowError, ModelThrottledError, normalizeError } from '../errors.js'
@@ -27,6 +30,11 @@ const CONTEXT_WINDOW_OVERFLOW_ERRORS = [
   'input length exceeds context window',
   'input and output tokens exceed your context limit',
 ]
+/**
+ * `ephemeral` is the only cache type the Anthropic API supports.
+ */
+const ANTHROPIC_CACHE_TYPE = 'ephemeral' as const
+
 const TEXT_FILE_FORMATS = ['txt', 'md', 'markdown', 'csv', 'json', 'xml', 'html', 'yml', 'yaml', 'js', 'ts', 'py']
 
 export interface AnthropicModelConfig extends BaseModelConfig {
@@ -60,6 +68,14 @@ export interface AnthropicModelConfig extends BaseModelConfig {
    * @defaultValue false
    */
   useNativeTokenCount?: boolean
+
+  /**
+   * Prompt caching configuration. Setting it caches the tool definitions and adds a cache point
+   * to the last user message; caching is off when unset.
+   *
+   * `strategy` has no effect here, since prompt caching is supported on every active Claude model.
+   */
+  cacheConfig?: CacheConfig
 }
 
 export interface AnthropicModelOptions extends AnthropicModelConfig {
@@ -302,52 +318,141 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
     return { headers: { 'anthropic-beta': betas.join(',') } }
   }
 
+  /** Resolves a cache section, disabled when `cacheConfig` is unset or its strategy is unknown. */
+  private _cacheSection(section: 'toolsTTL' | 'messagesTTL' | 'systemPromptTTL'): ResolvedCacheSection {
+    const cacheConfig = this._config.cacheConfig
+    if (!cacheConfig) {
+      return { enabled: false }
+    }
+
+    const strategy = cacheConfig.strategy ?? 'auto'
+    if (strategy !== 'auto' && strategy !== 'anthropic') {
+      logger.warn(`strategy=<${strategy}> | unknown cache strategy, prompt caching disabled`)
+      return { enabled: false }
+    }
+
+    return resolveCacheSection(cacheConfig[section], cacheConfig.ttl)
+  }
+
+  /** Builds an Anthropic `cache_control` value. A falsy `ttl` leaves the API default. */
+  private _formatCacheControl(ttl?: string): Anthropic.CacheControlEphemeral {
+    const cacheControl: Anthropic.CacheControlEphemeral = { type: ANTHROPIC_CACHE_TYPE }
+    if (ttl) {
+      // The API validates TTL values server-side, so any string is passed through.
+      cacheControl.ttl = ttl as NonNullable<Anthropic.CacheControlEphemeral['ttl']>
+    }
+    return cacheControl
+  }
+
+  /**
+   * Marks the last formatted block the API accepts `cache_control` on, mutating `content` in place.
+   * Scans backwards because the nearest block may be a rejected type or dropped in translation.
+   *
+   * @returns True when a block was marked.
+   */
+  private _attachCacheControl(content: Anthropic.ContentBlockParam[], ttl?: string, skipTrailing = 0): boolean {
+    // Skip trailing blocks rebuilt every call so the cache point stays ahead of them; a prefix that
+    // changes every call is written every call and never read.
+    for (let i = content.length - 1 - skipTrailing; i >= 0; i--) {
+      const block = content[i]
+      if (block && this._isCacheableBlock(block)) {
+        block.cache_control = this._formatCacheControl(ttl)
+        return true
+      }
+    }
+
+    return false
+  }
+
+  /**
+   * Formats the system prompt for the Anthropic API, auto-injecting a cache point at its end.
+   *
+   * @param systemPrompt - The system prompt as a string or content blocks.
+   * @returns The API system value (string or text blocks), or undefined when nothing cacheable remains.
+   */
+  private _formatSystemPrompt(systemPrompt: SystemPrompt): string | Anthropic.TextBlockParam[] | undefined {
+    const systemCache = this._cacheSection('systemPromptTTL')
+
+    if (typeof systemPrompt === 'string') {
+      if (!systemCache.enabled) return systemPrompt
+      return [{ type: 'text', text: systemPrompt, cache_control: this._formatCacheControl(systemCache.ttl) }]
+    }
+
+    const systemBlocks: Anthropic.TextBlockParam[] = []
+    let hasPlacedCachePoint = false
+    for (let index = 0; index < systemPrompt.length; index++) {
+      const block = systemPrompt[index]
+      if (!block) continue
+      if (block.type === 'guardContentBlock') {
+        logger.warn(
+          'block_type=<guardContentBlock> | guard content not supported in anthropic system prompt | skipping'
+        )
+        continue
+      }
+      if (block.type !== 'textBlock') continue
+
+      const nextBlock = systemPrompt[index + 1]
+      const cacheControl =
+        nextBlock?.type === 'cachePointBlock' ? this._formatCacheControl(nextBlock.ttl || systemCache.ttl) : undefined
+      systemBlocks.push({ type: 'text', text: block.text, ...(cacheControl && { cache_control: cacheControl }) })
+      if (cacheControl) {
+        hasPlacedCachePoint = true
+        index++
+      }
+    }
+
+    if (systemBlocks.length === 0) return undefined
+
+    if (systemCache.enabled && !hasPlacedCachePoint) {
+      const lastBlock = systemBlocks[systemBlocks.length - 1]
+      if (lastBlock) lastBlock.cache_control = this._formatCacheControl(systemCache.ttl)
+    }
+
+    return systemBlocks
+  }
+
   private _formatRequest(messages: Message[], options?: StreamOptions): Anthropic.MessageStreamParams {
     if (!this._config.modelId) throw new Error('Model ID is required')
+
+    const messagesCache = this._cacheSection('messagesTTL')
+    // The cache point goes on the last user message with content, not counting cache point blocks.
+    let cacheTargetMessage = -1
+    if (messagesCache.enabled) {
+      for (let messageIndex = messages.length - 1; messageIndex >= 0 && cacheTargetMessage < 0; messageIndex--) {
+        const message = messages[messageIndex]
+        if (message?.role === 'user' && message.content.some((block) => block.type !== 'cachePointBlock')) {
+          cacheTargetMessage = messageIndex
+        }
+      }
+    }
 
     const request: Anthropic.MessageStreamParams = {
       model: this._config.modelId,
       max_tokens: this._config.maxTokens ?? MODEL_DEFAULTS.anthropic.maxTokens,
-      messages: this._formatMessages(messages),
+      messages: this._formatMessages(messages, messagesCache, cacheTargetMessage, options?.dynamicTrailingBlocks ?? 0),
       stream: true,
     }
 
     if (options?.systemPrompt) {
-      if (typeof options.systemPrompt === 'string') {
-        request.system = options.systemPrompt
-      } else if (Array.isArray(options.systemPrompt)) {
-        const systemBlocks: Anthropic.TextBlockParam[] = []
-        for (let i = 0; i < options.systemPrompt.length; i++) {
-          const block = options.systemPrompt[i]
-          if (!block) continue
-
-          if (block.type === 'textBlock') {
-            const nextBlock = options.systemPrompt[i + 1]
-            const cacheControl = nextBlock?.type === 'cachePointBlock' ? { type: 'ephemeral' as const } : undefined
-
-            systemBlocks.push({
-              type: 'text',
-              text: block.text,
-              ...(cacheControl && { cache_control: cacheControl }),
-            })
-
-            if (cacheControl) i++
-          } else if (block.type === 'guardContentBlock') {
-            logger.warn(
-              'block_type=<guardContentBlock> | guard content not supported in anthropic system prompt | skipping'
-            )
-          }
-        }
-        if (systemBlocks.length > 0) request.system = systemBlocks
-      }
+      const system = this._formatSystemPrompt(options.systemPrompt)
+      if (system !== undefined) request.system = system
     }
 
     if (options?.toolSpecs?.length) {
-      request.tools = options.toolSpecs.map((tool) => ({
+      const tools = options.toolSpecs.map((tool) => ({
         name: tool.name,
         description: tool.description,
         input_schema: tool.inputSchema as Anthropic.Tool.InputSchema,
-      }))
+      })) as Anthropic.Tool[]
+
+      // A cache_control on the last tool caches all of them, so one cache point suffices.
+      const toolsCache = this._cacheSection('toolsTTL')
+      const lastTool = tools[tools.length - 1]
+      if (toolsCache.enabled && lastTool) {
+        lastTool.cache_control = this._formatCacheControl(toolsCache.ttl)
+      }
+
+      request.tools = tools
 
       if (options.toolChoice) {
         if ('auto' in options.toolChoice) {
@@ -368,27 +473,59 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
     return request
   }
 
-  private _formatMessages(messages: Message[]): Anthropic.MessageParam[] {
-    return messages.map((msg) => {
+  private _formatMessages(
+    messages: Message[],
+    messagesCache: ResolvedCacheSection = { enabled: false },
+    cacheTargetMessage = -1,
+    dynamicTrailingBlocks = 0
+  ): Anthropic.MessageParam[] {
+    let strippedCachePoints = 0
+    const cacheManaged = messagesCache.enabled
+
+    const formatted = messages.map((msg, messageIndex) => {
       const role = (msg.role as string) === 'tool' ? 'user' : msg.role
+      const isCacheTarget = cacheManaged && messageIndex === cacheTargetMessage
 
       const content: Anthropic.ContentBlockParam[] = []
+      let marked = false
+      let honored = false
 
-      for (let i = 0; i < msg.content.length; i++) {
-        const block = msg.content[i]
+      for (const block of msg.content) {
         if (!block) continue
 
-        const nextBlock = msg.content[i + 1]
-        const hasCachePoint = nextBlock?.type === 'cachePointBlock'
+        if (block.type === 'cachePointBlock') {
+          if (!cacheManaged) {
+            if (!this._attachCacheControl(content, block.ttl)) {
+              logger.warn('no preceding block accepts a cache point | skipped cache point')
+            }
+          } else if (isCacheTarget && !honored) {
+            // A TTL written on the point is more specific than the configured one.
+            honored = true
+            marked = this._attachCacheControl(content, block.ttl || messagesCache.ttl)
+            if (!marked) {
+              logger.warn(
+                `msg_idx=<${messageIndex}> | nothing ahead of the placed cache point can carry one, ` +
+                  `falling back to automatic placement`
+              )
+            }
+          } else {
+            strippedCachePoints += 1
+          }
+          continue
+        }
 
         const formattedBlock = this._formatContentBlock(block)
+        if (formattedBlock) content.push(formattedBlock)
+      }
 
-        if (formattedBlock) {
-          if (hasCachePoint && this._isCacheableBlock(formattedBlock)) {
-            formattedBlock.cache_control = { type: 'ephemeral' }
-            i++
-          }
-          content.push(formattedBlock)
+      // Placed after formatting so the cache point lands on a block that survived translation.
+      // Per-call trailing blocks apply only to the cache-target message, where a producer appends
+      // content rebuilt every call.
+      if (isCacheTarget && !marked) {
+        if (this._attachCacheControl(content, messagesCache.ttl, dynamicTrailingBlocks)) {
+          logger.debug(`msg_idx=<${messageIndex}> | added cache point to last user message`)
+        } else {
+          logger.debug(`msg_idx=<${messageIndex}> | no cacheable content block, skipped cache point`)
         }
       }
 
@@ -397,6 +534,15 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
         content,
       }
     })
+
+    if (strippedCachePoints > 0) {
+      logger.warn(
+        `count=<${strippedCachePoints}> | stripped extra cache points, cacheConfig keeps the first cache ` +
+          `point in the last user message; unset cacheConfig to keep every cache point`
+      )
+    }
+
+    return formatted
   }
 
   private _isCacheableBlock(
@@ -440,18 +586,32 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
             throw new Error(`Unsupported image format for Anthropic: ${imgBlock.format}`)
         }
 
-        if (imgBlock.source.type === 'imageSourceBytes') {
-          return {
-            type: 'image',
-            source: {
-              type: 'base64',
-              media_type: mediaType,
-              data: encodeBase64(imgBlock.source.bytes),
-            },
-          }
+        switch (imgBlock.source.type) {
+          case 'imageSourceBytes':
+            return {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: mediaType,
+                data: encodeBase64(imgBlock.source.bytes),
+              },
+            }
+          case 'imageSourceUrl':
+            return {
+              type: 'image',
+              source: {
+                type: 'url',
+                url: imgBlock.source.url,
+              },
+            }
+          case 'imageSourceS3Location':
+            logger.warn(
+              'source_type=<imageSourceS3Location> | s3 location sources are not supported by anthropic | skipping'
+            )
+            return undefined
+          default:
+            throw new Error(`Unsupported image source for Anthropic: ${(imgBlock.source as { type: string }).type}`)
         }
-        logger.warn('source_type=<imageSourceUrl> | anthropic requires image bytes | url sources not fully supported')
-        return undefined
       }
 
       case 'documentBlock': {
@@ -490,8 +650,9 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
           }
         }
 
-        logger.warn(`format=<${docBlock.format}> | unsupported document format or source for anthropic`)
-        return undefined
+        throw new Error(
+          `Unsupported document format or source for Anthropic: format=${docBlock.format}, source=${docBlock.source.type}`
+        )
       }
 
       case 'toolUseBlock':

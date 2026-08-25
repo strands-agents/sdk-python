@@ -14,6 +14,7 @@ export interface McpToolConfig {
   description: string
   inputSchema: JSONSchema
   outputSchema?: JSONSchema
+  annotations?: Record<string, JSONValue | undefined>
   client: McpClient
 }
 
@@ -39,6 +40,7 @@ export class McpTool extends Tool {
       description: config.description,
       inputSchema: config.inputSchema,
       ...(config.outputSchema !== undefined && { outputSchema: config.outputSchema }),
+      ...(config.annotations !== undefined && { annotations: config.annotations }),
     }
     this.mcpClient = config.client
   }
@@ -49,7 +51,7 @@ export class McpTool extends Tool {
 
     try {
       const rawResult: unknown = await this.mcpClient.callTool(this, input as JSONValue, {
-        signal: toolContext.agent.cancelSignal,
+        signal: toolContext.cancelSignal,
       })
 
       if (!this._isMcpToolResult(rawResult)) {

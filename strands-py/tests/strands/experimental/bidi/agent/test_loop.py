@@ -7,7 +7,11 @@ import pytest_asyncio
 from strands import tool
 from strands.experimental.bidi import BidiAgent
 from strands.experimental.bidi.models import BidiModel, BidiModelTimeoutError
-from strands.experimental.bidi.types.events import BidiConnectionCloseEvent, BidiConnectionRestartEvent, BidiTextInputEvent
+from strands.experimental.bidi.types.events import (
+    BidiConnectionCloseEvent,
+    BidiConnectionRestartEvent,
+    BidiTextInputEvent,
+)
 from strands.types._events import ToolResultEvent, ToolResultMessageEvent, ToolUseStreamEvent
 
 
@@ -82,14 +86,17 @@ async def test_bidi_agent_loop_receive_tool_use(loop, agent, agenerator):
     exp_events = [
         tool_use_event,
         tool_result_event,
-        ToolResultMessageEvent({"role": "user", "content": [{"toolResult": tool_result}]}),
+        # The message is assigned a durable tracking_id when appended to history.
+        ToolResultMessageEvent(
+            {"role": "user", "content": [{"toolResult": tool_result}], "tracking_id": unittest.mock.ANY}
+        ),
     ]
     assert tru_events == exp_events
 
     tru_messages = agent.messages
     exp_messages = [
-        {"role": "assistant", "content": [{"toolUse": tool_use}]},
-        {"role": "user", "content": [{"toolResult": tool_result}]},
+        {"role": "assistant", "content": [{"toolUse": tool_use}], "tracking_id": unittest.mock.ANY},
+        {"role": "user", "content": [{"toolResult": tool_result}], "tracking_id": unittest.mock.ANY},
     ]
     assert tru_messages == exp_messages
 
@@ -139,7 +146,6 @@ async def test_bidi_agent_loop_stop_event_loop_flag(agent, agenerator):
 
     tool_use = {"toolUseId": "t3", "name": "time_tool", "input": {}}
     tool_use_event = ToolUseStreamEvent(current_tool_use=tool_use, delta="")
-    tool_result = {"toolUseId": "t3", "status": "success", "content": [{"text": "12:00"}]}
 
     agent.model.receive = unittest.mock.Mock(return_value=agenerator([tool_use_event]))
 
@@ -256,4 +262,8 @@ async def test_bidi_agent_loop_send_respects_event_role(loop, agent):
     agent.model.send = unittest.mock.AsyncMock()
     await loop.start()
     await loop.send(BidiTextInputEvent(text="injected context", role="assistant"))
-    assert agent.messages[-1] == {"role": "assistant", "content": [{"text": "injected context"}]}
+    assert agent.messages[-1] == {
+        "role": "assistant",
+        "content": [{"text": "injected context"}],
+        "tracking_id": unittest.mock.ANY,
+    }

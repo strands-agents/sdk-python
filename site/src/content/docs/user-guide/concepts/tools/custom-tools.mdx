@@ -418,6 +418,12 @@ Invocation state is useful for:
 - **Agent State** (`context.agent.appState`): Durable key-value storage that persists across invocations. JSON-serializable and deep-copied on read/write. Use for configuration that doesn't change between requests.
 
 - **[Class-based tools](#class-based-tools)**: Instance-level configuration that requires initialization. Use for API keys, database connections, or shared resources.
+
+For durable state, read it back inside a tool with the typed `appState.get<T>()` generic, which returns the typed value for the key instead of a bare `JSONValue`:
+
+```typescript
+--8<-- "user-guide/concepts/tools/tools.ts:tool_context_app_state"
+```
 </Tab>
 </Tabs>
 

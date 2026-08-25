@@ -27,7 +27,6 @@
     <a href="https://strandsagents.com/">Documentation</a>
     ◆ <a href="https://github.com/strands-agents/samples">Samples</a>
     ◆ <a href="https://github.com/strands-agents/tools">Tools</a>
-    ◆ <a href="https://github.com/strands-agents/agent-builder">Agent Builder</a>
     ◆ <a href="https://github.com/strands-agents/harness-sdk/tree/main/strands-mcp">MCP Server</a>
   </p>
 </div>
@@ -215,8 +214,11 @@ Build real-time voice and audio conversations with persistent streaming connecti
 # Server-side only (no audio I/O dependencies)
 pip install strands-agents[bidi]
 
-# With audio I/O support (includes PyAudio dependency)
-pip install strands-agents[bidi,bidi-io]
+# With all portable Bidi providers, text I/O, and audio processing
+pip install strands-agents[bidi-all]
+
+# For local microphone/speaker access, install PortAudio for your OS first, then:
+pip install strands-agents[bidi-pyaudio]
 ```
 
 > **Note**: Amazon Nova Sonic requires Python 3.12+ due to its experimental AWS SDK dependency.
@@ -235,7 +237,7 @@ async def main():
     model = BidiNovaSonicModel()
     agent = BidiAgent(model=model, tools=[calculator, stop])
 
-    # Setup audio and text I/O (requires bidi-io extra)
+    # Setup audio and text I/O (local audio requires the bidi-pyaudio extra)
     audio_io = BidiAudioIO()
     text_io = BidiTextIO()
 
@@ -250,7 +252,10 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-> **Note**: `BidiAudioIO` and `BidiTextIO` require the `bidi-io` extra. For server-side deployments where audio I/O is handled by clients (browsers, mobile apps), install only `strands-agents[bidi]` and implement custom input/output handlers using the `BidiInput` and `BidiOutput` protocols.
+> **Note**: `BidiTextIO` is included with the `bidi` extra. `BidiAudioIO` requires the `bidi-pyaudio` extra and
+> the PortAudio system library. For server-side deployments where audio I/O is handled by clients (browsers,
+> mobile apps), install only `strands-agents[bidi]` and implement custom input/output handlers using the
+> `BidiInput` and `BidiOutput` protocols.
 
 **Configuration Options:**
 
