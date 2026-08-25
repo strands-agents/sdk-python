@@ -1233,6 +1233,106 @@ describe('OpenAIModel', () => {
         tool_choice: 'auto',
       })
     })
+
+    it('maps cacheConfig.cacheKey to prompt_cache_key', async () => {
+      const captured: { request: any } = { request: null }
+      const provider = new OpenAIModel({
+        api: 'chat',
+        client: createMockClientWithCapture(captured),
+        cacheConfig: { cacheKey: 'tenant-42' },
+      })
+
+      await collectIterator(provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })]))
+
+      expect(captured.request.prompt_cache_key).toBe('tenant-42')
+    })
+
+    it('omits prompt_cache_key when cacheConfig is unset', async () => {
+      const captured: { request: any } = { request: null }
+      const provider = new OpenAIModel({ api: 'chat', client: createMockClientWithCapture(captured) })
+
+      await collectIterator(provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })]))
+
+      expect(captured.request.prompt_cache_key).toBeUndefined()
+    })
+
+    it('lets an explicit prompt_cache_key in params win over cacheConfig', async () => {
+      const captured: { request: any } = { request: null }
+      const provider = new OpenAIModel({
+        api: 'chat',
+        client: createMockClientWithCapture(captured),
+        params: { prompt_cache_key: 'explicit' },
+        cacheConfig: { cacheKey: 'from-config' },
+      })
+
+      await collectIterator(provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })]))
+
+      expect(captured.request.prompt_cache_key).toBe('explicit')
+    })
+
+    it.each(['24h', 'in_memory'])(
+      'maps retention-literal cacheConfig.ttl %s to prompt_cache_retention',
+      async (ttl) => {
+        const captured: { request: any } = { request: null }
+        const provider = new OpenAIModel({
+          api: 'chat',
+          client: createMockClientWithCapture(captured),
+          cacheConfig: { ttl },
+        })
+
+        await collectIterator(provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })]))
+
+        expect(captured.request.prompt_cache_retention).toBe(ttl)
+      }
+    )
+
+    it('ignores a non-retention cacheConfig.ttl and warns once', async () => {
+      const captured: { request: any } = { request: null }
+      const provider = new OpenAIModel({
+        api: 'chat',
+        client: createMockClientWithCapture(captured),
+        cacheConfig: { ttl: '5m' },
+      })
+
+      await collectIterator(provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })]))
+
+      expect(captured.request.prompt_cache_retention).toBeUndefined()
+      expect(warnOnce).toHaveBeenCalledWith(
+        expect.objectContaining({ warn: expect.any(Function) }),
+        expect.stringContaining('not an openai retention value')
+      )
+    })
+
+    it('lets an explicit prompt_cache_retention in params win over cacheConfig', async () => {
+      const captured: { request: any } = { request: null }
+      const provider = new OpenAIModel({
+        api: 'chat',
+        client: createMockClientWithCapture(captured),
+        params: { prompt_cache_retention: '24h' },
+        cacheConfig: { ttl: 'in_memory' },
+      })
+
+      await collectIterator(provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })]))
+
+      expect(captured.request.prompt_cache_retention).toBe('24h')
+    })
+
+    it('warns once that placement fields have no effect', async () => {
+      const captured: { request: any } = { request: null }
+      const provider = new OpenAIModel({
+        api: 'chat',
+        client: createMockClientWithCapture(captured),
+        cacheConfig: { strategy: 'anthropic', systemPromptTTL: false, toolsTTL: '1h', cacheKey: 'k' },
+      })
+
+      await collectIterator(provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })]))
+      await collectIterator(provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })]))
+
+      expect(warnOnce).toHaveBeenCalledWith(
+        expect.objectContaining({ warn: expect.any(Function) }),
+        expect.stringContaining('have no effect')
+      )
+    })
   })
 
   describe('systemPrompt handling', () => {

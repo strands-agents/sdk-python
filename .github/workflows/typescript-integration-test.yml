@@ -178,7 +178,7 @@ jobs:
     # when the integration-test job actually executed; on fork PRs the auth
     # environment gate skips the test job and no test-artifacts-integ artifact
     # is produced, so this job would otherwise fail on artifact download.
-    if: needs.run-integration-tests.result == 'success' || needs.run-integration-tests.result == 'failure'
+    if: always() && (needs.run-integration-tests.result == 'success' || needs.run-integration-tests.result == 'failure')
     permissions:
       id-token: write
       contents: read

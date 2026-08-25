@@ -150,7 +150,11 @@ class _BidiAudioInput(BidiInput):
     _DEVICE_INDEX = None
     _FRAMES_PER_BUFFER = 512
 
-    def __init__(self, config: dict[str, Any], processor: "_AudioProcessor | None" = None) -> None:
+    def __init__(
+        self,
+        config: dict[str, Any],
+        processor: "_AudioProcessor | None" = None,
+    ) -> None:
         """Extract configs.
 
         Args:
@@ -247,9 +251,13 @@ class _BidiAudioInput(BidiInput):
             sample_rate=self._rate,
         )
 
-    def _callback(self, in_data: bytes, *_: Any) -> tuple[None, Any]:
+    def _callback(
+        self,
+        in_data: bytes | None,
+        *_: Any,
+    ) -> tuple[None, int]:
         """Callback to receive audio data from PyAudio."""
-        self._buffer.put(in_data)
+        self._buffer.put(in_data or b"")
         return (None, pyaudio.paContinue)
 
 
@@ -269,7 +277,11 @@ class _BidiAudioOutput(BidiOutput):
     _DEVICE_INDEX = None
     _FRAMES_PER_BUFFER = 512
 
-    def __init__(self, config: dict[str, Any], processor: "_AudioProcessor | None" = None) -> None:
+    def __init__(
+        self,
+        config: dict[str, Any],
+        processor: "_AudioProcessor | None" = None,
+    ) -> None:
         """Extract configs.
 
         Args:
@@ -343,7 +355,12 @@ class _BidiAudioOutput(BidiOutput):
             if self._processor is not None:
                 self._processor.clear_reference()
 
-    def _callback(self, _in_data: None, frame_count: int, *_: Any) -> tuple[bytes, Any]:
+    def _callback(
+        self,
+        _in_data: bytes | None,
+        frame_count: int,
+        *_: Any,
+    ) -> tuple[bytes, int]:
         """Callback to send audio data to PyAudio.
 
         When processing is enabled, records the played audio as the echo reference at the moment it exits the
@@ -373,6 +390,9 @@ class BidiAudioIO:
 
     Audio processing requires pywebrtc-audio (``pip install strands-agents[bidi-aec]``) and a microphone
     sample rate of 16000, 32000, or 48000 Hz (set via the model's audio config).
+
+    Device audio requires PyAudio. Install the PortAudio system library, then install
+    ``strands-agents[bidi-pyaudio]``.
 
     Example:
         ```python

@@ -2,7 +2,6 @@ import base64
 import unittest.mock
 
 import numpy as np
-import pyaudio
 import pytest
 import pytest_asyncio
 
@@ -74,9 +73,18 @@ def agent_mixed_rates():
 
 
 @pytest.fixture
-def py_audio():
-    with unittest.mock.patch("strands.experimental.bidi.io.audio.pyaudio.PyAudio") as mock:
-        yield mock.return_value
+def pyaudio_module():
+    module = unittest.mock.MagicMock()
+    module.paInt16 = 8
+    module.paContinue = 0
+    module.get_sample_size.return_value = 2
+    with unittest.mock.patch("strands.experimental.bidi.io.audio.pyaudio", module):
+        yield module
+
+
+@pytest.fixture
+def py_audio(pyaudio_module):
+    return pyaudio_module.PyAudio.return_value
 
 
 @pytest.fixture
@@ -173,10 +181,10 @@ async def test_bidi_audio_io_input(audio_input):
     assert tru_event == exp_event
 
 
-def test_bidi_audio_io_input_configs(py_audio, audio_input):
+def test_bidi_audio_io_input_configs(pyaudio_module, py_audio, audio_input):
     py_audio.open.assert_called_once_with(
         channels=2,
-        format=pyaudio.paInt16,
+        format=pyaudio_module.paInt16,
         frames_per_buffer=1024,
         input=True,
         input_device_index=1,
@@ -217,10 +225,10 @@ async def test_bidi_audio_io_output_interrupt(audio_output):
     assert tru_data == exp_data
 
 
-def test_bidi_audio_io_output_configs(py_audio, audio_output):
+def test_bidi_audio_io_output_configs(pyaudio_module, py_audio, audio_output):
     py_audio.open.assert_called_once_with(
         channels=2,
-        format=pyaudio.paInt16,
+        format=pyaudio_module.paInt16,
         frames_per_buffer=2048,
         output=True,
         output_device_index=2,
@@ -314,14 +322,16 @@ def test_process_capture_empty_input_returns_empty():
 # ---------------------------------------------------------------------------
 
 
-def test_no_processor_when_processing_disabled():
+def test_no_processor_when_processing_disabled(pyaudio_module):
+    _ = pyaudio_module
     audio_io = BidiAudioIO()
     assert audio_io._processor is None
     assert audio_io.input()._processor is None
     assert audio_io.output()._processor is None
 
 
-def test_processor_shared_between_input_and_output():
+def test_processor_shared_between_input_and_output(pyaudio_module):
+    _ = pyaudio_module
     module, _, _ = _fake_pywebrtc()
     with unittest.mock.patch.dict("sys.modules", {"pywebrtc_audio": module}):
         audio_io = BidiAudioIO(processor=AudioProcessorConfig())
@@ -331,7 +341,8 @@ def test_processor_shared_between_input_and_output():
     assert audio_io.output()._processor is audio_io._processor
 
 
-def test_construction_raises_import_error_without_pywebrtc():
+def test_construction_raises_import_error_without_pywebrtc(pyaudio_module):
+    _ = pyaudio_module
     with unittest.mock.patch.dict("sys.modules", {"pywebrtc_audio": None}):
         with pytest.raises(ImportError, match="pywebrtc-audio is required"):
             BidiAudioIO(processor=AudioProcessorConfig())
@@ -538,7 +549,8 @@ async def test_input_keeps_configured_buffer_when_processing_off(py_audio, aec_a
     await input_.stop()
 
 
-def test_mic_buffer_bounded_to_reference_horizon_when_ec_on():
+def test_mic_buffer_bounded_to_reference_horizon_when_ec_on(pyaudio_module):
+    _ = pyaudio_module
     # The mic buffer must share the reference buffer's frame bound so both evict in lockstep under a stall,
     # even if the user passes a larger input_buffer_size.
     module, _, _ = _fake_pywebrtc()
@@ -549,7 +561,8 @@ def test_mic_buffer_bounded_to_reference_horizon_when_ec_on():
     assert input_._buffer._size == audio_io._processor._max_ref_frames
 
 
-def test_mic_buffer_uses_configured_size_when_ec_off():
+def test_mic_buffer_uses_configured_size_when_ec_off(pyaudio_module):
+    _ = pyaudio_module
     # With echo cancellation off there is no reference to align to, so the user's sizing is respected.
     module, _, _ = _fake_pywebrtc()
     with unittest.mock.patch.dict("sys.modules", {"pywebrtc_audio": module}):
