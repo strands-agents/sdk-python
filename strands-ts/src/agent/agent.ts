@@ -423,13 +423,7 @@ const DEFAULT_AGENT_ID = 'agent'
 /** Result returned by tool-execution generators, threading the AfterToolsEvent back to the main loop. */
 type ToolsExecutionResult = { message: Message; afterToolsEvent: AfterToolsEvent; toolsSkipped: boolean }
 
-/**
- * Call-scoped slot the middleware terminal fills with the model it actually invoked.
- *
- * Middleware can replace `context.model`, and on failure the generator throws without a return
- * value, so the effective model is threaded out by reference for both outcomes. Empty when
- * middleware short-circuits before the terminal runs.
- */
+/** Model reached by the middleware terminal; empty when the chain short-circuits or fails before reaching it. */
 type InvokedModelRef = { model?: Model }
 
 /**

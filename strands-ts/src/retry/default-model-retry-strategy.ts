@@ -4,12 +4,6 @@
  * Implements {@link ModelRetryStrategy.computeRetryDecision} to retry failed model
  * calls classified by {@link isRetryable}, bounded by `maxAttempts`, with
  * delays computed by the configured {@link BackoffStrategy}.
- *
- * The attempt counter lives on {@link AfterModelCallEvent.attemptCount},
- * maintained by the agent loop. This strategy only keeps per-budget backoff
- * state (first-failure timestamp, last delay), which is cleared in
- * {@link onFirstModelAttempt}. A new turn and a router candidate switch each
- * start a fresh budget.
  */
 
 import type { AfterModelCallEvent } from '../hooks/events.js'

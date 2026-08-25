@@ -1,22 +1,20 @@
 /**
  * Model routing primitives.
  *
- * A {@link ModelRouter} delegates every decision to its {@link RoutingStrategy}: once before the first
- * model call and again after an unclaimed failure. Returning `undefined` from the opening selection uses
- * the first candidate's concrete default model; returning it after a failure stops routing and preserves
- * the pending model error.
+ * A {@link ModelRouter} asks its {@link RoutingStrategy} before the first model call and after
+ * unclaimed failures until routing stops. Returning `undefined` from the opening selection uses the
+ * first candidate's concrete default model; returning it after a failure preserves the pending error.
  *
  * A failure round uses each candidate at most once. A successful call starts a new round with that
- * candidate already counted as used. Nested routers are opaque candidates: they make one opening choice
+ * candidate already counted as used. Nested routers are opaque candidates: they make one selection
  * with an empty attempt history and do not perform internal failover for the outer router.
  *
  * `agent.model` remains the first candidate's concrete model. Opening selection runs in model input
  * middleware after continuation input is incorporated, so the opening before-model hook reports that
- * default while {@link AfterModelCallEvent} reports the effective routed model. Subsystems
- * that inspect `agent.model`, including token estimation, also reason about the default model. Prefer
- * candidates with comparable context windows and tokenizers. If a candidate fails after emitting part
- * of a streamed response, consumers see that partial output followed by the replacement model's full
- * response.
+ * default while {@link AfterModelCallEvent} reports the effective routed model. Token estimation also
+ * uses the default model, so prefer candidates with comparable context windows and tokenizers. If a
+ * candidate fails after emitting part of a streamed response, consumers see that partial output
+ * followed by the replacement model's full response.
  *
  * The API is provisional and may change before it is finalized.
  */
@@ -79,14 +77,7 @@ export interface ModelRouterOptions {
   readonly maxSwitches?: number
 }
 
-/**
- * Per-invocation routing state for one agent/router pair.
- *
- * `attempts` is the record the strategy reads to make its next decision; the router appends to it but
- * never reads it. `switchedTo` holds the candidates this failure round has already used, which is what
- * bounds the round; a success resets it to the candidate that succeeded, since that candidate opens the
- * next round. `switches` counts model changes so `maxSwitches` can cap them.
- */
+/** Per-invocation candidate, attempt history, and switch accounting. */
 class RoutingState {
   candidate: RoutingCandidate
   model: Model
