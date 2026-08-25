@@ -1,9 +1,21 @@
 # Dependabot configuration.
 #
-# Shared conventions across every ecosystem below:
+# Version updates are DISABLED for the root npm workspace (the TypeScript
+# SDK, open-pull-requests-limit: 0). As an SDK we want each
+# dependency constraint to stay as wide as possible so the SDK composes with
+# as many consumer projects as possible, and npm bump PRs raise constraint
+# floors in strands-ts/package.json (any 0.x bump and every cross-major bump
+# moves the floor) — narrowing that range.
+# Security updates are not subject to the limit and still open PRs, picking up
+# the labels, commit prefix, and versioning-strategy configured on the block.
+# (pip is different: its `>=floor,<major+1` constraints mean bump PRs raise
+# the ceiling — widening support — so the Python blocks keep version updates.)
+#
+# Shared conventions across the version-updating ecosystems below:
 #   - cooldown: hold new updates for a few days before opening a PR so we don't
 #     churn on same-day releases. Majors get a long (30-day) window so a human
-#     can vet breaking changes before the PR lands.
+#     can vet breaking changes before the PR lands (github-actions is the
+#     exception — see its block).
 #   - groups: batch low-risk updates into grouped PRs — dev tooling in one,
 #     production minor/patch bumps in another. Major production updates are
 #     intentionally left ungrouped so they arrive as individual,
@@ -105,37 +117,22 @@ updates:
           - 'patch'
       # Major production updates aren't matched by any group, so they get individual
       # PRs — gated by the 30-day semver-major cooldown above for manual review.
-  # TypeScript SDK at the repo root. Same batching strategy as the Python SDK.
+  # TypeScript SDK at the repo root: security updates only (see header).
+  # `schedule` is inert with the limit at 0 but required by the schema;
+  # `versioning-strategy` still applies to security PRs — increase-if-necessary
+  # leaves a constraint alone when it already allows the patched release, so a
+  # security PR usually moves only the lockfile, not the manifest floor.
   - package-ecosystem: 'npm'
     directory: '/'
     schedule:
       interval: 'weekly'
-    open-pull-requests-limit: 100
+    open-pull-requests-limit: 0
     labels:
       - 'dependencies'
       - 'typescript'
     commit-message:
       prefix: 'ci(typescript)'
     versioning-strategy: increase-if-necessary
-    cooldown:
-      default-days: 5
-      semver-major-days: 30
-      semver-minor-days: 7
-      semver-patch-days: 3
-    groups:
-      # All development dependencies in one PR.
-      development-dependencies:
-        dependency-type: 'development'
-        applies-to: version-updates
-      # Production minor + patch bumps in one PR.
-      production-minor:
-        dependency-type: 'production'
-        applies-to: version-updates
-        update-types:
-          - 'minor'
-          - 'patch'
-      # Major production updates aren't matched by any group, so they get individual
-      # PRs — gated by the 30-day semver-major cooldown above for manual review.
   # Documentation site (/site). Same batching strategy as the SDKs so docs
   # tooling bumps don't each open a separate PR and majors get the review window.
   - package-ecosystem: 'npm'
@@ -189,8 +186,9 @@ updates:
       pr-metrics-tools:
         patterns:
           - '*'
-  # GitHub Actions workflow pins. Low volume, so no grouping; the cooldown still
-  # holds majors back for review before the bump PR opens.
+  # GitHub Actions workflow pins. Low volume, so no grouping. Only `default-days`
+  # applies here — the semver-* cooldown windows are limited to ecosystems whose
+  # versions Dependabot treats as semver, which excludes github-actions.
   - package-ecosystem: 'github-actions'
     directory: '/'
     schedule:
@@ -200,6 +198,3 @@ updates:
       prefix: ci
     cooldown:
       default-days: 5
-      semver-major-days: 30
-      semver-minor-days: 7
-      semver-patch-days: 3
