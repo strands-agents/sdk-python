@@ -279,7 +279,7 @@ Common configuration parameters include:
 - `temperature` - Controls randomness (higher = more random)
 - `maxTokens` - Maximum number of tokens to generate
 - `stream` - Enable/disable streaming mode
-- `cacheConfig` - Enable prompt caching with `{ strategy: 'auto' }`, or `{ messagesTTL: false }` to cache tool definitions only
+- `cacheConfig` - Enable prompt caching with `{ strategy: 'auto' }`, or `{ messagesTTL: false }` to cache the tool definitions and system prompt only
 - `region` - AWS region to use
 - `apiKey` - Bedrock API key for bearer token authentication (alternative to SigV4 signing)
 - `clientConfig` - AWS SDK client configuration
@@ -376,7 +376,7 @@ See the Amazon Bedrock documentation for [Supported models and model features](h
 
 ### Multimodal Support
 
-Some Bedrock models support multimodal inputs (Documents, Images, etc.). Here's how to use them:
+Some Bedrock models support multimodal inputs (documents, images, audio, etc.). Here's how to use them:
 
 <Tabs>
 <Tab label="Python">
@@ -422,7 +422,7 @@ For a complete list of input types, please refer to the [API Reference](@api/pyt
 
 #### S3 Location Support
 
-As an alternative to providing media content as bytes, Amazon Bedrock supports referencing documents, images, and videos stored in Amazon S3 directly. This is useful when working with large files or when your content is already stored in S3.
+As an alternative to providing media content as bytes, Amazon Bedrock supports referencing documents, images, videos, and audio stored in Amazon S3 directly. This is useful when working with large files or when your content is already stored in S3.
 
 :::note[IAM Permissions Required]
 
@@ -470,7 +470,7 @@ response = agent(
 
 :::tip[Supported Media Types]
 
-The same `location` pattern also works for images and videos.
+The same `location` pattern also works for images, videos, and audio.
 :::
 
 ### Guardrails
@@ -551,7 +551,11 @@ For complete details on supported models, token requirements, and cache field su
 
 Cache system prompts that remain static across multiple requests. This is useful when your system prompt contains no variables, timestamps, or dynamic content, exceeds the minimum cacheable token threshold for your model, and you make multiple requests with the same system prompt.
 
-A system prompt cache point you place by hand inherits the TTL you configured, so setting one `ttl` gives every cache point in the request the same duration. Bedrock requires TTLs to be non-increasing across the tool definitions, the system prompt, and the messages, and rejects a request where a longer TTL follows a shorter one.
+With <Syntax py="cache_config" ts="cacheConfig" /> set to the `auto` (or `anthropic`) strategy, Strands caches the system prompt **by default**: it appends a cache point at the end of the system prompt on every request, so repeated calls with the same static system prefix (including fresh agents that share a system prompt) read it from cache. A system prompt that changes on every request never produces a cache read, so the added cache write is a small extra cost with no offsetting saving; opt out by setting <Syntax py="system_prompt_ttl=False" ts="systemPromptTTL: false" /> when the system prompt is dynamic. This disables only the auto-injected system point, and tool and message caching are unaffected. A cache point you place by hand anywhere in the system prompt is honored as-is, and no second point is added.
+
+The auto-injected system cache point inherits the TTL you configured, so setting one `ttl` gives every cache point in the request the same duration. Bedrock requires TTLs to be non-increasing across the tool definitions, the system prompt, and the messages, and rejects a request where a longer TTL follows a shorter one.
+
+The example below places the cache point by hand for fine-grained control. With <Syntax py="cache_config" ts="cacheConfig" /> you do not need to: the point is added for you.
 
 <Tabs>
 <Tab label="Python">
@@ -627,17 +631,18 @@ print(f"Cache read tokens: {response2.metrics.accumulated_usage.get('cacheReadIn
 </Tab>
 <Tab label="TypeScript">
 
-Setting `cacheConfig` appends a cache point after the tool definitions in each request. The same `cacheConfig` also caches the conversation, and `toolsTTL` and `messagesTTL` control the two independently:
+Setting `cacheConfig` appends a cache point after the tool definitions in each request. The same `cacheConfig` also caches the system prompt and the conversation, and `toolsTTL`, `systemPromptTTL`, and `messagesTTL` control the three independently:
 
 | Configuration | Caches |
 |---------------|--------|
-| `{}` | tool definitions and conversation |
-| `{ messagesTTL: false }` | tool definitions only |
-| `{ toolsTTL: false }` | conversation only |
-| `{ ttl: '1h' }` | both, with a one-hour TTL |
-| `{ ttl: '1h', messagesTTL: '5m' }` | tool definitions at one hour, conversation at five minutes |
+| `{}` | tool definitions, system prompt, and conversation |
+| `{ messagesTTL: false }` | tool definitions and system prompt |
+| `{ toolsTTL: false }` | system prompt and conversation |
+| `{ systemPromptTTL: false }` | tool definitions and conversation |
+| `{ ttl: '1h' }` | all three, with a one-hour TTL |
+| `{ ttl: '1h', messagesTTL: '5m' }` | tool definitions and system prompt at one hour, conversation at five minutes |
 
-Pass a TTL to set that duration, or `false` to turn that part off. A `ttl` on `cacheConfig` applies to both, and either field overrides it for its own part.
+Pass a TTL to set that duration, or `false` to turn that part off. A `ttl` on `cacheConfig` applies to all three, and each field overrides it for its own part.
 
 ```typescript
 --8<-- "user-guide/concepts/model-providers/amazon-bedrock.ts:tool_caching_full"
@@ -655,7 +660,7 @@ Place your cache point *ahead* of content that changes on every call, such as re
 
 **Option A: Automatic Cache Strategy (Claude models only)**
 
-Enable automatic cache point management for agent workflows with multi-turn conversations. The SDK automatically places a cache point at the end of the last user message to maximize cache hits without requiring manual management.
+Enable automatic cache point management for agent workflows with multi-turn conversations. The SDK automatically places a cache point at the end of the last user message to maximize cache hits without requiring manual management. The same <Syntax py="cache_config" ts="cacheConfig" /> also caches the system prompt by default (see [System Prompt Caching](#system-prompt-caching)), so a multi-turn conversation reuses both the static system prefix and the accumulated conversation context.
 
 <Tabs>
 <Tab label="Python">

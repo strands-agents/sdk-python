@@ -345,6 +345,9 @@ describe('Tracer', () => {
         },
       })
 
+      expect(mockSpan.getAttributeValue('gen_ai.usage.cache_read.input_tokens')).toBe(50)
+      expect(mockSpan.getAttributeValue('gen_ai.usage.cache_creation.input_tokens')).toBe(25)
+      // deprecated aliases kept so existing consumers keep resolving, value-identical to the semconv names
       expect(mockSpan.getAttributeValue('gen_ai.usage.cache_read_input_tokens')).toBe(50)
       expect(mockSpan.getAttributeValue('gen_ai.usage.cache_write_input_tokens')).toBe(25)
     })
@@ -357,7 +360,42 @@ describe('Tracer', () => {
         usage: { inputTokens: 10, outputTokens: 20, totalTokens: 30, cacheReadInputTokens: 0 },
       })
 
+      expect(mockSpan.getAttributeValue('gen_ai.usage.cache_read.input_tokens')).toBeUndefined()
       expect(mockSpan.getAttributeValue('gen_ai.usage.cache_read_input_tokens')).toBeUndefined()
+    })
+
+    // Regression for https://github.com/strands-agents/harness-sdk/issues/3754
+    it('dual-emits cache usage under both the semconv names and the deprecated aliases', () => {
+      const tracer = new Tracer()
+      const span = tracer.startModelInvokeSpan({ messages: [textMessage('user', 'Hi')] })
+
+      tracer.endModelInvokeSpan(span, {
+        usage: { inputTokens: 10, outputTokens: 4, totalTokens: 14, cacheReadInputTokens: 5848 },
+      })
+
+      expect(mockSpan.getAttributeValue('gen_ai.usage.cache_read.input_tokens')).toBe(5848)
+      expect(mockSpan.getAttributeValue('gen_ai.usage.cache_read_input_tokens')).toBe(5848)
+    })
+
+    it('suppresses the deprecated cache aliases when opted into the latest conventions', () => {
+      vi.stubEnv('OTEL_SEMCONV_STABILITY_OPT_IN', 'gen_ai_latest_experimental')
+      const tracer = new Tracer()
+      const span = tracer.startModelInvokeSpan({ messages: [textMessage('user', 'Hi')] })
+
+      tracer.endModelInvokeSpan(span, {
+        usage: {
+          inputTokens: 10,
+          outputTokens: 4,
+          totalTokens: 14,
+          cacheReadInputTokens: 5848,
+          cacheWriteInputTokens: 3,
+        },
+      })
+
+      expect(mockSpan.getAttributeValue('gen_ai.usage.cache_read.input_tokens')).toBe(5848)
+      expect(mockSpan.getAttributeValue('gen_ai.usage.cache_creation.input_tokens')).toBe(3)
+      expect(mockSpan.getAttributeValue('gen_ai.usage.cache_read_input_tokens')).toBeUndefined()
+      expect(mockSpan.getAttributeValue('gen_ai.usage.cache_write_input_tokens')).toBeUndefined()
     })
 
     it('skips latency attribute when zero', () => {
