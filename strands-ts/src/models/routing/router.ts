@@ -18,7 +18,7 @@
  *
  * The API is provisional and may change before it is finalized.
  */
-import { normalizeError } from '../../errors.js'
+import { CancelledError, normalizeError } from '../../errors.js'
 import { AfterInvocationEvent, AfterModelCallEvent, BeforeInvocationEvent } from '../../hooks/events.js'
 import { HookOrder } from '../../hooks/types.js'
 import { logger } from '../../logging/logger.js'
@@ -302,6 +302,7 @@ export class ModelRouter implements Plugin {
     const state = this._getState(event.agent, event.invocationState)
     if (state === undefined) return
 
+    if (event.error instanceof CancelledError) return
     if (event.stopData !== undefined) {
       state.attempts.push(makeAttempt(state.candidate))
       // The candidate that succeeded opens the next round, counting as used like any opening choice.

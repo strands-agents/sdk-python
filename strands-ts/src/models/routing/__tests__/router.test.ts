@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { MockMessageModel } from '../../../__fixtures__/mock-message-model.js'
+import { CancelledError } from '../../../errors.js'
 import { AfterModelCallEvent, BeforeInvocationEvent } from '../../../hooks/events.js'
 import { ToolRegistry } from '../../../registry/tool-registry.js'
 import { Message, TextBlock } from '../../../types/messages.js'
@@ -293,6 +294,37 @@ describe('ModelRouter', () => {
   })
 
   describe('failure routing', () => {
+    it('ignores cancellation without recording a failure or selecting another candidate', async () => {
+      const first = model('first')
+      const second = model('second')
+      const strategy = new RecordingStrategy(0, 1)
+      const router = new ModelRouter([first, second], { strategy })
+      const { agent, hooks, middleware } = mockAgent(first)
+      const state: InvocationState = {}
+      router.attachToAgent(agent)
+      await middleware[0]!(invokeContext(agent, state))
+
+      const cancelled = failureEvent(agent, first, state, new CancelledError())
+      await afterModelHook(hooks).callback(cancelled as never)
+
+      expect({
+        retry: cancelled.retry,
+        model: router.getRoutedModel(agent, state),
+        strategyCalls: strategy.contexts.length,
+      }).toEqual({ retry: undefined, model: first, strategyCalls: 1 })
+
+      const failed = failureEvent(agent, first, state)
+      await afterModelHook(hooks).callback(failed as never)
+
+      expect(strategy.contexts[1]!.attempts).toEqual([
+        expect.objectContaining({ candidate: router.candidates[0], exception: failed.error }),
+      ])
+      expect({ retry: failed.retry, model: router.getRoutedModel(agent, state) }).toEqual({
+        retry: true,
+        model: second,
+      })
+    })
+
     it('records complete outcomes, switches once, and opens a new round after success', async () => {
       const first = model('first')
       const second = model('second')
