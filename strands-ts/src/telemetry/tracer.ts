@@ -1139,9 +1139,12 @@ export class Tracer {
     attributes['gen_ai.usage.total_tokens'] = usage.totalTokens
 
     if ((usage.cacheReadInputTokens ?? 0) > 0) {
+      attributes['gen_ai.usage.cache_read.input_tokens'] = usage.cacheReadInputTokens!
+      // Deprecated pre-semconv name, dual-emitted so existing consumers keep resolving.
       attributes['gen_ai.usage.cache_read_input_tokens'] = usage.cacheReadInputTokens!
     }
     if ((usage.cacheWriteInputTokens ?? 0) > 0) {
+      attributes['gen_ai.usage.cache_creation.input_tokens'] = usage.cacheWriteInputTokens!
       attributes['gen_ai.usage.cache_write_input_tokens'] = usage.cacheWriteInputTokens!
     }
   }

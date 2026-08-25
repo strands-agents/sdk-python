@@ -417,7 +417,12 @@ async def test_usage_accumulation(loop, agent, agenerator, otel_setup):
     assert session_spans[0].attributes["gen_ai.usage.input_tokens"] == 300
     assert session_spans[0].attributes["gen_ai.usage.output_tokens"] == 125
     assert session_spans[0].attributes["gen_ai.usage.total_tokens"] == 425
-    assert session_spans[0].attributes["gen_ai.usage.cache_read_input_tokens"] == 20
+    assert session_spans[0].attributes["gen_ai.usage.cache_read.input_tokens"] == 20
+    # deprecated alias kept so existing consumers keep resolving, value-identical to the semconv name
+    assert (
+        session_spans[0].attributes["gen_ai.usage.cache_read_input_tokens"]
+        == session_spans[0].attributes["gen_ai.usage.cache_read.input_tokens"]
+    )
 
 
 @pytest.mark.asyncio
