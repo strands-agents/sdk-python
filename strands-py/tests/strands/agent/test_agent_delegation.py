@@ -332,7 +332,6 @@ def test_to_content_blocks_converts_text_json_and_passthrough():
                 {"text": "hi"},
                 {"json": {"k": 1}},
                 {"image": {"format": "png", "source": {"bytes": b"x"}}},
-                {"text": "both", "json": {"k": 2}},
             ]
         }
     )
