@@ -1526,6 +1526,186 @@ async def test_stream_output_no_blocked_guardrails_doesnt_redact(
 
 
 @pytest.mark.asyncio
+async def test_stream_stream_guardrails_redacts_without_trace(
+    bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist
+):
+    """Redaction still occurs when guardrail_trace="disabled" returns no assessment.
+
+    Bedrock reports a guardrail_intervened stop reason without a trace, so redaction keys off the
+    stop reason. Guards against https://github.com/strands-agents/harness-sdk/issues/3612.
+    """
+    message_stop_event = {"messageStop": {"stopReason": "guardrail_intervened"}}
+    metadata_event = {"metadata": {"usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}}}
+    bedrock_client.converse_stream.return_value = {"stream": [message_stop_event, metadata_event]}
+
+    model.update_config(additional_request_fields=additional_request_fields)
+    response = model.stream(messages, [tool_spec])
+
+    tru_chunks = await alist(response)
+    exp_chunks = [
+        message_stop_event,
+        {"redactContent": {"redactUserContentMessage": "[User input redacted.]"}},
+        metadata_event,
+    ]
+
+    assert tru_chunks == exp_chunks
+
+
+@pytest.mark.asyncio
+async def test_stream_guardrails_redacts_without_trace_non_streaming(bedrock_client, alist, messages):
+    """Non-streaming redaction keys off the guardrail_intervened stop reason when no trace is returned.
+
+    Guards against https://github.com/strands-agents/harness-sdk/issues/3612.
+    """
+    bedrock_client.converse.return_value = {
+        "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
+        "stopReason": "guardrail_intervened",
+    }
+
+    model = BedrockModel(model_id="test-model", streaming=False)
+    response = model.stream(messages)
+
+    tru_events = await alist(response)
+    exp_events = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockDelta": {"delta": {"text": "test"}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "guardrail_intervened", "additionalModelResponseFields": None}},
+        {"redactContent": {"redactUserContentMessage": "[User input redacted.]"}},
+    ]
+
+    assert tru_events == exp_events
+    bedrock_client.converse.assert_called_once()
+    bedrock_client.converse_stream.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_stream_guardrails_redacts_exactly_once_across_metadata_events(
+    bedrock_client, model, messages, alist
+):
+    """Redaction fires at most once even when Bedrock emits multiple metadata events.
+
+    Exercises the redaction_emitted guard. Guards against
+    https://github.com/strands-agents/harness-sdk/issues/3612.
+    """
+    message_stop_event = {"messageStop": {"stopReason": "guardrail_intervened"}}
+    metadata_event = {"metadata": {"usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}}}
+    bedrock_client.converse_stream.return_value = {
+        "stream": [message_stop_event, metadata_event, metadata_event]
+    }
+
+    response = model.stream(messages)
+
+    tru_chunks = await alist(response)
+    exp_chunks = [
+        message_stop_event,
+        {"redactContent": {"redactUserContentMessage": "[User input redacted.]"}},
+        metadata_event,
+        metadata_event,
+    ]
+
+    assert tru_chunks == exp_chunks
+
+
+@pytest.mark.asyncio
+async def test_stream_non_guardrail_stop_reason_doesnt_redact(bedrock_client, model, messages, alist):
+    """A non-guardrail_intervened stop reason with no trace must not trigger redaction.
+
+    Guards against https://github.com/strands-agents/harness-sdk/issues/3612.
+    """
+    message_stop_event = {"messageStop": {"stopReason": "end_turn"}}
+    metadata_event = {"metadata": {"usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}}}
+    bedrock_client.converse_stream.return_value = {"stream": [message_stop_event, metadata_event]}
+
+    response = model.stream(messages)
+
+    tru_chunks = await alist(response)
+    exp_chunks = [message_stop_event, metadata_event]
+
+    assert tru_chunks == exp_chunks
+
+
+@pytest.mark.asyncio
+async def test_stream_guardrails_masked_content_does_not_redact(bedrock_client, model, messages, alist):
+    """Bedrock reports guardrail_intervened even when a policy only ANONYMIZED (masked) content.
+
+    The SDK must preserve the masked message rather than replacing it with the redaction placeholder,
+    since Bedrock has already substituted the sensitive spans in place.
+    """
+    message_stop_event = {"messageStop": {"stopReason": "guardrail_intervened"}}
+    metadata_event = {
+        "metadata": {
+            "usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+            "trace": {
+                "guardrail": {
+                    "outputAssessments": {
+                        "8oi5sp73w4ca": [
+                            {
+                                "sensitiveInformationPolicy": {
+                                    "regexes": [
+                                        {
+                                            "action": "ANONYMIZED",
+                                            "detected": True,
+                                            "match": "Hello",
+                                            "name": "BLOCKING_HELLO",
+                                            "regex": "Hello",
+                                        }
+                                    ]
+                                },
+                            }
+                        ]
+                    },
+                }
+            },
+        }
+    }
+    bedrock_client.converse_stream.return_value = {"stream": [message_stop_event, metadata_event]}
+
+    response = model.stream(messages)
+
+    tru_chunks = await alist(response)
+    exp_chunks = [message_stop_event, metadata_event]
+
+    assert tru_chunks == exp_chunks
+
+
+@pytest.mark.asyncio
+async def test_stream_guardrails_masked_content_does_not_redact_non_streaming(bedrock_client, alist, messages):
+    """Non-streaming: guardrail_intervened + ANONYMIZED-only trace must not trigger redaction."""
+    bedrock_client.converse.return_value = {
+        "output": {"message": {"role": "assistant", "content": [{"text": "{BLOCKING_HELLO}! 👋"}]}},
+        "stopReason": "guardrail_intervened",
+        "trace": {
+            "guardrail": {
+                "outputAssessments": {
+                    "8oi5sp73w4ca": [
+                        {
+                            "sensitiveInformationPolicy": {
+                                "regexes": [
+                                    {
+                                        "action": "ANONYMIZED",
+                                        "detected": True,
+                                        "match": "Hello",
+                                        "name": "BLOCKING_HELLO",
+                                        "regex": "Hello",
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                }
+            }
+        },
+    }
+
+    model = BedrockModel(model_id="test-model", streaming=False)
+    response = model.stream(messages)
+
+    tru_events = await alist(response)
+    assert not any("redactContent" in event for event in tru_events)
+
+
+@pytest.mark.asyncio
 async def test_stream_output_no_guardrail_redact(
     bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist
 ):
@@ -5183,3 +5363,138 @@ def test_format_request_auto_system_prompt_ttl_string_is_honored_behind_a_differ
 
     assert tru_request["toolConfig"]["tools"][-1] == {"cachePoint": {"type": "default", "ttl": "5m"}}
     assert tru_request["system"][-1] == {"cachePoint": {"type": "default", "ttl": "1h"}}
+
+
+def test_nova_model_converts_json_to_text_in_tool_result(bedrock_client):
+    """Nova models should convert JSON content blocks to text in tool results."""
+    model = BedrockModel(model_id="us.amazon.nova-pro-v1:0")
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "content": [{"json": {"key": "value", "number": 42}}],
+                        "toolUseId": "tool123",
+                    }
+                }
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+    tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
+
+    assert len(tool_result["content"]) == 1
+    assert "text" in tool_result["content"][0]
+    assert "json" not in tool_result["content"][0]
+    assert tool_result["content"][0]["text"] == '{"key": "value", "number": 42}'
+
+
+def test_nova_model_converts_mixed_json_and_text_in_tool_result(bedrock_client):
+    """Nova models should convert JSON blocks while preserving text blocks."""
+    model = BedrockModel(model_id="amazon.nova-lite-v1:0")
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "content": [
+                            {"text": "Some text output"},
+                            {"json": {"status": "ok"}},
+                        ],
+                        "toolUseId": "tool456",
+                    }
+                }
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+    tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
+
+    assert len(tool_result["content"]) == 2
+    assert tool_result["content"][0] == {"text": "Some text output"}
+    assert tool_result["content"][1] == {"text": '{"status": "ok"}'}
+
+
+def test_claude_model_preserves_json_in_tool_result(bedrock_client):
+    """Claude models should preserve JSON content blocks as-is."""
+    model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "content": [{"json": {"key": "value"}}],
+                        "toolUseId": "tool789",
+                    }
+                }
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+    tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
+
+    assert len(tool_result["content"]) == 1
+    assert "json" in tool_result["content"][0]
+    assert tool_result["content"][0]["json"] == {"key": "value"}
+
+
+def test_nova_model_handles_nested_json_in_tool_result(bedrock_client):
+    """Nova models should handle deeply nested JSON structures."""
+    model = BedrockModel(model_id="us.amazon.nova-pro-v1:0")
+    nested_json = {
+        "results": [
+            {"id": 1, "data": {"nested": True}},
+            {"id": 2, "data": {"nested": False}},
+        ],
+        "metadata": {"total": 2},
+    }
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "content": [{"json": nested_json}],
+                        "toolUseId": "tool_nested",
+                    }
+                }
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+    tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
+
+    assert "text" in tool_result["content"][0]
+    import json
+
+    parsed = json.loads(tool_result["content"][0]["text"])
+    assert parsed == nested_json
+
+
+def test_should_convert_json_to_text_nova_variants(bedrock_client):
+    """All Nova model ID variants should trigger JSON-to-text conversion."""
+    nova_ids = [
+        "amazon.nova-pro-v1:0",
+        "us.amazon.nova-pro-v1:0",
+        "amazon.nova-lite-v1:0",
+        "amazon.nova-micro-v1:0",
+    ]
+    for model_id in nova_ids:
+        model = BedrockModel(model_id=model_id)
+        assert model._should_convert_json_to_text(), f"{model_id} should convert JSON to text"
+
+    non_nova_ids = [
+        "us.anthropic.claude-sonnet-4-20250514-v1:0",
+        "amazon.titan-text-v1",
+        "us.meta.llama3-1-70b-instruct-v1:0",
+    ]
+    for model_id in non_nova_ids:
+        model = BedrockModel(model_id=model_id)
+        assert not model._should_convert_json_to_text(), f"{model_id} should NOT convert JSON to text"
