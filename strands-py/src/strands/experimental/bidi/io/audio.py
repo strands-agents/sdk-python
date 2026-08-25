@@ -143,8 +143,8 @@ class _BidiAudioInput(BidiInput):
         _buffer: Buffer for sharing audio data between agent and PyAudio.
     """
 
-    _audio: "pyaudio.PyAudio"
-    _stream: "pyaudio.Stream"
+    _audio: pyaudio.PyAudio
+    _stream: pyaudio.Stream
 
     _BUFFER_SIZE = None
     _DEVICE_INDEX = None
@@ -270,8 +270,8 @@ class _BidiAudioOutput(BidiOutput):
         _buffer: Buffer for sharing audio data between agent and PyAudio.
     """
 
-    _audio: "pyaudio.PyAudio"
-    _stream: "pyaudio.Stream"
+    _audio: pyaudio.PyAudio
+    _stream: pyaudio.Stream
 
     _BUFFER_SIZE = None
     _DEVICE_INDEX = None
@@ -451,8 +451,8 @@ class BidiAudioIO:
 
     def input(self) -> _BidiAudioInput:
         """Return audio processing BidiInput."""
-        return _BidiAudioInput(self._config, self._processor)
+        return _BidiAudioInput(self._config, processor=self._processor)
 
     def output(self) -> _BidiAudioOutput:
         """Return audio processing BidiOutput."""
-        return _BidiAudioOutput(self._config, self._processor)
+        return _BidiAudioOutput(self._config, processor=self._processor)
