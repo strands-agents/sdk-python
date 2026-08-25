@@ -16,8 +16,9 @@ Note, BedrockNovaSonicModel is only supported for Python 3.12+
 """
 
 import sys
+from typing import TYPE_CHECKING
 
-if sys.version_info < (3, 12):
+if not TYPE_CHECKING and sys.version_info < (3, 12):
     raise ImportError("BedrockNovaSonicModel is only supported for Python 3.12+")
 
 import asyncio
@@ -25,7 +26,8 @@ import base64
 import json
 import logging
 import uuid
-from typing import Any, AsyncGenerator, cast
+from collections.abc import AsyncGenerator
+from typing import Any, cast
 
 import boto3
 from aws_sdk_bedrock_runtime.client import BedrockRuntimeClient, InvokeModelWithBidirectionalStreamOperationInput
@@ -636,8 +638,16 @@ class BedrockNovaSonicModel(BidiModel):
                 "name": tool_use["toolName"],
                 "input": json.loads(tool_use["content"]),
             }
-            # Return ToolUseStreamEvent - cast to dict for type compatibility
-            return ToolUseStreamEvent(delta={"toolUse": tool_use_event}, current_tool_use=dict(tool_use_event))
+            return ToolUseStreamEvent(
+                delta={
+                    "toolUse": {
+                        "toolUseId": tool_use_event["toolUseId"],
+                        "name": tool_use_event["name"],
+                        "input": json.dumps(tool_use_event["input"]),
+                    }
+                },
+                current_tool_use=dict(tool_use_event),
+            )
 
         # Handle interruption
         if nova_event.get("stopReason") == "INTERRUPTED":

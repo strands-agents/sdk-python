@@ -30,6 +30,7 @@ from strands.experimental.bidi.types.events import (
 from strands.types._events import ToolResultEvent
 from strands.types.tools import ToolResult
 
+
 @pytest.fixture
 def mock_websocket():
     """Mock WebSocket connection."""
@@ -595,7 +596,8 @@ async def test_event_conversion(model):
     tool_use = converted[0]["delta"]["toolUse"]
     assert tool_use["toolUseId"] == "call-123"
     assert tool_use["name"] == "calculator"
-    assert tool_use["input"]["expression"] == "2+2"
+    assert json.loads(tool_use["input"]) == {"expression": "2+2"}
+    assert converted[0]["current_tool_use"]["input"] == {"expression": "2+2"}
 
     # Test voice activity (now returns list with BidiInterruptionEvent for speech_started)
     speech_started = {"type": "input_audio_buffer.speech_started"}

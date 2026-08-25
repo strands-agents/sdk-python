@@ -10,7 +10,8 @@ import logging
 import os
 import time
 import uuid
-from typing import Any, AsyncGenerator, Literal, cast
+from collections.abc import AsyncGenerator
+from typing import Any, Literal, cast
 
 import websockets
 from websockets import ClientConnection
@@ -523,7 +524,18 @@ class OpenAIRealtimeModel(BidiModel):
                     }
                     del self._function_call_buffer[call_id]
                     # Return ToolUseStreamEvent for consistency with standard agent
-                    return [ToolUseStreamEvent(delta={"toolUse": tool_use}, current_tool_use=dict(tool_use))]
+                    return [
+                        ToolUseStreamEvent(
+                            delta={
+                                "toolUse": {
+                                    "toolUseId": tool_use["toolUseId"],
+                                    "name": tool_use["name"],
+                                    "input": json.dumps(tool_use["input"]),
+                                }
+                            },
+                            current_tool_use=dict(tool_use),
+                        )
+                    ]
                 except (json.JSONDecodeError, KeyError) as e:
                     logger.warning("call_id=<%s>, error=<%s> | error parsing function arguments", call_id, e)
                     del self._function_call_buffer[call_id]

@@ -8,6 +8,7 @@ Tests the unified GoogleGeminiLiveModel interface including:
 """
 
 import base64
+import json
 import unittest.mock
 
 import pytest
@@ -27,6 +28,7 @@ from strands.experimental.bidi.types.events import (
 )
 from strands.types._events import ToolResultEvent
 from strands.types.tools import ToolResult
+
 
 @pytest.fixture
 def mock_genai_client():
@@ -520,6 +522,8 @@ async def test_event_conversion(mock_genai_client, model, live_message, server_c
     assert "toolUse" in tool_event["delta"]
     assert tool_event["delta"]["toolUse"]["toolUseId"] == "tool-123"
     assert tool_event["delta"]["toolUse"]["name"] == "calculator"
+    assert tool_event["delta"]["toolUse"]["input"] == json.dumps({"expression": "2+2"})
+    assert tool_event["current_tool_use"]["input"] == {"expression": "2+2"}
 
     # Test multiple tool calls (returns list with multiple events)
     mock_func_call_1 = unittest.mock.Mock()
@@ -545,12 +549,14 @@ async def test_event_conversion(mock_genai_client, model, live_message, server_c
     # Verify first tool call
     assert tool_events_multi[0]["delta"]["toolUse"]["toolUseId"] == "tool-123"
     assert tool_events_multi[0]["delta"]["toolUse"]["name"] == "calculator"
-    assert tool_events_multi[0]["delta"]["toolUse"]["input"] == {"expression": "2+2"}
+    assert tool_events_multi[0]["delta"]["toolUse"]["input"] == json.dumps({"expression": "2+2"})
+    assert tool_events_multi[0]["current_tool_use"]["input"] == {"expression": "2+2"}
 
     # Verify second tool call
     assert tool_events_multi[1]["delta"]["toolUse"]["toolUseId"] == "tool-456"
     assert tool_events_multi[1]["delta"]["toolUse"]["name"] == "weather"
-    assert tool_events_multi[1]["delta"]["toolUse"]["input"] == {"location": "Seattle"}
+    assert tool_events_multi[1]["delta"]["toolUse"]["input"] == json.dumps({"location": "Seattle"})
+    assert tool_events_multi[1]["current_tool_use"]["input"] == {"location": "Seattle"}
 
     # Test interruption
     mock_interrupt = live_message(server_content=server_content(interrupted=True))
@@ -741,7 +747,9 @@ def test_audio_config_partial_override(mock_genai_client, model_id, api_key):
     _ = mock_genai_client
 
     provider_config = {"audio": {"output_rate": 48000, "voice": "Puck"}}
-    model = GoogleGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key}, provider_config=provider_config)
+    model = GoogleGeminiLiveModel(
+        model_id=model_id, client_config={"api_key": api_key}, provider_config=provider_config
+    )
 
     # Overridden values
     assert model.config["audio"]["output_rate"] == 48000
@@ -766,7 +774,9 @@ def test_audio_config_full_override(mock_genai_client, model_id, api_key):
             "voice": "Aoede",
         }
     }
-    model = GoogleGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key}, provider_config=provider_config)
+    model = GoogleGeminiLiveModel(
+        model_id=model_id, client_config={"api_key": api_key}, provider_config=provider_config
+    )
 
     assert model.config["audio"]["input_rate"] == 48000
     assert model.config["audio"]["output_rate"] == 48000
@@ -833,7 +843,9 @@ async def test_custom_audio_rates_in_events(mock_genai_client, model_id, api_key
 
     # Create model with custom audio configuration
     provider_config = {"audio": {"output_rate": 48000, "channels": 2}}
-    model = GoogleGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key}, provider_config=provider_config)
+    model = GoogleGeminiLiveModel(
+        model_id=model_id, client_config={"api_key": api_key}, provider_config=provider_config
+    )
     await model.start()
 
     # Test audio output event uses custom configuration

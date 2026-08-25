@@ -13,9 +13,11 @@ Key improvements over custom WebSocket implementation:
 """
 
 import base64
+import json
 import logging
 import uuid
-from typing import Any, AsyncGenerator, cast
+from collections.abc import AsyncGenerator
+from typing import Any, cast
 
 from google import genai
 from google.genai import types as genai_types
@@ -266,7 +268,16 @@ class GoogleGeminiLiveModel(BidiModel):
                 }
                 # Create ToolUseStreamEvent for consistency with standard agent
                 events.append(
-                    ToolUseStreamEvent(delta={"toolUse": tool_use_event}, current_tool_use=dict(tool_use_event))
+                    ToolUseStreamEvent(
+                        delta={
+                            "toolUse": {
+                                "toolUseId": tool_use_event["toolUseId"],
+                                "name": tool_use_event["name"],
+                                "input": json.dumps(tool_use_event["input"]),
+                            }
+                        },
+                        current_tool_use=dict(tool_use_event),
+                    )
                 )
 
         if message.usage_metadata:

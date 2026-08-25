@@ -1,5 +1,6 @@
 """Utilities for handling streaming responses from language models."""
 
+import copy
 import json
 import logging
 import threading
@@ -55,6 +56,10 @@ def _normalize_messages(messages: Messages) -> Messages:
     removed_blank_message_content_text = False
     replaced_blank_message_content_text = False
     replaced_tool_names = False
+
+    # Deep copy up front so downstream normalization can mutate freely without
+    # affecting the caller's message history.
+    messages = copy.deepcopy(messages)
 
     for message in messages:
         # only modify assistant messages

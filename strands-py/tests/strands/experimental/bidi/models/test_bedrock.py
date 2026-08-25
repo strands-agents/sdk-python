@@ -365,7 +365,8 @@ async def test_event_conversion(nova_model):
     tool_use = result["delta"]["toolUse"]
     assert tool_use["toolUseId"] == "tool-123"
     assert tool_use["name"] == "get_weather"
-    assert tool_use["input"] == tool_input
+    assert tool_use["input"] == json.dumps(tool_input)
+    assert result["current_tool_use"]["input"] == tool_input
 
     # Test interruption (now returns BidiInterruptionEvent)
     nova_event = {"stopReason": "INTERRUPTED"}
