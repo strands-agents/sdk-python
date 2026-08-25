@@ -428,8 +428,10 @@ class BidiAudioIO:
         """
         self._config = config
         process_config = self._config.get("processor")
-        if not isinstance(process_config, dict):
-            self._config["processor"] = process_config = AudioProcessorConfig() if process_config else None
+        if isinstance(process_config, dict):
+            self._config["processor"] = AudioProcessorConfig(**process_config)
+        else:
+            self._config["processor"] = AudioProcessorConfig() if process_config else None
 
         self._validate_config_echo_cancellation()
         self._validate_config_buffer_size()

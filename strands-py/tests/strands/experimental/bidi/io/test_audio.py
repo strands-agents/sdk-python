@@ -285,7 +285,8 @@ def test_processor_uses_defaults(processor):
 
     assert audio_io._config["processor"] == AudioProcessorConfig(echo_cancellation=True, stream_delay_ms=0)
     if isinstance(processor, dict):
-        assert audio_io._config["processor"] is processor
+        assert processor == AudioProcessorConfig()
+        assert audio_io._config["processor"] is not processor
     assert audio_io._processor is not None
 
 
@@ -304,7 +305,8 @@ def test_config_allows_disabling_echo_cancellation():
     config = AudioProcessorConfig(echo_cancellation=False)
     audio_io = BidiAudioIO(processor=config)
 
-    assert config == AudioProcessorConfig(echo_cancellation=False, stream_delay_ms=0)
+    assert config == AudioProcessorConfig(echo_cancellation=False)
+    assert audio_io._config["processor"] == AudioProcessorConfig(echo_cancellation=False, stream_delay_ms=0)
     assert audio_io._processor is not None
     assert audio_io._processor._far_buffer is None
 
@@ -379,7 +381,9 @@ def test_processor_shared_between_input_and_output():
     input_ = audio_io.input()
     output = audio_io.output()
 
-    assert audio_io._config["processor"] is processor_config
+    assert processor_config == AudioProcessorConfig(stream_delay_ms=20)
+    assert audio_io._config["processor"] == AudioProcessorConfig(echo_cancellation=True, stream_delay_ms=20)
+    assert audio_io._config["processor"] is not processor_config
     assert input_._processor is audio_io._processor
     assert output._processor is audio_io._processor
 
