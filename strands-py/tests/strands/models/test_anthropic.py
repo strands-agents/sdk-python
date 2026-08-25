@@ -168,6 +168,24 @@ def test_format_request_with_params_sdk_v1_routes_sampling_params_through_extra_
     assert model.get_config()["params"] == {"temperature": 1, "top_k": 5, "top_p": 0.9, "stop_sequences": ["end"]}
 
 
+def test_format_request_with_params_sdk_v1_no_sampling_params_passes_through(
+    model, messages, model_id, max_tokens, monkeypatch
+):
+    monkeypatch.setattr(strands.models.anthropic, "_ANTHROPIC_MAJOR_VERSION", 1)
+    model.update_config(params={"stop_sequences": ["end"]})
+
+    tru_request = model.format_request(messages)
+    exp_request = {
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": [{"type": "text", "text": "test"}]}],
+        "model": model_id,
+        "tools": [],
+        "stop_sequences": ["end"],
+    }
+
+    assert tru_request == exp_request
+
+
 def test_format_request_with_params_sdk_v1_merges_sampling_params_into_user_extra_body(
     model, messages, model_id, max_tokens, monkeypatch
 ):
