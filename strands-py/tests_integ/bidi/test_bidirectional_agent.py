@@ -15,13 +15,19 @@ import pytest
 from strands import tool
 from strands.experimental.bidi.agent.agent import BidiAgent
 from strands.experimental.bidi.models.gemini_live import BidiGeminiLiveModel
-from strands.experimental.bidi.models.nova_sonic import BidiNovaSonicModel
 from strands.experimental.bidi.models.openai_realtime import BidiOpenAIRealtimeModel
 
 from .context import BidirectionalTestContext
 from .hook_utils import HookEventCollector
 
 logger = logging.getLogger(__name__)
+
+
+def create_nova_sonic_model(**kwargs):
+    """Create a Nova Sonic model without importing its Python 3.12-only SDK during collection."""
+    from strands.experimental.bidi.models.nova_sonic import BidiNovaSonicModel
+
+    return BidiNovaSonicModel(**kwargs)
 
 
 # Simple calculator tool for testing
@@ -54,21 +60,21 @@ def calculator(operation: str, x: float, y: float) -> float:
 # Provider configurations
 PROVIDER_CONFIGS = {
     "nova_sonic": {
-        "model_class": BidiNovaSonicModel,
+        "model_factory": create_nova_sonic_model,
         "model_kwargs": {"region": "us-east-1"},  # Uses v2 by default
         "silence_duration": 2.5,  # Nova Sonic needs 2+ seconds of silence
         "env_vars": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
         "skip_reason": "AWS credentials not available",
     },
     "nova_sonic_v1": {
-        "model_class": BidiNovaSonicModel,
+        "model_factory": create_nova_sonic_model,
         "model_kwargs": {"model_id": "amazon.nova-sonic-v1:0", "region": "us-east-1"},
         "silence_duration": 2.5,  # Nova Sonic v1 needs 2+ seconds of silence
         "env_vars": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
         "skip_reason": "AWS credentials not available",
     },
     "openai": {
-        "model_class": BidiOpenAIRealtimeModel,
+        "model_factory": BidiOpenAIRealtimeModel,
         "model_kwargs": {
             "model": "gpt-4o-realtime-preview-2024-12-17",
             "session": {
@@ -91,7 +97,7 @@ PROVIDER_CONFIGS = {
         "skip_reason": "OPENAI_API_KEY not available",
     },
     "gemini_live": {
-        "model_class": BidiGeminiLiveModel,
+        "model_factory": BidiGeminiLiveModel,
         "model_kwargs": {
             # Uses default model and config (audio output + transcription enabled)
         },
@@ -154,10 +160,10 @@ def agent_with_calculator(provider_config, hook_collector):
 
     Note: Session lifecycle (start/end) is handled by BidirectionalTestContext.
     """
-    model_class = provider_config["model_class"]
+    model_factory = provider_config["model_factory"]
     model_kwargs = provider_config["model_kwargs"]
 
-    model = model_class(**model_kwargs)
+    model = model_factory(**model_kwargs)
     return BidiAgent(
         model=model,
         tools=[calculator],

@@ -15,7 +15,8 @@ Key capabilities:
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import TYPE_CHECKING, Any
 
 from .... import _identifier
 from ...._middleware import MiddlewareRegistry

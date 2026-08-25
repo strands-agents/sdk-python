@@ -20,7 +20,7 @@ import logging
 import weakref
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from .._middleware.stages import AgentStreamContext, AgentStreamStage, ExecuteToolContext, ExecuteToolStage
 from .._middleware.types import MiddlewareNext
@@ -251,6 +251,8 @@ class AgentDelegation(Plugin):
         next_fn: MiddlewareNext,
     ) -> AsyncGenerator[TypedEvent, None]:
         """ExecuteToolStage middleware: enforce delegation constraints and unwrap events."""
+        agent = cast("Agent", context.agent)
+
         # Non-delegation tools pass through unchanged.
         if not isinstance(context.tool, _AgentAsTool) or not context.tool.delegate:
             async for event in next_fn(context):
@@ -258,7 +260,7 @@ class AgentDelegation(Plugin):
             return
 
         # Stateful model: skip delegation, execute as a normal tool.
-        if context.agent.model.stateful:
+        if agent.model.stateful:
             logger.debug(
                 "tool_use_id=<%s> | stateful model, skipping delegation and running as a normal tool",
                 context.tool_use["toolUseId"],
@@ -268,7 +270,7 @@ class AgentDelegation(Plugin):
             return
 
         # Enforce single-call constraint.
-        state = self._state.get(context.agent)
+        state = self._state.get(agent)
         if state and state.tool_use_count > 1:
             yield ToolResultEvent(
                 {
