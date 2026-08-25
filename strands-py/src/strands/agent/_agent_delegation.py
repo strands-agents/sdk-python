@@ -63,9 +63,7 @@ def _to_content_blocks(tool_result: ToolResult) -> list[ContentBlock]:
     raw_content = tool_result.get("content", [])
     result: list[ContentBlock] = []
     for block in raw_content:
-        if "text" in block:
-            result.append({"text": block["text"]})
-        elif "json" in block:
+        if "json" in block:
             result.append({"text": json_module.dumps(block["json"])})
         else:
             result.append(cast(ContentBlock, block))

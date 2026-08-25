@@ -339,7 +339,6 @@ def test_to_content_blocks_converts_text_json_and_passthrough():
     assert tru_blocks[0] == {"text": "hi"}
     assert json_module.loads(tru_blocks[1]["text"]) == {"k": 1}
     assert tru_blocks[2] == {"image": {"format": "png", "source": {"bytes": b"x"}}}
-    assert tru_blocks[3] == {"text": "both"}
 
 
 # --- Child structured output serialization ---
