@@ -98,11 +98,10 @@ Storage resolves in this order for each subsystem:
    error in TypeScript
 
 :::note
-Agent-level resolution applies to
-`SnapshotSessionManager` (Python) and `SessionManager`
-(TypeScript). Repository-based session managers configure
-their own persistence and do not read from the agent's
-storage.
+Python `SessionManager` is deprecated, and does not use
+the provided `Storage` parameter. Use
+`SnapshotSessionManager` in Python or `SessionManager` in
+TypeScript to take advantage of agent-level storage.
 :::
 
 ## Built-in backends
@@ -217,7 +216,11 @@ backend provides.
 
 When using agent-level storage, each subsystem scopes its keys
 under its own prefix automatically (`session/`, `offloader/`),
-so you never need to worry about collisions.
+so you never need to worry about collisions. If you write a
+custom plugin that consumes agent-level storage, call
+<Syntax py="storage.namespace('my-prefix/')" ts="storage.namespace('my-prefix/')" />
+to claim your own prefix and avoid overlapping with other
+subsystems.
 
 ## Next steps
 
