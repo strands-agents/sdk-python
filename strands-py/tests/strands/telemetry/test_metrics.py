@@ -661,9 +661,7 @@ def test_latest_context_size_counts_disjoint_cache_tokens(event_loop_metrics, mo
     """
     event_loop_metrics.reset_usage_metrics()
     event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "c1"})
-    event_loop_metrics.update_usage(
-        Usage(inputTokens=10, outputTokens=4, totalTokens=5862, cacheReadInputTokens=5848)
-    )
+    event_loop_metrics.update_usage(Usage(inputTokens=10, outputTokens=4, totalTokens=5862, cacheReadInputTokens=5848))
 
     assert event_loop_metrics.latest_context_size == 5858
 
@@ -684,7 +682,7 @@ def test_latest_context_size_does_not_double_count_subset_cache_tokens(event_loo
 
 
 def test_latest_context_size_undercounts_anthropic_direct_cache(event_loop_metrics, mock_get_meter_provider):
-    """Documents the #3546 payload-sniff limitation: Anthropic-direct cache is not counted.
+    """Documents the #3546 known limitation: Anthropic-direct cache is not counted.
 
     Anthropic-direct reports cache as a separate counter yet computes totalTokens as
     inputTokens + outputTokens, so it is arithmetically indistinguishable from a subset provider and
@@ -765,16 +763,12 @@ def test_projected_context_size_counts_disjoint_cache_tokens(event_loop_metrics,
     """Projects full prompt + output on disjoint providers where cache adds to inputTokens (#3546)."""
     event_loop_metrics.reset_usage_metrics()
     event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "c1"})
-    event_loop_metrics.update_usage(
-        Usage(inputTokens=10, outputTokens=4, totalTokens=5862, cacheReadInputTokens=5848)
-    )
+    event_loop_metrics.update_usage(Usage(inputTokens=10, outputTokens=4, totalTokens=5862, cacheReadInputTokens=5848))
 
     assert event_loop_metrics.projected_context_size == 5862
 
 
-def test_projected_context_size_does_not_double_count_subset_cache_tokens(
-    event_loop_metrics, mock_get_meter_provider
-):
+def test_projected_context_size_does_not_double_count_subset_cache_tokens(event_loop_metrics, mock_get_meter_provider):
     """Projects full prompt + output on subset providers without double-counting cache (#3546)."""
     event_loop_metrics.reset_usage_metrics()
     event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "c1"})

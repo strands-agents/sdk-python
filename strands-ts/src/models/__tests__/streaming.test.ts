@@ -72,7 +72,7 @@ describe('fullPromptTokens', () => {
     ).toBe(12936)
   })
 
-  // #3546 payload-sniff limitation: Anthropic-direct reports cache as a separate counter yet computes
+  // #3546 known limitation: Anthropic-direct reports cache as a separate counter yet computes
   // totalTokens as inputTokens + outputTokens, so it is arithmetically indistinguishable from a subset
   // provider and the cache read is dropped -- an undercount matching the prior baseline. Adapter-side
   // normalization to the disjoint convention (#3546) will make totalTokens include the cache and flip
