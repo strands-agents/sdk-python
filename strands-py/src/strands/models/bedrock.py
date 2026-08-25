@@ -54,6 +54,7 @@ BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES = [
     "input length and `max_tokens` exceed context limit",
     "too many total text bytes",
     "prompt is too long",
+    "This model's maximum context length is",
 ]
 
 # Bedrock reports this exact substring for the Converse incompatibility tracked in #1223.
