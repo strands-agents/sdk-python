@@ -459,9 +459,10 @@ def test_constructor_rejects_non_positive_or_non_finite_timeout(timeout):
         ClassifierStrategy(_ClassifierModel(), timeout=timeout)
 
 
-def test_constructor_rejects_non_string_system_prompt():
-    with pytest.raises(TypeError, match="system_prompt must be a string or None"):
-        ClassifierStrategy(_ClassifierModel(), system_prompt=123)
+@pytest.mark.parametrize("system_prompt", [None, 123])
+def test_constructor_rejects_non_string_system_prompt(system_prompt):
+    with pytest.raises(TypeError, match="system_prompt must be a string"):
+        ClassifierStrategy(_ClassifierModel(), system_prompt=system_prompt)
 
 
 @pytest.mark.parametrize("name", ["max_message_chars", "max_agent_instructions_chars", "max_candidate_chars"])

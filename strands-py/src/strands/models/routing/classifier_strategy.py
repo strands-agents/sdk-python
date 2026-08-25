@@ -117,7 +117,7 @@ class ClassifierStrategy:
         self,
         model: Model,
         *,
-        system_prompt: str | None = None,
+        system_prompt: str = _DEFAULT_SYSTEM_PROMPT,
         timeout: float = 30.0,
         max_message_chars: int = _DEFAULT_MESSAGE_CHARACTER_LIMIT,
         max_agent_instructions_chars: int = _DEFAULT_AGENT_INSTRUCTIONS_CHARACTER_LIMIT,
@@ -144,8 +144,8 @@ class ClassifierStrategy:
         """
         if not isinstance(model, Model):
             raise TypeError("model must be a Model")
-        if system_prompt is not None and not isinstance(system_prompt, str):
-            raise TypeError("system_prompt must be a string or None")
+        if not isinstance(system_prompt, str):
+            raise TypeError("system_prompt must be a string")
         if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
             raise TypeError("timeout must be a number")
 
@@ -154,7 +154,7 @@ class ClassifierStrategy:
             raise ValueError("timeout must be finite and greater than zero")
 
         self._model = model
-        self._system_prompt = system_prompt if system_prompt is not None else _DEFAULT_SYSTEM_PROMPT
+        self._system_prompt = system_prompt
         self._timeout = timeout
         self._max_message_chars = _validate_character_limit("max_message_chars", max_message_chars)
         self._max_agent_instructions_chars = _validate_character_limit(
