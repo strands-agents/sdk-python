@@ -45,6 +45,7 @@ async function directToolCallingExample() {
     tools: [notebook],
   })
 
+  // notebook is registered when the agent is created, so the non-null assertion is safe.
   await agent.tool.notebook!.invoke({ mode: 'list' })
   const recordedMessageCount = agent.messages.length
 

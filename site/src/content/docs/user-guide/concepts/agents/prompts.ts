@@ -48,6 +48,7 @@ async function directToolCallsExample() {
     tools: [notebook],
   })
 
+  // notebook is registered when the agent is created, so the non-null assertion is safe.
   const result = await agent.tool.notebook!.invoke({ mode: 'list' })
   console.log(result)
   // --8<-- [end:direct_tool_calls]
