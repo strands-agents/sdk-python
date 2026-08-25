@@ -85,8 +85,6 @@ class AnthropicModel(Model):
                 https://docs.anthropic.com/en/docs/about-claude/models/all-models.
             params: Additional model parameters (e.g., temperature).
                 For a complete list of supported parameters, see https://docs.anthropic.com/en/api/messages.
-                With anthropic>=1.0 installed, temperature, top_k, and top_p are routed through
-                extra_body since the SDK removed them from its method signatures.
             use_native_token_count: Whether to use the native Anthropic count_tokens API.
                 When True, count_tokens() calls the Anthropic API for accurate counts.
                 When False (default), skips the API call and uses the local estimator.
