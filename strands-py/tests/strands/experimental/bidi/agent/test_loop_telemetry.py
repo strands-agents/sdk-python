@@ -19,7 +19,7 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor, SpanExporter, Sp
 from opentelemetry.trace import StatusCode
 
 from strands import tool
-from strands.experimental.bidi import _telemetry, BidiAgent
+from strands.experimental.bidi import BidiAgent, _telemetry
 from strands.experimental.bidi.models import BidiModel, BidiModelTimeoutError
 from strands.experimental.bidi.types.events import (
     BidiAudioStreamEvent,
