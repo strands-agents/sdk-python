@@ -467,8 +467,18 @@ async def test_full_delegation_blank_content_skips_delegation():
 
 
 @pytest.mark.asyncio
-async def test_delegation_emits_correct_history_and_single_assistant_event():
-    """A delegation turn produces a correct history and emits exactly one assistant MessageAddedEvent."""
+@pytest.mark.parametrize("with_session_manager", [False, True])
+async def test_delegation_emits_correct_history_and_single_assistant_event(with_session_manager):
+    """A delegation turn produces a correct history and emits exactly one assistant MessageAddedEvent.
+
+    Subscribers must see the delegated content exactly once, whether or not a session manager is attached (#3808).
+    """
+    session_manager = (
+        RepositorySessionManager(session_id="s1", session_repository=MockedSessionRepository())
+        if with_session_manager
+        else None
+    )
+
     sub = Agent(
         model=MockedModelProvider([{"role": "assistant", "content": [{"text": "Balance: $42"}]}]),
         name="billing",
@@ -485,6 +495,7 @@ async def test_delegation_emits_correct_history_and_single_assistant_event():
         ),
         name="orch",
         tools=[sub.as_tool(delegate=True)],
+        session_manager=session_manager,
         callback_handler=None,
     )
 
