@@ -264,10 +264,15 @@ class Tracer:
             metrics: Metrics from the model call
         """
         if "cacheReadInputTokens" in usage:
-            attributes["gen_ai.usage.cache_read_input_tokens"] = usage["cacheReadInputTokens"]
+            attributes["gen_ai.usage.cache_read.input_tokens"] = usage["cacheReadInputTokens"]
+            # Deprecated pre-semconv name, dual-emitted unless opted into the latest conventions
+            if not self.use_latest_genai_conventions:
+                attributes["gen_ai.usage.cache_read_input_tokens"] = usage["cacheReadInputTokens"]
 
         if "cacheWriteInputTokens" in usage:
-            attributes["gen_ai.usage.cache_write_input_tokens"] = usage["cacheWriteInputTokens"]
+            attributes["gen_ai.usage.cache_creation.input_tokens"] = usage["cacheWriteInputTokens"]
+            if not self.use_latest_genai_conventions:
+                attributes["gen_ai.usage.cache_write_input_tokens"] = usage["cacheWriteInputTokens"]
 
         if metrics.get("timeToFirstByteMs", 0) > 0:
             attributes["gen_ai.server.time_to_first_token"] = metrics["timeToFirstByteMs"]
@@ -826,10 +831,18 @@ class Tracer:
                         "gen_ai.usage.input_tokens": prompt_tokens,
                         "gen_ai.usage.output_tokens": usage["outputTokens"],
                         "gen_ai.usage.total_tokens": usage["totalTokens"],
-                        "gen_ai.usage.cache_read_input_tokens": usage.get("cacheReadInputTokens", 0),
-                        "gen_ai.usage.cache_write_input_tokens": usage.get("cacheWriteInputTokens", 0),
+                        "gen_ai.usage.cache_read.input_tokens": usage.get("cacheReadInputTokens", 0),
+                        "gen_ai.usage.cache_creation.input_tokens": usage.get("cacheWriteInputTokens", 0),
                     }
                 )
+                # Deprecated pre-semconv name, dual-emitted unless opted into the latest conventions
+                if not self.use_latest_genai_conventions:
+                    attributes.update(
+                        {
+                            "gen_ai.usage.cache_read_input_tokens": usage.get("cacheReadInputTokens", 0),
+                            "gen_ai.usage.cache_write_input_tokens": usage.get("cacheWriteInputTokens", 0),
+                        }
+                    )
 
         self._end_span(span, attributes, error)
 

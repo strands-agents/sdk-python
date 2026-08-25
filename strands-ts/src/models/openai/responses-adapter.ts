@@ -382,7 +382,7 @@ export function createResponsesStreamState(): ResponsesStreamState {
  * `usage.input_tokens_details.cached_tokens`; surfacing it as
  * `cacheReadInputTokens` keeps the Responses path consistent with the Bedrock,
  * Anthropic, and Vercel model adapters (and lets `telemetry/tracer.ts` emit
- * `gen_ai.usage.cache_read_input_tokens`).
+ * `gen_ai.usage.cache_read.input_tokens`).
  *
  * @internal
  */

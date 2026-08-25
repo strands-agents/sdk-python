@@ -122,7 +122,22 @@ def test_update_config(model, model_id):
             },
             {
                 "type": "input_file",
-                "filename": "test doc",
+                "filename": "test doc.pdf",
+                "file_data": "data:application/pdf;base64,ZG9jdW1lbnQ=",
+            },
+        ),
+        # A name that already ends with the format keeps a single extension
+        (
+            {
+                "document": {
+                    "format": "pdf",
+                    "name": "test doc.pdf",
+                    "source": {"bytes": b"document"},
+                },
+            },
+            {
+                "type": "input_file",
+                "filename": "test doc.pdf",
                 "file_data": "data:application/pdf;base64,ZG9jdW1lbnQ=",
             },
         ),
@@ -136,7 +151,7 @@ def test_update_config(model, model_id):
             },
             {
                 "type": "input_file",
-                "filename": "document",
+                "filename": "document.pdf",
                 "file_data": "data:application/pdf;base64,ZG9jdW1lbnQ=",
             },
         ),
