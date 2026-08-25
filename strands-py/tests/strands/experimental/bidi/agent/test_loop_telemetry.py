@@ -19,7 +19,7 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor, SpanExporter, Sp
 from opentelemetry.trace import StatusCode
 
 from strands import tool
-from strands.experimental.bidi import BidiAgent
+from strands.experimental.bidi import _telemetry, BidiAgent
 from strands.experimental.bidi.models import BidiModel, BidiModelTimeoutError
 from strands.experimental.bidi.types.events import (
     BidiAudioStreamEvent,
@@ -33,6 +33,7 @@ from strands.experimental.hooks.events import (
     BidiAfterConnectionRestartEvent,
     BidiBeforeConnectionRestartEvent,
 )
+from strands.telemetry.tracer import Tracer
 from strands.types._events import ToolResultMessageEvent, ToolUseStreamEvent
 
 
@@ -466,3 +467,18 @@ async def test_no_crash_without_otel_configured(loop, agent, agenerator):
             break
 
     await loop.stop()
+
+
+def test_end_session_span_latest_conventions_suppresses_deprecated_cache_name(monkeypatch):
+    """Opting into the latest conventions emits the semconv cache name only, without the deprecated alias."""
+    monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
+    tracer = Tracer()
+    span = unittest.mock.MagicMock()
+
+    _telemetry.end_session_span(
+        tracer, span, input_tokens=300, output_tokens=125, total_tokens=425, cache_read_input_tokens=20
+    )
+
+    emitted = span.set_attributes.call_args[0][0]
+    assert emitted["gen_ai.usage.cache_read.input_tokens"] == 20
+    assert "gen_ai.usage.cache_read_input_tokens" not in emitted

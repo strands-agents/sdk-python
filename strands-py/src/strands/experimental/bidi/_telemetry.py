@@ -70,9 +70,10 @@ def end_session_span(
         "gen_ai.usage.output_tokens": output_tokens,
         "gen_ai.usage.total_tokens": total_tokens,
         "gen_ai.usage.cache_read.input_tokens": cache_read_input_tokens,
-        # Deprecated pre-semconv name, dual-emitted so existing consumers keep resolving.
-        "gen_ai.usage.cache_read_input_tokens": cache_read_input_tokens,
     }
+    if not tracer.use_latest_genai_conventions:
+        # Deprecated pre-semconv name, dual-emitted unless opted into the latest conventions
+        token_attributes["gen_ai.usage.cache_read_input_tokens"] = cache_read_input_tokens
     attributes: dict[str, AttributeValue] = {name: value for name, value in token_attributes.items() if value > 0}
 
     tracer._end_span(span, attributes=attributes, error=error)
