@@ -9,10 +9,11 @@ the `MCP_V2` flag forced.
 """
 
 import importlib
+import inspect
 import sys
 from collections.abc import Callable
 from contextlib import asynccontextmanager
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import mcp.client.streamable_http as streamable_http_module
@@ -45,6 +46,81 @@ def test_installed_line_exposes_expected_transport_names():
         assert hasattr(streamable_http_module, "streamablehttp_client")
 
 
+def test_installed_line_list_methods_accept_params():
+    """Test that the session list_* methods accept the `params` keyword on the installed line.
+
+    `MCPClient` passes pagination as `params` only: the `cursor` keyword is
+    deprecated on 1.x and removed on 2.x, while `params` exists on both lines
+    (added in 1.23.0, the dependency floor).
+    """
+    from mcp import ClientSession
+
+    for method_name in ("list_tools", "list_prompts", "list_resources", "list_resource_templates"):
+        method_parameters = inspect.signature(getattr(ClientSession, method_name)).parameters
+        assert "params" in method_parameters, method_name
+
+
+def test_installed_line_spells_the_accessor_read_fields_as_expected():
+    """Test that every model field a `_compat` accessor reads exists on the installed line's models."""
+    from mcp.types import ListResourceTemplatesResult, ListToolsResult, ToolExecution
+
+    if _compat.MCP_V2:
+        assert "next_cursor" in ListToolsResult.model_fields
+        assert "resource_templates" in ListResourceTemplatesResult.model_fields
+        assert "task_support" in ToolExecution.model_fields
+    else:
+        assert "nextCursor" in ListToolsResult.model_fields
+        assert "resourceTemplates" in ListResourceTemplatesResult.model_fields
+        assert "taskSupport" in ToolExecution.model_fields
+
+
+def test_next_cursor_v1_reads_the_camel_case_field(monkeypatch):
+    """Test that the 1.x branch reads the result's `nextCursor` field."""
+    monkeypatch.setattr(_compat, "MCP_V2", False)
+
+    assert _compat.next_cursor(SimpleNamespace(nextCursor="page-2")) == "page-2"
+
+
+def test_next_cursor_v2_reads_the_snake_case_field(monkeypatch):
+    """Test that the 2.x branch reads the result's `next_cursor` field."""
+    monkeypatch.setattr(_compat, "MCP_V2", True)
+
+    assert _compat.next_cursor(SimpleNamespace(next_cursor="page-2")) == "page-2"
+
+
+def test_resource_templates_v1_reads_the_camel_case_field(monkeypatch):
+    """Test that the 1.x branch reads the result's `resourceTemplates` field."""
+    monkeypatch.setattr(_compat, "MCP_V2", False)
+
+    assert _compat.resource_templates(SimpleNamespace(resourceTemplates=["template"])) == ["template"]
+
+
+def test_resource_templates_v2_reads_the_snake_case_field(monkeypatch):
+    """Test that the 2.x branch reads the result's `resource_templates` field."""
+    monkeypatch.setattr(_compat, "MCP_V2", True)
+
+    assert _compat.resource_templates(SimpleNamespace(resource_templates=["template"])) == ["template"]
+
+
+def test_task_support_v1_reads_the_camel_case_field(monkeypatch):
+    """Test that the 1.x branch reads the tool's `execution.taskSupport` field."""
+    monkeypatch.setattr(_compat, "MCP_V2", False)
+
+    assert _compat.task_support(SimpleNamespace(execution=SimpleNamespace(taskSupport="optional"))) == "optional"
+
+
+def test_task_support_v2_reads_the_snake_case_field(monkeypatch):
+    """Test that the 2.x branch reads the tool's `execution.task_support` field."""
+    monkeypatch.setattr(_compat, "MCP_V2", True)
+
+    assert _compat.task_support(SimpleNamespace(execution=SimpleNamespace(task_support="optional"))) == "optional"
+
+
+def test_task_support_returns_none_for_a_tool_without_execution():
+    """Test that a tool with no execution block declares no task support level."""
+    assert _compat.task_support(SimpleNamespace(execution=None)) is None
+
+
 def test_mcp_error_resolves_to_installed_exception():
     """Test that MCPError is the mcp package's error type regardless of its spelling."""
     import mcp.shared.exceptions as mcp_exceptions
@@ -75,6 +151,15 @@ def test_installed_v2_line_exposes_negotiate_auto():
     from mcp.client.client import negotiate_auto
 
     assert callable(negotiate_auto)
+
+
+@requires_mcp_v2
+def test_installed_v2_session_exposes_negotiation_attributes():
+    """Test that the session attributes the 2.x negotiation branch reads exist on the real ClientSession."""
+    from mcp import ClientSession
+
+    assert hasattr(ClientSession, "instructions")
+    assert hasattr(ClientSession, "server_capabilities")
 
 
 @pytest.mark.asyncio

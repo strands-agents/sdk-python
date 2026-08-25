@@ -21,7 +21,16 @@ import httpx
 from mcp import ClientSession
 from mcp.types import ServerCapabilities
 
-__all__ = ["MCP_V2", "GetSessionIdCallback", "MCPError", "negotiate_session", "streamable_http_transport"]
+__all__ = [
+    "MCP_V2",
+    "GetSessionIdCallback",
+    "MCPError",
+    "negotiate_session",
+    "next_cursor",
+    "resource_templates",
+    "streamable_http_transport",
+    "task_support",
+]
 
 # Feature-probed rather than version-parsed so pre-releases and backports
 # resolve by capability: `ClientSession.discover` is the 2.x replacement for
@@ -42,6 +51,57 @@ except ImportError:
     from collections.abc import Callable
 
     GetSessionIdCallback = Callable[[], str | None]  # type: ignore[misc, assignment]
+
+
+def next_cursor(list_result: Any) -> str | None:
+    """Read a paginated list result's continuation cursor, on either `mcp` major line.
+
+    `mcp` 2.x renamed the pydantic result models' camelCase fields to
+    snake_case, so the field is `next_cursor` there and `nextCursor` on 1.x.
+
+    Args:
+        list_result: A `List*Result` returned by a session `list_*` method.
+
+    Returns:
+        The cursor for the next page, or None on the last page.
+    """
+    cursor: str | None = list_result.next_cursor if MCP_V2 else list_result.nextCursor
+    return cursor
+
+
+def resource_templates(list_result: Any) -> list[Any]:
+    """Read a list result's resource templates, on either `mcp` major line.
+
+    `mcp` 2.x renamed the pydantic result models' camelCase fields to
+    snake_case, so the field is `resource_templates` there and
+    `resourceTemplates` on 1.x.
+
+    Args:
+        list_result: A `ListResourceTemplatesResult` returned by the session.
+
+    Returns:
+        The resource templates in this page of the result.
+    """
+    templates: list[Any] = list_result.resource_templates if MCP_V2 else list_result.resourceTemplates
+    return templates
+
+
+def task_support(tool: Any) -> str | None:
+    """Read a tool's declared task execution support level, on either `mcp` major line.
+
+    `mcp` 2.x renamed the pydantic model fields to snake_case, so the field
+    is `execution.task_support` there and `execution.taskSupport` on 1.x.
+
+    Args:
+        tool: A `Tool` from a list tools result.
+
+    Returns:
+        The declared support level, or None when the tool does not declare one.
+    """
+    if tool.execution is None:
+        return None
+    support: str | None = tool.execution.task_support if MCP_V2 else tool.execution.taskSupport
+    return support
 
 
 async def negotiate_session(session: ClientSession) -> tuple[str | None, ServerCapabilities | None]:
