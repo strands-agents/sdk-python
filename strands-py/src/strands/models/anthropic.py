@@ -456,10 +456,13 @@ class AnthropicModel(Model):
 
         anthropic 1.0 removed the sampling parameters (temperature, top_k, top_p) from the messages
         method signatures, so on 1.x they are routed through ``extra_body``, which merges them into
-        the request body. An explicit user ``extra_body`` value wins on key conflicts.
+        the request body.
 
         Returns:
             The params to spread into the request.
+
+        Raises:
+            ValueError: If a sampling parameter is set both in params and in params["extra_body"].
         """
         params = dict(self.config.get("params") or {})
         if _ANTHROPIC_MAJOR_VERSION < 1:
@@ -467,7 +470,11 @@ class AnthropicModel(Model):
 
         sampling_params = {key: params.pop(key) for key in _ANTHROPIC_REMOVED_SAMPLING_PARAMS & params.keys()}
         if sampling_params:
-            params["extra_body"] = {**sampling_params, **(params.get("extra_body") or {})}
+            extra_body = params.get("extra_body") or {}
+            conflicts = sampling_params.keys() & extra_body.keys()
+            if conflicts:
+                raise ValueError(f"params=<{sorted(conflicts)}> | set both in params and in params['extra_body']")
+            params["extra_body"] = {**sampling_params, **extra_body}
 
         return params
 
