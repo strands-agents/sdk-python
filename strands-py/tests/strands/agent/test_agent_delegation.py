@@ -438,8 +438,8 @@ async def test_full_delegation_error_recovery():
 
 
 @pytest.mark.asyncio
-async def test_full_delegation_blank_content_halts_loop():
-    """Empty content from the delegate becomes a blank text block via backfill, and the loop still halts."""
+async def test_full_delegation_blank_content_skips_delegation():
+    """When a delegate returns empty content, delegation is skipped and the loop continues to the model."""
     sub = Agent(
         model=MockedModelProvider([{"role": "assistant", "content": []}]),
         name="empty_sub",
@@ -452,8 +452,8 @@ async def test_full_delegation_blank_content_halts_loop():
                     "role": "assistant",
                     "content": [{"toolUse": {"toolUseId": "c1", "name": "empty_sub", "input": {"input": "go"}}}],
                 },
-                # If delegation fails to halt, the loop would consume this second response
-                {"role": "assistant", "content": [{"text": "SHOULD NOT REACH"}]},
+                # Delegation skipped — the loop continues and the model produces this response.
+                {"role": "assistant", "content": [{"text": "I continued."}]},
             ]
         ),
         name="orch",
@@ -461,14 +461,9 @@ async def test_full_delegation_blank_content_halts_loop():
         callback_handler=None,
     )
 
-    tru_message_added_count = []
-    orch.add_hook(lambda event: tru_message_added_count.append(event.message), MessageAddedEvent)
-
     tru_result = await orch.invoke_async("go")
     assert tru_result.stop_reason == "end_turn"
-    assert tru_result.message["content"] == [{"text": ""}]
-    # 4 MessageAddedEvents: user prompt, assistant tool-use, user tool-result, assistant end_turn
-    assert len(tru_message_added_count) == 4
+    assert "I continued." in str(tru_result.message["content"])
 
 
 @pytest.mark.asyncio
@@ -518,8 +513,6 @@ async def test_delegation_emits_correct_history_and_single_assistant_event():
     assert "toolResult" in orch.messages[2]["content"][0]
     assert orch.messages[3]["role"] == "assistant"
     assert orch.messages[3]["content"] == exp_content
-
-
 
 
 # --- Session persistence ---

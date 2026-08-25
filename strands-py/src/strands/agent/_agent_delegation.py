@@ -166,7 +166,7 @@ class AgentDelegation(Plugin):
         state.tool_use_id = event.tool_use.get("toolUseId")
 
     def _on_after_tools(self, event: AfterToolsEvent) -> None:
-        """Set end_turn to delegation content blocks when delegation succeeded.
+        """Set end_turn to delegation content blocks when delegation succeeded with meaningful content.
 
         This hook runs at ``HookOrder.SDK_LAST`` (100) so no hook can invalidate the tool
         result after this hook commits end_turn; mutating a committed tool result's status
@@ -207,7 +207,16 @@ class AgentDelegation(Plugin):
             )
             return
 
-        event.end_turn = _to_content_blocks(result_block)
+        # Skip delegation when the tool result has no content
+        end_turn_content = _to_content_blocks(result_block)
+        if not end_turn_content or all(block.get("text", None) == "" for block in end_turn_content):
+            logger.debug(
+                "tool_use_id=<%s> | delegation produced blank content, skipping end_turn",
+                state.tool_use_id,
+            )
+            return
+
+        event.end_turn = end_turn_content
 
     # --- Middleware ---
 
