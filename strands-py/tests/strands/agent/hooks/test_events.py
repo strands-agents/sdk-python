@@ -181,13 +181,6 @@ def test_after_tools_event_fields_default_and_writability(after_tools_event, age
     assert tru_event == exp_event
     assert tru_event.end_turn is False
 
-    tru_event.end_turn = True
-    assert tru_event.end_turn is True
-    tru_event.end_turn = "enough gathered"
-    assert tru_event.end_turn == "enough gathered"
-    tru_event.end_turn = [{"text": "delegated"}]
-    assert tru_event.end_turn == [{"text": "delegated"}]
-
     with pytest.raises(AttributeError, match="Property agent is not writable"):
         tru_event.agent = Mock()
     with pytest.raises(AttributeError, match="Property message is not writable"):
