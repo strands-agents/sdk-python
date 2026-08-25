@@ -1541,6 +1541,65 @@ class TestPromptCaching:
 
         assert self._breakpoints(model.format_request(messages, tool_specs)) == [("tools", "t2", {"type": "ephemeral"})]
 
+    def test_cache_tools_emits_deprecation_warning(self, model, messages, tool_specs):
+        """cache_tools is deprecated in favor of CacheConfig(tools_ttl=...); using it warns."""
+        model.update_config(cache_tools="default")
+
+        with pytest.warns(DeprecationWarning, match="cache_tools is deprecated. Use CacheConfig"):
+            model.format_request(messages, tool_specs)
+
+    def test_tools_ttl_true_derives_from_shared_ttl(self, model, messages, tool_specs):
+        """tools_ttl=True mirrors system_prompt_ttl: it derives the tools section duration from cache_config.ttl."""
+        model.update_config(cache_config=CacheConfig(strategy="auto", ttl="1h", tools_ttl=True))
+
+        breakpoints = self._breakpoints(model.format_request(messages, tool_specs))
+
+        assert ("tools", "t2", {"type": "ephemeral", "ttl": "1h"}) in breakpoints
+
+    def test_tools_ttl_string_sets_the_section_duration(self, model, messages, tool_specs):
+        """A tools_ttl string sets the tools section's own duration rather than deriving from the shared ttl."""
+        model.update_config(cache_config=CacheConfig(strategy="auto", ttl="1h", tools_ttl="5m"))
+
+        breakpoints = self._breakpoints(model.format_request(messages, tool_specs))
+
+        assert ("tools", "t2", {"type": "ephemeral", "ttl": "5m"}) in breakpoints
+
+    def test_tools_ttl_true_without_shared_ttl_stays_untimed(self, model, messages, tool_specs):
+        """With nothing to derive from, tools_ttl=True still caches the tools but at the API default."""
+        model.update_config(cache_config=CacheConfig(strategy="auto", tools_ttl=True))
+
+        breakpoints = self._breakpoints(model.format_request(messages, tool_specs))
+
+        assert ("tools", "t2", {"type": "ephemeral"}) in breakpoints
+
+    def test_tools_ttl_false_disables_the_tools_cache_point(self, model, messages, tool_specs):
+        """tools_ttl=False disables tool caching even when the shared ttl is set."""
+        model.update_config(cache_config=CacheConfig(strategy="auto", ttl="1h", tools_ttl=False))
+
+        breakpoints = self._breakpoints(model.format_request(messages, tool_specs))
+
+        assert not any(bp[0] == "tools" for bp in breakpoints)
+
+    def test_tools_ttl_defaults_to_off(self, model, messages, tool_specs):
+        """tools_ttl defaults to False, so cache_config alone does not cache the tools yet."""
+        model.update_config(cache_config=CacheConfig(strategy="auto", ttl="1h"))
+
+        breakpoints = self._breakpoints(model.format_request(messages, tool_specs))
+
+        assert not any(bp[0] == "tools" for bp in breakpoints)
+
+    def test_cache_tools_takes_precedence_over_tools_ttl(self, model, messages, tool_specs):
+        """The maintainer decision: the deprecated cache_tools wins over the new tools_ttl when both are set."""
+        model.update_config(
+            cache_config=CacheConfig(strategy="auto", ttl="1h", tools_ttl="5m"),
+            cache_tools=CacheToolsConfig(ttl="1h"),
+        )
+
+        with pytest.warns(DeprecationWarning, match="cache_tools is deprecated"):
+            breakpoints = self._breakpoints(model.format_request(messages, tool_specs))
+
+        assert ("tools", "t2", {"type": "ephemeral", "ttl": "1h"}) in breakpoints
+
     def test_both_options_produce_two_breakpoints(self, model, messages, tool_specs):
         model.update_config(cache_config=CacheConfig(strategy="auto"), cache_tools="default")
 

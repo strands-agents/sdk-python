@@ -162,9 +162,10 @@ class BedrockModel(Model):
             additional_response_field_paths: Additional response field paths to extract
             cache_prompt: Cache point type for the system prompt (deprecated, use cache_config)
             cache_config: Configuration for prompt caching. Use CacheConfig(strategy="auto") for automatic caching.
-            cache_tools: Cache point type for tools. Pass a string (e.g. "default") to cache the tools with
-                no explicit TTL, or a CacheToolsConfig instance to set both type and TTL (e.g. "1h"). Inherits
-                cache_config.ttl if specified, otherwise it takes the Bedrock default.
+            cache_tools: Cache point type for tools (deprecated, use CacheConfig(tools_ttl=...)). Pass a string
+                (e.g. "default") to cache the tools with no explicit TTL, or a CacheToolsConfig instance to set
+                both type and TTL (e.g. "1h"). Inherits cache_config.ttl if specified, otherwise it takes the
+                Bedrock default. When set, takes precedence over cache_config.tools_ttl.
             guardrail_id: ID of the guardrail to apply
             guardrail_trace: Guardrail trace mode. Defaults to enabled.
             guardrail_version: Version of the guardrail to apply
@@ -557,28 +558,50 @@ class BedrockModel(Model):
         return not any("cachePoint" in block for block in system_blocks)
 
     def _build_tools_cache_point(self) -> list[dict[str, Any]]:
-        """Build the cache point block appended to ``toolConfig.tools`` if ``cache_tools`` is configured.
+        """Build the cache point block appended to ``toolConfig.tools`` when tool caching is configured.
 
-        A ``cache_tools`` that carries no TTL of its own inherits ``cache_config.ttl``
+        The deprecated model-level ``cache_tools`` takes precedence: when it is set, a ``DeprecationWarning``
+        is emitted and its type/TTL drive the point, so existing configurations keep working unchanged. When
+        ``cache_tools`` is unset, ``cache_config.tools_ttl`` drives the point, mirroring ``system_prompt_ttl`` -
+        a TTL string sets the tools section's own duration, True derives it from ``cache_config.ttl``, and False
+        disables it. Either way, a section that carries no TTL of its own inherits ``cache_config.ttl``.
 
         Returns:
-            A single-element list containing the cache point block, or an empty list if no cache_tools is set.
+            A single-element list containing the cache point block, or an empty list when tool caching is off.
         """
         cache_tools = self.config.get("cache_tools")
-        if not cache_tools:
+        if cache_tools:
+            warnings.warn(
+                "cache_tools is deprecated. Use CacheConfig(tools_ttl=...) instead.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            if isinstance(cache_tools, CacheToolsConfig):
+                cache_type, ttl = cache_tools.type, cache_tools.ttl
+            else:
+                cache_type, ttl = cache_tools, None
+
+            if not ttl:
+                cache_config = self.config.get("cache_config")
+                if cache_config and cache_config.ttl and self._cache_strategy == "anthropic":
+                    ttl = cache_config.ttl
+
+            cache_point: dict[str, Any] = {"type": cache_type}
+            if ttl:
+                cache_point["ttl"] = ttl
+
+            return [{"cachePoint": cache_point}]
+
+        cache_config = self.config.get("cache_config")
+        if not cache_config or self._cache_strategy != "anthropic":
             return []
 
-        if isinstance(cache_tools, CacheToolsConfig):
-            cache_type, ttl = cache_tools.type, cache_tools.ttl
-        else:
-            cache_type, ttl = cache_tools, None
+        tools_ttl = cache_config.tools_ttl
+        if tools_ttl is False:
+            return []
 
-        if not ttl:
-            cache_config = self.config.get("cache_config")
-            if cache_config and cache_config.ttl and self._cache_strategy == "anthropic":
-                ttl = cache_config.ttl
-
-        cache_point: dict[str, Any] = {"type": cache_type}
+        ttl = tools_ttl if isinstance(tools_ttl, str) else cache_config.ttl
+        cache_point = {"type": "default"}
         if ttl:
             cache_point["ttl"] = ttl
 

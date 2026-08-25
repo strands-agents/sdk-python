@@ -6,6 +6,7 @@
 import base64
 import json
 import logging
+import warnings
 from collections.abc import AsyncGenerator
 from typing import Any, TypeVar, cast
 
@@ -71,7 +72,8 @@ class AnthropicModel(Model):
         Attributes:
             cache_config: Configuration for prompt caching. Adds a cache point to the last user message,
                 caching everything before it. Caching is off when unset.
-            cache_tools: Caches the tool definitions.
+            cache_tools: Caches the tool definitions (deprecated, use CacheConfig(tools_ttl=...)). When set,
+                takes precedence over cache_config.tools_ttl.
             max_tokens: Maximum number of tokens to generate.
             model_id: Calude model ID (e.g., "claude-3-7-sonnet-latest").
                 For a complete list of supported models, see
@@ -306,6 +308,43 @@ class AnthropicModel(Model):
 
         return False
 
+    def _resolve_tools_cache(self) -> tuple[str | None, bool]:
+        """Resolve whether the tool block carries a cache point and which TTL it uses.
+
+        The deprecated model-level ``cache_tools`` takes precedence: when it is set, a ``DeprecationWarning`` is
+        emitted and its TTL is used, so existing configurations keep working unchanged. When ``cache_tools`` is
+        unset, ``cache_config.tools_ttl`` drives the decision, mirroring ``system_prompt_ttl`` - a TTL string sets
+        the tools section's own duration, True derives it from ``cache_config.ttl``, and False disables it. A
+        section that carries no TTL of its own inherits ``cache_config.ttl``.
+
+        Returns:
+            A ``(ttl, enabled)`` pair: the TTL to emit (or None for the API default) and whether to cache tools.
+        """
+        cache_tools = self.config.get("cache_tools")
+        if cache_tools:
+            warnings.warn(
+                "cache_tools is deprecated. Use CacheConfig(tools_ttl=...) instead.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            ttl = cache_tools.ttl if isinstance(cache_tools, CacheToolsConfig) else None
+            if not ttl:
+                cache_config = self.config.get("cache_config")
+                if cache_config and cache_config.ttl and cache_config.strategy in ("auto", "anthropic"):
+                    ttl = cache_config.ttl
+            return ttl, True
+
+        cache_config = self.config.get("cache_config")
+        if cache_config is None or cache_config.strategy not in ("auto", "anthropic"):
+            return None, False
+
+        tools_ttl = cache_config.tools_ttl
+        if tools_ttl is False:
+            return None, False
+
+        ttl = tools_ttl if isinstance(tools_ttl, str) else cache_config.ttl
+        return ttl, True
+
     @staticmethod
     def _format_cache_control(ttl: str | None) -> dict[str, Any]:
         """Build an Anthropic ``cache_control`` value.
@@ -418,15 +457,10 @@ class AnthropicModel(Model):
         ]
 
         # A cache_control on the final tool caches all of them, so one cache point suffices.
-        cache_tools = self.config.get("cache_tools")
-        if cache_tools and tools:
-            ttl = cache_tools.ttl if isinstance(cache_tools, CacheToolsConfig) else None
-
-            if not ttl:
-                cache_config = self.config.get("cache_config")
-                if cache_config and cache_config.ttl and cache_config.strategy in ("auto", "anthropic"):
-                    ttl = cache_config.ttl
-            tools[-1]["cache_control"] = self._format_cache_control(ttl)
+        if tools:
+            tools_ttl, tools_enabled = self._resolve_tools_cache()
+            if tools_enabled:
+                tools[-1]["cache_control"] = self._format_cache_control(tools_ttl)
 
         system = self._format_system_prompt(system_prompt, system_prompt_content)
 
