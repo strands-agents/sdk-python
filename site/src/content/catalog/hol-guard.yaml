@@ -1,8 +1,9 @@
 name: HOL Guard
-description: Local-first command risk inspection for Strands tool calls before command-bearing tools execute.
-integrationType: integration
+description: Fail-closed HOL Guard command intervention for command-bearing Strands tools before execution.
+integrationType: intervention
 languages:
-  python: {}
+  python:
+    package: hol-guard
 github: https://github.com/hashgraph-online/hol-guard
-docsUrl: https://github.com/hashgraph-online/hol-guard/blob/release/3.0/docs/guard/strands-agents-integration.md
+maintainedBy: partner
 addedDate: 2026-08-24
