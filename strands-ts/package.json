@@ -96,6 +96,10 @@
       "types": "./dist/src/vended-memory-stores/bedrock-knowledge-base/index.d.ts",
       "default": "./dist/src/vended-memory-stores/bedrock-knowledge-base/index.js"
     },
+    "./vended-memory-stores/file-memory-store": {
+      "types": "./dist/src/vended-memory-stores/file-memory-store/index.d.ts",
+      "default": "./dist/src/vended-memory-stores/file-memory-store/index.js"
+    },
     "./vended-memory-stores/test-memory-store": {
       "types": "./dist/src/vended-memory-stores/test-memory-store/index.d.ts",
       "default": "./dist/src/vended-memory-stores/test-memory-store/index.js"
@@ -143,6 +147,10 @@
     "./storage": {
       "types": "./dist/src/storage/index.d.ts",
       "default": "./dist/src/storage/index.js"
+    },
+    "./storage/search": {
+      "types": "./dist/src/storage/search/index.d.ts",
+      "default": "./dist/src/storage/search/index.js"
     },
     "./sandbox": {
       "types": "./dist/src/sandbox/index.d.ts",
@@ -247,8 +255,8 @@
   },
   "homepage": "https://github.com/strands-agents/harness-sdk#readme",
   "dependencies": {
-    "@smithy/fetch-http-handler": "^5.6.10",
-    "@aws-sdk/client-bedrock-runtime": "^3.1107.0",
+    "@smithy/fetch-http-handler": "^5.7.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.1110.0",
     "@types/json-schema": "^7.0.15",
     "uuid": "^14.0.1",
     "yaml": "^2.8.3"

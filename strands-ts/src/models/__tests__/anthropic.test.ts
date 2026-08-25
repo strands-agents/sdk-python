@@ -1186,6 +1186,26 @@ describe('AnthropicModel', () => {
       expect(auto.captured.request).toEqual(explicit.captured.request)
     })
 
+    it('ignores cacheKey: it does not change the request shape', async () => {
+      // Anthropic does not consume cacheKey, so it must not reach the request.
+      const withoutKey = setupCapture()
+      await collectIterator(
+        new AnthropicModel({ client: withoutKey.mockClient, cacheConfig: {} }).stream([userMessage('Hi')], {
+          toolSpecs,
+        })
+      )
+
+      const withKey = setupCapture()
+      await collectIterator(
+        new AnthropicModel({ client: withKey.mockClient, cacheConfig: { cacheKey: 'tenant-42' } }).stream(
+          [userMessage('Hi')],
+          { toolSpecs }
+        )
+      )
+
+      expect(withKey.captured.request).toEqual(withoutKey.captured.request)
+    })
+
     it('carries cacheConfig ttl onto cache_control', async () => {
       const { captured, mockClient } = setupCapture()
       const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto', ttl: '1h' } })
@@ -1426,6 +1446,78 @@ describe('AnthropicModel', () => {
       await collectIterator(provider.stream([userMessage('Hi')], { systemPrompt }))
 
       expect(captured.request.system[0].cache_control).toEqual({ type: 'ephemeral', ttl: '1h' })
+    })
+
+    it('caches a string system prompt by promoting it to a block', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
+
+      await collectIterator(provider.stream([userMessage('Hi')], { systemPrompt: 'static prompt' }))
+
+      expect(captured.request.system).toEqual([
+        { type: 'text', text: 'static prompt', cache_control: { type: 'ephemeral' } },
+      ])
+    })
+
+    it('auto-injects a system cache point on the last block of an array prompt', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
+      const systemPrompt = [new TextBlock('Heavy context'), new TextBlock('More context')]
+
+      await collectIterator(provider.stream([userMessage('Hi')], { systemPrompt }))
+
+      // The default messages section also caches the last user message, so both points are present.
+      expect(breakpoints(captured.request)).toEqual([
+        ['system', 'text', { type: 'ephemeral' }],
+        ['messages', 0, { type: 'ephemeral' }],
+      ])
+      expect(captured.request.system[0].cache_control).toBeUndefined()
+      expect(captured.request.system[1].cache_control).toEqual({ type: 'ephemeral' })
+    })
+
+    it('carries systemPromptTTL into the auto-injected system cache point', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({
+        client: mockClient,
+        cacheConfig: { strategy: 'auto', systemPromptTTL: '1h' },
+      })
+
+      await collectIterator(provider.stream([userMessage('Hi')], { systemPrompt: 'static prompt' }))
+
+      expect(captured.request.system[0].cache_control).toEqual({ type: 'ephemeral', ttl: '1h' })
+    })
+
+    it('does not auto-inject a system cache point when systemPromptTTL is false', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({
+        client: mockClient,
+        cacheConfig: { strategy: 'auto', systemPromptTTL: false },
+      })
+
+      await collectIterator(provider.stream([userMessage('Hi')], { systemPrompt: 'static prompt' }))
+
+      expect(captured.request.system).toBe('static prompt')
+    })
+
+    it('does not double a hand-placed system cache point', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
+      const systemPrompt = [
+        new TextBlock('Heavy context'),
+        new CachePointBlock({ cacheType: 'default' }),
+        new TextBlock('Light context'),
+      ]
+
+      await collectIterator(provider.stream([userMessage('Hi')], { systemPrompt }))
+
+      // The hand-placed point on the first block is honored; the last block is not also cached. The
+      // default messages section still caches the last user message.
+      expect(breakpoints(captured.request)).toEqual([
+        ['system', 'text', { type: 'ephemeral' }],
+        ['messages', 0, { type: 'ephemeral' }],
+      ])
+      expect(captured.request.system[0].cache_control).toEqual({ type: 'ephemeral' })
+      expect(captured.request.system[1].cache_control).toBeUndefined()
     })
 
     it('keeps the breakpoint when the last cacheable block is dropped in translation', async () => {

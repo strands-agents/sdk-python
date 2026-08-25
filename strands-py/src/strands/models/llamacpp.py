@@ -230,11 +230,11 @@ class LlamaCppModel(Model):
                 "type": "image_url",
             }
 
-        # Handle audio content (not in standard ContentBlock but supported by llama.cpp)
+        # Handle audio content.
         if "audio" in content:
-            audio_content = cast(dict[str, Any], content)
-            audio_data = base64.b64encode(audio_content["audio"]["source"]["bytes"]).decode("utf-8")
-            audio_format = audio_content["audio"].get("format", "wav")
+            audio_content = content["audio"]
+            audio_data = base64.b64encode(audio_content["source"]["bytes"]).decode("utf-8")
+            audio_format = audio_content.get("format", "wav")
             return {
                 "type": "input_audio",
                 "input_audio": {"data": audio_data, "format": audio_format},
@@ -655,10 +655,14 @@ class LlamaCppModel(Model):
                             tool_calls[index] = []
                         tool_calls[index].append(tool_call)
 
-                # Check for finish reason
+                # Capture the finish reason but do NOT break here: current
+                # llama.cpp server ordering is
+                #   finish -> usage -> [DONE]
+                # so a `break` would drop the trailing usage payload and the
+                # resulting `metadata` chunk would never reach the caller.
+                # Mirrors the OpenAI provider's drain-after-finish behavior.
                 if choice.get("finish_reason"):
                     finish_reason = choice.get("finish_reason")
-                    break
 
             yield self._format_chunk({"chunk_type": "content_stop"})
 
