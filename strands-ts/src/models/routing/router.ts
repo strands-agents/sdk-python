@@ -87,12 +87,19 @@ export interface ModelRouterOptions {
  * bounds the round; a success resets it to the candidate that succeeded, since that candidate opens the
  * next round. `switches` counts model changes so `maxSwitches` can cap them.
  */
-interface RoutingState {
+class RoutingState {
   candidate: RoutingCandidate
   model: Model
-  attempts: RoutingAttempt[]
+  readonly attempts: RoutingAttempt[] = []
   switchedTo: Set<RoutingCandidate>
-  switches: number
+  switches = 0
+
+  constructor(candidate: RoutingCandidate, model: Model) {
+    this.candidate = candidate
+    this.model = model
+    // The opening candidate counts as used for this round.
+    this.switchedTo = new Set([candidate])
+  }
 }
 
 const ROUTING_KEY_PREFIX = 'strands:modelRouting'
@@ -121,7 +128,6 @@ export class ModelRouter implements Plugin {
   private readonly _candidates: readonly RoutingCandidate[]
   private readonly _strategy: RoutingStrategy
   private readonly _maxSwitches?: number
-  private readonly _states = new WeakSet<RoutingState>()
   private readonly _attachedAgents = new WeakSet<LocalAgent>()
   private readonly _initializedAgents = new WeakSet<LocalAgent>()
 
@@ -131,14 +137,14 @@ export class ModelRouter implements Plugin {
    * @param models - Candidate models, nested routers, or candidate wrappers
    * @param options - Routing strategy and switch cap
    * @throws TypeError if models or the strategy are invalid
-   * @throws Error if candidates are empty, duplicated, named alike, stateful, or `maxSwitches` is negative
+   * @throws Error if candidates are empty, duplicated, named alike, stateful, or `maxSwitches` is not a non-negative integer
    */
   constructor(models: readonly CandidateInput[], options: ModelRouterOptions = {}) {
     if (options.strategy !== undefined && !isRoutingStrategy(options.strategy)) {
       throw new TypeError('strategy must implement RoutingStrategy: a select(context) method')
     }
-    if (options.maxSwitches !== undefined && options.maxSwitches < 0) {
-      throw new Error('maxSwitches must be zero or greater')
+    if (options.maxSwitches !== undefined && (!Number.isInteger(options.maxSwitches) || options.maxSwitches < 0)) {
+      throw new Error('maxSwitches must be a non-negative integer')
     }
 
     const candidates = normalize(models)
@@ -230,15 +236,7 @@ export class ModelRouter implements Plugin {
     context: RoutingContext
   ): Promise<RoutingState> {
     const [candidate, model] = await this._open(context)
-    const state: RoutingState = {
-      candidate,
-      model,
-      attempts: [],
-      // The opening candidate counts as used for this round.
-      switchedTo: new Set([candidate]),
-      switches: 0,
-    }
-    this._states.add(state)
+    const state = new RoutingState(candidate, model)
     invocationState[this._stateKey(agent)] = state
     return state
   }
@@ -428,7 +426,7 @@ export class ModelRouter implements Plugin {
   /** Return the routing state stored under this pair's key, ignoring any foreign value. */
   private _getState(agent: LocalAgent, invocationState: InvocationState): RoutingState | undefined {
     const value = invocationState[this._stateKey(agent)]
-    return isObject(value) && this._states.has(value as RoutingState) ? (value as RoutingState) : undefined
+    return value instanceof RoutingState ? value : undefined
   }
 
   /**

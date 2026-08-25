@@ -168,7 +168,16 @@ describe('ModelRouter', () => {
         build: () => new ModelRouter([model()], { strategy: {} as RoutingStrategy }),
         message: 'select(context)',
       },
-      { name: 'negative switch cap', build: () => new ModelRouter([model()], { maxSwitches: -1 }), message: 'zero' },
+      {
+        name: 'negative switch cap',
+        build: () => new ModelRouter([model()], { maxSwitches: -1 }),
+        message: 'non-negative integer',
+      },
+      {
+        name: 'non-integer switch cap',
+        build: () => new ModelRouter([model()], { maxSwitches: Number.NaN }),
+        message: 'non-negative integer',
+      },
     ])('rejects $name', ({ build, message }) => {
       expect(build).toThrow(message)
     })
