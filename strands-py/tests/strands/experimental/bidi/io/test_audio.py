@@ -1,5 +1,4 @@
 import base64
-import sys
 import unittest.mock
 
 import numpy as np
@@ -79,7 +78,7 @@ def pyaudio_module():
     module.paInt16 = 8
     module.paContinue = 0
     module.get_sample_size.return_value = 2
-    with unittest.mock.patch.object(BidiAudioIO, "_import_pyaudio", return_value=module):
+    with unittest.mock.patch("strands.experimental.bidi.io.audio.pyaudio", module):
         yield module
 
 
@@ -166,12 +165,6 @@ def test_bidi_audio_buffer_stop_when_full():
     buffer.put(b"b")
 
     buffer.stop()  # must not raise queue.Full
-
-
-def test_bidi_audio_io___init___validate_pyaudio_missing():
-    with unittest.mock.patch.dict(sys.modules, {"pyaudio": None}):
-        with pytest.raises(ImportError, match=r"PortAudio.*strands-agents\[bidi-pyaudio\]"):
-            BidiAudioIO()
 
 
 @pytest.mark.asyncio
