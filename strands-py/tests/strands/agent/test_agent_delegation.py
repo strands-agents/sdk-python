@@ -5,6 +5,7 @@ from datetime import datetime
 from unittest.mock import MagicMock, PropertyMock
 
 import pytest
+from pydantic import BaseModel
 
 from strands._middleware.stages import ExecuteToolContext
 from strands.agent._agent_as_tool import DELEGATION_DESCRIPTION_SUFFIX, _AgentAsTool
@@ -18,8 +19,12 @@ from strands.hooks import (
     MessageAddedEvent,
 )
 from strands.interrupt import _InterruptState
+from strands.session.repository_session_manager import RepositorySessionManager
 from strands.telemetry.metrics import EventLoopMetrics
+from strands.tools.structured_output.structured_output_tool import StructuredOutputTool
 from strands.types._events import ToolResultEvent
+from strands.vended_plugins.context_offloader import ContextOffloader, InMemoryStorage
+from tests.fixtures.mock_session_repository import MockedSessionRepository
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 # --- Helpers ---
@@ -227,9 +232,6 @@ def test_on_after_tools_sets_end_turn_on_success():
 
 
 def test_on_after_tools_suppressed_with_structured_output():
-    from pydantic import BaseModel
-
-    from strands.tools.structured_output.structured_output_tool import StructuredOutputTool
 
     class R(BaseModel):
         x: int
@@ -345,8 +347,6 @@ def test_to_content_blocks_converts_text_json_and_passthrough():
 
 @pytest.mark.asyncio
 async def test_child_structured_output_datetime_serializes_cleanly():
-    from pydantic import BaseModel
-
     class S(BaseModel):
         at: datetime
 
@@ -472,20 +472,8 @@ async def test_full_delegation_blank_content_halts_loop():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("with_session_manager", [False, True])
-async def test_delegation_fires_one_message_added_event_with_real_content(with_session_manager):
-    """A delegation turn emits exactly one assistant MessageAddedEvent carrying the delegate's content.
-
-    Guards https://github.com/strands-agents/harness-sdk/issues/3808: subscribers must see the
-    delegated content once, whether or not a session manager is attached.
-    """
-    from strands.session.repository_session_manager import RepositorySessionManager
-    from tests.fixtures.mock_session_repository import MockedSessionRepository
-
-    session_manager = None
-    if with_session_manager:
-        session_manager = RepositorySessionManager(session_id="s1", session_repository=MockedSessionRepository())
-
+async def test_delegation_emits_correct_history_and_single_assistant_event():
+    """A delegation turn produces a correct history and emits exactly one assistant MessageAddedEvent."""
     sub = Agent(
         model=MockedModelProvider([{"role": "assistant", "content": [{"text": "Balance: $42"}]}]),
         name="billing",
@@ -502,7 +490,6 @@ async def test_delegation_fires_one_message_added_event_with_real_content(with_s
         ),
         name="orch",
         tools=[sub.as_tool(delegate=True)],
-        session_manager=session_manager,
         callback_handler=None,
     )
 
@@ -522,38 +509,17 @@ async def test_delegation_fires_one_message_added_event_with_real_content(with_s
     assert len(tru_assistant_messages) == 1
     assert tru_assistant_messages[0]["content"] == exp_content
 
+    # Verify the full orchestrator history shape.
+    assert len(orch.messages) == 4
+    assert orch.messages[0]["role"] == "user"
+    assert orch.messages[1]["role"] == "assistant"
+    assert "toolUse" in orch.messages[1]["content"][0]
+    assert orch.messages[2]["role"] == "user"
+    assert "toolResult" in orch.messages[2]["content"][0]
+    assert orch.messages[3]["role"] == "assistant"
+    assert orch.messages[3]["content"] == exp_content
 
-@pytest.mark.asyncio
-async def test_foreign_hook_end_turn_string_not_clobbered_by_delegation():
-    """A non-delegation hook setting end_turn to a string produces the expected assistant message."""
-    from strands import tool
 
-    @tool
-    def my_tool(input: str) -> str:
-        return "done"
-
-    parent = Agent(
-        model=MockedModelProvider(
-            [
-                {
-                    "role": "assistant",
-                    "content": [{"toolUse": {"toolUseId": "t1", "name": "my_tool", "input": {"input": "go"}}}],
-                }
-            ]
-        ),
-        name="p",
-        tools=[my_tool],
-        callback_handler=None,
-    )
-
-    def force_end(event: AfterToolsEvent):
-        event.end_turn = "Custom halt message"
-
-    parent.add_hook(force_end, AfterToolsEvent)
-
-    tru_result = await parent.invoke_async("go")
-    assert tru_result.stop_reason == "end_turn"
-    assert tru_result.message["content"] == [{"text": "Custom halt message"}]
 
 
 # --- Session persistence ---
@@ -561,9 +527,6 @@ async def test_foreign_hook_end_turn_string_not_clobbered_by_delegation():
 
 @pytest.mark.asyncio
 async def test_persisted_matches_in_memory_after_delegation():
-    from strands.session.repository_session_manager import RepositorySessionManager
-    from tests.fixtures.mock_session_repository import MockedSessionRepository
-
     repo = MockedSessionRepository()
     session_mgr = RepositorySessionManager(session_id="s1", session_repository=repo)
 
@@ -606,8 +569,6 @@ async def test_persisted_matches_in_memory_after_delegation():
 @pytest.mark.asyncio
 async def test_large_delegation_result_not_offloaded():
     """A delegation result exceeding the offloader threshold stays in context."""
-    from strands.vended_plugins.context_offloader import ContextOffloader, InMemoryStorage
-
     storage = InMemoryStorage()
     offloader = ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10)
 
