@@ -7,7 +7,11 @@ import pytest_asyncio
 from strands import tool
 from strands.experimental.bidi import BidiAgent
 from strands.experimental.bidi.models import BidiModel, BidiModelTimeoutError
-from strands.experimental.bidi.types.events import BidiConnectionCloseEvent, BidiConnectionRestartEvent, BidiTextInputEvent
+from strands.experimental.bidi.types.events import (
+    BidiConnectionCloseEvent,
+    BidiConnectionRestartEvent,
+    BidiTextInputEvent,
+)
 from strands.types._events import ToolResultEvent, ToolResultMessageEvent, ToolUseStreamEvent
 
 
@@ -142,7 +146,6 @@ async def test_bidi_agent_loop_stop_event_loop_flag(agent, agenerator):
 
     tool_use = {"toolUseId": "t3", "name": "time_tool", "input": {}}
     tool_use_event = ToolUseStreamEvent(current_tool_use=tool_use, delta="")
-    tool_result = {"toolUseId": "t3", "status": "success", "content": [{"text": "12:00"}]}
 
     agent.model.receive = unittest.mock.Mock(return_value=agenerator([tool_use_event]))
 

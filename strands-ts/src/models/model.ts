@@ -66,6 +66,8 @@ class CitationAccumulator {
 
 /**
  * Configuration for prompt caching.
+ *
+ * Providers consume only the fields they support.
  */
 export interface CacheConfig {
   /**
@@ -113,6 +115,9 @@ export interface CacheConfig {
    * @defaultValue true
    */
   messagesTTL?: boolean | CacheTTL
+
+  /** Stable identity a provider can use to route its cache. */
+  cacheKey?: string
 }
 
 /**
