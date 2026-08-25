@@ -323,6 +323,8 @@ result = agent("Summarize the changes in ./CHANGELOG.md")
 
 ---
 
+A note on programmatic tool calling (`programmatic_tool_calling` in Python, `programmatic-tool-calling` in TypeScript). We deliberately do not vend this tool. The proposal lets the model write code that invokes the agent's registered tools from inside a sandbox, but the runtime it depends on (a code-execution vended tool) does not yet exist in either SDK, and the sub-issue defers implementation pending a design one-pager covering the sandbox-to-registry bridge, serialization, and safety. Developers who want this pattern today can register their own tool that closes over a specific agent instance and calls its tools directly through the tool-caller accessor exposed on `agent.tool`. The full rationale and preconditions for revisiting the decision live in [`team/DECISIONS.md`](https://github.com/strands-agents/harness-sdk/blob/main/team/DECISIONS.md); the per-SDK recommendation READMEs at [`strands-py/src/strands/vended_tools/programmatic_tool_calling/`](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_tools/programmatic_tool_calling/README.md) and [`strands-ts/src/vended-tools/programmatic-tool-calling/`](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/programmatic-tool-calling/README.md) point at that decision.
+
 ## Using Multiple Tools Together
 
 Combine vended tools to build powerful agent workflows:
