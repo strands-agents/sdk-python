@@ -6,15 +6,6 @@ from strands.storage import InMemoryStorage, LocalFileStorage, S3Storage
 from strands.vended_plugins.context_offloader import ContextOffloader
 
 
-# --8<-- [start:basic_usage]
-storage = LocalFileStorage()
-
-agent = Agent(plugins=[
-    ContextOffloader(storage=storage)
-])
-# --8<-- [end:basic_usage]
-
-
 # --8<-- [start:agent_level]
 storage = S3Storage("my-bucket", prefix="agents/prod/")
 

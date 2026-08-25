@@ -18,8 +18,8 @@ addedDate: 2026-07-24
 
 Pass a Storage backend to the Agent and every subsystem that
 needs persistence resolves from it automatically. The SDK
-handles namespacing so sessions, offloaded content, and memory
-never collide. You can also pass storage directly to individual
+handles namespacing so sessions and offloaded content never
+collide. You can also pass storage directly to individual
 plugins when different subsystems need different backends.
 
 The SDK ships three backends. Pick one based on where you need
@@ -96,6 +96,14 @@ Storage resolves in this order for each subsystem:
 3. **Fallback**: `InMemoryStorage` for Context Offloader;
    `LocalFileStorage` for Session Manager in Python, or an
    error in TypeScript
+
+:::note
+Agent-level resolution applies to
+`SnapshotSessionManager` (Python) and `SessionManager`
+(TypeScript). Repository-based session managers configure
+their own persistence and do not read from the agent's
+storage.
+:::
 
 ## Built-in backends
 
