@@ -20,8 +20,13 @@ from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent, Usage
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
-from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
-from .model import BaseModelConfig, Model
+from ._validation import (
+    _has_location_source,
+    validate_config_keys,
+    warn_on_cache_config_not_supported,
+    warn_on_tool_choice_not_supported,
+)
+from .model import BaseModelConfig, CacheConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +55,9 @@ class LlamaAPIModel(Model):
             top_p: Top-p.
             max_completion_tokens: Maximum completion tokens.
             top_k: Top-k.
+            cache_config: Prompt-caching configuration. LlamaAPI caches prompt prefixes
+                automatically server-side and exposes no cache controls, so cache_config is
+                accepted for cross-provider consistency but is ignored.
         """
 
         model_id: str
@@ -58,6 +66,7 @@ class LlamaAPIModel(Model):
         top_p: float | None
         max_completion_tokens: int | None
         top_k: int | None
+        cache_config: CacheConfig | None
 
     def __init__(
         self,
@@ -264,6 +273,8 @@ class LlamaAPIModel(Model):
             request["max_completion_tokens"] = self.config["max_completion_tokens"]
         if "top_k" in self.config:
             request["top_k"] = self.config["top_k"]
+
+        warn_on_cache_config_not_supported(self.config.get("cache_config"), "LlamaAPI")
 
         return request
 
