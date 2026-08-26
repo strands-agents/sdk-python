@@ -126,6 +126,19 @@ describe('RoutingCandidate', () => {
       expect(Object.isFrozen(router.candidates)).toBe(true)
     })
 
+    it('preserves caller metadata and validates that it is a JSON-serializable object', () => {
+      const metadata = { modelId: 'fast-v1', supportsToolUse: true }
+      const withMetadata = new RoutingCandidate({ model: model(), metadata })
+
+      expect(withMetadata.metadata).toBe(metadata)
+      expect(() => new RoutingCandidate({ model: model(), metadata: [] as never })).toThrow(
+        'metadata must be an object'
+      )
+      expect(() => new RoutingCandidate({ model: model(), metadata: { run: (() => {}) as never } })).toThrow(
+        'metadata must be JSON-serializable'
+      )
+    })
+
     it('allows subclasses to initialize strategy-specific metadata', () => {
       class PricedCandidate extends RoutingCandidate {
         readonly cost: number

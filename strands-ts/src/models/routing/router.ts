@@ -25,7 +25,7 @@ import { logger } from '../../logging/logger.js'
 import { InvokeModelStage } from '../../middleware/stages.js'
 import { Model } from '../model.js'
 import { cloneSystemPrompt, type Message, type SystemPrompt } from '../../types/messages.js'
-import { deepCopy } from '../../types/json.js'
+import { deepCopy, deepCopyWithValidation, type JSONValue } from '../../types/json.js'
 import type { InvokeModelContext } from '../../middleware/stages.js'
 import type { Plugin } from '../../plugins/plugin.js'
 import type { ToolSpec } from '../../tools/types.js'
@@ -41,10 +41,16 @@ export interface RoutingCandidateOptions {
   readonly name?: string
   /** Optional strategy-facing description. */
   readonly description?: string
+  /** Optional strategy-facing evidence; must be JSON-serializable and free of secrets. */
+  readonly metadata?: Readonly<Record<string, JSONValue>>
 }
 
 /**
- * A model or opaque model group with an optional name and description.
+ * A model or opaque model group with optional strategy-facing evidence.
+ *
+ * Classifier-based strategies may send `name`, `description`, and `metadata` across provider
+ * boundaries, so they must not contain secrets. Metadata is stored without copying, so it must not
+ * be mutated after construction.
  *
  * Base instances are frozen automatically. Subclasses must freeze themselves after initializing additional fields.
  */
@@ -55,16 +61,21 @@ export class RoutingCandidate {
   readonly name?: string
   /** Optional strategy-facing description. */
   readonly description?: string
+  /** Optional strategy-facing evidence; must be JSON-serializable and free of secrets. */
+  readonly metadata?: Readonly<Record<string, JSONValue>>
 
   /**
    * Create an immutable routing candidate.
    *
-   * @param options - Candidate model, name, and description
+   * @param options - Candidate model, name, description, and metadata
+   * @throws TypeError if metadata is not a plain object
+   * @throws Error if metadata is not JSON-serializable
    */
   constructor(options: RoutingCandidateOptions) {
     this.model = options.model
     if (options.name !== undefined) this.name = options.name
     if (options.description !== undefined) this.description = options.description
+    if (options.metadata !== undefined) this.metadata = validatedMetadata(options.metadata)
     if (new.target === RoutingCandidate) Object.freeze(this)
   }
 }
@@ -466,6 +477,17 @@ function asCandidate(item: unknown): RoutingCandidate {
     throw new TypeError(`candidate must be a Model or ModelRouter; got ${typeName(candidate.model)}`)
   }
   return candidate
+}
+
+/** Return caller-owned metadata after validating that it is a JSON-serializable object. */
+function validatedMetadata(metadata: Readonly<Record<string, JSONValue>>): Readonly<Record<string, JSONValue>> {
+  if (!isObject(metadata) || Array.isArray(metadata)) throw new TypeError('metadata must be an object')
+  try {
+    deepCopyWithValidation(metadata, 'metadata')
+  } catch (error) {
+    throw new Error(`metadata must be JSON-serializable: ${normalizeError(error).message}`, { cause: error })
+  }
+  return metadata
 }
 
 /** Reject any stateful candidate model. */
