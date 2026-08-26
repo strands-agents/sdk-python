@@ -1169,11 +1169,15 @@ async def test_event_loop_cycle_after_tools_order_and_message(agent, model, tool
 @pytest.mark.asyncio
 @pytest.mark.parametrize("executor_type", [SequentialToolExecutor, ConcurrentToolExecutor])
 @pytest.mark.parametrize(
-    ("end_turn", "expected_text"),
-    [(True, "Turn ended early by hook after tool execution"), ("stop now", "stop now")],
+    ("end_turn", "expected_content"),
+    [
+        (True, [{"text": "Turn ended early by hook after tool execution"}]),
+        ("stop now", [{"text": "stop now"}]),
+        ([{"text": "delegated"}], [{"text": "delegated"}]),
+    ],
 )
 async def test_event_loop_cycle_after_tools_end_turn_halts_loop(
-    agent, model, tool_stream, agenerator, alist, executor_type, end_turn, expected_text
+    agent, model, tool_stream, agenerator, alist, executor_type, end_turn, expected_content
 ):
     agent.tool_executor = executor_type()
 
@@ -1191,7 +1195,8 @@ async def test_event_loop_cycle_after_tools_end_turn_halts_loop(
     assert model.stream.call_count == 1
     tru_last_message = agent.messages[-1]
     assert tru_last_message["role"] == "assistant"
-    assert tru_last_message["content"] == [{"text": expected_text}]
+    assert tru_last_message["content"] == expected_content
+    assert events[-1]["stop"][1]["content"] == expected_content
 
 
 @pytest.mark.asyncio
@@ -1351,13 +1356,14 @@ async def test_event_loop_cycle_after_tools_not_fired_on_before_tools_interrupt(
 
 
 @pytest.mark.asyncio
-async def test_event_loop_cycle_after_tools_empty_string_end_turn_does_not_halt(
-    agent, model, tool_stream, agenerator, alist
+@pytest.mark.parametrize("falsy_end_turn", ["", []])
+async def test_event_loop_cycle_after_tools_falsy_end_turn_does_not_halt(
+    agent, model, tool_stream, agenerator, alist, falsy_end_turn
 ):
-    def set_empty_end_turn(event):
-        event.end_turn = ""
+    def set_falsy_end_turn(event):
+        event.end_turn = falsy_end_turn
 
-    agent.hooks.add_callback(AfterToolsEvent, set_empty_end_turn)
+    agent.hooks.add_callback(AfterToolsEvent, set_falsy_end_turn)
     model.stream.side_effect = [
         agenerator(tool_stream),
         agenerator([{"contentBlockDelta": {"delta": {"text": "done"}}}, {"contentBlockStop": {}}]),
@@ -1365,9 +1371,28 @@ async def test_event_loop_cycle_after_tools_empty_string_end_turn_does_not_halt(
 
     events = await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
 
-    # An empty-string end_turn is falsy, so the loop continues to the next model call.
+    # A falsy end_turn does not halt — the loop continues to the next model call.
     assert events[-1]["stop"][0] == "end_turn"
     assert model.stream.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_after_tools_end_turn_list_not_aliased(agent, model, tool_stream, agenerator, alist):
+    hook_list = [{"text": "from hook"}]
+
+    def set_list_end_turn(event):
+        event.end_turn = hook_list
+
+    agent.hooks.add_callback(AfterToolsEvent, set_list_end_turn)
+    model.stream.side_effect = [agenerator(tool_stream)]
+
+    await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
+
+    # Mutate the hook's list after the invocation returns.
+    hook_list.append({"text": "MUTATED AFTER THE FACT"})
+
+    # The committed message must be unchanged — the event loop shallow-copied.
+    assert agent.messages[-1]["content"] == [{"text": "from hook"}]
 
 
 @pytest.mark.asyncio
