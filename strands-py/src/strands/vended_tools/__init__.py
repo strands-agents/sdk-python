@@ -10,7 +10,9 @@ calls. The :data:`sleep` tool pauses execution for a bounded, cancellable durati
 The :data:`http_request` tool makes raw HTTP calls; use
 :func:`make_http_request` to supply a pre-configured ``httpx.AsyncClient``
 with custom timeouts, redirects, authentication, or proxies.
-The :data:`web_fetch` tool fetches an HTTP(S) URL and returns clean markdown.
+The :data:`web_fetch` tool fetches an HTTP(S) URL and returns clean markdown. It
+requires the optional ``web-fetch`` extra (``pip install 'strands-agents[web-fetch]'``)
+and is imported lazily, so accessing it without that extra raises :class:`ImportError`:
 
 Example Usage:
     ```python
@@ -29,7 +31,6 @@ from .file_editor import file_editor, make_file_editor
 from .http_request import http_request, make_http_request
 from .shell import make_shell, shell
 from .sleep import make_sleep, sleep
-from .web_fetch import make_web_fetch, web_fetch
 
 
 def __getattr__(name: str) -> Any:
@@ -44,6 +45,12 @@ def __getattr__(name: str) -> Any:
         from ._bash import bash
 
         return bash
+    # web_fetch pulls the optional ``web-fetch`` extra, so it is lazy-loaded to keep
+    # the base import free of those dependencies.
+    if name in ("make_web_fetch", "web_fetch"):
+        from .web_fetch import make_web_fetch, web_fetch
+
+        return {"make_web_fetch": make_web_fetch, "web_fetch": web_fetch}[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -54,8 +61,6 @@ __all__ = [
     "make_http_request",
     "make_shell",
     "make_sleep",
-    "make_web_fetch",
     "shell",
     "sleep",
-    "web_fetch",
 ]
