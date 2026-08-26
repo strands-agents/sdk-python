@@ -25,6 +25,7 @@ import type { ExecuteToolContext, ExecuteToolResult, MiddlewareNext } from '../m
 import { TextBlock, ToolResultBlock, ToolUseBlock } from '../types/messages.js'
 import { AgentAsTool } from './agent-as-tool.js'
 import { STRUCTURED_OUTPUT_TOOL_NAME } from '../tools/structured-output-tool.js'
+import { logger } from '../logging/logger.js'
 
 /**
  * Checks whether a tool registered on the agent is a delegation AgentAsTool.
@@ -198,12 +199,14 @@ export class AgentDelegation implements Plugin {
 
     // Skip delegation when the parent expects structured output.
     if (event.agent.toolRegistry.get(STRUCTURED_OUTPUT_TOOL_NAME)) {
+      logger.debug(`tool_use_id=<${state.toolUseId}> | parent requires structured output, skipping delegation`)
       return
     }
 
     // Skip delegation when the tool result has no meaningful content.
     const endTurnContent = toContentBlocks(resultBlock)
     if (endTurnContent.length === 0 || endTurnContent.every((block) => 'text' in block && block.text === '')) {
+      logger.debug(`tool_use_id=<${state.toolUseId}> | delegation produced blank content, skipping delegation`)
       return
     }
 
