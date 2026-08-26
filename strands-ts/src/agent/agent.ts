@@ -122,6 +122,7 @@ import {
   pinContextTool,
   createTokenUsageMiddleware,
 } from '../context-manager/modes/agentic/agentic-context.js'
+import { ContextManager } from '../context-manager/context-manager.js'
 
 /**
  * Recursive type definition for nested tool arrays.
@@ -149,10 +150,20 @@ export type ToolList = (Tool | McpClient | Agent | ToolList)[]
 export type ToolExecutorStrategy = 'sequential' | 'concurrent'
 
 /**
- * Supported values for the `contextManager` parameter.
+ * Supported string presets for the `contextManager` parameter.
  */
 export const CONTEXT_MANAGER_STRATEGIES = ['auto', 'agentic'] as const
-export type ContextManagerStrategy = (typeof CONTEXT_MANAGER_STRATEGIES)[number]
+type ContextManagerPreset = (typeof CONTEXT_MANAGER_STRATEGIES)[number]
+
+/**
+ * Supported values for the `contextManager` parameter.
+ *
+ * - `"auto"`: Managed context with proactive compression + offloading.
+ * - `"agentic"`: Model-driven context management via injected tools.
+ * - `ContextManager` instance: Full control over strategy-driven offloading.
+ * - `false`: Explicitly disable all context management (no compression, no offloading).
+ */
+export type ContextManagerStrategy = ContextManagerPreset | ContextManager | false
 
 /** Benchmark-validated token threshold for offloading tool results. */
 const CONTEXT_MANAGER_MAX_RESULT_TOKENS = 1_500
@@ -223,13 +234,15 @@ export type AgentConfig = {
    */
   conversationManager?: ConversationManager
   /**
-   * Context management strategy.
+   * Context management strategy that controls how messages are compressed and offloaded.
    *
    * - `"auto"`: SummarizingConversationManager with proactive compression + ContextOffloader.
    * - `"agentic"`: (Experimental) Lets the model drive context management via injected tools.
    *   This mode may change in future versions.
+   * - `ContextManager` instance: Strategy-driven offloading with overflow recovery.
+   * - `false`: Explicitly disable context management (no compression, no offloading).
    *
-   * If `conversationManager` is also provided, the user's conversation manager is used instead.
+   * When a `ContextManager` instance is provided, any co-provided `conversationManager` is ignored.
    * Defaults to undefined (SlidingWindowConversationManager, no offloader).
    *
    * @remarks The offloader uses in-memory storage by default. When an agent-level
@@ -342,11 +355,19 @@ export type AgentConfig = {
  * When "auto", uses SummarizingConversationManager with proactive compression.
  * When "agentic", uses SummarizingConversationManager without proactive compression
  * (the agent manages its context via tools; the context manager is only a reactive safety net).
+ * When a ContextManager instance, uses NullConversationManager — the ContextManager owns
+ * overflow recovery via apply().
  */
 function resolveConversationManager(
   contextManager: ContextManagerStrategy | undefined,
   conversationManager: ConversationManager | undefined
 ): ConversationManager {
+  if (contextManager === false) {
+    return conversationManager ?? new NullConversationManager()
+  }
+  if (contextManager instanceof ContextManager) {
+    return new NullConversationManager()
+  }
   if (contextManager === 'agentic') {
     return (
       conversationManager ??
@@ -453,9 +474,15 @@ export class Agent implements LocalAgent, InvokableAgent {
   public readonly description?: string
 
   /**
+   * The context manager for strategy-driven offloading, if configured.
+   */
+  public readonly contextManager?: ContextManager | undefined
+  /**
    * The session manager for saving and restoring agent sessions, if configured.
    */
   public readonly sessionManager?: SessionManager | undefined
+
+  private _sessionId?: string
   /**
    * The memory manager for cross-session memory retrieval and storage, if configured.
    */
@@ -476,6 +503,20 @@ export class Agent implements LocalAgent, InvokableAgent {
    */
   get sandbox(): Sandbox {
     return this._sandbox || defaultSandbox.get()
+  }
+
+  /**
+   * A stable, unique identifier for the current conversation session.
+   *
+   * If a SessionManager is attached, delegates to its sessionId.
+   * Otherwise, lazily generates and caches a random 8-character hex string.
+   */
+  get sessionId(): string {
+    if (this.sessionManager) return this.sessionManager.sessionId
+    if (!this._sessionId) {
+      this._sessionId = globalThis.crypto.randomUUID().slice(0, 8)
+    }
+    return this._sessionId
   }
 
   private readonly _hooksRegistry: HookRegistryImplementation
@@ -515,6 +556,7 @@ export class Agent implements LocalAgent, InvokableAgent {
     this.name = config?.name ?? DEFAULT_AGENT_NAME
     this.id = config?.id ?? DEFAULT_AGENT_ID
     if (config?.description !== undefined) this.description = config.description
+    this.contextManager = config?.contextManager instanceof ContextManager ? config.contextManager : undefined
     this.sessionManager = config?.sessionManager
     this.storage = config?.storage
     this.memoryManager =
@@ -582,11 +624,12 @@ export class Agent implements LocalAgent, InvokableAgent {
     //   guards on `event.retry`, so a user hook that already set it short-circuits
     //   the strategy regardless of registration order.
     const hasOffloader = (config?.plugins ?? []).some((p) => p.name === 'strands:context-offloader')
-
     // Always register AgentDelegation so delegation semantics work regardless of
     // when a delegate tool is added (construction, plugin getTools, MCP, runtime).
     // The plugin is a no-op when no delegation tools fire.
     const hasAgentDelegation = (config?.plugins ?? []).some((p) => p.name === 'strands:agent-delegation')
+
+    const contextManagerPlugin = config?.contextManager instanceof ContextManager ? config.contextManager : undefined
 
     this._pluginRegistry = new PluginRegistry([
       this._conversationManager,
@@ -605,6 +648,7 @@ export class Agent implements LocalAgent, InvokableAgent {
           ]
         : []),
       ...(this.memoryManager ? [this.memoryManager] : []),
+      ...(contextManagerPlugin ? [contextManagerPlugin] : []),
       ...(config?.sessionManager ? [config.sessionManager] : []),
       new ModelPlugin(this.model),
     ])
@@ -1689,14 +1733,18 @@ export class Agent implements LocalAgent, InvokableAgent {
               this._interruptState.deactivate()
             }
 
-            // Hook requested halt: exit without calling the model again
+            // Hook requested halt with content: exit without calling the model again.
             const { afterToolsEvent } = toolsResult
-            if (afterToolsEvent.endTurn) {
-              const endTurnText =
-                typeof afterToolsEvent.endTurn === 'string'
-                  ? afterToolsEvent.endTurn
-                  : 'Turn ended early by hook after tool execution'
-              const lastMessage = new Message({ role: 'assistant', content: [new TextBlock(endTurnText)] })
+            const endTurnValue = afterToolsEvent.endTurn
+            if (endTurnValue === true || (endTurnValue !== false && endTurnValue.length > 0)) {
+              const endTurnContent: ContentBlock[] = Array.isArray(endTurnValue)
+                ? [...endTurnValue]
+                : [
+                    new TextBlock(
+                      typeof endTurnValue === 'string' ? endTurnValue : 'Turn ended early by hook after tool execution'
+                    ),
+                  ]
+              const lastMessage = new Message({ role: 'assistant', content: endTurnContent })
               yield this._appendMessage(lastMessage, invocationState)
 
               cycleResultData = {

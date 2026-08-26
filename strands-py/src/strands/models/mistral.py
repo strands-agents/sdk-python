@@ -223,6 +223,10 @@ class MistralModel(Model):
                     logger.warning("Location sources are not supported by Mistral | skipping content block")
                     continue
 
+                if "cachePoint" in content:
+                    logger.warning("cachePoint content block is not supported by Mistral | skipping")
+                    continue
+
                 if "text" in content:
                     formatted_content = self._format_request_message_content(content)
                     if isinstance(formatted_content, str):

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { Agent, type ToolList } from '../agent.js'
+import { SessionManager } from '../../session/session-manager.js'
 import { McpClient } from '../../mcp/index.js'
 import { McpTool } from '../../tools/mcp-tool.js'
 import { MockMessageModel } from '../../__fixtures__/mock-message-model.js'
@@ -16,6 +17,7 @@ import {
   ToolResultBlock,
   ReasoningBlock,
   GuardContentBlock,
+  AudioBlock,
   ImageBlock,
   VideoBlock,
   DocumentBlock,
@@ -1157,6 +1159,10 @@ describe('Agent', () => {
           new ReasoningBlock({ text: 'My reasoning' }),
           new CachePointBlock({ cacheType: 'default' }),
           new GuardContentBlock({ text: { text: 'Guard content', qualifiers: ['grounding_source'] } }),
+          new AudioBlock({
+            format: 'mp3',
+            source: { bytes: new Uint8Array([1, 2, 3]) },
+          }),
           new ImageBlock({
             format: 'png',
             source: { url: 'https://example.com/image.png' },
@@ -1217,6 +1223,12 @@ describe('Agent', () => {
           { cachePoint: { cacheType: 'default' as const } },
           { guardContent: { text: { text: 'Guard text', qualifiers: ['query' as const] } } },
           {
+            audio: {
+              format: 'mp3' as const,
+              source: { bytes: new Uint8Array([1, 2, 3]) },
+            },
+          },
+          {
             image: {
               format: 'png' as const,
               source: { url: 'https://example.com/image.png' },
@@ -1240,7 +1252,7 @@ describe('Agent', () => {
         expect(agent.messages).toHaveLength(2)
         const userMessage = agent.messages[0]!
         expect(userMessage.role).toBe('user')
-        expect(userMessage.content).toHaveLength(9)
+        expect(userMessage.content).toHaveLength(10)
         expect(userMessage.content[0]).toEqual(new TextBlock('Hello from data format'))
         expect(userMessage.content[1]).toEqual(
           new ToolUseBlock({ name: 'testTool', toolUseId: 'id-1', input: { key: 'value' } })
@@ -2312,6 +2324,32 @@ describe('normalizeToolUseNames', () => {
 
         expect(result).toEqual(expect.objectContaining({ type: 'agentResult', stopReason: 'limitTurns' }))
       })
+    })
+  })
+
+  describe('sessionId', () => {
+    it('returns a stable 8-character string when no session manager is attached', () => {
+      const agent = new Agent({ model: new MockMessageModel() })
+
+      const first = agent.sessionId
+      const second = agent.sessionId
+
+      expect(first).toBe(second)
+      expect(first).toHaveLength(8)
+    })
+
+    it('returns different IDs for different agent instances', () => {
+      const agent1 = new Agent({ model: new MockMessageModel() })
+      const agent2 = new Agent({ model: new MockMessageModel() })
+
+      expect(agent1.sessionId).not.toBe(agent2.sessionId)
+    })
+
+    it('delegates to sessionManager when attached', () => {
+      const sessionManager = new SessionManager({ sessionId: 'my-session' })
+      const agent = new Agent({ model: new MockMessageModel(), sessionManager })
+
+      expect(agent.sessionId).toBe('my-session')
     })
   })
 })

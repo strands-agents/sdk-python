@@ -126,6 +126,20 @@ def test_normalize_blank_messages_content_text(messages, exp_result):
     assert tru_result == exp_result
 
 
+def test_normalize_messages_does_not_mutate_original():
+    import copy
+
+    original_messages = [
+        {"role": "assistant", "content": [{"text": " \n"}, {"toolUse": {"name": "invalid tool"}}]},
+    ]
+    expected_original = copy.deepcopy(original_messages)
+
+    _ = strands.event_loop.streaming._normalize_messages(original_messages)
+
+    # The original messages structure should remain completely untouched
+    assert original_messages == expected_original
+
+
 def test_handle_message_start():
     event: MessageStartEvent = {"role": "test"}
 
