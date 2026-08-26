@@ -75,12 +75,10 @@ def warn_on_tool_choice_not_supported(tool_choice: ToolChoice | None) -> None:
         )
 
 
-def _cache_config_fields_set(cache_config: CacheConfig) -> dict[str, Any]:
-    """Return the cache_config fields the caller set to a non-default value, keyed by field name."""
+def _cache_config_fields_set(cache_config: CacheConfig) -> set[str]:
+    """Return the names of cache_config fields the caller set to a non-default value."""
     return {
-        field.name: getattr(cache_config, field.name)
-        for field in dataclasses.fields(cache_config)
-        if getattr(cache_config, field.name) != field.default
+        field.name for field in dataclasses.fields(cache_config) if getattr(cache_config, field.name) != field.default
     }
 
 
@@ -89,7 +87,7 @@ def warn_on_cache_config_not_supported(
     provider: str,
     *,
     supported: Collection[str] = (),
-    detail: str | None = None,
+    stacklevel: int = 4,
 ) -> None:
     """Warn once about supplied cache_config settings a provider does not support.
 
@@ -97,18 +95,18 @@ def warn_on_cache_config_not_supported(
         cache_config: The provider's configured cache settings, if any.
         provider: Human-readable provider name for the warning message.
         supported: Names of ``CacheConfig`` fields the provider applies; the rest are the no-ops.
-        detail: Optional trailing sentence appended to the warning (e.g. a provider-native alternative).
+        stacklevel: Frames to skip so the warning points at the caller. Defaults to 4, correct when a
+            mapper one frame below ``format_request`` invokes this; pass 3 when ``format_request``
+            calls it directly.
     """
     if cache_config is None:
         return
 
-    suffix = f" {detail}" if detail else ""
-
     if not supported:
         warnings.warn(
             f"cache_config was provided to {provider}, which caches prompts automatically server-side "
-            f"and exposes no cache controls; it has no effect and will be ignored.{suffix}",
-            stacklevel=4,
+            "and exposes no cache controls; it has no effect and will be ignored.",
+            stacklevel=stacklevel,
         )
         return
 
@@ -116,8 +114,8 @@ def warn_on_cache_config_not_supported(
     if unsupported:
         warnings.warn(
             f"cache_config fields {unsupported} have no effect on {provider}, which does not support them; "
-            f"they will be ignored.{suffix}",
-            stacklevel=4,
+            "they will be ignored.",
+            stacklevel=stacklevel,
         )
 
 

@@ -274,7 +274,8 @@ class LlamaAPIModel(Model):
         if "top_k" in self.config:
             request["top_k"] = self.config["top_k"]
 
-        warn_on_cache_config_not_supported(self.config.get("cache_config"), "LlamaAPI")
+        # Called directly from format_request (no mapper wrapper), so one frame shallower than the default.
+        warn_on_cache_config_not_supported(self.config.get("cache_config"), "LlamaAPI", stacklevel=3)
 
         return request
 

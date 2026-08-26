@@ -6,7 +6,6 @@
 import base64
 import json
 import logging
-import warnings
 from collections.abc import AsyncGenerator, Iterable
 from typing import Any, TypeVar
 
@@ -248,10 +247,7 @@ class MistralModel(Model):
                     continue
 
                 if "cachePoint" in content:
-                    warnings.warn(
-                        "cachePoint content block is not supported by Mistral and will be skipped",
-                        stacklevel=4,
-                    )
+                    logger.warning("cachePoint content block is not supported by Mistral | skipping")
                     continue
 
                 if "text" in content:
