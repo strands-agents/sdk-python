@@ -1,7 +1,7 @@
 """Proactive reconnect timer for bidirectional streaming.
 
 ``_BidiReconnectTimer`` fires a warning then a deadline callback at caller-supplied offsets;
-it holds no reconnect policy. ``resolve_deadline_s`` derives the deadline from a provider's
+it holds no reconnect policy. ``resolve_deadline_s`` reads the deadline from a provider's
 declared ``BidiConnectionConfig``.
 """
 
@@ -9,30 +9,24 @@ import asyncio
 import logging
 from typing import Awaitable, Callable
 
-from ..types.model import DEFAULT_RECONNECT_MARGIN_S, BidiConnectionConfig
+from ..types.model import BidiConnectionConfig
 
 logger = logging.getLogger(__name__)
 
 
 def resolve_deadline_s(connection_config: BidiConnectionConfig) -> float | None:
-    """Resolve the reconnect deadline in seconds from a connection config.
-
-    The deadline is ``max_connection_s`` minus the reconnect margin. Returns ``None`` when
-    ``max_connection_s`` is not declared (no proactive timer).
+    """Resolve the proactive reconnect deadline in seconds from a connection config.
 
     Args:
-        connection_config: Provider-declared connection limit.
+        connection_config: Provider-declared reconnect timing.
 
     Returns:
-        Seconds from now until reconnect should fire, or ``None`` if no limit is declared.
+        ``restart_after_s`` if declared and positive, else ``None`` (no proactive timer).
     """
-    max_connection_s = connection_config.get("max_connection_s")
-    if max_connection_s is None:
+    restart_after_s = connection_config.get("restart_after_s")
+    if restart_after_s is None or restart_after_s <= 0:
         return None
-
-    margin = connection_config.get("reconnect_margin_s", DEFAULT_RECONNECT_MARGIN_S)
-    # Clamp to zero so a limit smaller than the margin reconnects immediately.
-    return max(max_connection_s - margin, 0.0)
+    return restart_after_s
 
 
 class _BidiReconnectTimer:

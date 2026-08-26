@@ -14,26 +14,21 @@ from strands.experimental.bidi.agent._reconnect_timer import _BidiReconnectTimer
 # resolve_deadline_s
 
 
-def test_resolve_deadline_none_when_no_limit_declared():
-    """No declared limit means no proactive timer; reconnect stays reactive-only."""
+def test_resolve_deadline_none_when_not_declared():
+    """No declared restart_after_s means no proactive timer; reconnect stays reactive-only."""
     assert resolve_deadline_s({}) is None
-    assert resolve_deadline_s({"reconnect_margin_s": 10}) is None
+    assert resolve_deadline_s({"auto_reconnect": True}) is None
 
 
-def test_resolve_deadline_is_limit_minus_margin():
-    """Deadline is the declared connection limit minus the reconnect margin."""
-    config = {"max_connection_s": 600.0, "reconnect_margin_s": 60.0}
-    assert resolve_deadline_s(config) == 540.0
+def test_resolve_deadline_is_restart_after_s():
+    """Deadline is the declared restart_after_s."""
+    assert resolve_deadline_s({"restart_after_s": 540}) == 540
 
 
-def test_resolve_deadline_defaults_margin():
-    """Reconnect margin defaults to 60s when not declared."""
-    assert resolve_deadline_s({"max_connection_s": 480.0}) == 420.0
-
-
-def test_resolve_deadline_never_negative():
-    """A limit smaller than the margin clamps to zero (reconnect asap), never negative."""
-    assert resolve_deadline_s({"max_connection_s": 30.0, "reconnect_margin_s": 60.0}) == 0.0
+def test_resolve_deadline_none_when_not_positive():
+    """A non-positive restart_after_s declares no usable deadline; no proactive timer arms."""
+    assert resolve_deadline_s({"restart_after_s": 0}) is None
+    assert resolve_deadline_s({"restart_after_s": -5}) is None
 
 
 # _BidiReconnectTimer

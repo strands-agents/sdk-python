@@ -135,7 +135,7 @@ class BidiNovaSonicModel(BidiModel):
                 - turn_detection: Turn detection configuration (v2 only feature)
                   - endpointingSensitivity: "HIGH" | "MEDIUM" | "LOW" (optional)
                 - connection: Reconnect overrides merged over the provider defaults
-                  (e.g. reconnect_margin_s, auto_reconnect); see
+                  (e.g. restart_after_s, auto_reconnect); see
                   BidiConnectionConfig.
             client_config: AWS authentication (boto_session OR region, not both)
             **kwargs: Reserved for future parameters.
@@ -148,8 +148,9 @@ class BidiNovaSonicModel(BidiModel):
         # Store model ID
         self.model_id = model_id
 
-        # Nova caps a connection at ~8 min and reports cumulative usage totals.
-        self.connection_config: BidiConnectionConfig = {"max_connection_s": 480.0}
+        # Nova caps a connection at ~8 min; reconnect at 7 min, leaving headroom below the cap.
+        # It also reports cumulative usage totals.
+        self.connection_config: BidiConnectionConfig = {"restart_after_s": 420}
         self.usage_is_cumulative = True
 
         provider_config = provider_config or {}

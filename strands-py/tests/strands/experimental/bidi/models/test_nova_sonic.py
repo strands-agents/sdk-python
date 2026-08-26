@@ -267,8 +267,8 @@ async def test_completion_end_is_not_a_turn_boundary(nova_model):
 
 @pytest.mark.asyncio
 async def test_connection_config_declared(nova_model):
-    """Nova declares its connection cap and cumulative usage semantics."""
-    assert nova_model.connection_config["max_connection_s"] == 480.0
+    """Nova declares its reconnect deadline and cumulative usage semantics."""
+    assert nova_model.connection_config["restart_after_s"] == 420
     assert nova_model.usage_is_cumulative is True
 
 
@@ -278,14 +278,13 @@ async def test_connection_config_overrides_merge_over_defaults(model_id, boto_se
     model = BidiNovaSonicModel(
         model_id=model_id,
         client_config={"boto_session": boto_session},
-        provider_config={"connection": {"auto_reconnect": False, "reconnect_margin_s": 30.0}},
+        provider_config={"connection": {"auto_reconnect": False}},
     )
 
-    # Overridden fields take the caller's values.
+    # Overridden field takes the caller's value.
     assert model.connection_config["auto_reconnect"] is False
-    assert model.connection_config["reconnect_margin_s"] == 30.0
-    # Untouched defaults are preserved.
-    assert model.connection_config["max_connection_s"] == 480.0
+    # Untouched default is preserved.
+    assert model.connection_config["restart_after_s"] == 420
     # usage_is_cumulative is a separate provider trait, unaffected by connection overrides.
     assert model.usage_is_cumulative is True
 
@@ -361,8 +360,8 @@ async def test_proactive_reconnect_end_to_end_through_agent(model_id, boto_sessi
     mock_stream.await_output = AsyncMock(return_value=(None, output))
 
     model = BidiNovaSonicModel(model_id=model_id, client_config={"boto_session": boto_session})
-    # A small-but-valid deadline (2 - 1 = 1s); the injected clock below fires it without wall time.
-    model.connection_config = {"max_connection_s": 2.0, "reconnect_margin_s": 1.0}
+    # A small deadline; the injected clock below fires it without wall time.
+    model.connection_config = {"restart_after_s": 1}
 
     agent = BidiAgent(model=model, system_prompt="You are helpful")
 
