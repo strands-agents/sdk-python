@@ -286,6 +286,10 @@ export class GoogleModel extends Model<GoogleModelConfig> {
     const contents = formatMessages(messages)
     const config: GenerateContentConfig = {}
 
+    // Abort the in-flight HTTP request when the caller cancels the stream
+    if (options?.cancelSignal) {
+      config.abortSignal = options.cancelSignal
+    }
     // Add system instruction
     if (options?.systemPrompt !== undefined) {
       if (typeof options.systemPrompt === 'string') {

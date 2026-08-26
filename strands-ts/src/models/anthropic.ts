@@ -172,7 +172,7 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
   async *stream(messages: Message[], options?: StreamOptions): AsyncIterable<ModelStreamEvent> {
     try {
       const request = this._formatRequest(messages, options)
-      const requestOptions = this._buildRequestOptions()
+      const requestOptions = this._buildRequestOptions(options?.cancelSignal)
       const stream = requestOptions
         ? this._client.messages.stream(request, requestOptions)
         : this._client.messages.stream(request)
@@ -312,10 +312,13 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
     }
   }
 
-  private _buildRequestOptions(): Anthropic.RequestOptions | undefined {
+  private _buildRequestOptions(cancelSignal?: AbortSignal): Anthropic.RequestOptions | undefined {
     const betas = this._config.betas
-    if (!betas || betas.length === 0) return undefined
-    return { headers: { 'anthropic-beta': betas.join(',') } }
+    if ((!betas || betas.length === 0) && !cancelSignal) return undefined
+    return {
+      ...(betas && betas.length > 0 && { headers: { 'anthropic-beta': betas.join(',') } }),
+      ...(cancelSignal && { signal: cancelSignal }),
+    }
   }
 
   /** Resolves a cache section, disabled when `cacheConfig` is unset or its strategy is unknown. */

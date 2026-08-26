@@ -736,6 +736,14 @@ export class BedrockModel extends Model<BedrockModelConfig> {
         throw new ContextWindowOverflowError(error.message)
       }
 
+      // Classify throttling so retry strategies see ModelThrottledError, matching the streaming path
+      const status = (unknownError as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode
+      if (error.name === 'ThrottlingException' || status === 429) {
+        const message = error.message ?? 'Request was throttled by the model provider'
+        logger.debug(`throttled | error_message=<${message}>`)
+        throw new ModelThrottledError(message, { cause: unknownError })
+      }
+
       // Re-throw other errors as-is
       throw error
     }

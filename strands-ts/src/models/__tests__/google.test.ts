@@ -236,6 +236,15 @@ describe('GoogleModel', () => {
       await expect(collectIterator(provider.stream([]))).rejects.toThrow('At least one message is required')
     })
 
+    it('passes the cancellation signal to the stream request', async () => {
+      const { provider, captured, messages } = setupCaptureTest()
+      const controller = new AbortController()
+
+      await collectIterator(provider.stream(messages, { cancelSignal: controller.signal }))
+
+      expect((captured.config as { abortSignal?: AbortSignal }).abortSignal).toBe(controller.signal)
+    })
+
     it('emits message start and stop events', async () => {
       const { provider, messages } = setupStreamTest(async function* () {
         yield {

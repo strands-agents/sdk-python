@@ -149,6 +149,14 @@ export class VercelModel extends Model<VercelModelConfig> {
       ...(toolChoice && { toolChoice }),
       ...(maxTokens != null && { maxOutputTokens: maxTokens }),
       ...callSettings,
+      // Abort the in-flight HTTP request when the caller cancels the stream, without
+      // discarding an abortSignal the caller configured on the model.
+      ...(options?.cancelSignal && {
+        abortSignal:
+          callSettings.abortSignal
+            ? AbortSignal.any([callSettings.abortSignal, options.cancelSignal])
+            : options.cancelSignal,
+      }),
     }
 
     let result
@@ -206,7 +214,12 @@ export class VercelModel extends Model<VercelModelConfig> {
         }
       }
     } finally {
-      reader.releaseLock()
+      // Cancel (not just release) so the underlying provider stream stops on early exit.
+      try {
+        await reader.cancel()
+      } catch {
+        // The stream may have errored already; cleanup must not mask the in-flight error.
+      }
     }
   }
 }

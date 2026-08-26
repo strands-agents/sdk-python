@@ -1610,6 +1610,29 @@ describe('BedrockModel', () => {
           }
         }).rejects.toThrow('Request was throttled by the model provider')
       })
+
+      it.each([
+        {
+          name: 'a ThrottlingException name alone',
+          error: Object.assign(new Error('Rate exceeded'), { name: 'ThrottlingException', $metadata: {} }),
+        },
+        {
+          name: 'a 429 status alone',
+          error: Object.assign(new Error('Rate exceeded'), {
+            name: 'TooManyRequestsException',
+            $metadata: { httpStatusCode: 429 },
+          }),
+        },
+      ])('classifies %s as ModelThrottledError on the non-streaming path (#3992)', async ({ error }) => {
+        mockBedrockClientImplementation({ send: vi.fn().mockRejectedValue(error) })
+
+        const provider = new BedrockModel({ stream: false })
+        const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+        const promise = collectIterator(provider.stream(messages))
+
+        await expect(promise).rejects.toBeInstanceOf(ModelThrottledError)
+        await expect(promise).rejects.toMatchObject({ message: 'Rate exceeded', cause: error })
+      })
     })
   })
 

@@ -327,6 +327,30 @@ describe('Agent Cancellation', () => {
       expect(result.stopReason).toBe('endTurn')
       expect(result.lastMessage.content[0]).toEqual(new TextBlock('pineapple'))
     })
+
+    it('closes the underlying model generator when the stream is broken out of', async () => {
+      const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'A long story...' })
+      let modelGeneratorClosed = false
+      const originalStreamAggregated = model.streamAggregated.bind(model)
+      vi.spyOn(model, 'streamAggregated').mockImplementation((messages, options) => {
+        const generator = originalStreamAggregated(messages, options)
+        const originalReturn = generator.return.bind(generator)
+        generator.return = (value) => {
+          modelGeneratorClosed = true
+          return originalReturn(value)
+        }
+        return generator
+      })
+
+      const agent = new Agent({ model, printer: false })
+      for await (const event of agent.stream('Write a story')) {
+        if (event.type === 'modelStreamUpdateEvent') {
+          break
+        }
+      }
+
+      expect(modelGeneratorClosed).toBe(true)
+    })
   })
 
   describe('AfterInvocationEvent', () => {
