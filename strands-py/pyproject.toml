@@ -79,9 +79,9 @@ a2a = [
 cedar = ["cedarpy==4.8.7", "cedar-policy-mcp-schema-generator==0.6.0"]
 
 bidi = [
-    "aws_sdk_bedrock_runtime>=0.9.0,<0.10.0; python_version>='3.12'",
+    "aws_sdk_bedrock_runtime[awscrt]>=0.11.0,<0.12.0; python_version>='3.12'",
     "prompt_toolkit>=3.0.0,<4.0.0",
-    "smithy-aws-core>=0.9.0,<0.10.0; python_version>='3.12'",
+    "smithy-aws-core>=0.11.0,<0.12.0; python_version>='3.12'",
     "smithy-core>=0.8.0,<0.9.0; python_version>='3.12'",
 ]
 bidi-google = ["google-genai>=2.0.0,<3.0.0"]
@@ -239,6 +239,7 @@ module = [
     "cedar_mcp_schema_generator",
     "smithy_aws_core.*",
     "smithy_core.*",
+    "smithy_http.*",
 ]
 ignore_missing_imports = true
 
