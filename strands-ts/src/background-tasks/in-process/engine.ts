@@ -1,7 +1,8 @@
 import { normalizeError } from '../../errors.js'
 import { BackgroundTaskNotFoundError } from '../errors.js'
 import type { InterruptStateData } from '../../interrupt.js'
-import type { InProcessTaskEngineOptions, InProcessTaskRecord, TaskExecutionOutcome, TaskStatus } from './types.js'
+import type { BackgroundTaskStatus } from '../types.js'
+import type { InProcessTaskEngineOptions, InProcessTaskExecutionOutcome, InProcessTaskRecord } from './types.js'
 
 // Node.js treats delays above the signed 32-bit limit as 1ms.
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1
@@ -35,28 +36,23 @@ export class InProcessTaskEngine {
   }
 
   /**
-   * Submits a task for execution, returning an existing task when its idempotency key matches.
+   * Submits a task for execution.
    *
-   * @param admission - Tool execution details and optional idempotency key.
-   * @returns A snapshot of the admitted or matching task.
+   * @param admission - Tool execution details.
+   * @returns A snapshot of the admitted task.
    */
   submit(admission: {
     readonly toolUseId: string
     readonly toolName: string
     readonly invocationStateId: string
-    readonly idempotencyKey?: string
   }): InProcessTaskRecord {
-    if (admission.idempotencyKey !== undefined) {
-      const existing = [...this._tasks.values()].find((task) => task.idempotencyKey === admission.idempotencyKey)
-      if (existing) return globalThis.structuredClone(existing)
-    }
     const now = new Date().toISOString()
     const stored: InProcessTaskRecord = {
       taskId: globalThis.crypto.randomUUID(),
       ...admission,
       status: 'queued',
       createdAt: now,
-      updatedAt: now,
+      lastUpdatedAt: now,
     }
     this._tasks.set(stored.taskId, stored)
     this._notifyTaskUpdated(stored)
@@ -228,7 +224,7 @@ export class InProcessTaskEngine {
       }, this._options.timeout)
     }
 
-    let outcome: TaskExecutionOutcome
+    let outcome: InProcessTaskExecutionOutcome
     try {
       outcome = await this._options.execute({
         taskId,
@@ -250,7 +246,7 @@ export class InProcessTaskEngine {
     this._finishOutcome(taskId, outcome)
   }
 
-  private _finishOutcome(taskId: string, outcome: TaskExecutionOutcome): void {
+  private _finishOutcome(taskId: string, outcome: InProcessTaskExecutionOutcome): void {
     if (outcome.status === 'input_required') {
       this._updateTask(taskId, (record) => {
         if (record.status !== 'working') return false
@@ -303,7 +299,7 @@ export class InProcessTaskEngine {
     const next = globalThis.structuredClone(current)
     if (!update(next)) return undefined
 
-    next.updatedAt = new Date().toISOString()
+    next.lastUpdatedAt = new Date().toISOString()
     const stored = globalThis.structuredClone(next)
     this._tasks.set(taskId, stored)
     this._notifyTaskUpdated(stored)
@@ -347,6 +343,6 @@ function getExecutionFailureMessage(error: unknown): string {
   }
 }
 
-function isInProcessTaskTerminalStatus(status: TaskStatus): boolean {
+function isInProcessTaskTerminalStatus(status: BackgroundTaskStatus): boolean {
   return status === 'completed' || status === 'failed' || status === 'cancelled'
 }

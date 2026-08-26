@@ -69,12 +69,11 @@ export function expectTask(
 ): void {
   expect(actual).toEqual({
     taskId: task.taskId,
-    ...(task.idempotencyKey !== undefined && { idempotencyKey: task.idempotencyKey }),
     toolUseId: task.toolUseId,
     toolName: task.toolName,
     invocationStateId: task.invocationStateId,
     ...fields,
     createdAt: task.createdAt,
-    updatedAt: expect.any(String),
+    lastUpdatedAt: expect.any(String),
   })
 }
