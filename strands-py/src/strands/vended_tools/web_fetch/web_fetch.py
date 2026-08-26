@@ -4,13 +4,8 @@ Distinct from the http_request tool, which returns raw response bodies for API
 calls. This tool is intentionally narrow: HTTP(S) GET, decoded body, HTML to
 markdown. It is not a general-purpose scraper.
 
-Only http and https URLs are accepted; every host is resolved and every
-returned address is required to be publicly routable, and IPv4-mapped IPv6
-addresses are unwrapped before the check. Redirects are re-validated against
-the same rules. The tool connects to an already-validated IP address so a DNS
-rebinder cannot substitute a private address between validation and connect.
-Response size is capped and scripts, styles, and data URI images are stripped
-from the extracted markdown. See :mod:`._ssrf` for the address-level defense.
+Requests are SSRF-guarded and the tool connects to an already-validated IP so a
+redirect or DNS rebind cannot reach a private address.
 """
 
 from __future__ import annotations
