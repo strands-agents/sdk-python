@@ -45,6 +45,7 @@ import functools
 import inspect
 import json
 import logging
+import threading
 from collections.abc import Callable
 from typing import (
     Annotated,
@@ -407,8 +408,15 @@ class FunctionToolMetadata:
                               agent.invoke_async(), etc.).
         """
         if self._context_param and self._context_param in self.signature.parameters:
+            agent = invocation_state["agent"]
+            # A BidiAgent has no cancellation signal; fall back to an inert event so tool authors
+            # never have to guard the field.
+            cancel_signal = getattr(agent, "cancel_signal", None)
             tool_context = ToolContext(
-                tool_use=tool_use, agent=invocation_state["agent"], invocation_state=invocation_state
+                tool_use=tool_use,
+                agent=agent,
+                invocation_state=invocation_state,
+                cancel_signal=cancel_signal if cancel_signal is not None else threading.Event(),
             )
             validated_input[self._context_param] = tool_context
 

@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import os
+import threading
 import warnings
 from collections.abc import AsyncGenerator, Callable, Iterable, ValuesView
 from typing import Any, Literal, TypeVar, cast
@@ -85,9 +86,58 @@ def _suppress_task_exception(task: "asyncio.Task[None]") -> None:
         task.exception()
 
 
+async def _poll_cancel_signal(cancel_signal: threading.Event) -> None:
+    """Complete once the cancellation signal is set."""
+    # threading.Event has no async notification hook. Poll on this loop rather than running
+    # Event.wait() in an executor: cancelling that await cannot stop a worker already blocked
+    # in Event.wait(), so completed streams could strand worker threads.
+    while not cancel_signal.is_set():
+        await asyncio.sleep(_CANCEL_POLL_INTERVAL)
+
+
+async def _next_stream_event(
+    queue: "asyncio.Queue[StreamEvent | None]", cancel_poll: "asyncio.Future[None] | None"
+) -> "StreamEvent | None":
+    """Wait for the worker thread's next event, giving up if cancellation gets there first.
+
+    Args:
+        queue: Queue the worker thread publishes events to.
+        cancel_poll: Future that completes on cancellation, or None when the caller supplied no
+            cancellation signal.
+
+    Returns:
+        The next event, or None when the worker is done or cancellation won the race.
+    """
+    if cancel_poll is None:
+        return await queue.get()
+
+    # Fast path: skip the race machinery whenever an event is already available.
+    try:
+        return queue.get_nowait()
+    except asyncio.QueueEmpty:
+        pass
+
+    get_event = asyncio.ensure_future(queue.get())
+    pending: set[asyncio.Future[Any]] = {get_event, cancel_poll}
+    try:
+        await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+    except BaseException:
+        get_event.cancel()
+        raise
+
+    if get_event.done():
+        return get_event.result()
+
+    get_event.cancel()
+    return None
+
+
 T = TypeVar("T", bound=BaseModel)
 
 DEFAULT_READ_TIMEOUT = 120
+
+# How often the consumer side checks a cancellation signal while waiting for the next event.
+_CANCEL_POLL_INTERVAL = 0.05
 
 
 class BedrockModel(Model):
@@ -1231,6 +1281,7 @@ class BedrockModel(Model):
         *,
         tool_choice: ToolChoice | None = None,
         system_prompt_content: list[SystemContentBlock] | None = None,
+        cancel_signal: threading.Event | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the Bedrock model.
@@ -1244,6 +1295,9 @@ class BedrockModel(Model):
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
             system_prompt_content: System prompt content blocks to provide context to the model.
+            cancel_signal: Event that aborts an in-flight streaming request. The caller stops
+                receiving events as soon as it is set, and the HTTP response is closed at the next
+                chunk boundary. A non-streaming request (``streaming=False``) is not abortable.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
@@ -1274,20 +1328,32 @@ class BedrockModel(Model):
             system_prompt_content,
             tool_choice,
             kwargs.get("dynamic_trailing_blocks", 0),
+            cancel_signal,
         )
         task = asyncio.create_task(thread)
+        cancel_poll = asyncio.ensure_future(_poll_cancel_signal(cancel_signal)) if cancel_signal else None
 
         try:
             while True:
-                event = await queue.get()
+                event = await _next_stream_event(queue, cancel_poll)
                 if event is None:
                     break
 
                 yield event
+
+            if cancel_poll is not None and cancel_poll.done():
+                # The worker thread owns the event stream and closes it at its next chunk boundary.
+                # Detaching it rather than awaiting keeps a stalled read from delaying the caller.
+                task.add_done_callback(_suppress_task_exception)
+                return
+
             await task
         except BaseException:
             task.add_done_callback(_suppress_task_exception)
             raise
+        finally:
+            if cancel_poll is not None:
+                cancel_poll.cancel()
 
     def _stream(
         self,
@@ -1297,6 +1363,7 @@ class BedrockModel(Model):
         system_prompt_content: list[SystemContentBlock] | None = None,
         tool_choice: ToolChoice | None = None,
         dynamic_trailing_blocks: int = 0,
+        cancel_signal: threading.Event | None = None,
     ) -> None:
         """Stream conversation with the Bedrock model.
 
@@ -1311,6 +1378,7 @@ class BedrockModel(Model):
             tool_choice: Selection strategy for tool invocation.
             dynamic_trailing_blocks: How many trailing blocks of the last user message are rebuilt on every
                 call, so the cache point goes ahead of them.
+            cancel_signal: Event that stops the transfer at the next chunk boundary.
 
         Raises:
             ContextWindowOverflowException: If the input exceeds the model's context window.
@@ -1354,6 +1422,12 @@ class BedrockModel(Model):
                 saw_guardrail_trace = False
                 last_stop_reason: str | None = None
                 for chunk in response["stream"]:
+                    if cancel_signal is not None and cancel_signal.is_set():
+                        # Closing from this thread only: botocore's teardown is not safe against a
+                        # read in flight, and this thread is the one reading.
+                        response["stream"].close()
+                        break
+
                     if "messageStop" in chunk:
                         last_stop_reason = chunk["messageStop"].get("stopReason")
 
@@ -1371,11 +1445,7 @@ class BedrockModel(Model):
                     callback(chunk)
 
                 # Safety net: guardrail_intervened but no metadata chunk arrived.
-                if (
-                    not redaction_emitted
-                    and not saw_guardrail_trace
-                    and last_stop_reason == "guardrail_intervened"
-                ):
+                if not redaction_emitted and not saw_guardrail_trace and last_stop_reason == "guardrail_intervened":
                     for event in self._generate_redaction_events():
                         callback(event)
 

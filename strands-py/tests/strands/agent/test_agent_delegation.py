@@ -295,6 +295,7 @@ async def test_runtime_stateful_delegate_passes_through():
             tool=tool,
             tool_use={"toolUseId": "t1", "name": "sub", "input": {"input": "hi"}},
             invocation_state={"request_state": {}},
+            cancel_signal=parent.cancel_signal,
             _interrupt_state=parent._interrupt_state,
         )
 
@@ -357,7 +358,7 @@ async def test_child_structured_output_datetime_serializes_cleanly():
         structured_output=S(at=datetime(2025, 1, 15, 9, 0)),
     )
 
-    async def stream(prompt):
+    async def stream(prompt, cancel_signal=None):
         yield {"result": result}
 
     mock_agent.stream_async = stream
@@ -664,6 +665,7 @@ async def test_middleware_rejects_delegation_when_batch_count_exceeds_one():
         tool=tool,
         tool_use={"toolUseId": "t1", "name": "sub", "input": {"input": "hi"}},
         invocation_state={"request_state": {}},
+        cancel_signal=parent.cancel_signal,
         _interrupt_state=parent._interrupt_state,
     )
 
@@ -744,7 +746,7 @@ async def test_delegation_preserves_json_block_verbatim():
         state={},
     )
 
-    async def fake_stream(prompt):
+    async def fake_stream(prompt, cancel_signal=None):
         yield {"result": fake_result}
 
     tool._agent.stream_async = fake_stream
@@ -785,7 +787,7 @@ async def test_delegation_preserves_citations_alongside_text():
         state={},
     )
 
-    async def fake_stream(prompt):
+    async def fake_stream(prompt, cancel_signal=None):
         yield {"result": fake_result}
 
     tool._agent.stream_async = fake_stream
@@ -824,7 +826,7 @@ async def test_full_delegation_json_content_serialized_to_text():
         state={},
     )
 
-    async def fake_stream(prompt):
+    async def fake_stream(prompt, cancel_signal=None):
         yield {"result": fake_result}
 
     tool._agent.stream_async = fake_stream

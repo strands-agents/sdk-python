@@ -1,3 +1,4 @@
+import threading
 import unittest.mock
 from typing import cast
 
@@ -1323,6 +1324,7 @@ async def test_stream_messages(agenerator, alist):
         system_prompt_content=[{"text": "test prompt"}],
         invocation_state=None,
         model_state=None,
+        cancel_signal=None,
     )
 
 
@@ -1392,6 +1394,7 @@ async def test_stream_messages_with_system_prompt_content(agenerator, alist):
         system_prompt_content=system_prompt_content,
         invocation_state=None,
         model_state=None,
+        cancel_signal=None,
     )
 
 
@@ -1427,6 +1430,7 @@ async def test_stream_messages_single_text_block_backwards_compatibility(agenera
         system_prompt_content=system_prompt_content,
         invocation_state=None,
         model_state=None,
+        cancel_signal=None,
     )
 
 
@@ -1460,6 +1464,7 @@ async def test_stream_messages_empty_system_prompt_content(agenerator, alist):
         system_prompt_content=[],
         invocation_state=None,
         model_state=None,
+        cancel_signal=None,
     )
 
 
@@ -1493,6 +1498,7 @@ async def test_stream_messages_none_system_prompt_content(agenerator, alist):
         system_prompt_content=None,
         invocation_state=None,
         model_state=None,
+        cancel_signal=None,
     )
 
     # Ensure that we're getting typed events coming out of process_stream
@@ -1714,3 +1720,24 @@ async def test_process_stream_tool_use_info_in_delta(agenerator, alist):
     assert len(message["content"]) == 1
     tool_use = message["content"][0]["toolUse"]
     assert tool_use == {"toolUseId": "xyz789", "name": "output_slide", "input": {"title": "Test"}}
+
+
+@pytest.mark.asyncio
+async def test_stream_messages_forwards_cancel_signal_to_model(agenerator, alist):
+    """The model receives the exact cancellation event the SDK checkpoints on."""
+    mock_model = unittest.mock.MagicMock()
+    mock_model.stream.return_value = agenerator([{"contentBlockStop": {}}])
+    cancel_signal = threading.Event()
+
+    stream = strands.event_loop.streaming.stream_messages(
+        mock_model,
+        system_prompt=None,
+        messages=[{"role": "user", "content": [{"text": "Hello"}]}],
+        tool_specs=None,
+        system_prompt_content=None,
+        cancel_signal=cancel_signal,
+    )
+
+    await alist(stream)
+
+    assert mock_model.stream.call_args.kwargs["cancel_signal"] is cancel_signal
