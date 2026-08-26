@@ -175,9 +175,11 @@ export class AgentDelegation implements Plugin {
    * AfterToolsEvent hook: sets endTurn to delegation content blocks when
    * delegation succeeded with meaningful content.
    *
-   * This hook runs at `HookOrder.SDK_LAST` (100) so no hook can invalidate the
-   * tool result after this hook commits endTurn; mutating a committed
-   * ToolResultBlock's status is not a supported pattern.
+   * This hook runs at `HookOrder.SDK_LAST` (100), after every SDK and vended-plugin
+   * hook. A hook registered above that order still runs afterwards and could flip
+   * a `ToolResultBlock` to error, but `endTurn` is already committed and the loop
+   * will exit anyway — mutating a committed `ToolResultBlock`'s status is not a
+   * supported pattern.
    */
   private _onAfterTools(event: AfterToolsEvent): void {
     if (event.agent.model.stateful) return

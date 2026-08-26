@@ -1731,10 +1731,10 @@ export class Agent implements LocalAgent, InvokableAgent {
           this._meter.endCycle(cycleStartTime)
           this._tracer.endAgentLoopSpan(cycleSpan)
 
-          // Hook requested halt: exit without calling the model again
+          // Hook requested halt with content: exit without calling the model again.
           const { afterToolsEvent } = toolsResult
-          if (afterToolsEvent.endTurn) {
-            const endTurnValue = afterToolsEvent.endTurn
+          const endTurnValue = afterToolsEvent.endTurn
+          if (endTurnValue === true || (endTurnValue !== false && endTurnValue.length > 0)) {
             const endTurnContent: ContentBlock[] = Array.isArray(endTurnValue)
               ? [...endTurnValue]
               : [

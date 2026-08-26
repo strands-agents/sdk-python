@@ -789,9 +789,9 @@ export class AfterToolsEvent extends HookableEvent {
    * final assistant message. When set to a string, that string is used instead
    * of the default — the string becomes literal assistant content (a
    * `TextBlock`), not a reason or label. When set to a `ContentBlock[]`, those
-   * blocks become the final assistant message content directly. Contrast with
-   * {@link BeforeToolCallEvent.cancel | cancel} fields on other events, where
-   * the string is a cancellation reason.
+   * blocks become the final assistant message content directly (shallow-copied).
+   * Contrast with {@link BeforeToolCallEvent.cancel | cancel} fields on other events,
+   * where the string is a cancellation reason.
    *
    * In all cases `stopReason` on the returned `AgentResult` is `'endTurn'`.
    */

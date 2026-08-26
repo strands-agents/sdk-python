@@ -10,11 +10,17 @@
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { Agent } from '../agent.js'
-import { AfterToolCallEvent, AfterToolsEvent, BeforeToolCallEvent, StreamEvent } from '../../hooks/events.js'
+import {
+  AfterToolCallEvent,
+  AfterToolsEvent,
+  BeforeToolCallEvent,
+  MessageAddedEvent,
+  StreamEvent,
+} from '../../hooks/events.js'
 import { MockMessageModel } from '../../__fixtures__/mock-message-model.js'
 import { createMockTool } from '../../__fixtures__/tool-helpers.js'
 import { AgentAsTool } from '../agent-as-tool.js'
-import { ToolResultBlock, TextBlock } from '../../types/messages.js'
+import { Message, ToolResultBlock, TextBlock } from '../../types/messages.js'
 
 describe('AgentDelegation integration', () => {
   describe('basic routing', () => {
@@ -120,6 +126,42 @@ describe('AgentDelegation integration', () => {
       expect(result.stopReason).toBe('endTurn')
       const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
       expect((textBlocks[0] as { text: string }).text).toBe('Specialist answer')
+    })
+
+    it('cancels all tools when two delegation tools are called simultaneously, then retries', async () => {
+      const billingModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Billing response' })
+      const techModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Tech response' })
+
+      const billingAgent = new Agent({ model: billingModel, name: 'Billing', printer: false })
+      const techAgent = new Agent({ model: techModel, name: 'TechSupport', printer: false })
+
+      // Turn 1: model calls BOTH delegation tools simultaneously (invalid)
+      // Turn 2: model retries with just one delegation tool (valid)
+      const orchestratorModel = new MockMessageModel()
+        .addTurn([
+          { type: 'toolUseBlock', name: 'Billing', toolUseId: 'bill-1', input: { input: 'refund' } },
+          { type: 'toolUseBlock', name: 'TechSupport', toolUseId: 'tech-1', input: { input: 'wifi' } },
+        ])
+        .addTurn({
+          type: 'toolUseBlock',
+          name: 'TechSupport',
+          toolUseId: 'tech-2',
+          input: { input: 'wifi' },
+        })
+
+      const orchestrator = new Agent({
+        model: orchestratorModel,
+        name: 'Orchestrator',
+        tools: [billingAgent.asTool({ delegate: true }), techAgent.asTool({ delegate: true })],
+        printer: false,
+      })
+
+      const result = await orchestrator.invoke('Handle both billing and tech')
+
+      // After the retry, the delegation succeeds with the single tool
+      expect(result.stopReason).toBe('endTurn')
+      const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
+      expect((textBlocks[0] as { text: string }).text).toBe('Tech response')
     })
   })
 
@@ -278,6 +320,47 @@ describe('AgentDelegation integration', () => {
       expect(result.stopReason).toBe('endTurn')
       const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
       expect((textBlocks[0] as { text: string }).text).toBe('Got the sub-agent response, done.')
+    })
+
+    it('does not enforce single-call constraint for stateful models with runtime-added tools', async () => {
+      class StatefulModel extends MockMessageModel {
+        override get stateful(): boolean {
+          return true
+        }
+      }
+
+      const subModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Sub response' })
+      const subAgent = new Agent({ model: subModel, name: 'Sub', printer: false })
+
+      const calculator = createMockTool('calculator', () => 'Result: 42')
+
+      // Model calls BOTH calculator and delegation tool simultaneously.
+      // With a stateful model, this should NOT be cancelled.
+      const statefulModel = new StatefulModel()
+        .addTurn([
+          { type: 'toolUseBlock', name: 'calculator', toolUseId: 'calc-1', input: {} },
+          { type: 'toolUseBlock', name: 'Sub', toolUseId: 'del-1', input: { input: 'help' } },
+        ])
+        .addTurn({ type: 'textBlock', text: 'Both tools ran successfully.' })
+
+      // Create agent with only the regular tool so init-time check passes
+      const orchestrator = new Agent({
+        model: statefulModel,
+        name: 'Orchestrator',
+        tools: [calculator],
+        printer: false,
+      })
+
+      // Add delegation tool after initialization
+      await orchestrator.initialize()
+      orchestrator.toolRegistry.add(subAgent.asTool({ delegate: true }))
+
+      const result = await orchestrator.invoke('Do both')
+
+      // Both tools ran normally — no cancellation, no delegation
+      expect(result.stopReason).toBe('endTurn')
+      const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
+      expect((textBlocks[0] as { text: string }).text).toBe('Both tools ran successfully.')
     })
   })
 
@@ -561,6 +644,43 @@ describe('AgentDelegation integration', () => {
       // Delegation suppressed — structured output takes over
       expect(result.stopReason).toBe('toolUse')
       expect(result.structuredOutput).toEqual({ answer: 'Sub answer' })
+    })
+  })
+
+  describe('delegation emits correct MessageAddedEvents', () => {
+    it('emits exactly one assistant MessageAddedEvent with delegated content (no placeholder)', async () => {
+      const subModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Balance: $42' })
+      const subAgent = new Agent({ model: subModel, name: 'billing', printer: false })
+
+      const orchestratorModel = new MockMessageModel().addTurn({
+        type: 'toolUseBlock',
+        name: 'billing',
+        toolUseId: 'c1',
+        input: { input: 'check' },
+      })
+
+      const orchestrator = new Agent({
+        model: orchestratorModel,
+        name: 'Orchestrator',
+        tools: [subAgent.asTool({ delegate: true })],
+        printer: false,
+      })
+
+      const assistantMessages: Message[] = []
+      orchestrator.addHook(MessageAddedEvent, (event) => {
+        if (event.agent === orchestrator && event.message.role === 'assistant') {
+          assistantMessages.push(event.message)
+        }
+      })
+
+      await orchestrator.invoke('Check balance')
+
+      // Two assistant MessageAddedEvents: toolUse turn, then the delegated content
+      expect(assistantMessages).toHaveLength(2)
+      expect(assistantMessages[1]!.content).toEqual([new TextBlock('Balance: $42')])
+
+      // History ends with the delegated content, no placeholder
+      expect(orchestrator.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user', 'assistant'])
     })
   })
 })

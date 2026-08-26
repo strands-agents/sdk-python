@@ -764,7 +764,7 @@ describe('AfterToolsEvent', () => {
     expect(event._shouldReverseCallbacks()).toBe(true)
   })
 
-  it('defaults endTurn to false and accepts boolean or string', () => {
+  it('defaults endTurn to false and accepts boolean, string, or ContentBlock array', () => {
     const agent = new Agent()
     const message = new Message({ role: 'user', content: [] })
     const event = new AfterToolsEvent({ agent, message, invocationState: {} })
@@ -776,6 +776,10 @@ describe('AfterToolsEvent', () => {
 
     event.endTurn = 'enough information gathered'
     expect(event.endTurn).toBe('enough information gathered')
+
+    const blocks = [new TextBlock('delegated')]
+    event.endTurn = blocks
+    expect(event.endTurn).toBe(blocks)
   })
 })
 
