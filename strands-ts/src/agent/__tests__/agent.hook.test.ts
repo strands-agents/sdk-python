@@ -1066,6 +1066,30 @@ describe('Agent Hooks Integration', () => {
       expect(model.callCount).toBe(2)
     })
 
+    it('halts with content blocks when endTurn is a ContentBlock array', async () => {
+      const { tool, model } = makeSingleToolSetup()
+      const agent = new Agent({ model, tools: [tool] })
+      agent.addHook(AfterToolsEvent, (event: AfterToolsEvent) => {
+        event.endTurn = [new TextBlock('delegated response')]
+      })
+
+      const result = await agent.invoke('Test')
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          type: 'agentResult',
+          stopReason: 'endTurn',
+          lastMessage: expect.objectContaining({
+            role: 'assistant',
+            content: expect.arrayContaining([
+              expect.objectContaining({ type: 'textBlock', text: 'delegated response' }),
+            ]),
+          }),
+        })
+      )
+      expect(model.callCount).toBe(1)
+    })
+
     it('appends tool results and default endTurn message to conversation history', async () => {
       const { tool, model } = makeSingleToolSetup()
       const agent = new Agent({ model, tools: [tool] })

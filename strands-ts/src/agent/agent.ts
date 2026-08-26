@@ -1734,11 +1734,15 @@ export class Agent implements LocalAgent, InvokableAgent {
           // Hook requested halt: exit without calling the model again
           const { afterToolsEvent } = toolsResult
           if (afterToolsEvent.endTurn) {
-            const endTurnText =
-              typeof afterToolsEvent.endTurn === 'string'
-                ? afterToolsEvent.endTurn
-                : 'Turn ended early by hook after tool execution'
-            const lastMessage = new Message({ role: 'assistant', content: [new TextBlock(endTurnText)] })
+            const endTurnValue = afterToolsEvent.endTurn
+            const endTurnContent: ContentBlock[] = Array.isArray(endTurnValue)
+              ? [...endTurnValue]
+              : [
+                  new TextBlock(
+                    typeof endTurnValue === 'string' ? endTurnValue : 'Turn ended early by hook after tool execution'
+                  ),
+                ]
+            const lastMessage = new Message({ role: 'assistant', content: endTurnContent })
             yield this._appendMessage(lastMessage, invocationState)
 
             result = new AgentResult({
