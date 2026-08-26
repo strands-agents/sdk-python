@@ -181,7 +181,7 @@ class Storage(Protocol[ListQuery, SearchQuery]):
         """
         from .search.keyword import KeywordSearchStrategy
 
-        return await KeywordSearchStrategy().search(self, query)
+        return await KeywordSearchStrategy().search(self, query)  # type: ignore[arg-type]
 
 
 class _NamespacedStorage:

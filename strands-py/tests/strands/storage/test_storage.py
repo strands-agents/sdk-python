@@ -127,6 +127,21 @@ class TestNamespacedStorage:
         assert keys == ["key1"]
 
 
+    @pytest.mark.asyncio
+    async def test_search_scopes_to_prefix(self, storage):
+        await storage.write("scope/a.md", b"dark mode toggle")
+        await storage.write("scope/b.md", b"light mode")
+        await storage.write("other/c.md", b"dark mode elsewhere")
+
+        ns = _NamespacedStorage(storage, "scope")
+        results = await ns.search("dark mode")
+
+        keys = [r.key for r in results]
+        assert "a.md" in keys
+        assert all(not r.key.startswith("scope/") for r in results)
+        assert all("other" not in r.key for r in results)
+
+
 class TestStorageProtocol:
     def test_isinstance_check(self):
         from strands.storage import InMemoryStorage, Storage
