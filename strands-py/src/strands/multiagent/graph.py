@@ -56,7 +56,15 @@ from ..types.event_loop import Metrics, Usage
 from ..types.multiagent import MultiAgentInput
 from ..types.session import decode_bytes_values, encode_bytes_values
 from ..types.traces import AttributeValue
-from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status, _parse_metrics, _parse_usage
+from .base import (
+    MultiAgentBase,
+    MultiAgentResult,
+    NodeResult,
+    Status,
+    _accumulate_cache_usage,
+    _parse_metrics,
+    _parse_usage,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1200,6 +1208,7 @@ class Graph(MultiAgentBase):
         self.state.accumulated_usage["inputTokens"] += node_result.accumulated_usage.get("inputTokens", 0)
         self.state.accumulated_usage["outputTokens"] += node_result.accumulated_usage.get("outputTokens", 0)
         self.state.accumulated_usage["totalTokens"] += node_result.accumulated_usage.get("totalTokens", 0)
+        _accumulate_cache_usage(self.state.accumulated_usage, node_result.accumulated_usage)
         self.state.accumulated_metrics["latencyMs"] += node_result.accumulated_metrics.get("latencyMs", 0)
         self.state.execution_count += node_result.execution_count
 

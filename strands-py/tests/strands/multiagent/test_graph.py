@@ -840,6 +840,83 @@ async def test_node_reset_executor_state():
     assert multi_agent_node.result is None
 
 
+def test_accumulate_metrics_sums_cache_token_counters():
+    """Cache token counters are summed across nodes, not dropped (#797).
+
+    Each node's usage is a disjoint Bedrock-style payload where
+    totalTokens = inputTokens + outputTokens + cacheReadInputTokens + cacheWriteInputTokens,
+    so the aggregated totals must reconcile once the cache counters are accumulated too.
+    """
+    graph = _make_graph(nodes={})
+    result_text = AgentResult(
+        message={"role": "assistant", "content": [{"text": "ok"}]}, stop_reason="end_turn", state={}, metrics={}
+    )
+    node_results = [
+        NodeResult(
+            result=result_text,
+            accumulated_usage={
+                "inputTokens": 10,
+                "outputTokens": 20,
+                "totalTokens": 38,
+                "cacheReadInputTokens": 5,
+                "cacheWriteInputTokens": 3,
+            },
+            execution_count=1,
+        ),
+        NodeResult(
+            result=result_text,
+            accumulated_usage={
+                "inputTokens": 15,
+                "outputTokens": 25,
+                "totalTokens": 51,
+                "cacheReadInputTokens": 7,
+                "cacheWriteInputTokens": 4,
+            },
+            execution_count=1,
+        ),
+    ]
+
+    for node_result in node_results:
+        graph._accumulate_metrics(node_result)
+
+    tru_usage = graph.state.accumulated_usage
+    exp_usage = {
+        "inputTokens": 25,
+        "outputTokens": 45,
+        "totalTokens": 89,
+        "cacheReadInputTokens": 12,
+        "cacheWriteInputTokens": 7,
+    }
+    assert tru_usage == exp_usage
+    assert (
+        tru_usage["inputTokens"]
+        + tru_usage["outputTokens"]
+        + tru_usage["cacheReadInputTokens"]
+        + tru_usage["cacheWriteInputTokens"]
+        == tru_usage["totalTokens"]
+    )
+
+
+def test_accumulate_metrics_without_cache_counters_omits_them():
+    """Nodes without cache counters must not materialize cache keys as 0 (#797)."""
+    graph = _make_graph(nodes={})
+    result_text = AgentResult(
+        message={"role": "assistant", "content": [{"text": "ok"}]}, stop_reason="end_turn", state={}, metrics={}
+    )
+
+    graph._accumulate_metrics(
+        NodeResult(
+            result=result_text,
+            accumulated_usage={"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+            execution_count=1,
+        )
+    )
+
+    tru_usage = graph.state.accumulated_usage
+    exp_usage = {"inputTokens": 10, "outputTokens": 20, "totalTokens": 30}
+    assert tru_usage == exp_usage
+
+
 def test_graph_dataclasses_and_enums():
     """Test dataclass initialization, properties, and enum behavior."""
     # Test Status enum

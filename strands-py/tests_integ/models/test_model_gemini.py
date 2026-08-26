@@ -266,11 +266,20 @@ def test_agent_with_reasoning_content(model, assistant_agent):
     assert result.message["content"][0]["reasoningContent"]["reasoningText"]["text"]
 
 
+def test_agent_usage_tokens_hold_total_invariant(tool_agent):
+    result = tool_agent("What is the current time and weather in New York?")
+
+    usage = result.metrics.accumulated_usage
+    assert usage["inputTokens"] > 0
+    assert usage["outputTokens"] > 0
+    assert usage["totalTokens"] == usage["inputTokens"] + usage["outputTokens"]
+
+
 class TestCountTokens:
     @pytest.fixture
     def model(self):
         return GeminiModel(
-            model_id="gemini-2.0-flash",
+            model_id="gemini-3.1-flash-lite",
             client_args={"api_key": os.environ["GOOGLE_API_KEY"]},
             use_native_token_count=True,
         )

@@ -17,6 +17,7 @@ describe('notebook tool', () => {
       },
       agent,
       invocationState: {},
+      cancelSignal: agent.cancelSignal,
       interrupt: () => {
         throw new Error('interrupt not available in mock context')
       },

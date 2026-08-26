@@ -779,6 +779,17 @@ def test_format_request_filters_s3_source_image(model, caplog):
     assert "Location sources are not supported by Mistral" in caplog.text
 
 
+def test_format_request_skips_message_cache_point(model, caplog):
+    caplog.set_level(logging.WARNING, logger="strands.models.mistral")
+
+    messages = [{"role": "user", "content": [{"text": "durable prefix"}, {"cachePoint": {"type": "default"}}]}]
+
+    formatted_messages = model._format_request_messages(messages)
+
+    assert formatted_messages[0]["content"] == "durable prefix"
+    assert "cachePoint content block is not supported by Mistral" in caplog.text
+
+
 def test_format_request_filters_location_source_document(model, caplog):
     """Test that documents with Location sources are filtered out with warning."""
     caplog.set_level(logging.WARNING, logger="strands.models.mistral")

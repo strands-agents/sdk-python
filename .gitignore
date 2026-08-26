@@ -75,3 +75,5 @@ bin/
 .vitest*
 .local/
 
+.superpowers/
+site/docs/superpowers/

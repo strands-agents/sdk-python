@@ -64,6 +64,54 @@ For production environments:
 
 ## Performance Optimization
 
+### Execution Limits
+
+Every production agent should have explicit execution boundaries. Choose limits
+that match the request's service-level objective and cost budget, then monitor
+how often each limit is reached. A useful baseline covers four independent
+dimensions:
+
+1. **Agent loop iterations**: Set per-invocation turn limits by passing
+   `limits`, which is named the same in both SDKs. A turn limit bounds
+   repeated model and tool cycles and prevents an agent from running
+   indefinitely.
+2. **Tool invocations**: Put quotas around tools that are costly, rate-limited,
+   or have side effects. The [Limit Tool Counts hook](../concepts/agents/hooks.md#limit-tool-counts)
+   shows the same pattern for Python and TypeScript and resets counts for each
+   invocation.
+3. **Token consumption**: Use the invocation's total-token and output-token
+   limits for an end-to-end budget. Also configure the model's
+   <Syntax py="max_tokens" ts="maxTokens" /> setting to cap a single response.
+   Invocation token
+   limits are checked between turns, so one model call can exceed the configured
+   total before the loop stops.
+4. **Wall-clock time**: Enforce a deadline outside the invocation and cancel the
+   agent when it expires. Python can call `agent.cancel()` from a watchdog;
+   TypeScript can pass a `cancelSignal` to `invoke()`/`stream()` (for example,
+   `AbortSignal.timeout(30_000)`) or call `agent.cancel()`. Cancellation is
+   cooperative for work already running inside a tool, so propagate the same
+   deadline to downstream network calls and blocking operations.
+
+See [Invocation Limits](../concepts/agents/agent-loop.md#invocation-limits) for
+turn and token budgets, [Cancellation](../concepts/agents/agent-loop.md#cancellation)
+for timeout patterns, and [Stop Reasons](../concepts/agents/agent-loop.md#stop-reasons)
+for handling exhausted limits as expected outcomes rather than generic errors.
+
+#### Multi-agent safety boundaries
+
+Apply limits at both the orchestrator and node levels:
+
+- **Swarm**: Bound handoffs/iterations and total/per-node execution time in
+  Python; use `maxSteps`, `timeout`, and `nodeTimeout` in TypeScript. See
+  [Swarm Safety Mechanisms](../concepts/multi-agent/swarm.md#safety-mechanisms).
+- **Graph**: Bound total node executions and total/per-node execution time. The
+  exact configuration names differ by SDK; see
+  [Graph Components](../concepts/multi-agent/graph.md#graph-components).
+
+Do not rely on only one boundary. For example, a turn limit does not constrain a
+single slow tool, while a timeout alone does not provide a predictable token
+budget.
+
 ### Conversation Management
 
 Optimize memory usage and context window management in production:

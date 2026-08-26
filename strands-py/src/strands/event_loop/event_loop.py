@@ -692,6 +692,7 @@ def _make_invoke_model_terminal(
                     tool_choice=ctx.tool_choice,
                     invocation_state=ctx.invocation_state,
                     model_state=model_state,
+                    dynamic_trailing_blocks=ctx.dynamic_trailing_blocks,
                     cancel_signal=agent._cancel_signal,
                 ):
                     yield event
@@ -906,12 +907,14 @@ async def _handle_tool_execution(
 
     # Hook requested halt: exit without calling the model again.
     if after_tools_event.end_turn:
-        end_turn_text = (
-            after_tools_event.end_turn
-            if isinstance(after_tools_event.end_turn, str)
-            else "Turn ended early by hook after tool execution"
-        )
-        end_turn_message: Message = {"role": "assistant", "content": [{"text": end_turn_text}]}
+        end_turn_value = after_tools_event.end_turn
+        if isinstance(end_turn_value, list):
+            end_turn_content = list(end_turn_value)
+        elif isinstance(end_turn_value, str):
+            end_turn_content = [{"text": end_turn_value}]
+        else:
+            end_turn_content = [{"text": "Turn ended early by hook after tool execution"}]
+        end_turn_message: Message = {"role": "assistant", "content": end_turn_content}
         await agent._append_messages(end_turn_message)
         yield EventLoopStopEvent(
             "end_turn",

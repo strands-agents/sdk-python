@@ -9,7 +9,7 @@ import type {
 } from '../types/agent.js'
 import type { Message, SystemPrompt, ToolResultBlock } from '../types/messages.js'
 import type { ToolSpec, ToolChoice } from '../tools/types.js'
-import type { StreamAggregatedResult } from '../models/model.js'
+import type { Model, StreamAggregatedResult } from '../models/model.js'
 import type { ToolUseData } from '../hooks/events.js'
 import type { Tool } from '../tools/tool.js'
 import type { InterruptParams } from '../types/interrupt.js'
@@ -69,11 +69,14 @@ export function createStage<TContext, TResult, TEvent>(name: string): Middleware
 /**
  * Context passed to model-stage middleware.
  * All inputs to the model call are explicit — middleware can inspect and transform
- * any of them by passing a modified context to next().
+ * any of them by passing a modified context to next(). Collection fields are
+ * defensive copies; invocationState and model are shared references.
  */
 export interface InvokeModelContext {
   /** The agent instance (escape hatch for advanced use cases). */
   readonly agent: LocalAgent
+  /** The model this call invokes. Initialized from agent.model and replaceable per call. */
+  readonly model: Model
   /** The messages to send to the model. */
   readonly messages: readonly Message[]
   /** System prompt to guide the model's behavior. */
@@ -86,6 +89,15 @@ export interface InvokeModelContext {
   readonly invocationState: InvocationState
   /** Estimated input token count for this model call, or undefined if estimation failed. */
   readonly projectedInputTokens?: number
+
+  /**
+   * How many trailing blocks of the last user message are rebuilt on every call.
+   *
+   * Producers add to this; a provider placing cache points keeps its own ahead of the
+   * count, since a prefix that changes every call is never read back. Counted from the end of the
+   * message so it survives a provider's content cleaning, which only drops earlier blocks.
+   */
+  readonly dynamicTrailingBlocks?: number
 }
 
 /**
@@ -110,6 +122,8 @@ export interface ExecuteToolContext extends MiddlewareInterruptible {
   readonly toolUse: ToolUseData
   /** Per-invocation state. Shared by reference — mutations are visible to hooks, tools, and AgentResult. */
   readonly invocationState: InvocationState
+  /** Executor-owned cancellation signal for this tool call; middleware can observe but cannot replace it. */
+  readonly cancelSignal: AbortSignal
 }
 
 /**

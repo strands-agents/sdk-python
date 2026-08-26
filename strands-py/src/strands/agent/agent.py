@@ -64,11 +64,13 @@ from ..interventions.registry import InterventionRegistry
 from ..memory import MemoryManager, MemoryManagerConfig
 from ..models.bedrock import BedrockModel
 from ..models.model import Model, _ModelPlugin
+from ..models.routing import ModelRouter
 from ..plugins import Plugin
 from ..plugins.registry import _PluginRegistry
 from ..sandbox import Sandbox
 from ..sandbox.not_a_sandbox_local_environment import NotASandboxLocalEnvironment
 from ..session.session_manager import SessionManager
+from ..storage import Storage
 from ..telemetry.metrics import EventLoopMetrics
 from ..telemetry.tracer import get_tracer, serialize
 from ..tools._caller import _ToolCaller
@@ -179,7 +181,7 @@ class Agent(AgentBase):
 
     def __init__(
         self,
-        model: Model | str | None = None,
+        model: Model | str | ModelRouter | None = None,
         messages: Messages | None = None,
         tools: list[Union[str, dict[str, str], "ToolProvider", Any]] | None = None,
         system_prompt: str | list[SystemContentBlock] | None = None,
@@ -206,12 +208,14 @@ class Agent(AgentBase):
         concurrent_invocation_mode: ConcurrentInvocationMode = ConcurrentInvocationMode.THROW,
         checkpointing: bool = False,
         sandbox: Sandbox | None = None,
+        storage: Storage | None = None,
     ):
         """Initialize the Agent with the specified configuration.
 
         Args:
             model: Provider for running inference or a string representing the model-id for Bedrock to use.
-                Defaults to strands.models.BedrockModel if None.
+                May also be a ``ModelRouter``, whose first candidate is resolved to a concrete model and
+                exposed as ``agent.model``. Defaults to strands.models.BedrockModel if None.
             messages: List of initial messages to pre-load into the conversation.
                 Defaults to an empty list if None.
             tools: List of tools to make available to the agent.
@@ -257,9 +261,10 @@ class Agent(AgentBase):
                 using benchmark-validated defaults. If ``conversation_manager`` is also provided,
                 the user's conversation manager is used instead. Defaults to None (no context management).
 
-                Note: The offloader uses in-memory storage that does not persist across process
-                restarts. For agents using ``session_manager``, provide an explicit
-                ``ContextOffloader`` with durable storage via the ``plugins`` parameter.
+                Note: The offloader uses in-memory storage by default. When an agent-level
+                ``storage`` is provided, the offloader uses that instead. Alternatively,
+                provide an explicit ``ContextOffloader`` with its own storage via the
+                ``plugins`` parameter.
             plugins: List of Plugin instances to extend agent functionality.
                 Plugins are initialized with the agent instance after construction and can register hooks,
                 modify agent attributes, or perform other setup tasks.
@@ -306,16 +311,32 @@ class Agent(AgentBase):
                 ``context.agent.sandbox``. Defaults to ``None``, which falls back to a
                 :class:`~strands.sandbox.NotASandboxLocalEnvironment` that runs on the host
                 with no isolation.
+            storage: Default storage backend for agent subsystems.
+                When provided, subsystems that do not have their own explicit storage
+                (e.g., ContextOffloader) resolve from this value. Each subsystem
+                auto-namespaces under its own prefix (e.g., ``offloader/``) to avoid key
+                collisions. Storage specified directly on a subsystem always takes
+                precedence over this agent-level default. Defaults to None.
 
         Raises:
             ValueError: If agent id contains path separators.
         """
-        self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
+        self._model_router: ModelRouter | None = None
+        if isinstance(model, ModelRouter):
+            self._model_router = model
+            self.model = model.default_model
+        elif not model:
+            self.model = BedrockModel()
+        elif isinstance(model, str):
+            self.model = BedrockModel(model_id=model)
+        else:
+            self.model = model
         self.messages = messages if messages is not None else []
         if sandbox is not None and not isinstance(sandbox, Sandbox):
             raise TypeError(f"sandbox must be a Sandbox instance or None, got {type(sandbox).__name__}")
         # Resolve once: configured sandbox, or this agent's own host default (not shared across agents).
         self._sandbox: Sandbox = sandbox or NotASandboxLocalEnvironment()
+        self._storage: Storage | None = storage
         # initializing self._system_prompt for backwards compatibility
         self._system_prompt, self._system_prompt_content = split_system_prompt(system_prompt)
         self._default_structured_output_model = structured_output_model
@@ -424,6 +445,11 @@ class Agent(AgentBase):
         self.hooks = HookRegistry()
 
         self._middleware_registry = MiddlewareRegistry()
+        self._plugin_registry = _PluginRegistry(self)
+
+        # Input handlers preserve registration order, so initialize routing before capability middleware.
+        if self._model_router is not None:
+            self._plugin_registry.add_and_init(self._model_router)
 
         # In agentic mode, surface live token usage to the model so it can decide when to compress.
         if context_manager == "agentic":
@@ -431,8 +457,6 @@ class Agent(AgentBase):
             from .._middleware.stages import InvokeModelStage
 
             self._middleware_registry.add_middleware(InvokeModelStage.Input, create_token_usage_middleware())
-
-        self._plugin_registry = _PluginRegistry(self)
 
         self._interrupt_state = _InterruptState()
 
@@ -502,6 +526,12 @@ class Agent(AgentBase):
             for plugin in plugins_to_register:
                 self._plugin_registry.add_and_init(plugin)
 
+        has_agent_delegation = any(plugin.name == "strands:agent-delegation" for plugin in (plugins_to_register or []))
+        if not has_agent_delegation:
+            from ._agent_delegation import AgentDelegation
+
+            self._plugin_registry.add_and_init(AgentDelegation())
+
         # Resolve and register the memory manager (a Plugin); keep a reference so the
         # synchronous entry point can flush pending extraction writes.
         self.memory_manager = self._resolve_memory_manager(memory_manager)
@@ -546,7 +576,7 @@ class Agent(AgentBase):
         if context_manager is None:
             return None, None
 
-        from ..vended_plugins.context_offloader import ContextOffloader, InMemoryStorage
+        from ..vended_plugins.context_offloader import ContextOffloader
         from .conversation_manager import SummarizingConversationManager
 
         if context_manager == "auto":
@@ -573,7 +603,6 @@ class Agent(AgentBase):
         if not has_offloader:
             resolved_plugins.append(
                 ContextOffloader(
-                    storage=InMemoryStorage(),
                     max_result_tokens=offloader_max_result_tokens,
                     preview_tokens=_CONTEXT_MANAGER_PREVIEW_TOKENS,
                 )
@@ -645,6 +674,11 @@ class Agent(AgentBase):
         configured.
         """
         return self._sandbox
+
+    @property
+    def storage(self) -> Storage | None:
+        """Default storage backend for agent subsystems."""
+        return self._storage
 
     @property
     def system_prompt(self) -> str | None:
@@ -980,6 +1014,7 @@ class Agent(AgentBase):
         name: str | None = None,
         description: str | None = None,
         preserve_context: bool = False,
+        delegate: bool = False,
     ) -> AgentTool:
         r"""Convert this agent into a tool for use by another agent.
 
@@ -993,6 +1028,10 @@ class Agent(AgentBase):
                 values they had at construction time before each call, ensuring every
                 invocation starts from the same baseline regardless of any external
                 interactions with the agent. Defaults to False.
+            delegate: When True, the orchestrator treats this tool's result as the final
+                response and exits without an additional model call. The tool's description
+                is automatically suffixed with an instruction telling the model that this
+                tool should be the only tool called in the turn. Defaults to False.
 
         Returns:
             A tool wrapping this agent.
@@ -1002,11 +1041,18 @@ class Agent(AgentBase):
             researcher = Agent(name="researcher", description="Finds information")
             writer = Agent(name="writer", tools=[researcher.as_tool()])
             writer("Write about AI agents")
+
+            # Delegation: sub-agent response is returned directly as the final answer
+            billing = Agent(name="billing", description="Handles billing questions")
+            orchestrator = Agent(tools=[billing.as_tool(delegate=True)])
+            orchestrator("What is my balance?")
             ```
         """
         if not name:
             name = self.name
-        return _AgentAsTool(self, name=name, description=description, preserve_context=preserve_context)
+        return _AgentAsTool(
+            self, name=name, description=description, preserve_context=preserve_context, delegate=delegate
+        )
 
     def cleanup(self) -> None:
         """Clean up resources used by the agent.
@@ -1046,7 +1092,8 @@ class Agent(AgentBase):
                 the callback's first parameter type hint. If a list is provided,
                 the callback is registered for each type in the list.
             order: Execution priority. Lower values execute first.
-                Use HookOrder.SDK_FIRST (-100), HookOrder.DEFAULT (0), or HookOrder.SDK_LAST (100).
+                Use a HookOrder constant such as SDK_FIRST (-100), DEFAULT (0),
+                MODEL_ROUTING (50), or SDK_LAST (100).
 
         Raises:
             ValueError: If event_type is not provided and cannot be inferred from
