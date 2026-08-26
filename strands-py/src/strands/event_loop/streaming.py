@@ -1,5 +1,6 @@
 """Utilities for handling streaming responses from language models."""
 
+import copy
 import json
 import logging
 import threading
@@ -55,6 +56,10 @@ def _normalize_messages(messages: Messages) -> Messages:
     removed_blank_message_content_text = False
     replaced_blank_message_content_text = False
     replaced_tool_names = False
+
+    # Deep copy up front so downstream normalization can mutate freely without
+    # affecting the caller's message history.
+    messages = copy.deepcopy(messages)
 
     for message in messages:
         # only modify assistant messages
@@ -496,6 +501,7 @@ async def stream_messages(
     system_prompt_content: list[SystemContentBlock] | None = None,
     invocation_state: dict[str, Any] | None = None,
     model_state: dict[str, Any] | None = None,
+    dynamic_trailing_blocks: int = 0,
     cancel_signal: threading.Event | None = None,
     **kwargs: Any,
 ) -> AsyncGenerator[TypedEvent, None]:
@@ -511,6 +517,8 @@ async def stream_messages(
             system prompt data.
         invocation_state: Caller-provided state/context that was passed to the agent when it was invoked.
         model_state: Runtime state for model providers (e.g., server-side response ids).
+        dynamic_trailing_blocks: How many trailing blocks of the last user message are rebuilt on every
+            call, so a provider placing cache points keeps its own ahead of them.
         cancel_signal: Optional threading.Event to check for cancellation during streaming.
         **kwargs: Additional keyword arguments for future extensibility.
 
@@ -533,6 +541,8 @@ async def stream_messages(
         system_prompt_content=system_prompt_content,
         invocation_state=invocation_state,
         model_state=model_state,
+        # Omitted when zero, so an ordinary call's arguments are unchanged.
+        **({"dynamic_trailing_blocks": dynamic_trailing_blocks} if dynamic_trailing_blocks else {}),
     )
 
     async for event in process_stream(chunks, start_time, cancel_signal):

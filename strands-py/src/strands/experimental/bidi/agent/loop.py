@@ -7,8 +7,9 @@ import asyncio
 import logging
 import time
 import warnings
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from opentelemetry.trace import Span
 

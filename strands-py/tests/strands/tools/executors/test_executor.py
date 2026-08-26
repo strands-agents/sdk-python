@@ -1,5 +1,5 @@
 import unittest.mock
-from unittest.mock import MagicMock
+from unittest.mock import ANY, MagicMock
 
 import pytest
 
@@ -65,9 +65,15 @@ async def test_executor_stream_yields_result(
             tool_use=tool_use,
             invocation_state=invocation_state,
             result=exp_results[0],
+            duration=ANY,
         ),
     ]
     assert tru_hook_events == exp_hook_events
+
+    # Verify duration is a realistic positive value (mocked tool should complete in under 10s)
+    after_event = tru_hook_events[1]
+    assert isinstance(after_event.duration, float)
+    assert 0 <= after_event.duration < 10
 
 
 @pytest.mark.asyncio
@@ -163,8 +169,13 @@ async def test_executor_stream_yields_tool_error(
         invocation_state=invocation_state,
         result=exp_results[0],
         exception=unittest.mock.ANY,
+        duration=ANY,
     )
     assert tru_hook_after_event == exp_hook_after_event
+
+    # Verify duration is a realistic positive value
+    assert isinstance(tru_hook_after_event.duration, float)
+    assert 0 <= tru_hook_after_event.duration < 10
 
 
 @pytest.mark.asyncio
@@ -190,8 +201,13 @@ async def test_executor_stream_yields_unknown_tool(executor, agent, tool_results
         invocation_state=invocation_state,
         result=exp_results[0],
         exception=unittest.mock.ANY,
+        duration=ANY,
     )
     assert tru_hook_after_event == exp_hook_after_event
+
+    # Unknown tool still passes through middleware, so duration is measured
+    assert isinstance(tru_hook_after_event.duration, float)
+    assert 0 <= tru_hook_after_event.duration < 10
 
 
 @pytest.mark.asyncio
@@ -1048,3 +1064,23 @@ async def test_executor_stream_cancel_after_hook_sees_no_exception(
     assert isinstance(after_event, AfterToolCallEvent)
     assert after_event.exception is None
     assert after_event.cancel_message == "user denied permission"
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_cancel_duration_is_none(
+    executor, agent, tool_results, invocation_state, hook_events, alist
+):
+    """Test that AfterToolCallEvent.duration is None when the tool is cancelled before execution."""
+
+    def cancel_callback(event):
+        event.cancel_tool = True
+        return event
+
+    agent.hooks.add_callback(BeforeToolCallEvent, cancel_callback)
+    tool_use: ToolUse = {"name": "weather_tool", "toolUseId": "1", "input": {}}
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
+    await alist(stream)
+
+    after_event = hook_events[-1]
+    assert isinstance(after_event, AfterToolCallEvent)
+    assert after_event.duration is None

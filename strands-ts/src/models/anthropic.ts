@@ -9,7 +9,7 @@ import {
   type CacheConfig,
   type ResolvedCacheSection,
 } from '../models/model.js'
-import type { Message, ContentBlock } from '../types/messages.js'
+import type { Message, ContentBlock, SystemPrompt } from '../types/messages.js'
 import type { ModelStreamEvent } from '../models/streaming.js'
 import { createEmptyUsage } from '../models/streaming.js'
 import { ContextWindowOverflowError, ModelThrottledError, normalizeError } from '../errors.js'
@@ -319,7 +319,7 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
   }
 
   /** Resolves a cache section, disabled when `cacheConfig` is unset or its strategy is unknown. */
-  private _cacheSection(section: 'toolsTTL' | 'messagesTTL'): ResolvedCacheSection {
+  private _cacheSection(section: 'toolsTTL' | 'messagesTTL' | 'systemPromptTTL'): ResolvedCacheSection {
     const cacheConfig = this._config.cacheConfig
     if (!cacheConfig) {
       return { enabled: false }
@@ -350,8 +350,10 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
    *
    * @returns True when a block was marked.
    */
-  private _attachCacheControl(content: Anthropic.ContentBlockParam[], ttl?: string): boolean {
-    for (let i = content.length - 1; i >= 0; i--) {
+  private _attachCacheControl(content: Anthropic.ContentBlockParam[], ttl?: string, skipTrailing = 0): boolean {
+    // Skip trailing blocks rebuilt every call so the cache point stays ahead of them; a prefix that
+    // changes every call is written every call and never read.
+    for (let i = content.length - 1 - skipTrailing; i >= 0; i--) {
       const block = content[i]
       if (block && this._isCacheableBlock(block)) {
         block.cache_control = this._formatCacheControl(ttl)
@@ -360,6 +362,53 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
     }
 
     return false
+  }
+
+  /**
+   * Formats the system prompt for the Anthropic API, auto-injecting a cache point at its end.
+   *
+   * @param systemPrompt - The system prompt as a string or content blocks.
+   * @returns The API system value (string or text blocks), or undefined when nothing cacheable remains.
+   */
+  private _formatSystemPrompt(systemPrompt: SystemPrompt): string | Anthropic.TextBlockParam[] | undefined {
+    const systemCache = this._cacheSection('systemPromptTTL')
+
+    if (typeof systemPrompt === 'string') {
+      if (!systemCache.enabled) return systemPrompt
+      return [{ type: 'text', text: systemPrompt, cache_control: this._formatCacheControl(systemCache.ttl) }]
+    }
+
+    const systemBlocks: Anthropic.TextBlockParam[] = []
+    let hasPlacedCachePoint = false
+    for (let index = 0; index < systemPrompt.length; index++) {
+      const block = systemPrompt[index]
+      if (!block) continue
+      if (block.type === 'guardContentBlock') {
+        logger.warn(
+          'block_type=<guardContentBlock> | guard content not supported in anthropic system prompt | skipping'
+        )
+        continue
+      }
+      if (block.type !== 'textBlock') continue
+
+      const nextBlock = systemPrompt[index + 1]
+      const cacheControl =
+        nextBlock?.type === 'cachePointBlock' ? this._formatCacheControl(nextBlock.ttl || systemCache.ttl) : undefined
+      systemBlocks.push({ type: 'text', text: block.text, ...(cacheControl && { cache_control: cacheControl }) })
+      if (cacheControl) {
+        hasPlacedCachePoint = true
+        index++
+      }
+    }
+
+    if (systemBlocks.length === 0) return undefined
+
+    if (systemCache.enabled && !hasPlacedCachePoint) {
+      const lastBlock = systemBlocks[systemBlocks.length - 1]
+      if (lastBlock) lastBlock.cache_control = this._formatCacheControl(systemCache.ttl)
+    }
+
+    return systemBlocks
   }
 
   private _formatRequest(messages: Message[], options?: StreamOptions): Anthropic.MessageStreamParams {
@@ -380,39 +429,13 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
     const request: Anthropic.MessageStreamParams = {
       model: this._config.modelId,
       max_tokens: this._config.maxTokens ?? MODEL_DEFAULTS.anthropic.maxTokens,
-      messages: this._formatMessages(messages, messagesCache, cacheTargetMessage),
+      messages: this._formatMessages(messages, messagesCache, cacheTargetMessage, options?.dynamicTrailingBlocks ?? 0),
       stream: true,
     }
 
     if (options?.systemPrompt) {
-      if (typeof options.systemPrompt === 'string') {
-        request.system = options.systemPrompt
-      } else if (Array.isArray(options.systemPrompt)) {
-        const systemBlocks: Anthropic.TextBlockParam[] = []
-        for (let i = 0; i < options.systemPrompt.length; i++) {
-          const block = options.systemPrompt[i]
-          if (!block) continue
-
-          if (block.type === 'textBlock') {
-            const nextBlock = options.systemPrompt[i + 1]
-            const cacheControl =
-              nextBlock?.type === 'cachePointBlock' ? this._formatCacheControl(nextBlock.ttl) : undefined
-
-            systemBlocks.push({
-              type: 'text',
-              text: block.text,
-              ...(cacheControl && { cache_control: cacheControl }),
-            })
-
-            if (cacheControl) i++
-          } else if (block.type === 'guardContentBlock') {
-            logger.warn(
-              'block_type=<guardContentBlock> | guard content not supported in anthropic system prompt | skipping'
-            )
-          }
-        }
-        if (systemBlocks.length > 0) request.system = systemBlocks
-      }
+      const system = this._formatSystemPrompt(options.systemPrompt)
+      if (system !== undefined) request.system = system
     }
 
     if (options?.toolSpecs?.length) {
@@ -453,7 +476,8 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
   private _formatMessages(
     messages: Message[],
     messagesCache: ResolvedCacheSection = { enabled: false },
-    cacheTargetMessage = -1
+    cacheTargetMessage = -1,
+    dynamicTrailingBlocks = 0
   ): Anthropic.MessageParam[] {
     let strippedCachePoints = 0
     const cacheManaged = messagesCache.enabled
@@ -495,8 +519,10 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
       }
 
       // Placed after formatting so the cache point lands on a block that survived translation.
+      // Per-call trailing blocks apply only to the cache-target message, where a producer appends
+      // content rebuilt every call.
       if (isCacheTarget && !marked) {
-        if (this._attachCacheControl(content, messagesCache.ttl)) {
+        if (this._attachCacheControl(content, messagesCache.ttl, dynamicTrailingBlocks)) {
           logger.debug(`msg_idx=<${messageIndex}> | added cache point to last user message`)
         } else {
           logger.debug(`msg_idx=<${messageIndex}> | no cacheable content block, skipped cache point`)

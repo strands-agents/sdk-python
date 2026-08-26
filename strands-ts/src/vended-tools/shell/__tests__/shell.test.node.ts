@@ -18,6 +18,7 @@ describe.skipIf(process.platform === 'win32')('makeShell', () => {
       toolUse: { name: 'shell', toolUseId: 'test-id', input: {} },
       agent,
       invocationState: {},
+      cancelSignal: agent.cancelSignal,
       interrupt: () => {
         throw new Error('interrupt not available in mock context')
       },

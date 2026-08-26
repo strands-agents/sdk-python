@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import yaml from 'js-yaml'
+import { isNew, NEW_BADGE } from './util/new-badge'
 
 // A badge rendered next to a sidebar label. A bare string is shorthand for the default variant.
 type SidebarBadge = string | { text: string; variant?: 'note' | 'tip' | 'caution' | 'danger' | 'success' | 'default' }
@@ -18,6 +19,7 @@ interface NavConfigItem {
   slug?: string // For labeled leaf items "Adding Tools"
   collapsed?: boolean // Explicit collapse state for groups (overrides auto-collapse)
   badge?: SidebarBadge // Badge on a group label (leaf badges come from page frontmatter)
+  addedDate?: string | Date // Derives a "New" badge on a group for NEW_BADGE_DAYS; never hand-write one
 }
 type NavConfigEntry = string | NavConfigItem
 
@@ -49,6 +51,15 @@ interface NavigationConfig {
 
 interface ConvertContext {
   contentDir: string
+  buildDate: Date
+}
+
+function deriveGroupBadge(item: NavConfigItem, buildDate: Date): SidebarBadge | undefined {
+  if (item.badge !== undefined) return item.badge
+  if (item.addedDate && isNew(new Date(item.addedDate), buildDate)) {
+    return NEW_BADGE
+  }
+  return undefined
 }
 
 /**
@@ -86,11 +97,12 @@ function convertConfigItem(item: NavConfigEntry, ctx: ConvertContext): Starlight
 
       if (children.length === 0) return null
 
+      const badge = deriveGroupBadge(item, ctx.buildDate)
       return {
         label: item.label,
         items: children,
         ...(typeof item.collapsed === 'boolean' && { collapsed: item.collapsed }),
-        ...(item.badge !== undefined && { badge: item.badge }),
+        ...(badge !== undefined && { badge }),
       }
     }
 
@@ -115,11 +127,15 @@ export function loadNavigationConfig(configPath: string): NavigationConfig {
 /**
  * Load sidebar from navigation.yml config
  */
-export function loadSidebarFromConfig(configPath: string, docsContentDir?: string): StarlightSidebarItem[] {
+export function loadSidebarFromConfig(
+  configPath: string,
+  docsContentDir?: string,
+  buildDate: Date = new Date()
+): StarlightSidebarItem[] {
   const config = loadNavigationConfig(configPath)
   if (!config.sidebar) return []
 
-  const ctx: ConvertContext = { contentDir: docsContentDir || '' }
+  const ctx: ConvertContext = { contentDir: docsContentDir || '', buildDate }
 
   const items = config.sidebar
     .map((item) => convertConfigItem(item, ctx))

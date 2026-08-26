@@ -374,6 +374,22 @@ def test_update_config(model, model_id):
     assert tru_model_id == exp_model_id
 
 
+def test_cache_key_round_trips_through_config(model):
+    """Bedrock accepts and preserves cache_config.cache_key through update_config/get_config."""
+    model.update_config(cache_config=CacheConfig(strategy="anthropic", cache_key="tenant-42"))
+
+    assert model.get_config()["cache_config"].cache_key == "tenant-42"
+
+
+def test_cache_key_does_not_change_request_shape(bedrock_client, messages):
+    """Bedrock ignores cache_key: two configs differing only in cache_key format identically."""
+    _ = bedrock_client
+    without_key = BedrockModel(model_id="m1", cache_config=CacheConfig(strategy="anthropic"))
+    with_key = BedrockModel(model_id="m1", cache_config=CacheConfig(strategy="anthropic", cache_key="tenant-42"))
+
+    assert with_key.format_request(messages) == without_key.format_request(messages)
+
+
 def test_format_request_default(model, messages, model_id):
     tru_request = model.format_request(messages)
     exp_request = {
@@ -1526,6 +1542,186 @@ async def test_stream_output_no_blocked_guardrails_doesnt_redact(
 
 
 @pytest.mark.asyncio
+async def test_stream_stream_guardrails_redacts_without_trace(
+    bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist
+):
+    """Redaction still occurs when guardrail_trace="disabled" returns no assessment.
+
+    Bedrock reports a guardrail_intervened stop reason without a trace, so redaction keys off the
+    stop reason. Guards against https://github.com/strands-agents/harness-sdk/issues/3612.
+    """
+    message_stop_event = {"messageStop": {"stopReason": "guardrail_intervened"}}
+    metadata_event = {"metadata": {"usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}}}
+    bedrock_client.converse_stream.return_value = {"stream": [message_stop_event, metadata_event]}
+
+    model.update_config(additional_request_fields=additional_request_fields)
+    response = model.stream(messages, [tool_spec])
+
+    tru_chunks = await alist(response)
+    exp_chunks = [
+        message_stop_event,
+        {"redactContent": {"redactUserContentMessage": "[User input redacted.]"}},
+        metadata_event,
+    ]
+
+    assert tru_chunks == exp_chunks
+
+
+@pytest.mark.asyncio
+async def test_stream_guardrails_redacts_without_trace_non_streaming(bedrock_client, alist, messages):
+    """Non-streaming redaction keys off the guardrail_intervened stop reason when no trace is returned.
+
+    Guards against https://github.com/strands-agents/harness-sdk/issues/3612.
+    """
+    bedrock_client.converse.return_value = {
+        "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
+        "stopReason": "guardrail_intervened",
+    }
+
+    model = BedrockModel(model_id="test-model", streaming=False)
+    response = model.stream(messages)
+
+    tru_events = await alist(response)
+    exp_events = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockDelta": {"delta": {"text": "test"}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "guardrail_intervened", "additionalModelResponseFields": None}},
+        {"redactContent": {"redactUserContentMessage": "[User input redacted.]"}},
+    ]
+
+    assert tru_events == exp_events
+    bedrock_client.converse.assert_called_once()
+    bedrock_client.converse_stream.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_stream_guardrails_redacts_exactly_once_across_metadata_events(
+    bedrock_client, model, messages, alist
+):
+    """Redaction fires at most once even when Bedrock emits multiple metadata events.
+
+    Exercises the redaction_emitted guard. Guards against
+    https://github.com/strands-agents/harness-sdk/issues/3612.
+    """
+    message_stop_event = {"messageStop": {"stopReason": "guardrail_intervened"}}
+    metadata_event = {"metadata": {"usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}}}
+    bedrock_client.converse_stream.return_value = {
+        "stream": [message_stop_event, metadata_event, metadata_event]
+    }
+
+    response = model.stream(messages)
+
+    tru_chunks = await alist(response)
+    exp_chunks = [
+        message_stop_event,
+        {"redactContent": {"redactUserContentMessage": "[User input redacted.]"}},
+        metadata_event,
+        metadata_event,
+    ]
+
+    assert tru_chunks == exp_chunks
+
+
+@pytest.mark.asyncio
+async def test_stream_non_guardrail_stop_reason_doesnt_redact(bedrock_client, model, messages, alist):
+    """A non-guardrail_intervened stop reason with no trace must not trigger redaction.
+
+    Guards against https://github.com/strands-agents/harness-sdk/issues/3612.
+    """
+    message_stop_event = {"messageStop": {"stopReason": "end_turn"}}
+    metadata_event = {"metadata": {"usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}}}
+    bedrock_client.converse_stream.return_value = {"stream": [message_stop_event, metadata_event]}
+
+    response = model.stream(messages)
+
+    tru_chunks = await alist(response)
+    exp_chunks = [message_stop_event, metadata_event]
+
+    assert tru_chunks == exp_chunks
+
+
+@pytest.mark.asyncio
+async def test_stream_guardrails_masked_content_does_not_redact(bedrock_client, model, messages, alist):
+    """Bedrock reports guardrail_intervened even when a policy only ANONYMIZED (masked) content.
+
+    The SDK must preserve the masked message rather than replacing it with the redaction placeholder,
+    since Bedrock has already substituted the sensitive spans in place.
+    """
+    message_stop_event = {"messageStop": {"stopReason": "guardrail_intervened"}}
+    metadata_event = {
+        "metadata": {
+            "usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+            "trace": {
+                "guardrail": {
+                    "outputAssessments": {
+                        "8oi5sp73w4ca": [
+                            {
+                                "sensitiveInformationPolicy": {
+                                    "regexes": [
+                                        {
+                                            "action": "ANONYMIZED",
+                                            "detected": True,
+                                            "match": "Hello",
+                                            "name": "BLOCKING_HELLO",
+                                            "regex": "Hello",
+                                        }
+                                    ]
+                                },
+                            }
+                        ]
+                    },
+                }
+            },
+        }
+    }
+    bedrock_client.converse_stream.return_value = {"stream": [message_stop_event, metadata_event]}
+
+    response = model.stream(messages)
+
+    tru_chunks = await alist(response)
+    exp_chunks = [message_stop_event, metadata_event]
+
+    assert tru_chunks == exp_chunks
+
+
+@pytest.mark.asyncio
+async def test_stream_guardrails_masked_content_does_not_redact_non_streaming(bedrock_client, alist, messages):
+    """Non-streaming: guardrail_intervened + ANONYMIZED-only trace must not trigger redaction."""
+    bedrock_client.converse.return_value = {
+        "output": {"message": {"role": "assistant", "content": [{"text": "{BLOCKING_HELLO}! 👋"}]}},
+        "stopReason": "guardrail_intervened",
+        "trace": {
+            "guardrail": {
+                "outputAssessments": {
+                    "8oi5sp73w4ca": [
+                        {
+                            "sensitiveInformationPolicy": {
+                                "regexes": [
+                                    {
+                                        "action": "ANONYMIZED",
+                                        "detected": True,
+                                        "match": "Hello",
+                                        "name": "BLOCKING_HELLO",
+                                        "regex": "Hello",
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                }
+            }
+        },
+    }
+
+    model = BedrockModel(model_id="test-model", streaming=False)
+    response = model.stream(messages)
+
+    tru_events = await alist(response)
+    assert not any("redactContent" in event for event in tru_events)
+
+
+@pytest.mark.asyncio
 async def test_stream_output_no_guardrail_redact(
     bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist
 ):
@@ -2055,6 +2251,7 @@ async def test_add_note_on_validation_exception_throughput(bedrock_client, model
         "input length and `max_tokens` exceed context limit",
         "too many total text bytes",
         "prompt is too long: 903884 tokens > 200000 maximum",
+        "This model's maximum context length is 202752 tokens.",
     ],
 )
 @pytest.mark.asyncio
@@ -2454,6 +2651,64 @@ def test_format_request_image_bytes_only(model, model_id):
     assert image_source == {"bytes": b"image_data"}
 
 
+def test_format_request_audio_bytes_only(model, model_id):
+    """Test that inline audio bytes are properly formatted."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "audio": {
+                        "format": "wav",
+                        "source": {"bytes": b"audio_data"},
+                    }
+                }
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+    audio_block = formatted_request["messages"][0]["content"][0]["audio"]
+
+    assert audio_block == {"format": "wav", "source": {"bytes": b"audio_data"}}
+
+
+def test_format_request_audio_s3_location(model, model_id):
+    """Test that an S3-backed audio block is properly formatted."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "audio": {
+                        "format": "wav",
+                        "source": {
+                            "location": {
+                                "type": "s3",
+                                "uri": "s3://my-bucket/audio.wav",
+                                "bucketOwner": "123456789012",
+                            }
+                        },
+                    }
+                }
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+    audio_block = formatted_request["messages"][0]["content"][0]["audio"]
+
+    assert audio_block == {
+        "format": "wav",
+        "source": {
+            "s3Location": {
+                "uri": "s3://my-bucket/audio.wav",
+                "bucketOwner": "123456789012",
+            }
+        },
+    }
+
+
 def test_format_request_document_s3_location(model, model_id):
     """Test that document with s3Location is properly formatted."""
     messages = [
@@ -2531,6 +2786,16 @@ def test_format_request_unsupported_location(model, caplog):
                 {
                     "image": {
                         "format": "png",
+                        "source": {
+                            "location": {
+                                "type": "other",
+                            },
+                        },
+                    }
+                },
+                {
+                    "audio": {
+                        "format": "wav",
                         "source": {
                             "location": {
                                 "type": "other",
@@ -3337,18 +3602,26 @@ async def test_format_request_with_guardrail_multiple_tool_results_same_message(
     assert formatted_messages[0]["content"][0]["guardContent"]["text"]["text"] == "Question requiring multiple tools"
 
 
-def test_cache_strategy_anthropic_for_claude(bedrock_client):
-    """Test that _cache_strategy returns 'anthropic' for Claude models."""
-    model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
+def test_cache_strategy_auto_maps_claude_to_anthropic(bedrock_client):
+    """Under strategy="auto", a Claude/Anthropic model id resolves to the anthropic strategy."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
     assert model._cache_strategy == "anthropic"
 
-    model2 = BedrockModel(model_id="anthropic.claude-3-haiku-20240307-v1:0")
+    model2 = BedrockModel(model_id="anthropic.claude-3-haiku-20240307-v1:0", cache_config=CacheConfig(strategy="auto"))
     assert model2._cache_strategy == "anthropic"
 
 
-def test_cache_strategy_none_for_non_claude(bedrock_client):
-    """Test that _cache_strategy returns None for unsupported models."""
-    model = BedrockModel(model_id="amazon.nova-pro-v1:0")
+def test_cache_strategy_auto_is_none_for_non_claude(bedrock_client):
+    """Under strategy="auto", a model without automatic caching support resolves to None."""
+    model = BedrockModel(model_id="amazon.nova-pro-v1:0", cache_config=CacheConfig(strategy="auto"))
+    assert model._cache_strategy is None
+
+
+def test_cache_strategy_is_none_without_cache_config(bedrock_client):
+    """A caching-capable model still resolves to no strategy until cache_config turns caching on."""
+    model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
     assert model._cache_strategy is None
 
 
@@ -4008,6 +4281,102 @@ def test_inject_cache_point_auto_strategy_resolves_to_anthropic_for_claude(bedro
     assert len(formatted[1]["content"]) == 1
 
 
+# Cache-point placement ahead of per-call trailing content. A point landing after per-call content
+# writes a new entry every request and never reads one, which total token counts do not reveal, so
+# only these placement assertions catch it.
+
+
+def _content_keys(content: list[dict]) -> list[str]:
+    return [next(iter(block)) for block in content]
+
+
+def _document_block(fmt: str = "csv") -> dict:
+    return {"document": {"format": fmt, "name": "d", "source": {"bytes": b"a,b"}}}
+
+
+def test_dynamic_trailing_blocks_keeps_the_cache_point_ahead_of_per_call_content(bedrock_client):
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    messages = [{"role": "user", "content": [{"text": "durable ask"}, {"text": "PER-CALL"}]}]
+
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=1)
+
+    assert _content_keys(formatted[0]["content"]) == ["text", "cachePoint", "text"]
+
+
+def test_dynamic_trailing_blocks_covers_every_block_of_a_multi_block_tail(bedrock_client):
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    messages = [{"role": "user", "content": [{"text": "durable"}, {"text": "STATUS"}, {"text": "INJECTED"}]}]
+
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=2)
+
+    assert _content_keys(formatted[0]["content"]) == ["text", "cachePoint", "text", "text"]
+
+
+def test_no_dynamic_trailing_blocks_appends_the_cache_point_at_the_end(bedrock_client):
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    messages = [{"role": "user", "content": [{"text": "durable ask"}]}]
+
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=0)
+
+    assert _content_keys(formatted[0]["content"]) == ["text", "cachePoint"]
+
+
+def test_dynamic_trailing_blocks_skips_the_cache_point_when_every_block_is_per_call(bedrock_client):
+    # Nothing durable ahead of the boundary, so there is no prefix worth caching.
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    messages = [{"role": "user", "content": [{"text": "PER-CALL"}]}]
+
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=1)
+
+    assert _content_keys(formatted[0]["content"]) == ["text"]
+
+
+def test_dynamic_trailing_blocks_steps_back_over_a_non_pdf_document(bedrock_client):
+    # Bedrock rejects a point directly after a non-PDF document.
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    messages = [{"role": "user", "content": [{"text": "a"}, _document_block(), {"text": "PER-CALL"}]}]
+
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=1)
+
+    assert _content_keys(formatted[0]["content"]) == ["text", "cachePoint", "document", "text"]
+
+
+def test_dynamic_trailing_blocks_are_dropped_when_a_document_leads_the_message(bedrock_client):
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    messages = [{"role": "user", "content": [_document_block(), {"text": "PER-CALL"}]}]
+
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=1)
+
+    assert "cachePoint" not in _content_keys(formatted[0]["content"])
+
+
+def test_dynamic_trailing_blocks_keeps_a_pdf_document_in_the_cached_prefix(bedrock_client):
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    messages = [{"role": "user", "content": [{"text": "a"}, _document_block("pdf"), {"text": "PER-CALL"}]}]
+
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=1)
+
+    assert _content_keys(formatted[0]["content"]) == ["text", "document", "cachePoint", "text"]
+
+
+def test_dynamic_trailing_blocks_carries_the_configured_ttl(bedrock_client):
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"))
+    messages = [{"role": "user", "content": [{"text": "durable"}, {"text": "PER-CALL"}]}]
+
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=1)
+
+    assert formatted[0]["content"][1] == {"cachePoint": {"type": "default", "ttl": "1h"}}
+
+
+def test_dynamic_trailing_blocks_emits_no_cache_point_without_cache_config(bedrock_client):
+    model = BedrockModel()
+    messages = [{"role": "user", "content": [{"text": "durable"}, {"text": "PER-CALL"}]}]
+
+    formatted = model._format_bedrock_messages(messages, dynamic_trailing_blocks=1)
+
+    assert "cachePoint" not in _content_keys(formatted[0]["content"])
+
+
 def test_find_last_user_text_message_index_no_user_messages(bedrock_client):
     """Test _find_last_user_text_message_index returns None when no user text messages exist."""
     model = BedrockModel(model_id="test-model")
@@ -4619,17 +4988,88 @@ def test_format_request_leaves_a_system_cache_point_alone_behind_a_shorter_tools
     assert tru_request["system"][1] == {"cachePoint": {"type": "default"}}
 
 
-def test_format_request_leaves_a_system_cache_point_alone_behind_an_untimed_tools_cache_point(
-    bedrock_client, messages, tool_spec
-):
-    """A tools cache point with no TTL takes the provider default, which the configured ttl may exceed."""
+def test_format_request_fills_the_configured_ttl_into_an_untimed_tools_cache_point(bedrock_client, messages, tool_spec):
+    """The tools point is first in Bedrock's order, so an untimed one takes the provider default that a
+    configured ttl on a later checkpoint would exceed. Filling it in keeps every checkpoint in step.
+    """
     _ = bedrock_client
     model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"), cache_tools="default")
     system_blocks = [{"text": "s"}, {"cachePoint": {"type": "default"}}]
 
     tru_request = model.format_request(messages, tool_specs=[tool_spec], system_prompt_content=system_blocks)
 
-    assert tru_request["system"][1] == {"cachePoint": {"type": "default"}}
+    assert tru_request["toolConfig"]["tools"][-1] == {"cachePoint": {"type": "default", "ttl": "1h"}}
+    assert tru_request["system"][1] == {"cachePoint": {"type": "default", "ttl": "1h"}}
+
+
+def test_format_request_fills_the_configured_ttl_into_an_untimed_cache_tools_config(
+    bedrock_client, messages, tool_spec
+):
+    """A CacheToolsConfig without a TTL is untimed just like the bare string, so it inherits the same fill-in."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"), cache_tools=CacheToolsConfig())
+
+    tru_point = model.format_request(messages, tool_specs=[tool_spec])["toolConfig"]["tools"][-1]
+
+    assert tru_point == {"cachePoint": {"type": "default", "ttl": "1h"}}
+
+
+def test_format_request_fills_an_empty_cache_tools_ttl_rather_than_shipping_it(bedrock_client, messages, tool_spec):
+    """A falsy TTL is not a TTL, so an empty one is filled in rather than sent as "", which Bedrock rejects."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"), cache_tools=CacheToolsConfig(ttl=""))
+
+    tru_point = model.format_request(messages, tool_specs=[tool_spec])["toolConfig"]["tools"][-1]
+
+    assert tru_point == {"cachePoint": {"type": "default", "ttl": "1h"}}
+
+
+def test_format_request_leaves_a_tools_cache_point_ttl_the_caller_wrote(bedrock_client, messages, tool_spec):
+    """A TTL the caller wrote on cache_tools is theirs; only an absent one is filled in."""
+    _ = bedrock_client
+    model = BedrockModel(
+        cache_config=CacheConfig(strategy="anthropic", ttl="1h"), cache_tools=CacheToolsConfig(ttl="5m")
+    )
+
+    tru_point = model.format_request(messages, tool_specs=[tool_spec])["toolConfig"]["tools"][-1]
+
+    assert tru_point == {"cachePoint": {"type": "default", "ttl": "5m"}}
+
+
+def test_format_request_leaves_a_tools_cache_point_alone_for_a_model_without_caching(
+    bedrock_client, messages, tool_spec
+):
+    """A config that never reaches the wire must not reach the tools point either."""
+    _ = bedrock_client
+    model = BedrockModel(
+        model_id="meta.llama3-70b-instruct-v1:0", cache_config=CacheConfig(ttl="1h"), cache_tools="default"
+    )
+
+    tru_point = model.format_request(messages, tool_specs=[tool_spec])["toolConfig"]["tools"][-1]
+
+    assert tru_point == {"cachePoint": {"type": "default"}}
+
+
+def test_format_request_leaves_a_tools_cache_point_alone_for_an_empty_configured_ttl(
+    bedrock_client, messages, tool_spec
+):
+    """An empty configured ttl is unconfigured, so it does not fill the tools point in."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl=""), cache_tools="default")
+
+    tru_point = model.format_request(messages, tool_specs=[tool_spec])["toolConfig"]["tools"][-1]
+
+    assert tru_point == {"cachePoint": {"type": "default"}}
+
+
+def test_format_request_leaves_a_tools_cache_point_alone_when_no_ttl_is_configured(bedrock_client, messages, tool_spec):
+    """Without a configured ttl there is nothing to inherit, so a bare cache_tools stays untimed."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"), cache_tools="default")
+
+    tru_point = model.format_request(messages, tool_specs=[tool_spec])["toolConfig"]["tools"][-1]
+
+    assert tru_point == {"cachePoint": {"type": "default"}}
 
 
 def test_format_request_applies_the_configured_ttl_behind_a_matching_tools_ttl(bedrock_client, messages, tool_spec):
@@ -4755,3 +5195,323 @@ def test_format_request_treats_an_empty_configured_ttl_as_unconfigured(bedrock_c
 
     exp_point = {"cachePoint": {"type": "default"}}
     assert tru_point == exp_point
+
+
+def test_format_request_auto_appends_system_cache_point(bedrock_client, messages):
+    """Auto mode appends a cachePoint after the system prompt for a Claude model.
+
+    Regression guard for https://github.com/strands-agents/harness-sdk/issues/3144.
+    """
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto"),
+    )
+
+    tru_request = model.format_request(messages, system_prompt_content=[{"text": "you are helpful"}])
+
+    assert tru_request["system"] == [
+        {"text": "you are helpful"},
+        {"cachePoint": {"type": "default"}},
+    ]
+
+
+def test_format_request_auto_system_cache_point_honors_ttl(bedrock_client, messages):
+    """Auto mode carries cache_config.ttl into the appended system cache point."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto", ttl="1h"),
+    )
+
+    tru_request = model.format_request(messages, system_prompt_content=[{"text": "static"}])
+
+    assert tru_request["system"][-1] == {"cachePoint": {"type": "default", "ttl": "1h"}}
+
+
+def test_format_request_auto_skips_system_cache_point_when_empty(bedrock_client, messages):
+    """Auto mode does not inject a system cache point when the system prompt is empty."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto"),
+    )
+
+    tru_request = model.format_request(messages)
+
+    assert tru_request["system"] == []
+
+
+def test_format_request_auto_skips_system_cache_point_for_non_claude(bedrock_client, messages):
+    """Auto mode does not inject a system cache point when the model has no auto strategy."""
+    model = BedrockModel(
+        model_id="amazon.nova-pro-v1:0",
+        cache_config=CacheConfig(strategy="auto"),
+    )
+
+    tru_request = model.format_request(messages, system_prompt_content=[{"text": "static"}])
+
+    assert tru_request["system"] == [{"text": "static"}]
+
+
+def test_format_request_auto_preserves_caller_placed_system_cache_point(bedrock_client, messages):
+    """Auto mode does not double-append when the caller already placed a trailing cachePoint."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto"),
+    )
+
+    system_blocks = [{"text": "static"}, {"cachePoint": {"type": "default", "ttl": "1h"}}]
+    tru_request = model.format_request(messages, system_prompt_content=system_blocks)
+
+    assert tru_request["system"] == [
+        {"text": "static"},
+        {"cachePoint": {"type": "default", "ttl": "1h"}},
+    ]
+
+
+def test_format_request_no_cache_config_leaves_system_untouched(bedrock_client, messages):
+    """With no cache_config, the system prompt is passed through unchanged."""
+    model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
+
+    tru_request = model.format_request(messages, system_prompt_content=[{"text": "static"}])
+
+    assert tru_request["system"] == [{"text": "static"}]
+
+
+def test_format_request_anthropic_strategy_appends_system_cache_point(bedrock_client, messages):
+    """Explicit anthropic strategy also appends a system cache point, mirroring auto."""
+    model = BedrockModel(
+        model_id="arn:aws:bedrock:us-east-1:123:application-inference-profile/abc",
+        cache_config=CacheConfig(strategy="anthropic"),
+    )
+
+    tru_request = model.format_request(messages, system_prompt_content=[{"text": "static"}])
+
+    assert tru_request["system"][-1] == {"cachePoint": {"type": "default"}}
+
+
+def test_format_request_auto_does_not_inject_system_cache_point_when_opted_out(bedrock_client, messages):
+    """system_prompt_ttl=False disables only the auto-injected system point."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto", system_prompt_ttl=False),
+    )
+
+    tru_request = model.format_request(messages, system_prompt_content=[{"text": "static"}])
+
+    assert tru_request["system"] == [{"text": "static"}]
+
+
+def test_format_request_auto_honors_a_caller_placed_system_cache_point_anywhere(bedrock_client, messages):
+    """A caller point anywhere in the system prefix is honored; no second point is appended."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto"),
+    )
+
+    system_blocks = [{"text": "static"}, {"cachePoint": {"type": "default"}}, {"text": "trailing"}]
+    tru_request = model.format_request(messages, system_prompt_content=system_blocks)
+
+    assert tru_request["system"] == [
+        {"text": "static"},
+        {"cachePoint": {"type": "default"}},
+        {"text": "trailing"},
+    ]
+
+
+def test_format_request_auto_leaves_a_single_point_for_the_deprecated_cache_prompt(bedrock_client, messages):
+    """The deprecated cache_prompt appends a point, so honor-anywhere must not add a second one."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto"),
+        cache_prompt="default",
+    )
+
+    with pytest.warns(UserWarning, match="cache_prompt is deprecated"):
+        tru_request = model.format_request(messages, system_prompt_content=[{"text": "static"}])
+
+    assert tru_request["system"] == [{"text": "static"}, {"cachePoint": {"type": "default"}}]
+
+
+def test_format_request_auto_stands_the_system_cache_point_down_behind_a_shorter_tools_ttl(
+    bedrock_client, messages, tool_spec
+):
+    """The auto-injected system point must not land a longer TTL behind a shorter tools checkpoint.
+
+    Guards the bare-inject path: writing cache_config.ttl onto the point at injection time would leave a
+    longer TTL behind the 5m tools point and trip Bedrock's non-increasing rule.
+    """
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto", ttl="1h"),
+        cache_tools=CacheToolsConfig(ttl="5m"),
+    )
+
+    tru_request = model.format_request(messages, tool_specs=[tool_spec], system_prompt_content=[{"text": "static"}])
+
+    assert tru_request["toolConfig"]["tools"][-1] == {"cachePoint": {"type": "default", "ttl": "5m"}}
+    assert tru_request["system"] == [{"text": "static"}, {"cachePoint": {"type": "default"}}]
+
+
+def test_format_request_auto_system_prompt_ttl_string_sets_the_section_duration(bedrock_client, messages):
+    """A system_prompt_ttl string sets the system section's own duration rather than deriving from the shared ttl."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto", system_prompt_ttl="1h"),
+    )
+
+    tru_request = model.format_request(messages, system_prompt_content=[{"text": "static"}])
+
+    assert tru_request["system"][-1] == {"cachePoint": {"type": "default", "ttl": "1h"}}
+
+
+def test_format_request_auto_system_prompt_ttl_string_is_honored_behind_a_differing_tools_ttl(
+    bedrock_client, messages, tool_spec
+):
+    """An explicit system_prompt_ttl string is honored verbatim, unlike a derived TTL which stands down.
+
+    Mirrors the TS systemPromptTTL contract: the caller owns cross-section ordering when they set the string.
+    """
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto", ttl="5m", system_prompt_ttl="1h"),
+        cache_tools=CacheToolsConfig(ttl="5m"),
+    )
+
+    tru_request = model.format_request(messages, tool_specs=[tool_spec], system_prompt_content=[{"text": "static"}])
+
+    assert tru_request["toolConfig"]["tools"][-1] == {"cachePoint": {"type": "default", "ttl": "5m"}}
+    assert tru_request["system"][-1] == {"cachePoint": {"type": "default", "ttl": "1h"}}
+
+
+def test_nova_model_converts_json_to_text_in_tool_result(bedrock_client):
+    """Nova models should convert JSON content blocks to text in tool results."""
+    model = BedrockModel(model_id="us.amazon.nova-pro-v1:0")
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "content": [{"json": {"key": "value", "number": 42}}],
+                        "toolUseId": "tool123",
+                    }
+                }
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+    tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
+
+    assert len(tool_result["content"]) == 1
+    assert "text" in tool_result["content"][0]
+    assert "json" not in tool_result["content"][0]
+    assert tool_result["content"][0]["text"] == '{"key": "value", "number": 42}'
+
+
+def test_nova_model_converts_mixed_json_and_text_in_tool_result(bedrock_client):
+    """Nova models should convert JSON blocks while preserving text blocks."""
+    model = BedrockModel(model_id="amazon.nova-lite-v1:0")
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "content": [
+                            {"text": "Some text output"},
+                            {"json": {"status": "ok"}},
+                        ],
+                        "toolUseId": "tool456",
+                    }
+                }
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+    tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
+
+    assert len(tool_result["content"]) == 2
+    assert tool_result["content"][0] == {"text": "Some text output"}
+    assert tool_result["content"][1] == {"text": '{"status": "ok"}'}
+
+
+def test_claude_model_preserves_json_in_tool_result(bedrock_client):
+    """Claude models should preserve JSON content blocks as-is."""
+    model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "content": [{"json": {"key": "value"}}],
+                        "toolUseId": "tool789",
+                    }
+                }
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+    tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
+
+    assert len(tool_result["content"]) == 1
+    assert "json" in tool_result["content"][0]
+    assert tool_result["content"][0]["json"] == {"key": "value"}
+
+
+def test_nova_model_handles_nested_json_in_tool_result(bedrock_client):
+    """Nova models should handle deeply nested JSON structures."""
+    model = BedrockModel(model_id="us.amazon.nova-pro-v1:0")
+    nested_json = {
+        "results": [
+            {"id": 1, "data": {"nested": True}},
+            {"id": 2, "data": {"nested": False}},
+        ],
+        "metadata": {"total": 2},
+    }
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "content": [{"json": nested_json}],
+                        "toolUseId": "tool_nested",
+                    }
+                }
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+    tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
+
+    assert "text" in tool_result["content"][0]
+    import json
+
+    parsed = json.loads(tool_result["content"][0]["text"])
+    assert parsed == nested_json
+
+
+def test_should_convert_json_to_text_nova_variants(bedrock_client):
+    """All Nova model ID variants should trigger JSON-to-text conversion."""
+    nova_ids = [
+        "amazon.nova-pro-v1:0",
+        "us.amazon.nova-pro-v1:0",
+        "amazon.nova-lite-v1:0",
+        "amazon.nova-micro-v1:0",
+    ]
+    for model_id in nova_ids:
+        model = BedrockModel(model_id=model_id)
+        assert model._should_convert_json_to_text(), f"{model_id} should convert JSON to text"
+
+    non_nova_ids = [
+        "us.anthropic.claude-sonnet-4-20250514-v1:0",
+        "amazon.titan-text-v1",
+        "us.meta.llama3-1-70b-instruct-v1:0",
+    ]
+    for model_id in non_nova_ids:
+        model = BedrockModel(model_id=model_id)
+        assert not model._should_convert_json_to_text(), f"{model_id} should NOT convert JSON to text"

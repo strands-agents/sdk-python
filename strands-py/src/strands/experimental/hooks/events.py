@@ -164,6 +164,10 @@ class BidiAfterToolCallEvent(BidiHookEvent):
             or an Exception if the tool execution failed.
         exception: Exception if the tool execution failed, None if successful.
         cancel_message: The cancellation message if the user cancelled the tool call.
+        duration: Elapsed time in seconds spent executing the tool. Starts after
+            BeforeToolCallEvent returns and stops before AfterToolCallEvent is constructed.
+            None when the tool call was cancelled by a BeforeToolCallEvent hook
+            before execution.
     """
 
     selected_tool: AgentTool | None
@@ -172,6 +176,7 @@ class BidiAfterToolCallEvent(BidiHookEvent):
     result: ToolResult
     exception: Exception | None = None
     cancel_message: str | None = None
+    duration: float | None = None
 
     def _can_write(self, name: str) -> bool:
         return name == "result"

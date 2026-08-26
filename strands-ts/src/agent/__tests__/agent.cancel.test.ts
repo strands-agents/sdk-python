@@ -31,9 +31,7 @@ describe('Agent Cancellation', () => {
 
       expect(result.stopReason).toBe('cancelled')
       expect(result.lastMessage.content[0]).toEqual(new TextBlock('Cancelled by user'))
-      // User message is not appended — cancel fires before message append in the loop
-      expect(agent.messages).toHaveLength(1)
-      expect(agent.messages[0]!.role).toBe('assistant')
+      expect(agent.messages).toEqual([])
     })
 
     it('cancels at top of second cycle when tool calls cancel()', async () => {
@@ -416,14 +414,16 @@ describe('Agent Cancellation', () => {
   })
 
   describe('tool-level cancellation cooperation', () => {
-    it('exposes cancelSignal to tools via context.agent', async () => {
+    it('passes agent.cancelSignal to foreground tools', async () => {
       let signalSeen: AbortSignal | undefined
+      let agentSignalSeen: AbortSignal | undefined
 
       const signalTool = tool({
         name: 'signalTool',
         description: 'Tool that reads the cancellation signal',
         callback: (_input, context) => {
-          signalSeen = context?.agent.cancelSignal
+          signalSeen = context?.cancelSignal
+          agentSignalSeen = context?.agent.cancelSignal
           return 'done'
         },
       })
@@ -437,6 +437,7 @@ describe('Agent Cancellation', () => {
 
       expect(signalSeen).toBeInstanceOf(AbortSignal)
       expect(signalSeen!.aborted).toBe(false)
+      expect(signalSeen).toBe(agentSignalSeen)
     })
 
     it('signal is aborted when tool checks it after cancel()', async () => {
@@ -448,7 +449,7 @@ describe('Agent Cancellation', () => {
         description: 'Tool that cancels then checks the signal',
         callback: (_input, context) => {
           agent.cancel()
-          signalAborted = context?.agent.cancelSignal.aborted
+          signalAborted = context?.cancelSignal.aborted
           return 'done'
         },
       })
