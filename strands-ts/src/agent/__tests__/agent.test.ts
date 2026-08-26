@@ -2284,4 +2284,31 @@ describe('normalizeToolUseNames', () => {
       })
     })
   })
+
+  describe('sessionId', () => {
+    it('returns a stable 8-character string when no session manager is attached', () => {
+      const agent = new Agent({ model: new MockMessageModel() })
+
+      const first = agent.sessionId
+      const second = agent.sessionId
+
+      expect(first).toBe(second)
+      expect(first).toHaveLength(8)
+    })
+
+    it('returns different IDs for different agent instances', () => {
+      const agent1 = new Agent({ model: new MockMessageModel() })
+      const agent2 = new Agent({ model: new MockMessageModel() })
+
+      expect(agent1.sessionId).not.toBe(agent2.sessionId)
+    })
+
+    it('delegates to sessionManager when attached', async () => {
+      const { SessionManager } = await import('../../session/session-manager.js')
+      const sessionManager = new SessionManager({ sessionId: 'my-session' })
+      const agent = new Agent({ model: new MockMessageModel(), sessionManager })
+
+      expect(agent.sessionId).toBe('my-session')
+    })
+  })
 })

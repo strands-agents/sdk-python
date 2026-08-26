@@ -257,6 +257,16 @@ export interface LocalAgent {
   readonly id: string
 
   /**
+   * A stable, unique identifier for the current conversation session.
+   *
+   * Resolution order:
+   * 1. If a SessionManager is attached, returns its session ID.
+   * 2. Otherwise, returns a lazily-generated random 8-character hex string
+   *    cached for the lifetime of the agent instance.
+   */
+  readonly sessionId: string
+
+  /**
    * App state storage accessible to tools and application logic.
    */
   appState: StateStore

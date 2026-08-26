@@ -481,6 +481,8 @@ export class Agent implements LocalAgent, InvokableAgent {
    * The session manager for saving and restoring agent sessions, if configured.
    */
   public readonly sessionManager?: SessionManager | undefined
+
+  private _sessionId?: string
   /**
    * The memory manager for cross-session memory retrieval and storage, if configured.
    */
@@ -501,6 +503,20 @@ export class Agent implements LocalAgent, InvokableAgent {
    */
   get sandbox(): Sandbox {
     return this._sandbox || defaultSandbox.get()
+  }
+
+  /**
+   * A stable, unique identifier for the current conversation session.
+   *
+   * If a SessionManager is attached, delegates to its sessionId.
+   * Otherwise, lazily generates and caches a random 8-character hex string.
+   */
+  get sessionId(): string {
+    if (this.sessionManager) return this.sessionManager.sessionId
+    if (!this._sessionId) {
+      this._sessionId = globalThis.crypto.randomUUID().slice(0, 8)
+    }
+    return this._sessionId
   }
 
   private readonly _hooksRegistry: HookRegistryImplementation
