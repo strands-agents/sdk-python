@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import OpenAI from 'openai'
 import { isNode } from '../../../__fixtures__/environment.js'
 import { OpenAIModel } from '../index.js'
+import { logger } from '../../../logging/logger.js'
 
 vi.mock('openai', async (importOriginal) => {
   const actual = await importOriginal<typeof import('openai')>()
@@ -229,6 +230,43 @@ describe('OpenAIModel bedrockMantleConfig', () => {
       expect(baseURLFor({ modelId, bedrockMantleConfig: { region: 'us-west-2' } })).toBe(
         `https://bedrock-mantle.us-west-2.api.aws${expected}`
       )
+    })
+
+    // #3667: the Mantle client is built once in the constructor, so the base URL
+    // stays at the construction-time model's base path. Say so instead of
+    // silently mis-routing the next request.
+    it('warns that the Mantle base URL is fixed when updateConfig changes modelId', () => {
+      const model = new OpenAIModel({
+        modelId: 'openai.gpt-oss-120b',
+        bedrockMantleConfig: { region: 'us-west-2' },
+      })
+      const warnSpy = vi.spyOn(logger, 'warn')
+      model.updateConfig({ modelId: 'xai.grok-4.3' })
+      expect(model.getConfig().modelId).toBe('xai.grok-4.3')
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("'modelId' does not move the Bedrock Mantle base URL")
+      )
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('https://bedrock-mantle.us-west-2.api.aws/v1'))
+      warnSpy.mockRestore()
+    })
+
+    it('does not warn about the Mantle base URL when updateConfig leaves modelId alone', () => {
+      const model = new OpenAIModel({
+        modelId: 'openai.gpt-oss-120b',
+        bedrockMantleConfig: { region: 'us-west-2' },
+      })
+      const warnSpy = vi.spyOn(logger, 'warn')
+      model.updateConfig({ params: { temperature: 0.5 } })
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('Bedrock Mantle base URL'))
+      warnSpy.mockRestore()
+    })
+
+    it('does not warn about the Mantle base URL when bedrockMantleConfig is not used', () => {
+      const model = new OpenAIModel({ modelId: 'gpt-5.4', client: {} as OpenAI })
+      const warnSpy = vi.spyOn(logger, 'warn')
+      model.updateConfig({ modelId: 'openai.gpt-oss-120b' })
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('Bedrock Mantle base URL'))
+      warnSpy.mockRestore()
     })
   })
 

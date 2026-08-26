@@ -69,6 +69,12 @@ export class OpenAIModel extends Model<OpenAIModelConfig> {
   private readonly _api: OpenAIApi
   private _config: OpenAIModelConfig
   private _client: OpenAI
+  /**
+   * Base URL baked into the Mantle client at construction, or `undefined` when
+   * the Mantle pathway is not in use. Kept so `updateConfig` can say which URL
+   * a later `modelId` change is stuck on.
+   */
+  private readonly _mantleBaseUrl?: string
 
   constructor(options: OpenAIModelOptions) {
     super()
@@ -101,7 +107,9 @@ export class OpenAIModel extends Model<OpenAIModelConfig> {
       this._client = client
     } else if (bedrockMantleConfig) {
       const modelId = modelConfig.modelId ?? MODEL_DEFAULTS.openai.modelId
-      this._client = buildMantleClient(bedrockMantleConfig, apiKey, clientConfig, modelId)
+      const mantle = buildMantleClient(bedrockMantleConfig, apiKey, clientConfig, modelId)
+      this._client = mantle.client
+      this._mantleBaseUrl = mantle.baseURL
     } else {
       const hasEnvKey =
         typeof process !== 'undefined' && typeof process.env !== 'undefined' && process.env.OPENAI_API_KEY
@@ -142,6 +150,10 @@ export class OpenAIModel extends Model<OpenAIModelConfig> {
    * they are stripped with a warning. Changing either at runtime would
    * invalidate the invariants the agent builds on top of `stateful` (message
    * history management, `previous_response_id` chaining).
+   *
+   * Under `bedrockMantleConfig`, `modelId` still updates but the client's base
+   * URL does not — it is fixed at construction, so a swap across the Mantle
+   * base-path boundary is warned about rather than silently mis-routed.
    */
   updateConfig(modelConfig: OpenAIModelConfig & { api?: OpenAIApi }): void {
     const { api, stateful, ...rest } = modelConfig
@@ -151,6 +163,13 @@ export class OpenAIModel extends Model<OpenAIModelConfig> {
     if (stateful !== undefined) {
       logger.warn(
         `stateful=<${stateful}> | 'stateful' is construction-only and cannot be changed via updateConfig — ignoring`
+      )
+    }
+
+    if (this._mantleBaseUrl !== undefined && rest.modelId !== undefined) {
+      logger.warn(
+        `modelId=<${rest.modelId}> | 'modelId' does not move the Bedrock Mantle base URL — it stays at ` +
+          `<${this._mantleBaseUrl}>, fixed at construction, so a model served from the other base path will fail`
       )
     }
 
@@ -285,7 +304,7 @@ function buildMantleClient(
   apiKey: OpenAIModelOptions['apiKey'],
   clientConfig: OpenAIModelOptions['clientConfig'],
   modelId: string
-): OpenAI {
+): { client: OpenAI; baseURL: string } {
   if (apiKey !== undefined) {
     throw new Error(
       "'apiKey' cannot be combined with 'bedrockMantleConfig'; the API key is derived from the Mantle config automatically."
@@ -304,10 +323,14 @@ function buildMantleClient(
 
   // Resolve the region eagerly so missing-region configuration fails fast.
   const region = resolveMantleRegion(bedrockMantleConfig)
+  const baseURL = bedrockMantleBaseUrl(region, modelId)
 
-  return new OpenAI({
-    ...clientConfig,
-    baseURL: bedrockMantleBaseUrl(region, modelId),
-    apiKey: createMantleApiKeySetter(bedrockMantleConfig, region),
-  })
+  return {
+    client: new OpenAI({
+      ...clientConfig,
+      baseURL,
+      apiKey: createMantleApiKeySetter(bedrockMantleConfig, region),
+    }),
+    baseURL,
+  }
 }
