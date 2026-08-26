@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { Agent, type ToolList } from '../agent.js'
+import { SessionManager } from '../../session/session-manager.js'
 import { McpClient } from '../../mcp/index.js'
 import { McpTool } from '../../tools/mcp-tool.js'
 import { MockMessageModel } from '../../__fixtures__/mock-message-model.js'
@@ -2303,8 +2304,7 @@ describe('normalizeToolUseNames', () => {
       expect(agent1.sessionId).not.toBe(agent2.sessionId)
     })
 
-    it('delegates to sessionManager when attached', async () => {
-      const { SessionManager } = await import('../../session/session-manager.js')
+    it('delegates to sessionManager when attached', () => {
       const sessionManager = new SessionManager({ sessionId: 'my-session' })
       const agent = new Agent({ model: new MockMessageModel(), sessionManager })
 
