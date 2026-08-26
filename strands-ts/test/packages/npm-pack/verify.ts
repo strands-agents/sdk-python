@@ -26,6 +26,7 @@ import { notebook } from '@strands-agents/sdk/vended-tools/notebook'
 import { fileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
 import { httpRequest } from '@strands-agents/sdk/vended-tools/http-request'
 import { bash } from '@strands-agents/sdk/vended-tools/bash'
+import { useAgent } from '@strands-agents/sdk/experimental/vended-tools/use-agent'
 
 import {
   bash as barrelBash,
@@ -78,7 +79,7 @@ if (agent.tools.length === 0) {
 }
 console.log('[pack-test] Agent constructed with tool')
 
-const vendedTools: Record<string, Tool> = { notebook, fileEditor, httpRequest, bash }
+const vendedTools: Record<string, Tool> = { notebook, fileEditor, httpRequest, bash, useAgent }
 for (const [name, t] of Object.entries(vendedTools)) {
   if (!(t instanceof Tool)) {
     throw new Error(`Vended tool '${name}' is not a Tool instance`)

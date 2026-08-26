@@ -5,6 +5,7 @@ import { fileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
 import { httpRequest } from '@strands-agents/sdk/vended-tools/http-request'
 import { notebook } from '@strands-agents/sdk/vended-tools/notebook'
 // --8<-- [end:basic_import]
+import { makeUseAgent } from '@strands-agents/sdk/experimental/vended-tools/use-agent'
 import { SessionManager, FileStorage } from '@strands-agents/sdk'
 import { sleep, makeSleep } from '@strands-agents/sdk/vended-tools/sleep'
 import { stop } from '@strands-agents/sdk/experimental/vended-tools/stop'
@@ -16,6 +17,23 @@ async function agentWithVendedToolsExample() {
     tools: [bash, fileEditor, httpRequest, notebook],
   })
   // --8<-- [end:agent_with_vended_tools]
+}
+
+async function useAgentExample() {
+  // --8<-- [start:use_agent_example]
+  const delegate = makeUseAgent({
+    limits: {
+      turns: 20,
+      totalTokens: 40_000,
+      timeoutSeconds: 120,
+    },
+  })
+  const agent = new Agent({
+    tools: [httpRequest, delegate],
+  })
+
+  await agent.invoke('Delegate web research to use_agent, granting only http_request.')
+  // --8<-- [end:use_agent_example]
 }
 
 // Bash tool example - file operations
