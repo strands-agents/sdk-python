@@ -30,8 +30,8 @@ from collections.abc import AsyncGenerator
 from typing import Any, cast
 
 import boto3
-from aws_sdk_bedrock_runtime.client import BedrockRuntimeClient, InvokeModelWithBidirectionalStreamOperationInput
-from aws_sdk_bedrock_runtime.config import Config, HTTPAuthSchemeResolver, SigV4AuthScheme
+from aws_sdk_bedrock_runtime.client import AsyncBedrockRuntimeClient, InvokeModelWithBidirectionalStreamOperationInput
+from aws_sdk_bedrock_runtime.config import AsyncBedrockRuntimeConfig, HTTPAuthSchemeResolver, SigV4AuthScheme
 from aws_sdk_bedrock_runtime.models import (
     BidirectionalInputPayloadPart,
     InvokeModelWithBidirectionalStreamInputChunk,
@@ -41,6 +41,7 @@ from aws_sdk_bedrock_runtime.models import (
 from smithy_aws_core.identity.static import StaticCredentialsResolver
 from smithy_core.aio.eventstream import DuplexEventStream
 from smithy_core.shapes import ShapeID
+from smithy_http.aio.crt import AWSCRTHTTPClient
 
 from ....models._validation import validate_region
 from ....types._events import ToolResultEvent, ToolUseStreamEvent
@@ -261,7 +262,7 @@ class BidiNovaSonicModel(BidiModel):
         # Use static resolver with credentials configured as properties
         resolver = StaticCredentialsResolver()
 
-        config = Config(
+        config = await AsyncBedrockRuntimeConfig.resolve(
             endpoint_uri=f"https://bedrock-runtime.{self.region}.amazonaws.com",
             region=self.region,
             aws_credentials_identity_resolver=resolver,
@@ -271,10 +272,11 @@ class BidiNovaSonicModel(BidiModel):
             aws_access_key_id=credentials.access_key,
             aws_secret_access_key=credentials.secret_key,
             aws_session_token=credentials.token,
+            transport=AWSCRTHTTPClient(),
             user_agent_extra=_STRANDS_USER_AGENT_EXTRA,
         )
 
-        self._client = BedrockRuntimeClient(config=config)
+        self._client = AsyncBedrockRuntimeClient(config=config)
         logger.debug("region=<%s> | nova sonic client initialized", self.region)
 
         self._stream = await self._client.invoke_model_with_bidirectional_stream(
@@ -558,7 +560,7 @@ class BidiNovaSonicModel(BidiModel):
         logger.debug("nova connection cleanup starting")
 
         async def stop_events() -> None:
-            if not self._connection_id:
+            if not self._connection_id or not hasattr(self, "_stream"):
                 return
 
             await self._end_audio_input()
@@ -569,12 +571,24 @@ class BidiNovaSonicModel(BidiModel):
             if not hasattr(self, "_stream"):
                 return
 
-            await self._stream.close()
+            try:
+                await self._stream.close()
+            finally:
+                del self._stream
+
+        async def stop_client() -> None:
+            if not hasattr(self, "_client"):
+                return
+
+            try:
+                await self._client.close()
+            finally:
+                del self._client
 
         async def stop_connection() -> None:
             self._connection_id = None
 
-        await stop_all(stop_events, stop_stream, stop_connection)
+        await stop_all(stop_events, stop_stream, stop_client, stop_connection)
 
         logger.debug("nova connection closed")
 

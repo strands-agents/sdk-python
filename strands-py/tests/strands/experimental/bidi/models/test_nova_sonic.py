@@ -66,7 +66,7 @@ def mock_stream():
 @pytest.fixture
 def mock_client(mock_stream):
     """Mock Bedrock Runtime client."""
-    with patch("strands.experimental.bidi.models.nova_sonic.BedrockRuntimeClient") as mock_cls:
+    with patch("strands.experimental.bidi.models.nova_sonic.AsyncBedrockRuntimeClient") as mock_cls:
         mock_instance = AsyncMock()
         mock_instance.invoke_model_with_bidirectional_stream = AsyncMock(return_value=mock_stream)
         mock_cls.return_value = mock_instance
@@ -99,7 +99,7 @@ async def test_model_initialization(model_id, boto_session):
 @pytest.mark.asyncio
 async def test_start_sets_strands_user_agent_on_bedrock_runtime_client(model_id, boto_session, mock_stream):
     """Always set the Strands user agent marker on the generated Bedrock Runtime client."""
-    with patch("strands.experimental.bidi.models.nova_sonic.BedrockRuntimeClient") as mock_cls:
+    with patch("strands.experimental.bidi.models.nova_sonic.AsyncBedrockRuntimeClient") as mock_cls:
         mock_instance = AsyncMock()
         mock_instance.invoke_model_with_bidirectional_stream = AsyncMock(return_value=mock_stream)
         mock_cls.return_value = mock_instance
@@ -199,6 +199,7 @@ async def test_connection_lifecycle(nova_model, mock_client, mock_stream):
     # Test close
     await nova_model.stop()
     assert mock_stream.close.called
+    assert mock_client.close.called
 
     # Test connection with tools
     tools = [
@@ -217,6 +218,24 @@ async def test_connection_lifecycle(nova_model, mock_client, mock_stream):
 @pytest.mark.asyncio
 async def test_model_stop_alone(nova_model):
     await nova_model.stop()  # Should not raise
+
+
+@pytest.mark.asyncio
+async def test_model_stop_after_start_failure(model_id, boto_session):
+    with patch("strands.experimental.bidi.models.nova_sonic.AsyncBedrockRuntimeClient") as mock_cls:
+        mock_instance = AsyncMock()
+        mock_instance.invoke_model_with_bidirectional_stream.side_effect = RuntimeError("connection failed")
+        mock_cls.return_value = mock_instance
+
+        model = BidiNovaSonicModel(model_id=model_id, client_config={"boto_session": boto_session})
+
+        with pytest.raises(RuntimeError, match="connection failed"):
+            await model.start()
+
+        await model.stop()
+
+        mock_instance.close.assert_awaited_once()
+        assert model._connection_id is None
 
 
 @pytest.mark.asyncio
