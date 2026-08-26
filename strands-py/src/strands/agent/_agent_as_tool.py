@@ -217,7 +217,7 @@ class _AgentAsTool(AgentTool):
             logger.debug("tool_name=<%s>, tool_use_id=<%s> | invoking agent", self._tool_name, tool_use_id)
 
             result = None
-            async for event in self._agent.stream_async(prompt):
+            async for event in self._agent.stream_async(prompt, invocation_state=dict(invocation_state)):
                 if "result" in event:
                     result = event["result"]
                 else:
