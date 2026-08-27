@@ -100,7 +100,9 @@ export class TruncateStrategy extends BaseOffloadStrategy {
     }
     if (block instanceof TextBlock) {
       logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | truncated text block`)
-      return truncateTextBlock(block, this._truncateConfig)
+      const truncated = truncateTextBlock(block, this._truncateConfig)
+      const refs = formatStashRefs(stashRefs)
+      return refs ? new TextBlock(`${truncated.text}\n\n[Stashed:${refs}]`) : truncated
     }
     logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | offloaded media block`)
     return new TextBlock(`[Offloaded: ~${tokens} tokens${formatStashRefs(stashRefs)}]`)
