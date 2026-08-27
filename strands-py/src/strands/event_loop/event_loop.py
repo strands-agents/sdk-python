@@ -19,7 +19,7 @@ from opentelemetry import trace as trace_api
 from .._middleware.stages import InvokeModelContext, InvokeModelStage
 from ..experimental.checkpoint import Checkpoint, CheckpointPosition
 from ..hooks import AfterModelCallEvent, AfterToolsEvent, BeforeModelCallEvent, BeforeToolsEvent
-from ..telemetry.metrics import Trace
+from ..telemetry.metrics import Trace, _total_prompt_tokens
 from ..telemetry.tracer import Tracer, get_tracer
 from ..tools._validator import validate_and_prepare_tools
 from ..tools.structured_output._structured_output_context import StructuredOutputContext
@@ -123,10 +123,11 @@ def _has_tool_use_in_latest_message(messages: "Messages") -> bool:
 async def _estimate_input_tokens(agent: "Agent") -> int:
     """Estimate the input token count for the next model call.
 
-    Reads inputTokens + outputTokens from the last assistant message's metadata as a known
-    baseline, then estimates only new messages added after it. Falls back to full estimation
-    when no metadata is available (cold start or first call). On cold start, tool specs are
-    resolved lazily so that the caller does not need to resolve them before BeforeModelCallEvent.
+    Reads the total prompt the model processed (including cached tokens) plus outputTokens from the
+    last assistant message's metadata as a known baseline, then estimates only new messages added
+    after it. Falls back to full estimation when no metadata is available (cold start or first call).
+    On cold start, tool specs are resolved lazily so that the caller does not need to resolve them
+    before BeforeModelCallEvent.
 
     Args:
         agent: The agent instance with messages and model.
@@ -145,7 +146,7 @@ async def _estimate_input_tokens(agent: "Agent") -> int:
 
     if last_assistant_idx >= 0:
         usage = messages[last_assistant_idx]["metadata"]["usage"]
-        known_baseline = usage["inputTokens"] + usage["outputTokens"]
+        known_baseline = _total_prompt_tokens(usage) + usage["outputTokens"]
         new_messages = messages[last_assistant_idx + 1 :]
         if not new_messages:
             return known_baseline
