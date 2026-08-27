@@ -42,6 +42,16 @@ export class HookRegistryImplementation implements HookRegistry {
     this._callbacks = new Map()
   }
 
+  /** @internal */
+  _inheritCallbacksFrom(registry: HookRegistryImplementation, eventTypes: readonly HookableEventConstructor[]): void {
+    for (const eventType of eventTypes) {
+      const callbacks = this._callbacks.get(eventType) ?? []
+      callbacks.push(...(registry._callbacks.get(eventType) ?? []))
+      callbacks.sort((a, b) => a.order - b.order)
+      this._callbacks.set(eventType, callbacks)
+    }
+  }
+
   /** {@inheritDoc HookRegistry.addCallback} */
   addCallback<T extends HookableEvent>(
     eventType: HookableEventConstructor<T>,

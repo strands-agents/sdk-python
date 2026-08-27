@@ -76,6 +76,7 @@ import {
   AfterToolsEvent,
   BeforeInvocationEvent,
   BeforeModelCallEvent,
+  BeforeToolCallEvent,
   BeforeToolsEvent,
   HookableEvent,
   MessageAddedEvent,
@@ -422,6 +423,9 @@ const DEFAULT_AGENT_ID = 'agent'
 /** Result returned by tool-execution generators, threading the AfterToolsEvent back to the main loop. */
 type ToolsExecutionResult = { message: Message; afterToolsEvent: AfterToolsEvent; toolsSkipped: boolean }
 
+/** @internal */
+export const inheritPreToolHooksSymbol = Symbol('Agent.inheritPreToolHooks')
+
 /**
  * Orchestrates the interaction between a model, a set of tools, and MCP clients.
  * The Agent is responsible for managing the lifecycle of tools and clients
@@ -712,6 +716,11 @@ export class Agent implements LocalAgent, InvokableAgent {
     options?: HookCallbackOptions
   ): HookCleanup {
     return this._hooksRegistry.addCallback(eventType, callback, options)
+  }
+
+  /** @internal */
+  [inheritPreToolHooksSymbol](parent: Agent): void {
+    this._hooksRegistry._inheritCallbacksFrom(parent._hooksRegistry, [BeforeToolsEvent, BeforeToolCallEvent])
   }
 
   /**

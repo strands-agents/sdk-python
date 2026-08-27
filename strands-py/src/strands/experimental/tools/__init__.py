@@ -4,6 +4,7 @@ import warnings
 from typing import Any
 
 from .stop import make_stop, stop
+from .use_agent import make_use_agent, use_agent
 
 _DEPRECATED_NAMES = {"ToolProvider"}
 
@@ -23,5 +24,7 @@ def __getattr__(name: str) -> Any:
 
 __all__ = [
     "make_stop",
+    "make_use_agent",
     "stop",
+    "use_agent",
 ]

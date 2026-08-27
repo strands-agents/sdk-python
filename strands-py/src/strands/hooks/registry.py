@@ -182,6 +182,17 @@ class HookRegistry:
         """Initialize an empty hook registry."""
         self._registered_callbacks: dict[type, list[_CallbackEntry]] = {}
 
+    def _inherit_callbacks_from(
+        self,
+        registry: "HookRegistry",
+        event_types: list[type[BaseHookEvent]],
+    ) -> None:
+        """Inherit selected callback types from another registry."""
+        for event_type in event_types:
+            entries = self._registered_callbacks.setdefault(event_type, [])
+            entries.extend(registry._registered_callbacks.get(event_type, []))
+            entries.sort(key=lambda entry: entry.order)
+
     def add_callback(
         self,
         event_type: type[TEvent] | list[type[TEvent]] | None,

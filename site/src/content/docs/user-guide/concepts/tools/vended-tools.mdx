@@ -10,10 +10,12 @@ sourceLinks:
   - path: strands-ts/src/vended-tools/http-request/http-request.ts
   - path: strands-ts/src/vended-tools/notebook/notebook.ts
   - path: strands-ts/src/vended-tools/sleep/sleep.ts
+  - path: strands-ts/src/experimental/vended-tools/use-agent/use-agent.ts
   - path: strands-ts/src/experimental/vended-tools/stop/stop.ts
   - path: strands-py/src/strands/vended_tools/http_request/http_request.py
   - path: strands-py/src/strands/vended_tools/shell/shell.py
   - path: strands-py/src/strands/vended_tools/sleep/sleep.py
+  - path: strands-py/src/strands/experimental/tools/use_agent/use_agent.py
   - path: strands-py/src/strands/experimental/tools/stop/stop.py
 ---
 
@@ -40,7 +42,52 @@ Each tool is imported from its own subpath under `@strands-agents/sdk/vended-too
 | [Notebook](#notebook) | Manage persistent text notebooks | TypeScript (Node.js, browsers) |
 | [Bash](#bash) | Execute shell commands with persistent sessions | Python, TypeScript (Node.js, Unix/Linux/macOS) |
 | [Sleep](#sleep) | Pause execution for a bounded, cancellable duration | Python, TypeScript (Node.js, browsers) |
+| [Use Agent](#use-agent-experimental) | Create a child agent | Python, TypeScript |
 | [Stop](#stop-experimental) | Gracefully end the agent loop when the task is complete | Python, TypeScript (Node.js, browsers) |
+
+### Use Agent (Experimental)
+
+Each call creates a fresh child agent with the parent's model and sandbox. The model must
+name every parent tool the child can use; omitting `tools` grants none. Parent and ancestor
+pre-tool hooks still govern delegated calls.
+
+Built-in caps bound turns, cumulative tokens, nesting depth, and execution time. Factory
+limits can only lower them. Models with provider-native tools are rejected. Timeout and
+cancellation are cooperative, and interrupted children can resume only while the original
+parent and `use_agent` instances remain in memory.
+
+<Tabs>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/tools/vended-tools-imports.ts:use_agent_import"
+
+--8<-- "user-guide/concepts/tools/vended-tools.ts:use_agent_example"
+```
+
+</Tab>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.experimental.tools import make_use_agent
+from strands.vended_tools import http_request
+
+delegate = make_use_agent(
+    limits={
+        "turns": 20,
+        "total_tokens": 40_000,
+        "timeout_seconds": 120,
+    }
+)
+agent = Agent(tools=[http_request, delegate])
+agent("Delegate web research to use_agent, granting only http_request.")
+```
+
+</Tab>
+</Tabs>
+
+---
 
 ### File Editor
 
