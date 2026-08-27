@@ -94,7 +94,6 @@ from ..types.exceptions import ConcurrencyException, ContextWindowOverflowExcept
 from ..types.tools import AgentTool
 from ..types.traces import AttributeValue
 from ._agent_as_tool import _AgentAsTool
-from ._cancel import link_cancel_signal
 from ._concurrency import _ConcurrencyController
 from .agent_result import AgentResult
 from .base import AgentBase
@@ -106,6 +105,26 @@ from .conversation_manager import (
 from .state import AgentState
 
 logger = logging.getLogger(__name__)
+
+# How often the watcher mirrors a caller-owned cancel signal onto the agent's internal one.
+_CANCEL_POLL_INTERVAL = 0.05
+
+
+async def _link_cancel_signal(external: threading.Event, internal: threading.Event) -> None:
+    """Mirror a caller-owned cancellation event onto the agent's internal event.
+
+    Args:
+        external: Caller-owned event. Never set or cleared here.
+        internal: The agent's event, which every cancellation checkpoint reads.
+    """
+    # threading.Event has no async notification hook. Poll on this loop rather than
+    # running Event.wait() in an executor: cancelling that await cannot stop a worker
+    # already blocked in Event.wait(), so completed invocations could strand worker threads.
+    while not external.is_set():
+        await asyncio.sleep(_CANCEL_POLL_INTERVAL)
+
+    internal.set()
+
 
 # TypeVar for generic structured output
 T = TypeVar("T", bound=BaseModel)
@@ -1191,7 +1210,7 @@ class Agent(AgentBase):
             self._cancel_signal.set()
         return self._cancel_signal.is_set()
 
-    def _link_cancel_signal(self, cancel_signal: threading.Event | None) -> "asyncio.Task[None] | None":
+    def _start_cancel_watcher(self, cancel_signal: threading.Event | None) -> "asyncio.Task[None] | None":
         """Mirror a caller-owned cancellation event onto the internal one for this invocation.
 
         A signal that is already set is applied synchronously: the watcher task does not run until
@@ -1211,7 +1230,7 @@ class Agent(AgentBase):
             self._cancel_signal.set()
             return None
 
-        return asyncio.create_task(link_cancel_signal(cancel_signal, self._cancel_signal))
+        return asyncio.create_task(_link_cancel_signal(cancel_signal, self._cancel_signal))
 
     async def stream_async(
         self,
@@ -1320,7 +1339,7 @@ class Agent(AgentBase):
 
         try:
             self._external_cancel_signal = cancel_signal
-            cancel_watcher = self._link_cancel_signal(cancel_signal)
+            cancel_watcher = self._start_cancel_watcher(cancel_signal)
 
             self._interrupt_state.resume(prompt)
 
