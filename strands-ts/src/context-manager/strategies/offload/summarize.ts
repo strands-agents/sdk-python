@@ -130,7 +130,9 @@ export class SummarizeStrategy extends BaseOffloadStrategy {
       if (!summary) return null
 
       logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | summarized text block`)
-      return new TextBlock(`${SUMMARIZED_PREFIX} ~${tokens.toLocaleString()} tokens]\n\n${summary}`)
+      return new TextBlock(
+        `${SUMMARIZED_PREFIX} ~${tokens.toLocaleString()} tokens |${formatStashRefs(stashRefs)}]\n\n${summary}`
+      )
     }
 
     logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | offloaded media block`)
