@@ -245,6 +245,7 @@ class MCPClient(ToolProvider):
         elicitation_callback: ElicitationFnT | None = None,
         progress_callback: ProgressFnT | None = None,
         tasks_config: TasksConfig | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> None:
         """Initialize a new MCP Server connection.
 
@@ -278,6 +279,7 @@ class MCPClient(ToolProvider):
             tasks_config: Configuration for MCP task-augmented execution for long-running tools.
                 If provided (not None), enables task-augmented execution for tools that support it.
                 See TasksConfig for details. This feature is experimental and subject to change.
+            meta: Optional metadata to include with MCP tool calls.
 
         Raises:
             ValueError: If neither or both of `transport_callable` and `url` are provided, if
@@ -295,6 +297,7 @@ class MCPClient(ToolProvider):
         self._connection_failed = False
         self._elicitation_callback = elicitation_callback
         self._progress_callback = progress_callback
+        self._meta = meta
 
         mcp_instrumentation()
         self._session_id = uuid.uuid4()
@@ -637,12 +640,16 @@ class MCPClient(ToolProvider):
                 self._tool_task_support_cache[tool.name] = task_support or "forbidden"
 
             # Apply prefix if specified
+            tool_kwargs: dict[str, Any] = {}
+            if self._meta is not None:
+                tool_kwargs["meta"] = self._meta
             if effective_prefix:
                 prefixed_name = f"{effective_prefix}_{tool.name}"
-                mcp_tool = MCPAgentTool(tool, self, name_override=prefixed_name)
+                tool_kwargs["name_override"] = prefixed_name
+                mcp_tool = MCPAgentTool(tool, self, **tool_kwargs)
                 logger.debug("tool_rename=<%s->%s> | renamed tool", tool.name, prefixed_name)
             else:
-                mcp_tool = MCPAgentTool(tool, self)
+                mcp_tool = MCPAgentTool(tool, self, **tool_kwargs)
 
             # Apply filters if specified
             if self._should_include_tool_with_filters(mcp_tool, effective_filters):

@@ -35,6 +35,7 @@ class MCPAgentTool(AgentTool):
         mcp_client: "MCPClient",
         name_override: str | None = None,
         timeout: timedelta | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> None:
         """Initialize a new MCPAgentTool instance.
 
@@ -44,6 +45,7 @@ class MCPAgentTool(AgentTool):
             name_override: Optional name to use for the agent tool (for disambiguation)
                            If None, uses the original MCP tool name
             timeout: Optional timeout duration for tool execution
+            meta: Optional metadata to include with MCP tool calls
         """
         super().__init__()
         logger.debug("tool_name=<%s> | creating mcp agent tool", mcp_tool.name)
@@ -51,6 +53,7 @@ class MCPAgentTool(AgentTool):
         self.mcp_client = mcp_client
         self._agent_tool_name = name_override or mcp_tool.name
         self.timeout = timeout
+        self.meta = meta
 
     @property
     def tool_name(self) -> str:
@@ -119,11 +122,17 @@ class MCPAgentTool(AgentTool):
         """
         logger.debug("tool_name=<%s>, tool_use_id=<%s> | streaming", self.tool_name, tool_use["toolUseId"])
 
+        call_kwargs: dict[str, Any] = {
+            "tool_use_id": tool_use["toolUseId"],
+            "name": self.mcp_tool.name,  # Use original MCP name for server communication
+            "arguments": tool_use["input"],
+            "read_timeout_seconds": self.timeout,
+            "cancel_signal": getattr(invocation_state.get("agent"), "_cancel_signal", None),
+        }
+        if self.meta is not None:
+            call_kwargs["meta"] = self.meta
+
         result = await self.mcp_client.call_tool_async(
-            tool_use_id=tool_use["toolUseId"],
-            name=self.mcp_tool.name,  # Use original MCP name for server communication
-            arguments=tool_use["input"],
-            read_timeout_seconds=self.timeout,
-            cancel_signal=getattr(invocation_state.get("agent"), "_cancel_signal", None),
+            **call_kwargs,
         )
         yield ToolResultEvent(result)

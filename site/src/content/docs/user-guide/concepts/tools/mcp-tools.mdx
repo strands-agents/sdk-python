@@ -81,6 +81,27 @@ with mcp_client:
     agent = Agent(tools=tools)
     agent("What is AWS Lambda?")  # Must be within context
 ```
+
+### Request Metadata
+
+To attach fixed metadata to every model-driven MCP tool call, pass `meta` when
+constructing the Python `MCPClient`. The payload is forwarded as the MCP
+request's standard `_meta` field:
+
+```python
+mcp_client = MCPClient(
+    lambda: stdio_client(
+        StdioServerParameters(
+            command="uvx",
+            args=["awslabs.aws-documentation-mcp-server@latest"],
+        )
+    ),
+    meta={"tenant_id": "tenant-a", "trace_source": "support-agent"},
+)
+```
+
+This is useful for server-side routing, tracing, and tenant context when the
+model invokes an MCP tool through the agent loop.
 </Tab>
 <Tab label="TypeScript">
 
