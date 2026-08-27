@@ -4963,6 +4963,20 @@ def test_format_request_tools_ttl_string_sets_the_section_duration(bedrock_clien
     assert tru_point == {"cachePoint": {"type": "default", "ttl": "5m"}}
 
 
+def test_format_request_tools_ttl_string_stands_the_system_point_down(bedrock_client, messages, tool_spec):
+    """A shorter tools_ttl leaves the auto system cache point at the provider default."""
+    _ = bedrock_client
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto", ttl="1h", tools_ttl="5m"),
+    )
+
+    request = model.format_request(messages, tool_specs=[tool_spec], system_prompt_content=[{"text": "static"}])
+
+    assert request["toolConfig"]["tools"][-1] == {"cachePoint": {"type": "default", "ttl": "5m"}}
+    assert {"cachePoint": {"type": "default"}} in request["system"]
+
+
 def test_format_request_tools_ttl_true_without_shared_ttl_stays_untimed(bedrock_client, messages, tool_spec):
     """With nothing to derive from, tools_ttl=True still caches the tools but at the provider default."""
     _ = bedrock_client

@@ -1589,7 +1589,7 @@ class TestPromptCaching:
         assert not any(bp[0] == "tools" for bp in breakpoints)
 
     def test_cache_tools_takes_precedence_over_tools_ttl(self, model, messages, tool_specs):
-        """The maintainer decision: the deprecated cache_tools wins over the new tools_ttl when both are set."""
+        """The deprecated cache_tools wins over the new tools_ttl when both are set."""
         model.update_config(
             cache_config=CacheConfig(strategy="auto", ttl="1h", tools_ttl="5m"),
             cache_tools=CacheToolsConfig(ttl="1h"),
