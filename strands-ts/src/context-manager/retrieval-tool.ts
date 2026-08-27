@@ -11,6 +11,7 @@ import { tool } from '../tools/tool-factory.js'
 import { isSearchableContent, searchContent } from '../vended-plugins/context-offloader/search.js'
 import type { JSONValue } from '../types/json.js'
 import type { Tool } from '../tools/tool.js'
+import { Message, ToolUseBlock } from '../types/messages.js'
 import type { Stash } from './stash.js'
 
 export const RETRIEVAL_TOOL_NAME = 'retrieve_context'
@@ -83,6 +84,21 @@ export function createRetrievalTool(stash: Stash, maxResultTokens?: number): Too
       )
     },
   })
+}
+
+/**
+ * Tracks toolUseIds from retrieval tool invocations so their results
+ * can be excluded from stashing (prevents retrieval loops).
+ *
+ * @internal
+ */
+export function trackRetrievalToolUseIds(message: Message, skipSet: Set<string>): void {
+  if (message.role !== 'assistant') return
+  for (const block of message.content) {
+    if (block instanceof ToolUseBlock && block.name === RETRIEVAL_TOOL_NAME) {
+      skipSet.add(block.toolUseId)
+    }
+  }
 }
 
 function extractText(data: unknown): string | null {

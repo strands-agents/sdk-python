@@ -6,7 +6,6 @@
 
 import type { Plugin } from '../plugins/plugin.js'
 import type { Tool } from '../tools/tool.js'
-import { Message, ToolResultBlock, ToolUseBlock } from '../types/messages.js'
 import type { LocalAgent } from '../types/agent.js'
 import { AfterModelCallEvent, BeforeModelCallEvent, MessageAddedEvent } from '../hooks/events.js'
 import { ContextWindowOverflowError } from '../errors.js'
@@ -16,7 +15,7 @@ import { logger } from '../logging/logger.js'
 import type { ContextManagerConfig, ContextStrategy, ContextState } from './types.js'
 import { EmergencyTruncateStrategy, Offload } from './strategies/offload/index.js'
 import { Stash } from './stash.js'
-import { createRetrievalTool, RETRIEVAL_TOOL_NAME } from './retrieval-tool.js'
+import { createRetrievalTool, trackRetrievalToolUseIds } from './retrieval-tool.js'
 
 /**
  * Manages context reduction for an agent's conversation.
@@ -37,6 +36,7 @@ export class ContextManager implements Plugin {
 
   private readonly _strategies: ContextStrategy[]
   private readonly _stashStorage: Storage | false
+  private readonly _enableRetrievalTool: boolean
   private readonly _retrievalToolUseIds = new Set<string>()
   private _stash: Stash | undefined
   private _retrievalTool: Tool | undefined
@@ -50,10 +50,11 @@ export class ContextManager implements Plugin {
       new EmergencyTruncateStrategy(),
     ]
     this._stashStorage = config?.stash === false ? false : (config?.stash?.storage ?? new InMemoryStorage())
+    this._enableRetrievalTool = config?.stash !== false && config?.stash?.retrievalTool !== false
   }
 
   getTools(): Tool[] {
-    if (this._stashStorage === false) return []
+    if (!this._enableRetrievalTool) return []
     if (!this._stash) return []
     if (!this._retrievalTool) {
       this._retrievalTool = createRetrievalTool(this._stash)
@@ -68,9 +69,10 @@ export class ContextManager implements Plugin {
 
     if (this._stash) {
       const stash = this._stash
+      const skipSet = this._retrievalToolUseIds
       agent.addHook(MessageAddedEvent, async (event) => {
-        this._trackRetrievalToolUseIds(event.message)
-        await stash.storeMessage(event.message, this._retrievalToolUseIds)
+        trackRetrievalToolUseIds(event.message, skipSet)
+        await stash.storeMessage(event.message, skipSet)
       })
     }
 
@@ -136,12 +138,4 @@ export class ContextManager implements Plugin {
     return anyActed
   }
 
-  private _trackRetrievalToolUseIds(message: Message): void {
-    if (message.role !== 'assistant') return
-    for (const block of message.content) {
-      if (block instanceof ToolUseBlock && block.name === RETRIEVAL_TOOL_NAME) {
-        this._retrievalToolUseIds.add(block.toolUseId)
-      }
-    }
-  }
 }

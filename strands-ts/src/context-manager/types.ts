@@ -54,6 +54,13 @@ export interface ContextState {
 export interface StashConfig {
   /** Storage backend. Defaults to InMemoryStorage when omitted. */
   storage?: Storage
+
+  /**
+   * Whether to register the `retrieve_context` tool for the agent.
+   * Set to `false` to keep stash persistence without exposing the retrieval tool.
+   * Defaults to `true`.
+   */
+  retrievalTool?: false
 }
 
 /**
