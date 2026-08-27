@@ -338,17 +338,6 @@ The model chooses the fetched URL, so the tool is intentionally strict at that b
 **Example:**
 
 <Tabs>
-<Tab label="TypeScript">
-
-```typescript
-import { Agent } from '@strands-agents/sdk'
-import { webFetch } from '@strands-agents/sdk/vended-tools/web-fetch'
-
-const agent = new Agent({ tools: [webFetch] })
-await agent.invoke('Summarize https://example.com/blog/post')
-```
-
-</Tab>
 <Tab label="Python">
 
 ```python
@@ -361,8 +350,6 @@ agent("Summarize https://example.com/blog/post")
 
 </Tab>
 </Tabs>
-
-📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/web-fetch/README.md)
 
 ---
 
