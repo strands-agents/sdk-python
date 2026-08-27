@@ -5,7 +5,7 @@ import { InMemoryStorage } from '../../storage/in-memory-storage.js'
 describe('Stash', () => {
   describe('store and retrieve', () => {
     it('round-trips text content', async () => {
-      const stash = new Stash(new InMemoryStorage(), 'test-session')
+      const stash = new Stash(new InMemoryStorage(), 'test-session', 'test-agent')
       const data = { type: 'text', text: 'hello world' }
       const ref = await stash.store('tool-123', 0, new TextEncoder().encode(JSON.stringify(data)))
 
@@ -18,7 +18,7 @@ describe('Stash', () => {
     })
 
     it('round-trips JSON content', async () => {
-      const stash = new Stash(new InMemoryStorage(), 'test-session')
+      const stash = new Stash(new InMemoryStorage(), 'test-session', 'test-agent')
       const data = { key: 'value', count: 42 }
       const ref = await stash.store('tool-456', 1, new TextEncoder().encode(JSON.stringify(data)))
 
@@ -29,13 +29,13 @@ describe('Stash', () => {
     })
 
     it('returns null for unknown references', async () => {
-      const stash = new Stash(new InMemoryStorage(), 'test-session')
+      const stash = new Stash(new InMemoryStorage(), 'test-session', 'test-agent')
       const result = await stash.retrieve('nonexistent')
       expect(result).toBeNull()
     })
 
     it('produces deterministic keys from the same id and blockIndex', async () => {
-      const stash = new Stash(new InMemoryStorage(), 'test-session')
+      const stash = new Stash(new InMemoryStorage(), 'test-session', 'test-agent')
       const content = new TextEncoder().encode(JSON.stringify('data'))
       const ref1 = await stash.store('tool-1', 0, content)
       const ref2 = await stash.store('tool-1', 0, content)
@@ -44,7 +44,7 @@ describe('Stash', () => {
     })
 
     it('produces different keys for different id or blockIndex', async () => {
-      const stash = new Stash(new InMemoryStorage(), 'test-session')
+      const stash = new Stash(new InMemoryStorage(), 'test-session', 'test-agent')
       const content = new TextEncoder().encode(JSON.stringify('data'))
       const ref1 = await stash.store('tool-1', 0, content)
       const ref2 = await stash.store('tool-1', 1, content)
@@ -57,7 +57,7 @@ describe('Stash', () => {
 
   describe('list', () => {
     it('lists all stored references', async () => {
-      const stash = new Stash(new InMemoryStorage(), 'test-session')
+      const stash = new Stash(new InMemoryStorage(), 'test-session', 'test-agent')
       const content = new TextEncoder().encode(JSON.stringify('data'))
       const ref1 = await stash.store('tool-a', 0, content)
       const ref2 = await stash.store('tool-b', 0, content)
@@ -70,7 +70,7 @@ describe('Stash', () => {
 
   describe('delete', () => {
     it('removes a stashed entry', async () => {
-      const stash = new Stash(new InMemoryStorage(), 'test-session')
+      const stash = new Stash(new InMemoryStorage(), 'test-session', 'test-agent')
       const content = new TextEncoder().encode(JSON.stringify('data'))
       const ref = await stash.store('tool-x', 0, content)
 
@@ -83,7 +83,7 @@ describe('Stash', () => {
   describe('namespacing', () => {
     it('does not conflict with other storage users', async () => {
       const storage = new InMemoryStorage()
-      const stash = new Stash(storage, 'test-session')
+      const stash = new Stash(storage, 'test-session', 'test-agent')
 
       const content = new TextEncoder().encode(JSON.stringify('stash data'))
       await stash.store('tool-1', 0, content)
@@ -91,7 +91,7 @@ describe('Stash', () => {
       await storage.write('other-key', new TextEncoder().encode('other'))
 
       const topKeys = await storage.list('')
-      expect(topKeys.some((key) => key.startsWith('context-stash/'))).toBe(true)
+      expect(topKeys.some((key) => key.startsWith('context/'))).toBe(true)
       expect(topKeys).toContain('other-key')
     })
   })

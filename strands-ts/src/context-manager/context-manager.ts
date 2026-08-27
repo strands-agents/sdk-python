@@ -64,7 +64,7 @@ export class ContextManager implements Plugin {
 
   initAgent(agent: LocalAgent): void {
     if (this._stashStorage !== false) {
-      this._stash = new Stash(this._stashStorage, agent.sessionId)
+      this._stash = new Stash(this._stashStorage, agent.sessionId, agent.id)
     }
 
     if (this._stash) {

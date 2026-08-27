@@ -14,7 +14,7 @@ import type { ContentBlock, ToolResultContent } from '../types/messages.js'
 import { ImageBlock, VideoBlock, DocumentBlock, AudioBlock } from '../types/media.js'
 import { logger } from '../logging/logger.js'
 
-const STASH_PREFIX = 'context-stash'
+const STASH_PREFIX = 'context'
 
 /** A reference to stashed content. */
 export interface StashRef {
@@ -58,8 +58,8 @@ export class Stash {
   private readonly _storage: Storage
   private readonly _refsByBlock = new WeakMap<ContentBlock | ToolResultContent, StashRef[]>()
 
-  constructor(storage: Storage, sessionId: string) {
-    this._storage = resolveNamespace(storage, `${STASH_PREFIX}/${sessionId}`)
+  constructor(storage: Storage, sessionId: string, agentId: string) {
+    this._storage = resolveNamespace(storage, `${STASH_PREFIX}/${sessionId}/scopes/agent/${agentId}`)
   }
 
   /**

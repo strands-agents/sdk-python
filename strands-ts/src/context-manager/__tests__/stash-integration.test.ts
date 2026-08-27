@@ -64,7 +64,7 @@ describe('Offload strategies with stash', () => {
   describe('truncate + stash', () => {
     it('persists original content to stash before truncating', async () => {
       const storage = new InMemoryStorage()
-      const stash = new Stash(storage, 'test-session')
+      const stash = new Stash(storage, 'test-session', 'test-agent')
       const largeText = 'important data '.repeat(1000)
       const messages = [makeToolResultMessage(largeText)]
       await stashAll(stash, messages)
@@ -84,7 +84,7 @@ describe('Offload strategies with stash', () => {
     })
 
     it('includes stash reference in the truncated preview', async () => {
-      const stash = new Stash(new InMemoryStorage(), 'test-session')
+      const stash = new Stash(new InMemoryStorage(), 'test-session', 'test-agent')
       const largeText = 'x'.repeat(20000)
       const messages = [makeToolResultMessage(largeText)]
       await stashAll(stash, messages)
@@ -114,7 +114,7 @@ describe('Offload strategies with stash', () => {
 
   describe('drop + stash', () => {
     it('persists original content before dropping', async () => {
-      const stash = new Stash(new InMemoryStorage(), 'test-session')
+      const stash = new Stash(new InMemoryStorage(), 'test-session', 'test-agent')
       const largeText = 'critical information '.repeat(500)
       const messages = [makeToolResultMessage(largeText)]
       await stashAll(stash, messages)
@@ -133,7 +133,7 @@ describe('Offload strategies with stash', () => {
     })
 
     it('includes stash reference in the drop marker', async () => {
-      const stash = new Stash(new InMemoryStorage(), 'test-session')
+      const stash = new Stash(new InMemoryStorage(), 'test-session', 'test-agent')
       const largeText = 'x'.repeat(20000)
       const messages = [makeToolResultMessage(largeText)]
       await stashAll(stash, messages)
@@ -150,7 +150,7 @@ describe('Offload strategies with stash', () => {
 
   describe('binary content stashing', () => {
     it('stashes image content from tool results', async () => {
-      const stash = new Stash(new InMemoryStorage(), 'test-session')
+      const stash = new Stash(new InMemoryStorage(), 'test-session', 'test-agent')
       const imageBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
       const messages = [
         new Message({
@@ -182,7 +182,7 @@ describe('Offload strategies with stash', () => {
     })
 
     it('stashes each block independently when mixed content', async () => {
-      const stash = new Stash(new InMemoryStorage(), 'test-session')
+      const stash = new Stash(new InMemoryStorage(), 'test-session', 'test-agent')
       const imageBytes = new Uint8Array([0xff, 0xd8])
       const messages = [
         new Message({
@@ -226,7 +226,7 @@ describe('Offload strategies with stash', () => {
 
   describe('eager stashing via storeMessage', () => {
     it('persists tool result content on message arrival', async () => {
-      const stash = new Stash(new InMemoryStorage(), 'test-session')
+      const stash = new Stash(new InMemoryStorage(), 'test-session', 'test-agent')
       const largeText = 'important data '.repeat(500)
       const message = makeToolResultMessage(largeText, 'call-1')
 
@@ -240,7 +240,7 @@ describe('Offload strategies with stash', () => {
     })
 
     it('persists text blocks from assistant messages on arrival', async () => {
-      const stash = new Stash(new InMemoryStorage(), 'test-session')
+      const stash = new Stash(new InMemoryStorage(), 'test-session', 'test-agent')
       const assistantText = 'important analysis '.repeat(200)
       const message = new Message({ role: 'assistant', content: [new TextBlock(assistantText)] })
 
@@ -255,7 +255,7 @@ describe('Offload strategies with stash', () => {
 
   describe('retrieval loop prevention', () => {
     it('does not offload retrieve_context tool results when stash is active', async () => {
-      const stash = new Stash(new InMemoryStorage(), 'test-session')
+      const stash = new Stash(new InMemoryStorage(), 'test-session', 'test-agent')
       const largeRetrievalResult = 'retrieved content '.repeat(1000)
 
       const messages = [
