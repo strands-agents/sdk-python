@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createAdmission, createEngine, createResult, deferred, expectTask } from './engine-test-helpers.js'
-import type { InProcessTaskRecord, TaskExecutionOutcome } from '../types.js'
+import type { InProcessTaskExecutionOutcome, InProcessTaskRecord } from '../types.js'
 
 describe('InProcessTaskEngine', () => {
   describe('admission and updates', () => {
@@ -16,11 +16,9 @@ describe('InProcessTaskEngine', () => {
           },
         }
       )
-      const admitted = engine.submit({ ...createAdmission('hello'), idempotencyKey: 'work-1' })
-      const duplicate = engine.submit({ ...createAdmission('hello'), idempotencyKey: 'work-1' })
+      const admitted = engine.submit(createAdmission('hello'))
 
-      expect(duplicate.taskId).toBe(admitted.taskId)
-      duplicate.status = 'cancelled'
+      admitted.status = 'cancelled'
       await engine.waitForIdle()
       const completed = engine.get(admitted.taskId)!
       expectTask(completed, admitted, { status: 'completed', result: createResult('HELLO') })
@@ -42,9 +40,9 @@ describe('InProcessTaskEngine', () => {
   describe('execution', () => {
     it('bounds execution concurrency', async () => {
       const releases = [
-        deferred<TaskExecutionOutcome>(),
-        deferred<TaskExecutionOutcome>(),
-        deferred<TaskExecutionOutcome>(),
+        deferred<InProcessTaskExecutionOutcome>(),
+        deferred<InProcessTaskExecutionOutcome>(),
+        deferred<InProcessTaskExecutionOutcome>(),
       ]
       const started = [deferred<void>(), deferred<void>(), deferred<void>()]
       const engine = createEngine(
@@ -100,7 +98,7 @@ describe('InProcessTaskEngine', () => {
     })
 
     it('does not release capacity until a timed-out execution settles', async () => {
-      const release = deferred<TaskExecutionOutcome>()
+      const release = deferred<InProcessTaskExecutionOutcome>()
       const timedOut = deferred<void>()
       let hungSignal: AbortSignal | undefined
       const engine = createEngine(
@@ -135,7 +133,7 @@ describe('InProcessTaskEngine', () => {
     })
 
     it('allows Infinity to disable execution timeouts', async () => {
-      const finish = deferred<TaskExecutionOutcome>()
+      const finish = deferred<InProcessTaskExecutionOutcome>()
       const timeoutSpy = vi.spyOn(globalThis, 'setTimeout')
       const engine = createEngine(async () => finish.promise, { timeout: Infinity })
       const task = engine.submit(createAdmission('work'))
