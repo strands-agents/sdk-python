@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 560" width="1120" height="560" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" role="img" aria-labelledby="rt rd">
+  <title id="rt">A robot is anything that can introduce itself</title>
+  <desc id="rd">Four unlike machines: a printer, a temperature sensor, a wearable pendant and a software agent, set across the top of a clean four-row table. Down the left are the four questions each one answers, tagged with the pillar that carries it: READ via the sensor pillar, CHANGE via the control pillar, CALL via the remote-call pillar, ANNOUNCE via the emit pillar. Each column fills with the same four-line shape. The sensor's CHANGE cell stays empty, because a sensor is a robot with nothing to move; the row is open-ended. Any values shown are illustrative.</desc>
+
+  <rect width="1120" height="560" fill="#FBFAF7"/>
+
+  <text x="60" y="66" font-size="27" font-weight="600" fill="#20242B" opacity="0">A robot is anything that can introduce itself
+    <animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.02;0.06;1" dur="15s" fill="freeze" repeatCount="indefinite"/></text>
+  <text x="60" y="94" font-size="14" fill="#767C86" opacity="0">The same four lines fill in across machines that share nothing else; the category is declaration, not limbs.
+    <animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.04;0.08;1" dur="15s" fill="freeze" repeatCount="indefinite"/></text>
+
+  <g stroke="#E4E0D6" stroke-width="1.25" opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.08;0.14;1" dur="15s" fill="freeze" repeatCount="indefinite"/>
+    <line x1="60" y1="232" x2="1060" y2="232"/>
+    <line x1="60" y1="308" x2="1060" y2="308"/>
+    <line x1="60" y1="384" x2="1060" y2="384"/>
+    <line x1="60" y1="460" x2="1060" y2="460"/>
+    <line x1="260" y1="132" x2="260" y2="516"/>
+    <line x1="460" y1="132" x2="460" y2="516"/>
+    <line x1="660" y1="132" x2="660" y2="516"/>
+    <line x1="860" y1="132" x2="860" y2="516"/>
+  </g>
+
+  <g opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.10;0.16;1" dur="15s" fill="freeze" repeatCount="indefinite"/>
+    <text x="76" y="276" font-size="14" font-weight="600" letter-spacing="1.6" fill="#20242B">READ</text>
+    <text x="76" y="294" font-size="12" fill="#1F8A5B">@sensor</text>
+    <text x="76" y="352" font-size="14" font-weight="600" letter-spacing="1.6" fill="#20242B">CHANGE</text>
+    <text x="76" y="370" font-size="12" fill="#1F8A5B">@control</text>
+    <text x="76" y="428" font-size="14" font-weight="600" letter-spacing="1.6" fill="#20242B">CALL</text>
+    <text x="76" y="446" font-size="12" fill="#1F8A5B">@rpc</text>
+    <text x="76" y="504" font-size="14" font-weight="600" letter-spacing="1.6" fill="#20242B">ANNOUNCE</text>
+    <text x="76" y="522" font-size="12" fill="#1F8A5B">@emit</text>
+  </g>
+
+  <g opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.18;0.24;1" dur="15s" fill="freeze" repeatCount="indefinite"/>
+    <g fill="none" stroke="#20242B" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="336" y="160" width="48" height="38" rx="4"/>
+      <line x1="346" y1="176" x2="374" y2="176"/>
+      <rect x="350" y="198" width="20" height="8" rx="1.5"/>
+    </g>
+    <text x="360" y="222" text-anchor="middle" font-size="13.5" fill="#20242B">printer</text>
+    <g font-size="14" fill="#20242B" text-anchor="middle">
+      <text x="360" y="277">state · warmth</text>
+      <text x="360" y="353">pause / resume / stop</text>
+      <text x="360" y="429">start print</text>
+      <text x="360" y="505">job complete</text>
+    </g>
+  </g>
+
+  <g opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.26;0.32;1" dur="15s" fill="freeze" repeatCount="indefinite"/>
+    <g fill="none" stroke="#20242B" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="560" y1="160" x2="560" y2="186"/>
+      <circle cx="560" cy="192" r="7"/>
+      <line x1="564" y1="167" x2="570" y2="167"/>
+      <line x1="564" y1="175" x2="570" y2="175"/>
+    </g>
+    <text x="560" y="222" text-anchor="middle" font-size="13.5" fill="#20242B">temperature sensor</text>
+    <g font-size="14" fill="#20242B" text-anchor="middle">
+      <text x="560" y="277">temperature</text>
+      <text x="560" y="429">zero</text>
+      <text x="560" y="505">threshold crossed</text>
+    </g>
+  </g>
+  <g opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.34;0.40;1" dur="15s" fill="freeze" repeatCount="indefinite"/>
+    <rect x="476" y="320" width="168" height="46" rx="6" fill="none" stroke="#C0792B" stroke-width="1.3" stroke-dasharray="5 5"/>
+    <text x="560" y="349" text-anchor="middle" font-size="12.5" fill="#C0792B">nothing to move</text>
+  </g>
+
+  <g opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.42;0.48;1" dur="15s" fill="freeze" repeatCount="indefinite"/>
+    <g fill="none" stroke="#20242B" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M748,160 L760,178 L772,160"/>
+      <circle cx="760" cy="176" r="2.6"/>
+      <rect x="746" y="182" width="28" height="26" rx="8"/>
+    </g>
+    <text x="760" y="222" text-anchor="middle" font-size="13.5" fill="#20242B">pendant</text>
+    <g font-size="14" fill="#20242B" text-anchor="middle">
+      <text x="760" y="277">camera · mic</text>
+      <text x="760" y="353">wake · mute</text>
+      <text x="760" y="429">answer</text>
+      <text x="760" y="505">presence</text>
+    </g>
+  </g>
+
+  <g opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.50;0.56;1" dur="15s" fill="freeze" repeatCount="indefinite"/>
+    <g fill="none" stroke="#20242B" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M960,160 L980,198 L940,198 Z"/>
+      <circle cx="960" cy="184" r="2.4" fill="#20242B" stroke="none"/>
+    </g>
+    <text x="960" y="222" text-anchor="middle" font-size="13.5" fill="#20242B">an agent</text>
+    <g font-size="14" fill="#20242B" text-anchor="middle">
+      <text x="960" y="277">goal · memory</text>
+      <text x="960" y="353">its plan</text>
+      <text x="960" y="429">new session</text>
+      <text x="960" y="505">task complete</text>
+    </g>
+  </g>
+
+  <g opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.58;0.64;1" dur="15s" fill="freeze" repeatCount="indefinite"/>
+    <text x="1088" y="188" text-anchor="middle" font-size="30" fill="#B7B2A6">&#8943;</text>
+    <text x="1088" y="212" text-anchor="middle" font-size="11" fill="#B7B2A6">open</text>
+  </g>
+</svg>

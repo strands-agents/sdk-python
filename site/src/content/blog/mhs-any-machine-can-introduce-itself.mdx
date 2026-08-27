@@ -1,0 +1,105 @@
+---
+title: "A robot is anything that can introduce itself"
+date: 2026-08-27
+description: "What USB did for peripherals, the Model Hardware Standard aims to do for machines: a new way for any device to introduce itself, so an agent can discover it, read it, and compose behaviour across machines it has never seen. The peer-to-peer mesh underneath runs today, and Strands Robots is participating in the MHS research preview."
+authors:
+  - cagatay-cali
+tags:
+  - Physical AI
+  - Robotics
+  - Announcement
+draft: false
+---
+
+*What USB did for peripherals in 1996, the Model Hardware Standard aims to do for machines in 2026: a new way for any device to introduce itself, so an agent can discover it, read it, and compose behaviour across machines it has never seen, each within the limits it carries with it. Strands Robots is participating in the research preview, and the mesh underneath it already runs today.*
+
+## The mesh you already have
+
+`Robot("so100")` returns a MuJoCo simulation, with no GPU and no hardware, and `mode="real"` is the only switch that ever drives a servo. Either way, the robot comes up already on a peer-to-peer mesh. Start a second one and they find each other:
+
+```python
+from strands_robots import Robot
+
+a = Robot("so100")                 # sim by default; auto-joins the mesh
+b = Robot("so100")                 # a second peer
+print(a.mesh.peers)                # discovers b
+
+a.mesh.tell(b.peer_id, "pick up the cube")
+a.mesh.emergency_stop()            # broadcast E-STOP to every peer
+```
+
+`tell()` sends a command to one peer; `broadcast()` sends it to the whole fleet; both reach simulated and real robots the same way. `emergency_stop()` is the one that matters most: it halts every peer at once and latches a lockout, so a stopped robot stays stopped until a person clears it on the machine itself. Anyone can trigger the stop; no one can resume it over the network.
+
+The same robot can speak over more than one wire, and you choose which with an environment variable. `STRANDS_MESH_BACKEND` selects the Zenoh peer mesh on the LAN (default), AWS IoT Core for fleets across networks, a bridge across both, or, newest, `mhs`, which rides whatever transport the Model Hardware Standard selects. In every case, what moves across the wire is *commands*. What machines still lack is an agreed way to say what they are, and that is the other half a standard is for.
+
+## A robot is not a shape
+
+A robot can be an industrial arm, a humanoid, a 3D printer, a sensor, or an agent itself. What makes a machine workable for an agent is not that it has joints, but that the agent can ask it what it is. Line up four with nothing in common and ask each the same four questions:
+
+|              | printer            | temp sensor         | pendant       | an agent            |
+| ------------ | ------------------ | ------------------- | ------------- | ------------------- |
+| **READ**     | state, warmth      | temperature         | camera, mic   | goal, memory        |
+| **CHANGE**   | pause/resume/stop  | -                   | wake, mute    | its plan            |
+| **CALL**     | start print        | zero                | answer        | new agent session   |
+| **ANNOUNCE** | job complete       | threshold crossed   | presence      | task complete       |
+
+The empty cell is the interesting one: the sensor has nothing under **CHANGE** because it has nothing to move, and it is still a robot. So a robot is anything that can emit events, change its state or position, and announce results. MHS names exactly those four capabilities: `@sensor` (what you may read), `@control` (what you may change, and within what limits), `@rpc` (what you may call), and `@emit` (what the machine announces on its own).
+
+![Four unlike machines, a printer, a temperature sensor, a wearable pendant and a software agent, each described by the same four-line self-introduction: what can be read, changed, called, and announced. The sensor's change line is empty, because it has nothing to move.](./mhs/05_what_a_robot_is.svg)
+
+## Why a written-down tool definition can't keep up
+
+Language models keep getting more capable as they scale. Operating physical equipment did not get easier at the same rate, because the interface never changed: a machine is handed to an agent as a *tool definition*, a description written down once. That is a photograph of a moving thing, accurate the instant it's taken and drifting by the next. Picture a fleet of walkers actively switching the area they patrol: the snapshot goes stale the moment they move. A machine that introduces itself has no such problem, because what the agent reads is the machine's own account of what it is right now, with no second copy to keep in sync and no surprise when a machine the definition never heard of joins the mesh.
+
+![Two panels. On the left, a tool definition typed once by hand freezes three walking machines into fixed patrol zones. On the right the same fleet describes itself live and keeps rearranging: machines swap zones, one drops offline, a fourth the definition never heard of arrives. The hand-typed side drifts out of date; the live side needs nothing kept in sync.](./mhs/06_static_tool_vs_moving_fleet.svg)
+
+## Machines that change the room
+
+Picture quadruped machines patrolling a datacenter, each driven by an agent: one walks the aisles, reads the heat off the racks, and calls a person the moment a rack crosses a temperature threshold. It does not decide what to do about the hot rack; it names the condition and hands the judgement to a human. A digital agent changes data; a physical one changes the room it stands in. *(An illustrative design, not a recorded run.)*
+
+![A row of server racks with a four-legged machine patrolling the aisle under an agent's direction. Heat readings rise against a declared limit line; one crosses it and turns amber. The walker does not act on the rack; it announces the crossing to a person. Values shown are illustrative.](./mhs/07_datacenter_patrol.svg)
+
+## Composing machines that never met
+
+Then the machines compose. A colleague wanted to wear his agent: a coin-sized thing on a cord that sees what he sees and answers out loud. He described it once; an agent turned the sentence into a shape, worked out its weight before a gram of plastic existed, and sent it to the printer. It printed unwatched in under an hour and stopped at the very end, the part perfect, sealed in a warm chamber whose door is glass on a hinge with no motor, and whose entire vocabulary is three words: pause, resume, stop.
+
+So the machine that cannot open its own door asks one that can. On the far bench is a jointed arm, another peer. The printer publishes that the job is done and the chamber still warm; the arm waits on that declared temperature before reaching in, and grips against the weight the design computed before the first layer. Nobody translates between them; each carries its own limits.
+
+![A time-ordered handoff between a printer, a machine with an arm, and an agent on one shared connection. The printer publishes progress, then chamber temperature and a closed-door state, as readable information. The arm's reach is held back by an interlock tied to that temperature and only releases once it drops below a safe bound; the wait is the safety feature, not a delay.](./mhs/04_handoff_interlocked.svg)
+
+A device declares its bounds, its interlocks, and an emergency stop that anyone can trigger and only a person can clear, and every agent that connects inherits them. A limit stops being something an agent is asked to remember and becomes something the device will not let it cross.
+
+## Show me the code
+
+The mesh is one import, and the wire is one env var. The same fleet code runs on the LAN, across networks over AWS IoT Core, or on the transport MHS selects. You change where the messages travel, not the program:
+
+```bash
+python fleet.py                            # Zenoh peer mesh on the LAN (default)
+STRANDS_MESH_BACKEND=iot python fleet.py   # same fleet, across networks over AWS IoT Core
+STRANDS_MESH_BACKEND=mhs python fleet.py   # same fleet, on the wire MHS selects
+```
+
+Putting a robot on MHS's state plane is the next line, during the research preview, and an agent's own tools become procedures a machine can call, refusing anything you did not name:
+
+```python
+from strands_robots import Robot
+from strands_robots.mhs_connect import init_mhs_sync, expose_agent_tools
+
+robot = Robot("so101", peer_id="arm-1")            # a mesh peer today
+init_mhs_sync(robot, device_id="so101-lab-1")      # now discoverable on MHS
+
+Driver = expose_agent_tools(agent, include=["walk_forward", "get_state"])
+init_mhs_sync(Driver(), device_id="agent-1")       # mount it; agent now callable
+```
+
+The bounds are declared, not remembered. An emergency-stop slot published as `range=(0, 1)` with `safe=(1, 1)` accepts a halt from anywhere and refuses a remote resume, and that rule belongs to the device, not to whatever software is driving it.
+
+## What's real today, and what's next
+
+The mesh is real and open source: install Strands Robots and a fleet comes up describing itself to its peers, coordinating over `tell` and `broadcast`, and refusing a call that would move a robot until a person approves. The datacenter patrol and the printer-to-arm handoff are examples we use to explain the idea.
+
+That points at the **Model Hardware Standard (MHS)**: a new standard, introduced by Anthropic, for AI agents to safely operate physical equipment in scientific research and advanced manufacturing. Strands Robots is participating in the research preview. AWS is adding MHS support to Strands Robots, our SDK for connecting AI agents to physical hardware; participants receive a private pre-release version of the Strands Robots package for the duration of the research preview. The specification is provisional and not open source, access is by application while the safety design is validated, and MHS is not generally available yet.
+
+- Use the mesh today: [Strands Robots](https://github.com/strands-labs/robots) & [Strands Agents](https://strandsagents.com)
+- Model Hardware Standard, a research preview from Anthropic: [anthropic.com/news/model-hardware-standard-research-preview](https://www.anthropic.com/news/model-hardware-standard-research-preview)
+- Request research-preview access for Strands Robots: [discord.gg/strands](https://discord.gg/strands)

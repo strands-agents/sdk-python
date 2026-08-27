@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 560" width="1120" height="560" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" role="img" aria-labelledby="pt pd">
+  <title id="pt">Physical agents change the room</title>
+  <desc id="pd">A datacenter aisle. Five equipment racks stand in a row, and above each a temperature mark rises against a dashed declared-limit line. A four-legged machine patrols the aisle under an agent's direction. One rack's temperature climbs past the declared limit and turns amber; the walker does not touch the rack; it draws a line to a person and announces that the rack has crossed its limit, leaving the judgement to the person. It reads temperature via the sensor pillar, was called to patrol via the remote-call pillar, and announces via the emit pillar. Values are illustrative; this is a design, not a recorded run.</desc>
+
+  <rect width="1120" height="560" fill="#FBFAF7"/>
+
+  <text x="60" y="66" font-size="27" font-weight="600" fill="#20242B" opacity="0">Digital agents change bits; physical agents change the room
+    <animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.02;0.06;1" dur="16s" fill="freeze" repeatCount="indefinite"/></text>
+  <text x="60" y="94" font-size="14" fill="#767C86" opacity="0">A walker reads the heat off the racks and names what it sees; it does not decide what to do.
+    <animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.04;0.08;1" dur="16s" fill="freeze" repeatCount="indefinite"/></text>
+
+  <!-- declared limit line -->
+  <line x1="120" y1="252" x2="880" y2="252" stroke="#C0792B" stroke-width="1.4" stroke-dasharray="7 6" opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.10;0.16;1" dur="16s" fill="freeze" repeatCount="indefinite"/></line>
+  <text x="886" y="256" font-size="12" fill="#C0792B" opacity="0">declared limit<animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.12;0.18;1" dur="16s" fill="freeze" repeatCount="indefinite"/></text>
+
+  <!-- floor -->
+  <line x1="80" y1="470" x2="1000" y2="470" stroke="#E4E0D6" stroke-width="1.5" opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.06;0.12;1" dur="16s" fill="freeze" repeatCount="indefinite"/></line>
+
+  <!-- racks -->
+  <g fill="none" stroke="#B7B2A6" stroke-width="1.4" stroke-linejoin="round" opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.08;0.14;1" dur="16s" fill="freeze" repeatCount="indefinite"/>
+    <g transform="translate(180,0)"><rect x="-40" y="320" width="80" height="150" rx="4"/><line x1="-32" y1="356" x2="32" y2="356"/><line x1="-32" y1="392" x2="32" y2="392"/><line x1="-32" y1="428" x2="32" y2="428"/></g>
+    <g transform="translate(340,0)"><rect x="-40" y="320" width="80" height="150" rx="4"/><line x1="-32" y1="356" x2="32" y2="356"/><line x1="-32" y1="392" x2="32" y2="392"/><line x1="-32" y1="428" x2="32" y2="428"/></g>
+    <g transform="translate(500,0)"><rect x="-40" y="320" width="80" height="150" rx="4"/><line x1="-32" y1="356" x2="32" y2="356"/><line x1="-32" y1="392" x2="32" y2="392"/><line x1="-32" y1="428" x2="32" y2="428"/></g>
+    <g transform="translate(660,0)"><rect x="-40" y="320" width="80" height="150" rx="4"/><line x1="-32" y1="356" x2="32" y2="356"/><line x1="-32" y1="392" x2="32" y2="392"/><line x1="-32" y1="428" x2="32" y2="428"/></g>
+    <g transform="translate(820,0)"><rect x="-40" y="320" width="80" height="150" rx="4"/><line x1="-32" y1="356" x2="32" y2="356"/><line x1="-32" y1="392" x2="32" y2="392"/><line x1="-32" y1="428" x2="32" y2="428"/></g>
+  </g>
+  <g font-size="11" fill="#B7B2A6" text-anchor="middle" opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.14;0.20;1" dur="16s" fill="freeze" repeatCount="indefinite"/>
+    <text x="180" y="490">rack 1</text><text x="340" y="490">rack 2</text><text x="500" y="490">rack 3</text><text x="660" y="490">rack 4</text><text x="820" y="490">rack 5</text>
+  </g>
+
+  <!-- temperature marks rising above each rack -->
+  <g stroke-width="6" stroke-linecap="round">
+    <line x1="180" y1="320" x2="180" y2="320" stroke="#767C86"><animate attributeName="y2" values="320;320;278;278" keyTimes="0;0.18;0.28;1" dur="16s" fill="freeze" repeatCount="indefinite"/></line>
+    <line x1="340" y1="320" x2="340" y2="320" stroke="#767C86"><animate attributeName="y2" values="320;320;270;270" keyTimes="0;0.18;0.28;1" dur="16s" fill="freeze" repeatCount="indefinite"/></line>
+    <line x1="500" y1="320" x2="500" y2="320" stroke="#767C86"><animate attributeName="y2" values="320;320;288;288" keyTimes="0;0.18;0.28;1" dur="16s" fill="freeze" repeatCount="indefinite"/></line>
+    <line x1="660" y1="320" x2="660" y2="320" stroke="#767C86"><animate attributeName="y2" values="320;320;276;276;226;226" keyTimes="0;0.18;0.28;0.50;0.58;1" dur="16s" fill="freeze" repeatCount="indefinite"/><animate attributeName="stroke" values="#767C86;#767C86;#C0792B;#C0792B" keyTimes="0;0.50;0.58;1" dur="16s" fill="freeze" repeatCount="indefinite"/></line>
+    <line x1="820" y1="320" x2="820" y2="320" stroke="#767C86"><animate attributeName="y2" values="320;320;282;282" keyTimes="0;0.18;0.28;1" dur="16s" fill="freeze" repeatCount="indefinite"/></line>
+  </g>
+
+  <!-- the walker patrols the aisle -->
+  <g>
+    <animateTransform attributeName="transform" type="translate" values="150 442;150 442;790 442;790 442" keyTimes="0;0.24;0.54;1" dur="16s" fill="freeze" repeatCount="indefinite"/>
+    <g fill="none" stroke="#20242B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <animateTransform attributeName="transform" type="translate" values="0 0;0 -2.5;0 0" dur="0.7s" repeatCount="indefinite"/>
+      <rect x="-16" y="-9" width="32" height="12" rx="3.5"/>
+      <path d="M-12,3 v11 M-4,3 v11 M4,3 v11 M12,3 v11 M16,-4 L24,-11"/>
+    </g>
+  </g>
+
+  <!-- person at the end of the aisle -->
+  <g fill="none" stroke="#20242B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.54;0.60;1" dur="16s" fill="freeze" repeatCount="indefinite"/>
+    <circle cx="962" cy="400" r="9"/>
+    <path d="M962,409 v34 M962,418 L946,428 M962,418 L978,428 M962,443 L951,468 M962,443 L973,468"/>
+  </g>
+
+  <!-- announcement: line to the person, then words -->
+  <line x1="700" y1="430" x2="944" y2="418" stroke="#C0792B" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="2 8" opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.60;0.66;1" dur="16s" fill="freeze" repeatCount="indefinite"/></line>
+  <g opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.64;0.70;1" dur="16s" fill="freeze" repeatCount="indefinite"/>
+    <text x="612" y="150" font-size="15" font-weight="600" fill="#C0792B">rack 4 crossed its declared limit</text>
+    <text x="612" y="172" font-size="13" fill="#767C86">hands the judgement to a person; does not act on the rack</text>
+  </g>
+
+  <!-- pillar tags -->
+  <g font-size="12" fill="#1F8A5B">
+    <text x="60" y="300" opacity="0">@sensor · reads temperature<animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.28;0.34;1" dur="16s" fill="freeze" repeatCount="indefinite"/></text>
+    <text x="60" y="524" opacity="0">@rpc · called to patrol<animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.30;0.36;1" dur="16s" fill="freeze" repeatCount="indefinite"/></text>
+    <text x="612" y="192" opacity="0">@emit · announces the crossing<animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.68;0.74;1" dur="16s" fill="freeze" repeatCount="indefinite"/></text>
+  </g>
+</svg>

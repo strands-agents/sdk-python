@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 520" width="1120" height="520" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" role="img" aria-labelledby="ht hd">
+  <title id="ht">The handoff, and the bound it waits on</title>
+  <desc id="hd">A left-to-right flow between three peers on one shared connection. On the left the printer publishes readable state: print complete, chamber temperature, door closed. In the centre an interlock holds the reaching machine's open-door-and-reach procedure until the declared temperature crosses under its bound; the temperature counts down and a lock opens once it drops below the safe value; the wait is the safety feature, not a delay. On the right the arm reaches and grasps, parameterised by the mass the geometry kernel computed. Below, three answers: locked and wide open are the only two a machine can give today; a declared bound makes possible the third: yes, within these limits. Any peer may halt; no peer may remotely resume. Values are illustrative.</desc>
+
+  <rect width="1120" height="520" fill="#FBFAF7"/>
+
+  <text x="60" y="60" font-size="25" font-weight="600" fill="#20242B">The handoff, and the bound it waits on</text>
+  <text x="60" y="86" font-size="14" fill="#767C86">The reaching machine does not reach in until the printer's declared temperature crosses under the bound.</text>
+
+  <!-- LEFT: printer publishes declared state -->
+  <text x="60" y="150" font-size="11" letter-spacing="1.5" fill="#767C86">PRINTER · PUBLISHES STATE</text>
+  <g font-size="14.5">
+    <g opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.06;0.12;1" dur="16s" fill="freeze" repeatCount="indefinite"/>
+      <circle cx="72" cy="186" r="4.5" fill="#1F8A5B"/><text x="90" y="191" fill="#20242B">printComplete</text></g>
+    <g opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.12;0.18;1" dur="16s" fill="freeze" repeatCount="indefinite"/>
+      <circle cx="72" cy="230" r="4.5" fill="#C0792B"/><text x="90" y="235" fill="#20242B">chamberTemp</text></g>
+    <g opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.18;0.24;1" dur="16s" fill="freeze" repeatCount="indefinite"/>
+      <circle cx="72" cy="274" r="4.5" fill="#1F8A5B"/><text x="90" y="279" fill="#20242B">doorClosed = true</text></g>
+  </g>
+
+  <!-- arrow into the interlock -->
+  <path d="M300,230 H408" fill="none" stroke="#B7B2A6" stroke-width="1.5" marker-end="url(#ar)" opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.22;0.28;1" dur="16s" fill="freeze" repeatCount="indefinite"/></path>
+  <defs><marker id="ar" markerWidth="9" markerHeight="9" refX="6" refY="4.5" orient="auto"><path d="M0,0 L8,4.5 L0,9 z" fill="#B7B2A6"/></marker></defs>
+
+  <!-- CENTER: interlock card -->
+  <g opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.24;0.30;1" dur="16s" fill="freeze" repeatCount="indefinite"/>
+    <rect x="426" y="140" width="268" height="196" rx="14" fill="#FFFFFF" stroke="#C0792B" stroke-width="1.5"/>
+    <text x="560" y="172" text-anchor="middle" font-size="11" letter-spacing="2" fill="#C0792B">INTERLOCK</text>
+    <text x="560" y="192" text-anchor="middle" font-size="12.5" fill="#767C86">reach held until</text>
+  </g>
+  <!-- countdown temperature -->
+  <g text-anchor="middle" font-size="40" font-weight="600">
+    <text x="560" y="248" fill="#C0792B" opacity="0"><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.30;0.34;0.44;0.46;1" dur="16s" fill="freeze" repeatCount="indefinite"/>62&#176;C</text>
+    <text x="560" y="248" fill="#C0792B" opacity="0"><animate attributeName="opacity" values="0;0;0;1;1;0;0" keyTimes="0;0.46;0.48;0.50;0.56;0.58;1" dur="16s" fill="freeze" repeatCount="indefinite"/>48&#176;C</text>
+    <text x="560" y="248" fill="#1F8A5B" opacity="0"><animate attributeName="opacity" values="0;0;0;1;1" keyTimes="0;0.56;0.58;0.60;1" dur="16s" fill="freeze" repeatCount="indefinite"/>39&#176;C</text>
+  </g>
+  <text x="560" y="274" text-anchor="middle" font-size="12.5" fill="#767C86" opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.30;0.34;1" dur="16s" fill="freeze" repeatCount="indefinite"/>bound: &#8804; 40&#176;C</text>
+  <!-- lock icon -->
+  <g transform="translate(560,296)" opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.30;0.34;1" dur="16s" fill="freeze" repeatCount="indefinite"/>
+    <rect x="-10" y="0" width="20" height="14" rx="2.5" fill="none" stroke="#C0792B" stroke-width="1.6"><animate attributeName="stroke" values="#C0792B;#C0792B;#1F8A5B;#1F8A5B" keyTimes="0;0.58;0.60;1" dur="16s" fill="freeze" repeatCount="indefinite"/></rect>
+    <path d="M-6,0 v-5 a6,6 0 0 1 12,0 v5" fill="none" stroke="#C0792B" stroke-width="1.6"><animate attributeName="d" values="M-6,0 v-5 a6,6 0 0 1 12,0 v5;M-6,0 v-5 a6,6 0 0 1 12,0 v5;M-6,0 v-6 a6,6 0 0 1 12,0 v2;M-6,0 v-6 a6,6 0 0 1 12,0 v2" keyTimes="0;0.58;0.62;1" dur="16s" fill="freeze" repeatCount="indefinite"/><animate attributeName="stroke" values="#C0792B;#C0792B;#1F8A5B;#1F8A5B" keyTimes="0;0.58;0.60;1" dur="16s" fill="freeze" repeatCount="indefinite"/></path>
+  </g>
+
+  <!-- arrow out to the arm -->
+  <path d="M712,230 H818" fill="none" stroke="#1F8A5B" stroke-width="1.5" marker-end="url(#arg)" opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.60;0.66;1" dur="16s" fill="freeze" repeatCount="indefinite"/></path>
+  <defs><marker id="arg" markerWidth="9" markerHeight="9" refX="6" refY="4.5" orient="auto"><path d="M0,0 L8,4.5 L0,9 z" fill="#1F8A5B"/></marker></defs>
+
+  <!-- RIGHT: the arm acts -->
+  <text x="840" y="150" font-size="11" letter-spacing="1.5" fill="#767C86">THE MACHINE THAT GRASPS</text>
+  <g font-size="14.5">
+    <g opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.62;0.68;1" dur="16s" fill="freeze" repeatCount="indefinite"/>
+      <circle cx="852" cy="200" r="4.5" fill="#1F8A5B"/><text x="870" y="205" fill="#20242B">openDoor · reach</text></g>
+    <g opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.72;0.78;1" dur="16s" fill="freeze" repeatCount="indefinite"/>
+      <circle cx="852" cy="248" r="4.5" fill="#1F8A5B"/><text x="870" y="253" fill="#20242B">grasp(mass 6.2 g)</text>
+      <text x="870" y="272" font-size="11.5" fill="#767C86">from the geometry kernel, not re-weighed</text></g>
+  </g>
+
+  <!-- agent note -->
+  <g opacity="0"><animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.66;0.72;1" dur="16s" fill="freeze" repeatCount="indefinite"/>
+    <circle cx="72" cy="322" r="4.5" fill="#767C86"/><text x="90" y="327" font-size="14.5" fill="#767C86">agent reads state · cannot skip the bound</text></g>
+
+  <!-- footer: three answers -->
+  <line x1="60" y1="376" x2="1060" y2="376" stroke="#E4E0D6" stroke-width="1.25"/>
+  <text x="60" y="404" font-size="11" letter-spacing="1.6" fill="#C0792B">TWO ANSWERS A MACHINE CAN GIVE TODAY</text>
+  <text x="1060" y="404" text-anchor="end" font-size="11" letter-spacing="1.6" fill="#1F8A5B">THE THIRD · A DECLARED BOUND</text>
+  <g>
+    <rect x="60" y="416" width="280" height="50" rx="8" fill="#FFFFFF" stroke="#C0792B" stroke-width="1.3"/>
+    <text x="76" y="440" font-size="13.5" font-weight="600" fill="#20242B">LOCKED</text>
+    <text x="76" y="458" font-size="11.5" fill="#767C86">no remote start until a human walks over</text>
+  </g>
+  <g>
+    <rect x="356" y="416" width="280" height="50" rx="8" fill="#FFFFFF" stroke="#C0792B" stroke-width="1.3"/>
+    <text x="372" y="440" font-size="13.5" font-weight="600" fill="#20242B">WIDE OPEN</text>
+    <text x="372" y="458" font-size="11.5" fill="#767C86">anyone may start it, no bound at all</text>
+  </g>
+  <text x="660" y="447" text-anchor="middle" font-size="20" fill="#B7B2A6">&#8594;</text>
+  <g>
+    <rect x="684" y="416" width="376" height="50" rx="8" fill="#F1F7F3" stroke="#1F8A5B" stroke-width="1.5"/>
+    <text x="702" y="440" font-size="13.5" font-weight="600" fill="#1F8A5B">YES, WITHIN THESE LIMITS</text>
+    <text x="702" y="458" font-size="11.5" fill="#20242B">start released the moment the declared bound is met</text>
+  </g>
+  <text x="60" y="494" font-size="12" fill="#767C86">The wait is the safety feature, not a delay.  <tspan fill="#20242B">Any peer may halt · no peer may remotely resume.</tspan></text>
+</svg>
