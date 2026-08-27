@@ -4,6 +4,7 @@ import { Agent } from '../../agent/agent.js'
 import { MemoryManager } from '../memory-manager.js'
 import { tool } from '../../tools/tool-factory.js'
 import type { MemoryStore, MemoryEntry } from '../types.js'
+import type { Plugin } from '../../plugins/plugin.js'
 import type { InvokableTool, Tool } from '../../tools/tool.js'
 import { logger } from '../../logging/logger.js'
 import { Message, TextBlock, ToolUseBlock, ToolResultBlock } from '../../types/messages.js'
@@ -21,6 +22,7 @@ function createMockStore(
     description?: string
     maxSearchResults?: number
     tools?: Tool[]
+    plugins?: Plugin[]
   }
 ): MemoryStore {
   const store: MemoryStore = {
@@ -36,7 +38,18 @@ function createMockStore(
   if (options?.tools) {
     store.getTools = vi.fn().mockReturnValue(options.tools)
   }
+  if (options?.plugins) {
+    store.getPlugins = vi.fn().mockReturnValue(options.plugins)
+  }
   return store
+}
+
+function createNamedPlugin(name: string, tools?: Tool[]): Plugin {
+  return {
+    name,
+    initAgent: vi.fn().mockResolvedValue(undefined),
+    ...(tools && { getTools: vi.fn().mockReturnValue(tools) }),
+  }
 }
 
 function createNamedTool(name: string): Tool {
@@ -661,6 +674,44 @@ describe('MemoryManager', () => {
         },
       ])
       expect(store.search).toHaveBeenCalledWith('what is my plan', { maxSearchResults: 5 })
+    })
+
+    describe('store plugins', () => {
+      it('initializes every plugin a store supplies, with the agent', async () => {
+        const first = createNamedPlugin('store:first')
+        const second = createNamedPlugin('store:second')
+        const mm = new MemoryManager({
+          stores: [createMockStore('a', { plugins: [first] }), createMockStore('b', { plugins: [second] })],
+        })
+        const agent = createMockAgent()
+
+        await mm.initAgent(agent)
+
+        expect(first.initAgent).toHaveBeenCalledWith(agent)
+        expect(second.initAgent).toHaveBeenCalledWith(agent)
+      })
+
+      it('initializes store plugins even when the manager’s own injection is disabled', async () => {
+        const plugin = createNamedPlugin('store:nav')
+        const mm = new MemoryManager({
+          stores: [createMockStore('a', { plugins: [plugin] })],
+          injection: false,
+        })
+        const addMiddleware = vi.fn()
+        const agent = createMockAgent({ extra: { addMiddleware } as never })
+
+        await mm.initAgent(agent)
+
+        expect(plugin.initAgent).toHaveBeenCalledWith(agent)
+        expect(addMiddleware).not.toHaveBeenCalled()
+      })
+
+      it('is a no-op for stores that do not implement getPlugins', async () => {
+        const mm = new MemoryManager({ stores: [createMockStore('a')] })
+        const agent = createMockAgent()
+
+        await expect(mm.initAgent(agent)).resolves.toBeUndefined()
+      })
     })
   })
 

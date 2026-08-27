@@ -208,12 +208,14 @@ export class MemoryManager implements Plugin {
   /**
    * Initializes the plugin with the agent.
    *
-   * Wires up two independent behaviors:
+   * Wires up three independent behaviors:
    * - **Extraction**: for any store configured with {@link ExtractionConfig}, buffers conversation
    *   messages and attaches each store's triggers. A no-op when no store uses extraction.
    * - **Injection**: when enabled, registers an `InvokeModelStage` middleware that folds retrieved
    *   memory into the model input for each call without touching durable history. See
    *   {@link _provideMemoryContext}, the `renderContent` callback the middleware invokes.
+   * - **Store plugins**: initializes any plugin a store supplies via {@link MemoryStore.getPlugins}, so
+   *   a store can reach an extension point a tool cannot without the caller wiring it up.
    *
    * @param agent - The agent this plugin is being attached to
    */
@@ -221,6 +223,12 @@ export class MemoryManager implements Plugin {
     await this._initStores()
     this._initExtraction(agent)
     this._initInjection(agent)
+
+    for (const store of this._config.stores) {
+      for (const plugin of store.getPlugins?.() ?? []) {
+        await plugin.initAgent(agent)
+      }
+    }
   }
 
   /** Call `initialize()` on each store that implements it. */

@@ -30,6 +30,17 @@ const decoder = new TextDecoder()
 export const CONSOLIDATION_CHANGELOG = 'consolidation-changelog.md'
 
 /**
+ * Whether a storage key is a knowledge file the store reads: markdown, and not the reserved changelog.
+ * add() only writes .md, so this keeps foreign non-markdown files (a hand-seeded doc, an OS artifact
+ * like .DS_Store) out of every read path — search, the listing, and the consolidation working set.
+ *
+ * @internal
+ */
+export function isKnowledgeKey(key: string): boolean {
+  return key.endsWith('.md') && key !== CONSOLIDATION_CHANGELOG
+}
+
+/**
  * A delete that failed during execution, paired with the error the backend raised.
  *
  * @internal
@@ -55,9 +66,9 @@ export interface DeleteFailure {
 export async function readAllFiles(storage: Storage, maxFiles: number): Promise<Map<string, string>> {
   const files = new Map<string, string>()
   const allKeys = await storage.list('')
-  const keysToRead = allKeys.filter((key) => key !== CONSOLIDATION_CHANGELOG)
+  const keysToRead = allKeys.filter(isKnowledgeKey)
 
-  // Check the count before the read fan-out; the changelog is excluded above, so it never counts.
+  // Check the count before the read fan-out; non-markdown keys and the changelog are excluded above.
   if (keysToRead.length > maxFiles) {
     throw new ConsolidationError(
       `Knowledge store exceeds consolidation file limit: ${keysToRead.length} files (maxFiles: ${maxFiles})`

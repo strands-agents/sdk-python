@@ -17,6 +17,24 @@ export interface FileMemoryStoreConfig extends MemoryStoreConfig {
    * backend share storage — give them different names (or separate storage) to isolate them.
    */
   storage?: Storage
+  /**
+   * Whether to serve retrieval by progressive disclosure: inject the file listing each turn and
+   * register the store's read file tool. `false` withholds both, leaving retrieval to the
+   * {@link MemoryManager}'s search-based paths — its context injection and the `search_memory` tool.
+   *
+   * @defaultValue true
+   */
+  progressiveDisclosure?: boolean
+  /**
+   * Maximum files progressive disclosure reads and injects per turn — each is one storage read and one
+   * line of injected context, so this bounds the recurring per-turn cost (notably storage GETs on a
+   * remote backend). When more files exist, the first `maxListedFiles` by sorted path are shown and the
+   * listing reports how many it omitted. Set to `Infinity` to disable. Does not cap
+   * {@link FileMemoryStore.listFiles}, which always returns every file.
+   *
+   * @defaultValue 100
+   */
+  maxListedFiles?: number
 }
 
 /**
