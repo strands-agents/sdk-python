@@ -324,6 +324,11 @@ async def test_stream_basic() -> None:
             "contentBlockDelta" in chunk and chunk["contentBlockDelta"]["delta"]["text"] == " world" for chunk in chunks
         )
         assert any("messageStop" in chunk for chunk in chunks)
+        # Verify usage metadata is yielded after the trailing usage SSE line
+        # (regression: previously the loop broke on finish_reason and dropped this)
+        metadata_chunks = [c for c in chunks if "metadata" in c]
+        assert len(metadata_chunks) == 1, f"Expected exactly one metadata chunk, got {len(metadata_chunks)}"
+        assert "usage" in metadata_chunks[0]["metadata"]
 
 
 @pytest.mark.asyncio

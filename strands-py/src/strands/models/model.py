@@ -4,6 +4,7 @@ import abc
 import json
 import logging
 import math
+import threading
 from collections.abc import AsyncGenerator, AsyncIterable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, TypeVar
@@ -134,6 +135,8 @@ class BaseModelConfig(TypedDict, total=False):
 class CacheConfig:
     """Configuration for prompt caching.
 
+    Providers consume only the fields they support.
+
     Attributes:
         strategy: Caching strategy to use.
             - "auto": Automatically detect model support and inject cachePoint to maximize cache coverage
@@ -147,11 +150,13 @@ class CacheConfig:
             the same static system prefix hit the cache. A TTL string (e.g. "1h") sets this section's own
             duration and is honored as written; True derives the duration from ``ttl``; False disables it.
             A hand-placed system cache point is honored rather than doubled.
+        cache_key: Stable identity a provider can use to route its cache. Defaults to None.
     """
 
     strategy: Literal["auto", "anthropic"] = "auto"
     ttl: str | None = None
     system_prompt_ttl: bool | str = True
+    cache_key: str | None = None
 
 
 @dataclass
@@ -245,6 +250,7 @@ class Model(abc.ABC):
         tool_choice: ToolChoice | None = None,
         system_prompt_content: list[SystemContentBlock] | None = None,
         invocation_state: dict[str, Any] | None = None,
+        cancel_signal: threading.Event | None = None,
         **kwargs: Any,
     ) -> AsyncIterable[StreamEvent]:
         """Stream conversation with the model.
@@ -262,6 +268,9 @@ class Model(abc.ABC):
             tool_choice: Selection strategy for tool invocation.
             system_prompt_content: System prompt content blocks for advanced features like caching.
             invocation_state: Caller-provided state/context that was passed to the agent when it was invoked.
+            cancel_signal: Event a provider can observe to abort an in-flight request. Support is
+                provider-dependent; a provider that ignores it still cancels at the SDK's
+                between-chunk checkpoint.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:

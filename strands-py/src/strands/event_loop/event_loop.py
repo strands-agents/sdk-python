@@ -321,7 +321,7 @@ async def event_loop_cycle(
                 # Emit after_model checkpoint, unless we just resumed from one or a tool interrupt.
                 if (
                     agent._checkpointing
-                    and not agent._cancel_signal.is_set()
+                    and not agent._observe_cancellation()
                     and not agent._interrupt_state.has_pending_tool_execution
                 ):
                     resume_position = agent._checkpoint_resume_position
@@ -670,6 +670,10 @@ def _make_invoke_model_terminal(
     """
 
     async def terminal(ctx: InvokeModelContext) -> AsyncGenerator[Any, None]:
+        # Observe a linked external cancel signal before the model call so the stream's
+        # first between-chunk checkpoint sees a cancellation requested by an earlier hook.
+        agent._observe_cancellation()
+
         system_prompt_str, system_prompt_content = split_system_prompt(ctx.system_prompt)
 
         model_id = ctx.model.config.get("model_id") if hasattr(ctx.model, "config") else None
@@ -813,7 +817,7 @@ async def _handle_tool_execution(
         cancel_message = (
             before_tools_event.cancel if isinstance(before_tools_event.cancel, str) else "Tool cancelled by hook"
         )
-    elif agent._cancel_signal.is_set():
+    elif agent._observe_cancellation():
         cancel_message = "Tool execution cancelled"
 
     structured_output_result = None
@@ -889,7 +893,7 @@ async def _handle_tool_execution(
         return
 
     # Reset interrupt state if tools ran so the next cycle starts clean.
-    if not agent._cancel_signal.is_set():
+    if not agent._observe_cancellation():
         agent._interrupt_state.end_tool_cycle()
     # Update stored results so replay filter skips already-executed tools on next resume.
     elif cancel_message is None and agent._interrupt_state.has_pending_tool_execution:
@@ -907,12 +911,14 @@ async def _handle_tool_execution(
 
     # Hook requested halt: exit without calling the model again.
     if after_tools_event.end_turn:
-        end_turn_text = (
-            after_tools_event.end_turn
-            if isinstance(after_tools_event.end_turn, str)
-            else "Turn ended early by hook after tool execution"
-        )
-        end_turn_message: Message = {"role": "assistant", "content": [{"text": end_turn_text}]}
+        end_turn_value = after_tools_event.end_turn
+        if isinstance(end_turn_value, list):
+            end_turn_content = list(end_turn_value)
+        elif isinstance(end_turn_value, str):
+            end_turn_content = [{"text": end_turn_value}]
+        else:
+            end_turn_content = [{"text": "Turn ended early by hook after tool execution"}]
+        end_turn_message: Message = {"role": "assistant", "content": end_turn_content}
         await agent._append_messages(end_turn_message)
         yield EventLoopStopEvent(
             "end_turn",
@@ -933,7 +939,7 @@ async def _handle_tool_execution(
         )
         return
 
-    if agent._cancel_signal.is_set():
+    if agent._observe_cancellation():
         yield EventLoopStopEvent(
             "cancelled",
             message,
