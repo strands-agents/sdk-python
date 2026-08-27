@@ -13,6 +13,7 @@ import asyncio
 import copy
 import logging
 import threading
+import uuid
 import warnings
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
 from dataclasses import dataclass
@@ -517,7 +518,10 @@ class Agent(AgentBase):
         # Initialize session management functionality
         self._session_manager = session_manager
         if self._session_manager:
+            self._session_id: str = getattr(self._session_manager, "session_id", None) or uuid.uuid4().hex[:8]
             self.hooks.add_hook(self._session_manager)
+        else:
+            self._session_id = uuid.uuid4().hex[:8]
 
         # Allow conversation_managers to subscribe to hooks
         self.hooks.add_hook(self.conversation_manager)
@@ -720,6 +724,16 @@ class Agent(AgentBase):
     def storage(self) -> Storage | None:
         """Default storage backend for agent subsystems."""
         return self._storage
+
+    @property
+    def session_id(self) -> str:
+        """Identifier for the current conversation session.
+
+        When a session manager is attached, returns its persistent, caller-supplied
+        session ID. Otherwise, returns a random 8-character hex string generated at
+        construction time (unique per agent instance but not persisted across restarts).
+        """
+        return self._session_id
 
     @property
     def system_prompt(self) -> str | None:
