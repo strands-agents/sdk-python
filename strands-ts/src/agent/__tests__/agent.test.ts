@@ -1812,7 +1812,7 @@ describe('_estimateInputTokens', () => {
     const tokenPromise = captureProjectedTokens(agent)
     await agent.invoke([])
 
-    // baseline = full prompt (10 + 5848 cache read) + outputTokens(4) = 5862, not 14
+    // baseline = total prompt (10 + 5848 cache read) + outputTokens(4) = 5862, not 14
     expect(await tokenPromise).toBe(5862)
   })
 

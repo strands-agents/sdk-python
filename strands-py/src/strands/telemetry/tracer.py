@@ -23,7 +23,7 @@ from ..types.multiagent import MultiAgentInput
 from ..types.streaming import Metrics, StopReason, Usage
 from ..types.tools import ToolResult, ToolUse
 from ..types.traces import Attributes, AttributeValue
-from .metrics import _full_prompt_tokens
+from .metrics import _total_prompt_tokens
 
 if TYPE_CHECKING:
     from ..memory.types import MemoryEntry
@@ -444,7 +444,7 @@ class Tracer:
         if not span or not span.is_recording():
             return
 
-        prompt_tokens = _full_prompt_tokens(usage)
+        prompt_tokens = _total_prompt_tokens(usage)
         attributes: dict[str, AttributeValue] = {
             "gen_ai.usage.prompt_tokens": prompt_tokens,
             "gen_ai.usage.input_tokens": prompt_tokens,
@@ -823,7 +823,7 @@ class Tracer:
                         usage = latest_invocation.usage
                 else:
                     usage = response.metrics.accumulated_usage
-                prompt_tokens = _full_prompt_tokens(usage)
+                prompt_tokens = _total_prompt_tokens(usage)
                 attributes.update(
                     {
                         "gen_ai.usage.prompt_tokens": prompt_tokens,

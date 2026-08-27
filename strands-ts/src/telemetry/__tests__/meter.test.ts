@@ -396,7 +396,7 @@ describe('Meter', () => {
       expect(meter.metrics.projectedContextSize).toBe(280)
     })
 
-    // Regression for #3546: projects full prompt + output on a disjoint provider.
+    // Regression for #3546: projects total prompt + output on a disjoint provider.
     it('counts cache reads on disjoint providers where they add to inputTokens', () => {
       meter.updateCycle({
         type: 'modelMetadataEvent',
@@ -406,7 +406,7 @@ describe('Meter', () => {
       expect(meter.metrics.projectedContextSize).toBe(5862)
     })
 
-    // Regression for #3546: projects full prompt + output on a subset provider without double-counting.
+    // Regression for #3546: projects total prompt + output on a subset provider without double-counting.
     it('does not double-count cache reads on subset providers', () => {
       meter.updateCycle({
         type: 'modelMetadataEvent',

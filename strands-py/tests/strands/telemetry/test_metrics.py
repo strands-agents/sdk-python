@@ -670,7 +670,7 @@ def test_latest_context_size_does_not_double_count_subset_cache_tokens(event_loo
     """Does not double-count cache reads on subset providers (OpenAI/Gemini) where they sit inside input.
 
     Regression for #3546: inputTokens + outputTokens == totalTokens signals the cache is already inside
-    inputTokens, so the full prompt is inputTokens (not inputTokens + cache).
+    inputTokens, so the total prompt is inputTokens (not inputTokens + cache).
     """
     event_loop_metrics.reset_usage_metrics()
     event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "c1"})
@@ -688,7 +688,7 @@ def test_latest_context_size_undercounts_anthropic_direct_cache(event_loop_metri
     inputTokens + outputTokens, so it is arithmetically indistinguishable from a subset provider and
     the cache read is dropped -- an undercount that matches the prior baseline. Adapter-side
     normalization to the disjoint convention (#3546) will make totalTokens include the cache and flip
-    this to the full prompt (5858); this test guards the boundary so that flip is intentional.
+    this to the total prompt (5858); this test guards the boundary so that flip is intentional.
     """
     event_loop_metrics.reset_usage_metrics()
     event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "c1"})
@@ -698,9 +698,9 @@ def test_latest_context_size_undercounts_anthropic_direct_cache(event_loop_metri
 
 
 @pytest.mark.parametrize(
-    ("usage", "exp_full_prompt"),
+    ("usage", "exp_total_prompt"),
     [
-        # Regression for #3546: cache tokens count toward the full prompt under both provider conventions.
+        # Regression for #3546: cache tokens count toward the total prompt under both provider conventions.
         # disjoint (Bedrock/Anthropic): cache reads add to inputTokens (inputTokens + outputTokens != totalTokens).
         (Usage(inputTokens=10, outputTokens=4, totalTokens=5862, cacheReadInputTokens=5848), 5858),
         # subset (OpenAI/Gemini): cache reads sit inside inputTokens (inputTokens + outputTokens == totalTokens).
@@ -714,8 +714,8 @@ def test_latest_context_size_undercounts_anthropic_direct_cache(event_loop_metri
         (Usage(inputTokens=100, outputTokens=50, totalTokens=150), 100),
     ],
 )
-def test_full_prompt_tokens(usage, exp_full_prompt):
-    assert strands.telemetry.metrics._full_prompt_tokens(usage) == exp_full_prompt
+def test_total_prompt_tokens(usage, exp_total_prompt):
+    assert strands.telemetry.metrics._total_prompt_tokens(usage) == exp_total_prompt
 
 
 def test_projected_context_size_no_invocations(event_loop_metrics):
@@ -760,7 +760,7 @@ def test_projected_context_size_missing_tokens_key(event_loop_metrics):
 
 
 def test_projected_context_size_counts_disjoint_cache_tokens(event_loop_metrics, mock_get_meter_provider):
-    """Projects full prompt + output on disjoint providers where cache adds to inputTokens (#3546)."""
+    """Projects total prompt + output on disjoint providers where cache adds to inputTokens (#3546)."""
     event_loop_metrics.reset_usage_metrics()
     event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "c1"})
     event_loop_metrics.update_usage(Usage(inputTokens=10, outputTokens=4, totalTokens=5862, cacheReadInputTokens=5848))
@@ -769,7 +769,7 @@ def test_projected_context_size_counts_disjoint_cache_tokens(event_loop_metrics,
 
 
 def test_projected_context_size_does_not_double_count_subset_cache_tokens(event_loop_metrics, mock_get_meter_provider):
-    """Projects full prompt + output on subset providers without double-counting cache (#3546)."""
+    """Projects total prompt + output on subset providers without double-counting cache (#3546)."""
     event_loop_metrics.reset_usage_metrics()
     event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "c1"})
     event_loop_metrics.update_usage(

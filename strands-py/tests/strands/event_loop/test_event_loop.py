@@ -2160,7 +2160,7 @@ class TestEstimateInputTokens:
 
         result = await strands.event_loop.event_loop._estimate_input_tokens(agent)
 
-        # full prompt (10 + 5848 cache read) + output (4) = 5862, not 14
+        # total prompt (10 + 5848 cache read) + output (4) = 5862, not 14
         assert result == 5862
         agent.model.count_tokens.assert_not_called()
 

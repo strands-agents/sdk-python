@@ -32,7 +32,7 @@ import { normalizeError, ConcurrentInvocationError, StructuredOutputError } from
 import { Model } from '../models/model.js'
 import type { BaseModelConfig, StreamAggregatedResult, StreamOptions } from '../models/model.js'
 import { ModelPlugin } from '../plugins/model-plugin.js'
-import { fullPromptTokens, isModelStreamEvent } from '../models/streaming.js'
+import { totalPromptTokens, isModelStreamEvent } from '../models/streaming.js'
 import { ToolRegistry } from '../registry/tool-registry.js'
 import { StateStore } from '../state-store.js'
 import { serializeStateSerializable, loadStateSerializable } from '../types/serializable.js'
@@ -2479,7 +2479,7 @@ export class Agent implements LocalAgent, InvokableAgent {
   /**
    * Estimate the input token count for the next model call.
    *
-   * Uses the token counting strategy: reads the full prompt the model processed (including cached
+   * Uses the token counting strategy: reads the total prompt the model processed (including cached
    * tokens) plus outputTokens from the last assistant message's metadata as a known baseline, then
    * estimates only new messages added after it. Falls back to full estimation when no metadata is
    * available (cold start or first call).
@@ -2500,7 +2500,7 @@ export class Agent implements LocalAgent, InvokableAgent {
     let estimate: number
     if (lastAssistantIdx >= 0) {
       const usage = this.messages[lastAssistantIdx]!.metadata!.usage!
-      const knownBaseline = fullPromptTokens(usage) + usage.outputTokens
+      const knownBaseline = totalPromptTokens(usage) + usage.outputTokens
       const newMessages = this.messages.slice(lastAssistantIdx + 1)
       if (newMessages.length === 0) {
         estimate = knownBaseline

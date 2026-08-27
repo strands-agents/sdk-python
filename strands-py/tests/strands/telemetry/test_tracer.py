@@ -1179,7 +1179,7 @@ def test_end_model_invoke_span_with_cache_metrics(mock_span):
 
 
 def test_end_model_invoke_span_counts_disjoint_cache_tokens(mock_span):
-    """Regression for #3546: input_tokens is the full prompt when cache is additional to inputTokens.
+    """Regression for #3546: input_tokens is the total prompt when cache is additional to inputTokens.
 
     On disjoint providers (Bedrock/Anthropic) inputTokens + outputTokens != totalTokens, so the cache
     reads/writes are additional and count toward the prompt the model processed. gen_ai.usage.input_tokens
@@ -1257,7 +1257,7 @@ def test_end_agent_span_with_cache_metrics(mock_span):
 
 
 def test_end_agent_span_counts_disjoint_cache_tokens(mock_span):
-    """Regression for #3546: input_tokens is the full prompt when cache is additional to inputTokens.
+    """Regression for #3546: input_tokens is the total prompt when cache is additional to inputTokens.
 
     On disjoint providers (Bedrock/Anthropic) inputTokens + outputTokens != totalTokens, so the cache
     reads/writes are additional and count toward the prompt the model processed. gen_ai.usage.input_tokens

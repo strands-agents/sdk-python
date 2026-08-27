@@ -181,8 +181,8 @@ class AgentInvocation:
     usage: Usage = field(default_factory=lambda: Usage(inputTokens=0, outputTokens=0, totalTokens=0))
 
 
-def _full_prompt_tokens(usage: Usage) -> int:
-    """Return the full prompt the model processed, including cached tokens.
+def _total_prompt_tokens(usage: Usage) -> int:
+    """Return the total prompt the model processed, including cached tokens.
 
     Providers either fold cache tokens into ``inputTokens`` or report them separately; the totals tell
     us which. ``inputTokens + outputTokens == totalTokens`` means cache is already inside
@@ -193,11 +193,11 @@ def _full_prompt_tokens(usage: Usage) -> int:
         usage: Token usage from a model invocation.
 
     Returns:
-        The full prompt token count.
+        The total prompt token count.
     """
-    input_tokens = usage.get("inputTokens", 0)
-    output_tokens = usage.get("outputTokens", 0)
-    total_tokens = usage.get("totalTokens", 0)
+    input_tokens = usage["inputTokens"]
+    output_tokens = usage["outputTokens"]
+    total_tokens = usage["totalTokens"]
     if input_tokens + output_tokens == total_tokens:
         return input_tokens
     return input_tokens + usage.get("cacheReadInputTokens", 0) + usage.get("cacheWriteInputTokens", 0)
@@ -232,20 +232,20 @@ class EventLoopMetrics:
         This represents the current context size as reported by the model.
 
         Returns:
-            The full prompt the model processed on the most recent cycle, including cached tokens, or
+            The total prompt the model processed on the most recent cycle, including cached tokens, or
             None if no data is available.
         """
         if self.agent_invocations and self.agent_invocations[-1].cycles:
             usage = self.agent_invocations[-1].cycles[-1].usage
             if usage.get("inputTokens") is not None:
-                return _full_prompt_tokens(usage)
+                return _total_prompt_tokens(usage)
         return None
 
     @property
     def projected_context_size(self) -> int | None:
         """Projected context size for the next model call.
 
-        Computed from the most recent cycle's usage as the full prompt the model processed (including
+        Computed from the most recent cycle's usage as the total prompt the model processed (including
         cached tokens) plus the generated output that is now part of the conversation, approximating the
         input token count for the next model call.
 
@@ -257,7 +257,7 @@ class EventLoopMetrics:
             input_tokens = usage.get("inputTokens")
             output_tokens = usage.get("outputTokens")
             if input_tokens is not None and output_tokens is not None:
-                return _full_prompt_tokens(usage) + output_tokens
+                return _total_prompt_tokens(usage) + output_tokens
         return None
 
     @property

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { fullPromptTokens, isModelStreamEvent } from '../streaming.js'
+import { totalPromptTokens, isModelStreamEvent } from '../streaming.js'
 import type { ModelStreamEvent } from '../streaming.js'
 
 describe('isModelStreamEvent', () => {
@@ -58,17 +58,17 @@ describe('isModelStreamEvent', () => {
   })
 })
 
-// Regression for #3546: cache tokens must count toward the full prompt under both provider conventions.
-describe('fullPromptTokens', () => {
+// Regression for #3546: cache tokens must count toward the total prompt under both provider conventions.
+describe('totalPromptTokens', () => {
   it('counts cache tokens on disjoint providers where they add to inputTokens', () => {
-    expect(fullPromptTokens({ inputTokens: 10, outputTokens: 4, totalTokens: 5862, cacheReadInputTokens: 5848 })).toBe(
+    expect(totalPromptTokens({ inputTokens: 10, outputTokens: 4, totalTokens: 5862, cacheReadInputTokens: 5848 })).toBe(
       5858
     )
   })
 
   it('does not double-count cache tokens on subset providers where they sit inside inputTokens', () => {
     expect(
-      fullPromptTokens({ inputTokens: 12936, outputTokens: 10, totalTokens: 12946, cacheReadInputTokens: 6457 })
+      totalPromptTokens({ inputTokens: 12936, outputTokens: 10, totalTokens: 12946, cacheReadInputTokens: 6457 })
     ).toBe(12936)
   })
 
@@ -76,14 +76,16 @@ describe('fullPromptTokens', () => {
   // totalTokens as inputTokens + outputTokens, so it is arithmetically indistinguishable from a subset
   // provider and the cache read is dropped -- an undercount matching the prior baseline. Adapter-side
   // normalization to the disjoint convention (#3546) will make totalTokens include the cache and flip
-  // this to the full prompt; this test guards the boundary so that flip is intentional.
+  // this to the total prompt; this test guards the boundary so that flip is intentional.
   it('undercounts Anthropic-direct cache where totalTokens excludes the separate cache counter', () => {
-    expect(fullPromptTokens({ inputTokens: 10, outputTokens: 4, totalTokens: 14, cacheReadInputTokens: 5848 })).toBe(10)
+    expect(totalPromptTokens({ inputTokens: 10, outputTokens: 4, totalTokens: 14, cacheReadInputTokens: 5848 })).toBe(
+      10
+    )
   })
 
   it('adds cache reads and writes on disjoint providers', () => {
     expect(
-      fullPromptTokens({
+      totalPromptTokens({
         inputTokens: 10,
         outputTokens: 5,
         totalTokens: 100,
@@ -94,6 +96,6 @@ describe('fullPromptTokens', () => {
   })
 
   it('collapses to inputTokens when there are no cache tokens', () => {
-    expect(fullPromptTokens({ inputTokens: 100, outputTokens: 50, totalTokens: 150 })).toBe(100)
+    expect(totalPromptTokens({ inputTokens: 100, outputTokens: 50, totalTokens: 150 })).toBe(100)
   })
 })
