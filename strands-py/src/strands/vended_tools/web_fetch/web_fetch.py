@@ -73,13 +73,13 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
             raise
 
 
-def _fetch_once(url: str, timeout: float, max_bytes: int) -> tuple[int, dict[str, str], bytes, str]:
+def _fetch_once(url: str, timeout: float, max_bytes: int) -> tuple[int, dict[str, str], bytes]:
     """Perform one HTTP(S) request with SSRF defenses and no redirect handling.
 
     Returns:
-        A tuple of (status, headers, body bytes, effective URL). On a 3xx
-        response the body is not buffered beyond a small drain cap: the caller
-        only needs the ``Location`` header.
+        A tuple of (status, headers, body bytes). On a 3xx response the body
+        is not buffered beyond a small drain cap: the caller only needs the
+        ``Location`` header.
     """
     validate_url_scheme(url)
     parts = urlsplit(url)
@@ -112,11 +112,11 @@ def _fetch_once(url: str, timeout: float, max_bytes: int) -> tuple[int, dict[str
             resp_headers = {k.lower(): v for k, v in response.getheaders()}
             if response.status in _REDIRECT_STATUSES:
                 response.read(_REDIRECT_BODY_DRAIN_CAP)
-                return response.status, resp_headers, b"", url
+                return response.status, resp_headers, b""
             body = response.read(max_bytes + 1)
             if len(body) > max_bytes:
                 raise ValueError(f"Response body exceeded max_bytes={max_bytes}. Refusing to buffer more.")
-            return response.status, resp_headers, body, url
+            return response.status, resp_headers, body
         except OSError as e:
             # Every address already passed the SSRF check, so trying the next on a connect error does not
             # weaken the guard; it just tolerates a dead A/AAAA record.
@@ -135,7 +135,7 @@ def _follow_redirects(
     timeout: float,
     max_bytes: int,
     max_redirects: int,
-) -> tuple[int, dict[str, str], bytes, str]:
+) -> tuple[int, dict[str, str], bytes]:
     """Fetch ``url``, following up to ``max_redirects`` redirects, revalidating each hop."""
     current = url
     seen: set[str] = set()
@@ -144,7 +144,7 @@ def _follow_redirects(
             raise ValueError(f"Redirect loop detected involving {current!r}")
         seen.add(current)
 
-        status, headers, body, effective = _fetch_once(current, timeout=timeout, max_bytes=max_bytes)
+        status, headers, body = _fetch_once(current, timeout=timeout, max_bytes=max_bytes)
         if status in _REDIRECT_STATUSES:
             location = headers.get("location")
             if not location:
@@ -152,7 +152,7 @@ def _follow_redirects(
             current = urljoin(current, location)
             validate_url_scheme(current)
             continue
-        return status, headers, body, effective
+        return status, headers, body
 
     raise ValueError(f"Exceeded max_redirects={max_redirects} following {url!r}")
 
@@ -214,7 +214,7 @@ def make_web_fetch(
             raise ValueError(f"timeout must be positive, got {timeout}")
 
         try:
-            status, headers, body, effective_url = await asyncio.wait_for(
+            status, headers, body = await asyncio.wait_for(
                 asyncio.to_thread(
                     _follow_redirects,
                     url,
@@ -232,21 +232,11 @@ def make_web_fetch(
 
         # Non-HTML responses are returned verbatim so the model can read plain-text or markdown
         # served with a non-HTML Content-Type.
-        if "html" not in content_type.lower() and "xml" not in content_type.lower():
-            return {
-                "url": effective_url,
-                "status": status,
-                "content_type": content_type,
-                "title": "",
-                "markdown": text,
-            }
-
-        title, markdown = html_to_markdown(text)
+        is_markup = "html" in content_type.lower() or "xml" in content_type.lower()
+        markdown = html_to_markdown(text) if is_markup else text
         return {
-            "url": effective_url,
             "status": status,
             "content_type": content_type,
-            "title": title,
             "markdown": markdown,
         }
 

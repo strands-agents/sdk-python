@@ -221,8 +221,8 @@ class TestHtmlToMarkdown:
         <p>After script.</p>
         </body></html>
         """
-        title, md = html_to_markdown(html)
-        assert title == "Hi"
+        md = html_to_markdown(html)
+        assert "# Hi" in md
         assert "alert" not in md
         assert "color:red" not in md
         assert "Hello world." in md
@@ -232,7 +232,7 @@ class TestHtmlToMarkdown:
         # A giant data-URI image blob would blow up model context; drop it.
         big_blob = "A" * 10000
         html = f'<p>text</p><img src="data:image/png;base64,{big_blob}" alt="alt text">'
-        _, md = html_to_markdown(html)
+        md = html_to_markdown(html)
         assert big_blob not in md
         assert "data:" not in md
         # Alt text is preserved as a substitute so information is not lost.
@@ -240,18 +240,18 @@ class TestHtmlToMarkdown:
 
     def test_preserves_regular_images(self):
         html = '<img src="https://example.com/pic.png" alt="pic">'
-        _, md = html_to_markdown(html)
+        md = html_to_markdown(html)
         assert "![pic](https://example.com/pic.png)" in md
 
     def test_javascript_href_is_dropped(self):
         html = '<a href="javascript:alert(1)">click</a>'
-        _, md = html_to_markdown(html)
+        md = html_to_markdown(html)
         assert "javascript:" not in md
         assert "click" in md
 
     def test_javascript_img_src_is_dropped(self):
         html = '<img src="javascript:alert(1)" alt="x">'
-        _, md = html_to_markdown(html)
+        md = html_to_markdown(html)
         assert "javascript:" not in md
 
     def test_preserves_headings_lists_and_links(self):
@@ -261,7 +261,7 @@ class TestHtmlToMarkdown:
         <ul><li>one</li><li>two</li></ul>
         <ol><li>first</li><li>second</li></ol>
         """
-        _, md = html_to_markdown(html)
+        md = html_to_markdown(html)
         assert "# Title" in md
         assert "[link](https://ex.com/x)" in md
         assert "- one" in md
@@ -271,7 +271,7 @@ class TestHtmlToMarkdown:
 
     def test_preserves_code_blocks(self):
         html = "<pre><code>def f():\n    return 1</code></pre>"
-        _, md = html_to_markdown(html)
+        md = html_to_markdown(html)
         assert "```" in md
         assert "def f():" in md
         assert "return 1" in md
@@ -280,7 +280,7 @@ class TestHtmlToMarkdown:
         # onclick/onerror never appear as content: HTMLParser only reports
         # data(), and we render only href/src/alt attributes.
         html = '<div onclick="alert(1)"><p onmouseover="x()">safe</p></div>'
-        _, md = html_to_markdown(html)
+        md = html_to_markdown(html)
         assert "alert" not in md
         assert "onclick" not in md
         assert "safe" in md
@@ -290,7 +290,7 @@ class TestHtmlToMarkdown:
         # blockquote must be prefixed with "> ", including the paragraph that a
         # naive open-tag-only implementation would emit unquoted.
         html = "<blockquote><p>quoted line one.</p><p>quoted line two.</p></blockquote>"
-        _, md = html_to_markdown(html)
+        md = html_to_markdown(html)
         bq_lines = [line for line in md.splitlines() if "quoted line" in line]
         assert len(bq_lines) == 2
         for line in bq_lines:
@@ -298,12 +298,12 @@ class TestHtmlToMarkdown:
 
     def test_nested_blockquote_stacks_prefix(self):
         html = "<blockquote><blockquote><p>deep.</p></blockquote></blockquote>"
-        _, md = html_to_markdown(html)
+        md = html_to_markdown(html)
         assert "> > deep." in md
 
     def test_survives_malformed_html(self):
         html = "<p>ok <b>bold <em>and italic</p>"
-        _, md = html_to_markdown(html)
+        md = html_to_markdown(html)
         assert "ok" in md
         assert "bold" in md
 
@@ -313,7 +313,7 @@ class TestHtmlToMarkdown:
         # so <form><input></form> would leave _drop_depth > 0 forever and
         # discard everything after the </form>.
         html = "<form><input></form><p>after</p>"
-        _, md = html_to_markdown(html)
+        md = html_to_markdown(html)
         assert "after" in md
 
     def test_void_end_tag_inside_dropped_ancestor_does_not_leak(self):
@@ -321,7 +321,7 @@ class TestHtmlToMarkdown:
         # decrement _drop_depth (mirror of the start-tag guard). Otherwise the
         # dropped element's remaining body leaks into output.
         html = "<form>secret<input></input>LEAKED</form>tail"
-        _, md = html_to_markdown(html)
+        md = html_to_markdown(html)
         assert "secret" not in md
         assert "LEAKED" not in md
         assert "tail" in md
@@ -330,7 +330,7 @@ class TestHtmlToMarkdown:
         # Leading whitespace/tab before "javascript:" was a bypass in the
         # previous version -- lstrip before the prefix check.
         html = '<a href="\tjavascript:alert(1)">click</a>'
-        _, md = html_to_markdown(html)
+        md = html_to_markdown(html)
         assert "javascript:" not in md
         assert "alert" not in md
         assert "click" in md
@@ -354,14 +354,13 @@ class TestWebFetchToolCall:
         html_body = b"<html><head><title>T</title></head><body><h1>Hi</h1></body></html>"
 
         def stub(url, timeout, max_bytes):
-            return 200, {"content-type": "text/html; charset=utf-8"}, html_body, url
+            return 200, {"content-type": "text/html; charset=utf-8"}, html_body
 
         monkeypatch.setattr(web_fetch_module, "_fetch_once", stub)
         result = await web_fetch(url="https://example.com/")
         assert result["status"] == 200
-        assert result["url"] == "https://example.com/"
         assert result["content_type"].startswith("text/html")
-        assert result["title"] == "T"
+        assert "# T" in result["markdown"]
         assert "# Hi" in result["markdown"]
 
     @pytest.mark.asyncio
@@ -369,15 +368,13 @@ class TestWebFetchToolCall:
         body = b"plain text response"
 
         def stub(url, timeout, max_bytes):
-            return 200, {"content-type": "text/plain"}, body, url
+            return 200, {"content-type": "text/plain"}, body
 
         monkeypatch.setattr(web_fetch_module, "_fetch_once", stub)
         tru_result = await web_fetch(url="https://example.com/robots.txt")
         exp_result = {
-            "url": "https://example.com/robots.txt",
             "status": 200,
             "content_type": "text/plain",
-            "title": "",
             "markdown": "plain text response",
         }
         assert tru_result == exp_result
@@ -391,8 +388,8 @@ class TestWebFetchToolCall:
         def stub(url, timeout, max_bytes):
             seen.append(url)
             if url == "https://example.com/a":
-                return 302, {"location": "https://example.com/b"}, b"", url
-            return 200, {"content-type": "text/html"}, b"<p>ok</p>", url
+                return 302, {"location": "https://example.com/b"}, b""
+            return 200, {"content-type": "text/html"}, b"<p>ok</p>"
 
         monkeypatch.setattr(web_fetch_module, "_fetch_once", stub)
         result = await web_fetch(url="https://example.com/a")
@@ -403,7 +400,7 @@ class TestWebFetchToolCall:
     @pytest.mark.asyncio
     async def test_redirect_to_javascript_scheme_is_rejected(self, monkeypatch):
         def stub(url, timeout, max_bytes):
-            return 302, {"location": "javascript:alert(1)"}, b"", url
+            return 302, {"location": "javascript:alert(1)"}, b""
 
         monkeypatch.setattr(web_fetch_module, "_fetch_once", stub)
         with pytest.raises(ValueError, match="Only http"):
@@ -415,7 +412,7 @@ class TestWebFetchToolCall:
 
         def stub(url, timeout, max_bytes):
             counter["n"] += 1
-            return 302, {"location": f"https://example.com/{counter['n']}"}, b"", url
+            return 302, {"location": f"https://example.com/{counter['n']}"}, b""
 
         monkeypatch.setattr(web_fetch_module, "_fetch_once", stub)
         fetch = make_web_fetch(max_redirects=2)
@@ -425,7 +422,7 @@ class TestWebFetchToolCall:
     @pytest.mark.asyncio
     async def test_redirect_missing_location_errors(self, monkeypatch):
         def stub(url, timeout, max_bytes):
-            return 302, {}, b"", url
+            return 302, {}, b""
 
         monkeypatch.setattr(web_fetch_module, "_fetch_once", stub)
         with pytest.raises(ValueError, match="without a Location"):
@@ -461,7 +458,7 @@ class TestWebFetchToolCall:
 
         def slow(url, timeout, max_bytes):
             time.sleep(2.0)
-            return 200, {"content-type": "text/html"}, b"<p>slow</p>", url
+            return 200, {"content-type": "text/html"}, b"<p>slow</p>"
 
         monkeypatch.setattr(web_fetch_module, "_fetch_once", slow)
         with pytest.raises(TimeoutError, match="total timeout"):
@@ -551,7 +548,7 @@ class TestMultiAddressFallback:
             lambda h: ["2606:4700:4700::1111", "1.1.1.1"],
         )
 
-        status, _, body, _ = web_fetch_module._fetch_once("https://example.com/", timeout=5.0, max_bytes=1024)
+        status, _, body = web_fetch_module._fetch_once("https://example.com/", timeout=5.0, max_bytes=1024)
         assert status == 200
         assert body == b"ok"
         assert tried == ["2606:4700:4700::1111", "1.1.1.1"]
@@ -673,7 +670,7 @@ class TestRedirectBodyShortCircuit:
         monkeypatch.setattr(web_fetch_module, "_PinnedHTTPSConnection", fake_pinned_https)
         monkeypatch.setattr(web_fetch_module, "resolve_and_validate_host", lambda h: ["203.0.113.1"])
 
-        status, headers, body, _ = web_fetch_module._fetch_once(
+        status, headers, body = web_fetch_module._fetch_once(
             "https://example.com/redir", timeout=5.0, max_bytes=10_000_000
         )
         assert status == 302

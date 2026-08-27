@@ -1,8 +1,8 @@
 """HTML → markdown extraction for the web fetch tool.
 
 Converts fetched HTML into markdown suitable for a model to read. Non-content
-elements are removed and ``data:`` URI images are dropped so large inline blobs
-do not bloat the output. The page title is extracted separately from the ``<head>``.
+elements are removed and ``data:`` URI images are replaced with their alt text
+so large inline blobs do not bloat the output. The page title is prepended.
 """
 
 from __future__ import annotations
@@ -66,21 +66,22 @@ def _sanitize_tree(soup: BeautifulSoup) -> None:
             anchor.unwrap()
 
 
-def html_to_markdown(html: str) -> tuple[str, str]:
+def html_to_markdown(html: str) -> str:
     """Convert HTML to markdown suitable for a model to read.
 
-    Returns:
-        Stripped ``(title, markdown)``, or ``("", "")`` on a parser error.
+    The page title is prepended when present. Returns an empty string rather
+    than failing on a parser error.
     """
     try:
         soup = BeautifulSoup(html, "html.parser")
         title = soup.title.get_text(strip=True) if soup.title else ""
-        # Drop the head so its metadata does not leak into the body markdown.
         if soup.head is not None:
             soup.head.decompose()
         _sanitize_tree(soup)
         markdown = MarkdownConverter(heading_style="ATX", bullets="-").convert_soup(soup).strip()
+        if title:
+            markdown = f"# {title}\n\n{markdown}"
     except Exception:
         logger.debug("html_to_markdown conversion raised; returning empty output", exc_info=True)
-        return "", ""
-    return title, markdown
+        return ""
+    return markdown
