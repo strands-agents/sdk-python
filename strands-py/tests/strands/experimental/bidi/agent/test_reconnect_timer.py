@@ -10,7 +10,6 @@ import pytest
 
 from strands.experimental.bidi.agent._reconnect_timer import _BidiReconnectTimer, resolve_deadline_s
 
-
 # resolve_deadline_s
 
 

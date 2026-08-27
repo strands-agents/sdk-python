@@ -7,7 +7,7 @@ declared ``BidiConnectionConfig``.
 
 import asyncio
 import logging
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 from ..types.model import BidiConnectionConfig
 

@@ -451,7 +451,7 @@ class _BidiAgentLoop:
             return False
         if generation != self._generation:
             logger.debug(
-                "trigger_generation=<%d>, current_generation=<%d> | connection already swapped | ignoring stale restart",
+                "trigger_generation=<%d>, current_generation=<%d> | connection already swapped | ignoring restart",
                 generation,
                 self._generation,
             )
@@ -804,7 +804,7 @@ class _BidiAgentLoop:
             await self._send_gate.wait()
             if generation != self._generation:
                 logger.warning(
-                    "tool_use_id=<%s> | tool completed across reconnect | result recorded but not sent to new connection",
+                    "tool_use_id=<%s> | tool completed across reconnect | result recorded, not sent to new connection",
                     tool_use["toolUseId"],
                 )
                 return

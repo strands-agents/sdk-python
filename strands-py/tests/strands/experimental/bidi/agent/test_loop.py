@@ -198,11 +198,9 @@ class _NoReconnectModel(BidiModel):
     async def stop(self):
         self.stopped += 1
 
-    def receive(self):
-        ...
+    def receive(self): ...
 
-    async def send(self, content):
-        ...
+    async def send(self, content): ...
 
 
 @pytest.mark.asyncio
