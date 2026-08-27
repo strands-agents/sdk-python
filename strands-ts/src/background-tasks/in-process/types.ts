@@ -20,7 +20,7 @@ export interface InProcessTaskExecutionContext {
   readonly taskId: string
   /** Identifier of the tool use. */
   readonly toolUseId: string
-  /** Name of the tool to execute. */
+  /** Tool name from the original model request. */
   readonly toolName: string
   /** Identifier of the manager-owned live execution state. */
   readonly invocationStateId: string
@@ -55,7 +55,7 @@ export interface InProcessTaskRecord {
   readonly taskId: string
   /** Identifier of the tool use. */
   readonly toolUseId: string
-  /** Name of the tool to execute. */
+  /** Tool name from the original model request. */
   readonly toolName: string
   /** Identifier of the manager-owned live execution state. */
   readonly invocationStateId: string

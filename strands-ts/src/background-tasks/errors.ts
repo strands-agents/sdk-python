@@ -8,3 +8,14 @@ export class BackgroundTaskNotFoundError extends Error {
     this.name = 'BackgroundTaskNotFoundError'
   }
 }
+
+/** Raised when waiting for background tasks exceeds the configured timeout. @internal */
+export class BackgroundTaskTimeoutError extends Error {
+  /**
+   * @param timeout - Wait timeout in milliseconds.
+   */
+  constructor(timeout: number) {
+    super(`Timed out waiting for background tasks after ${timeout}ms`)
+    this.name = 'BackgroundTaskTimeoutError'
+  }
+}

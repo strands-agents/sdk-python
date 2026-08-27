@@ -1,11 +1,10 @@
 import { normalizeError } from '../../errors.js'
 import { BackgroundTaskNotFoundError } from '../errors.js'
+import { assertTimerDelay } from '../timer.js'
 import type { InterruptStateData } from '../../interrupt.js'
-import type { BackgroundTaskStatus } from '../types.js'
+import { isTaskStatusTerminal } from '../types.js'
 import type { InProcessTaskEngineOptions, InProcessTaskExecutionOutcome, InProcessTaskRecord } from './types.js'
 
-// Node.js treats delays above the signed 32-bit limit as 1ms.
-const MAX_TIMER_DELAY_MS = 2 ** 31 - 1
 const DEFAULT_EXECUTION_FAILURE_MESSAGE = 'Background task execution failed'
 
 interface ActiveExecution {
@@ -88,7 +87,7 @@ export class InProcessTaskEngine {
    */
   remove(taskId: string): void {
     const task = this._requireTask(taskId)
-    if (!isInProcessTaskTerminalStatus(task.status)) {
+    if (!isTaskStatusTerminal(task.status)) {
       throw new Error(`Background task '${taskId}' cannot be removed before reaching a terminal status`)
     }
     this._tasks.delete(taskId)
@@ -104,7 +103,7 @@ export class InProcessTaskEngine {
    */
   cancel(taskId: string, options: { readonly reason: string }): InProcessTaskRecord {
     const current = this._requireTask(taskId)
-    if (isInProcessTaskTerminalStatus(current.status)) return globalThis.structuredClone(current)
+    if (isTaskStatusTerminal(current.status)) return globalThis.structuredClone(current)
     const task = this._updateTask(taskId, (record) => {
       record.status = 'cancelled'
       delete record.state
@@ -326,23 +325,10 @@ export class InProcessTaskEngine {
   }
 }
 
-function assertTimerDelay(name: string, value: number): void {
-  if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new TypeError(`${name} must be a positive finite integer, got ${value}`)
-  }
-  if (value > MAX_TIMER_DELAY_MS) {
-    throw new TypeError(`${name} must be at most ${MAX_TIMER_DELAY_MS}ms, got ${value}`)
-  }
-}
-
 function getExecutionFailureMessage(error: unknown): string {
   try {
     return normalizeError(error).message || DEFAULT_EXECUTION_FAILURE_MESSAGE
   } catch {
     return DEFAULT_EXECUTION_FAILURE_MESSAGE
   }
-}
-
-function isInProcessTaskTerminalStatus(status: BackgroundTaskStatus): boolean {
-  return status === 'completed' || status === 'failed' || status === 'cancelled'
 }

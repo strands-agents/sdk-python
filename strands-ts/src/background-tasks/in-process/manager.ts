@@ -6,27 +6,22 @@ import { InterruptResponseContent, type InterruptParams, type InterruptResponse 
 import type { JSONValue } from '../../types/json.js'
 import { TextBlock, type ToolResultBlock } from '../../types/messages.js'
 import type { Tool, ToolContext } from '../../tools/tool.js'
-import { BackgroundTaskNotFoundError } from '../errors.js'
+import { BackgroundTaskNotFoundError, BackgroundTaskTimeoutError } from '../errors.js'
+import { assertTimerDelay } from '../timer.js'
 import { InProcessTaskEngine } from './engine.js'
 import {
   type InProcessTaskExecutionContext,
   type InProcessTaskExecutionOutcome,
   type InProcessTaskRecord,
 } from './types.js'
-import type { BackgroundTask, BackgroundTaskManager } from '../task-manager.js'
-import type { BackgroundTaskStatus } from '../types.js'
+import type { BackgroundTaskManager } from '../manager.js'
+import { isTaskStatusTerminal, type BackgroundTask } from '../types.js'
 
-const DEFAULT_MAX_CONCURRENCY = 4
-const MAX_TIMER_DELAY_MS = 2 ** 31 - 1
-
-interface ToolExecution {
+interface LiveToolExecution {
   readonly toolUse: ToolUseData
   readonly invocationState: InvocationState
   readonly tool: Tool
 }
-
-type InProcessTaskWaiter = (task: BackgroundTask) => void
-type ExecuteTool = (tool: Tool, context: ToolContext) => Promise<ToolResultBlock>
 
 /** Configures in-process background task execution. @internal */
 export interface InProcessTaskManagerConfig {
@@ -39,10 +34,11 @@ export interface InProcessTaskManagerConfig {
 /** Executes approved tool calls as in-process background tasks. @internal */
 export class InProcessTaskManager implements BackgroundTaskManager {
   private readonly _agent: Agent
-  private readonly _executeTool: ExecuteTool
+  private readonly _executeTool
   private readonly _engine: InProcessTaskEngine
-  private readonly _executions = new Map<string, ToolExecution>()
-  private readonly _taskWaiters = new Map<string, Set<InProcessTaskWaiter>>()
+  private readonly _executions = new Map<string, LiveToolExecution>()
+  private readonly _taskIdBySubmission = new Map<string, string>()
+  private readonly _taskWaiters = new Map<string, Set<(task: BackgroundTask) => void>>()
 
   /**
    * Creates an in-process background task manager.
@@ -51,71 +47,80 @@ export class InProcessTaskManager implements BackgroundTaskManager {
    * @param executeTool - Executes an approved tool through the Agent's tool pipeline.
    * @param config - Execution limits.
    */
-  constructor(agent: Agent, executeTool: ExecuteTool, config: InProcessTaskManagerConfig = {}) {
+  constructor(
+    agent: Agent,
+    executeTool: (tool: Tool, context: ToolContext) => Promise<ToolResultBlock>,
+    config: InProcessTaskManagerConfig = {}
+  ) {
     this._agent = agent
     this._executeTool = executeTool
     this._engine = new InProcessTaskEngine({
-      maxConcurrency: config.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY,
+      maxConcurrency: config.maxConcurrency ?? 4,
       timeout: config.timeout ?? Infinity,
       execute: (context): Promise<InProcessTaskExecutionOutcome> => this._executeToolTask(context),
       onTaskUpdated: (record): void => {
-        if (isTerminalTaskStatus(record.status)) {
+        if (isTaskStatusTerminal(record.status)) {
           this._executions.delete(record.invocationStateId)
         }
-        if (isTaskWaitComplete(record.status)) this._notifyTaskWaiters(record)
+        if (record.status === 'input_required' || isTaskStatusTerminal(record.status)) {
+          this._notifyTaskWaiters(record)
+        }
       },
     })
   }
 
-  /** {@inheritDoc BackgroundTaskManager.submitTask} */
-  async submitTask(
+  /** {@inheritDoc BackgroundTaskManager.submit} */
+  async submit(
     toolUse: Readonly<ToolUseData>,
     invocationState: InvocationState,
+    passId: string,
     tool: Tool
   ): Promise<BackgroundTask> {
+    const submissionKey = JSON.stringify([passId, toolUse.toolUseId])
+    const existingTaskId = this._taskIdBySubmission.get(submissionKey)
+    if (existingTaskId) return toBackgroundTask(this._engine.get(existingTaskId)!)
+
     const invocationStateId = globalThis.crypto.randomUUID()
     this._executions.set(invocationStateId, {
       toolUse: globalThis.structuredClone(toolUse),
       invocationState,
       tool,
     })
-    try {
-      const record = this._engine.submit({
-        toolName: tool.name,
-        toolUseId: toolUse.toolUseId,
-        invocationStateId,
-      })
-      return toBackgroundTask(record)
-    } catch (error) {
-      this._executions.delete(invocationStateId)
-      throw error
-    }
+    const record = this._engine.submit({
+      toolName: toolUse.name,
+      toolUseId: toolUse.toolUseId,
+      invocationStateId,
+    })
+    this._taskIdBySubmission.set(submissionKey, record.taskId)
+    return toBackgroundTask(record)
   }
 
-  /** {@inheritDoc BackgroundTaskManager.getTask} */
-  async getTask(taskId: string): Promise<BackgroundTask | undefined> {
+  /** {@inheritDoc BackgroundTaskManager.get} */
+  async get(taskId: string): Promise<BackgroundTask | undefined> {
     const record = this._engine.get(taskId)
     return record ? toBackgroundTask(record) : undefined
   }
 
-  /** {@inheritDoc BackgroundTaskManager.listTasks} */
-  async listTasks(): Promise<readonly BackgroundTask[]> {
+  /** {@inheritDoc BackgroundTaskManager.list} */
+  async list(): Promise<readonly BackgroundTask[]> {
     return this._engine.list().map(toBackgroundTask)
   }
 
-  /** {@inheritDoc BackgroundTaskManager.cancelTask} */
-  async cancelTask(taskId: string): Promise<BackgroundTask> {
+  /** {@inheritDoc BackgroundTaskManager.cancel} */
+  async cancel(taskId: string): Promise<BackgroundTask> {
     return toBackgroundTask(this._engine.cancel(taskId, { reason: 'Cancellation requested' }))
   }
 
-  /** {@inheritDoc BackgroundTaskManager.waitForTask} */
-  async waitForTask(taskId: string): Promise<BackgroundTask> {
+  /** {@inheritDoc BackgroundTaskManager.wait} */
+  async wait(taskId: string): Promise<BackgroundTask> {
     const current = this._engine.get(taskId)
     if (!current) throw new BackgroundTaskNotFoundError(taskId)
-    if (isTaskWaitComplete(current.status)) return toBackgroundTask(current)
+    if (current.status === 'input_required' || isTaskStatusTerminal(current.status)) {
+      return toBackgroundTask(current)
+    }
 
     return new Promise<BackgroundTask>((resolve) => {
-      const waiters = this._taskWaiters.get(taskId) ?? new Set<InProcessTaskWaiter>()
+      const waiters = this._taskWaiters.get(taskId) ?? new Set()
       const onTaskUpdated = (task: BackgroundTask): void => {
         waiters.delete(onTaskUpdated)
         if (waiters.size === 0) this._taskWaiters.delete(taskId)
@@ -126,19 +131,23 @@ export class InProcessTaskManager implements BackgroundTaskManager {
     })
   }
 
-  /** {@inheritDoc BackgroundTaskManager.waitForTasks} */
-  async waitForTasks(options?: { readonly timeout?: number }): Promise<void> {
+  /** {@inheritDoc BackgroundTaskManager.waitForIdle} */
+  async waitForIdle(options?: { readonly timeout?: number }): Promise<void> {
     const timeout = options?.timeout
-    if (timeout !== undefined && (!Number.isSafeInteger(timeout) || timeout <= 0 || timeout > MAX_TIMER_DELAY_MS)) {
-      throw new TypeError(
-        `wait timeout must be a positive integer no greater than ${MAX_TIMER_DELAY_MS}, got ${timeout}`
-      )
+    if (timeout !== undefined) assertTimerDelay('wait timeout', timeout)
+    if (timeout === undefined) return this._engine.waitForIdle()
+
+    const cancelSignal = AbortSignal.timeout(timeout)
+    try {
+      await this._engine.waitForIdle({ cancelSignal })
+    } catch (error) {
+      if (error === cancelSignal.reason) throw new BackgroundTaskTimeoutError(timeout)
+      throw error
     }
-    await this._engine.waitForIdle(timeout === undefined ? undefined : { cancelSignal: AbortSignal.timeout(timeout) })
   }
 
-  /** {@inheritDoc BackgroundTaskManager.resumeTask} */
-  async resumeTask(taskId: string, responses: readonly InterruptResponse[]): Promise<BackgroundTask> {
+  /** {@inheritDoc BackgroundTaskManager.resume} */
+  async resume(taskId: string, responses: readonly InterruptResponse[]): Promise<BackgroundTask> {
     return toBackgroundTask(
       this._engine.resume(taskId, (state) => {
         const taskState = InterruptState.fromJSON(state)
@@ -159,18 +168,21 @@ export class InProcessTaskManager implements BackgroundTaskManager {
     )
   }
 
-  /** {@inheritDoc BackgroundTaskManager.consumeTasks} */
-  async consumeTasks(taskIds: readonly string[]): Promise<void> {
+  /** {@inheritDoc BackgroundTaskManager.remove} */
+  async remove(taskIds: readonly string[]): Promise<void> {
     const uniqueTaskIds = new Set(taskIds)
     for (const taskId of uniqueTaskIds) {
       const task = this._engine.get(taskId)
       if (!task) throw new BackgroundTaskNotFoundError(taskId)
-      if (!isTerminalTaskStatus(task.status)) {
-        throw new Error(`Background task '${taskId}' cannot be consumed before reaching a terminal status`)
+      if (!isTaskStatusTerminal(task.status)) {
+        throw new Error(`Background task '${taskId}' cannot be removed before reaching a terminal status`)
       }
     }
     for (const taskId of uniqueTaskIds) {
       this._engine.remove(taskId)
+    }
+    for (const [submissionKey, taskId] of this._taskIdBySubmission) {
+      if (uniqueTaskIds.has(taskId)) this._taskIdBySubmission.delete(submissionKey)
     }
   }
 
@@ -191,6 +203,14 @@ export class InProcessTaskManager implements BackgroundTaskManager {
       )
     } catch (error) {
       if (error instanceof InterruptError) {
+        const taskInterruptPrefix = `tool:${context.taskId}:`
+        const taskOwnsInterrupts =
+          error.interrupts.length > 0 &&
+          error.interrupts.every(
+            (interrupt) => interrupt.source === 'tool' && interrupt.id.startsWith(taskInterruptPrefix)
+          )
+        if (!taskOwnsInterrupts) throw error
+
         for (const interrupt of error.interrupts) interruptState.registerInterrupt(interrupt)
         interruptState.activate()
         return { status: 'input_required', state: interruptState.toJSON() }
@@ -255,12 +275,4 @@ function toBackgroundTask(record: InProcessTaskRecord): BackgroundTask {
     }),
     ...(interrupts.length > 0 && { interrupts }),
   }
-}
-
-function isTaskWaitComplete(status: BackgroundTaskStatus): boolean {
-  return status === 'input_required' || isTerminalTaskStatus(status)
-}
-
-function isTerminalTaskStatus(status: BackgroundTaskStatus): boolean {
-  return status === 'completed' || status === 'failed' || status === 'cancelled'
 }

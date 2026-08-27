@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
+import { Interrupt, InterruptError } from '../../../interrupt.js'
 import { tool } from '../../../tools/tool-factory.js'
 import type { Tool, ToolContext } from '../../../tools/tool.js'
+import { BackgroundTaskTimeoutError } from '../../errors.js'
 import { InProcessTaskManager } from '../manager.js'
 
 function createFixture(
@@ -27,8 +29,14 @@ function createFixture(
   return { manager, work }
 }
 
-function submit(manager: InProcessTaskManager, work: Tool, value: string, toolUseId = `tool-use-${value}`) {
-  return manager.submitTask({ name: 'work', toolUseId, input: { value } }, {}, work)
+function submit(
+  manager: InProcessTaskManager,
+  work: Tool,
+  value: string,
+  toolUseId = `tool-use-${value}`,
+  passId = `pass-${value}`
+) {
+  return manager.submit({ name: 'work', toolUseId, input: { value } }, {}, passId, work)
 }
 
 describe('InProcessTaskManager', () => {
@@ -44,26 +52,44 @@ describe('InProcessTaskManager', () => {
       return value.toUpperCase()
     })
 
-    const admitted = await manager.submitTask(
+    const admitted = await manager.submit(
       { name: 'hook-alias', toolUseId: 'tool-use-1', input: { value: 'hello' } },
       invocationState,
+      'pass-1',
       work
     )
 
-    await manager.waitForTasks()
+    await manager.waitForIdle()
     const completed = {
       taskId: admitted.taskId,
       toolUseId: 'tool-use-1',
-      toolName: 'work',
+      toolName: 'hook-alias',
       status: 'completed',
       createdAt: expect.any(String),
       lastUpdatedAt: expect.any(String),
       result: { content: [{ text: 'HELLO' }] },
     }
-    expect(await manager.getTask(admitted.taskId)).toEqual(completed)
-    expect(await manager.listTasks()).toEqual([completed])
-    await manager.consumeTasks([admitted.taskId])
-    await expect(manager.getTask(admitted.taskId)).resolves.toBeUndefined()
+    expect(await manager.get(admitted.taskId)).toEqual(completed)
+    expect(await manager.list()).toEqual([completed])
+    await manager.remove([admitted.taskId])
+    await expect(manager.get(admitted.taskId)).resolves.toBeUndefined()
+  })
+
+  it('deduplicates repeated submissions within one pass', async () => {
+    let executionCount = 0
+    const { manager, work } = createFixture(({ value }) => {
+      executionCount += 1
+      return value
+    })
+
+    const first = await submit(manager, work, 'same', 'tool-use-1', 'pass-1')
+    const duplicate = await submit(manager, work, 'same', 'tool-use-1', 'pass-1')
+    const laterPass = await submit(manager, work, 'same', 'tool-use-1', 'pass-2')
+
+    expect(duplicate.taskId).toBe(first.taskId)
+    expect(laterPass.taskId).not.toBe(first.taskId)
+    await manager.waitForIdle()
+    expect(executionCount).toBe(2)
   })
 
   it('projects tool errors', async () => {
@@ -72,7 +98,7 @@ describe('InProcessTaskManager', () => {
     })
     const failed = await submit(manager, work, 'failed')
 
-    await expect(manager.waitForTask(failed.taskId)).resolves.toEqual({
+    await expect(manager.wait(failed.taskId)).resolves.toEqual({
       ...failed,
       status: 'failed',
       lastUpdatedAt: expect.any(String),
@@ -95,14 +121,38 @@ describe('InProcessTaskManager', () => {
     })
     const admitted = await submit(manager, work, 'cancel')
     await toolStarted
+    const waiting = manager.wait(admitted.taskId)
 
-    await expect(manager.cancelTask(admitted.taskId)).resolves.toEqual({
+    const cancelled = {
       ...admitted,
       status: 'cancelled',
       lastUpdatedAt: expect.any(String),
-    })
+    }
+    await expect(manager.cancel(admitted.taskId)).resolves.toEqual(cancelled)
+    await expect(waiting).resolves.toEqual(cancelled)
     expect(cancelSignal).toMatchObject({ aborted: true, reason: 'Cancellation requested' })
-    await manager.waitForTasks()
+    await manager.waitForIdle()
+  })
+
+  it('rejects an invalid wait timeout', async () => {
+    const { manager } = createFixture(({ value }) => value)
+
+    await expect(manager.waitForIdle({ timeout: 0 })).rejects.toThrow(TypeError)
+  })
+
+  it('throws BackgroundTaskTimeoutError when the wait exceeds the timeout', async () => {
+    const { manager, work } = createFixture(
+      (_input, context) =>
+        new Promise<string>((resolve) => {
+          context!.cancelSignal.addEventListener('abort', () => resolve('cancelled'), { once: true })
+        })
+    )
+    const admitted = await submit(manager, work, 'slow')
+
+    await expect(manager.waitForIdle({ timeout: 10 })).rejects.toBeInstanceOf(BackgroundTaskTimeoutError)
+
+    await manager.cancel(admitted.taskId)
+    await manager.waitForIdle()
   })
 
   it('requests input and resumes tool interrupts', async () => {
@@ -112,9 +162,9 @@ describe('InProcessTaskManager', () => {
       return `approved:${response}`
     })
     const completed = await submit(manager, work, 'complete')
-    await manager.waitForTask(completed.taskId)
+    await manager.wait(completed.taskId)
     const admitted = await submit(manager, work, 'interrupt', 'tool-use-1')
-    const inputRequired = await manager.waitForTask(admitted.taskId)
+    const inputRequired = await manager.wait(admitted.taskId)
     expect(inputRequired).toEqual({
       ...admitted,
       status: 'input_required',
@@ -131,23 +181,41 @@ describe('InProcessTaskManager', () => {
     const interrupt = inputRequired.interrupts?.[0]
     if (!interrupt) throw new Error('Expected task interrupt')
 
-    await expect(manager.consumeTasks([completed.taskId, admitted.taskId])).rejects.toThrow(
-      `Background task '${admitted.taskId}' cannot be consumed before reaching a terminal status`
+    await expect(manager.remove([completed.taskId, admitted.taskId])).rejects.toThrow(
+      `Background task '${admitted.taskId}' cannot be removed before reaching a terminal status`
     )
-    await expect(manager.getTask(completed.taskId)).resolves.toBeDefined()
+    await expect(manager.get(completed.taskId)).resolves.toBeDefined()
 
-    await expect(
-      manager.resumeTask(admitted.taskId, [{ interruptId: interrupt.id, response: 'yes' }])
-    ).resolves.toEqual({
+    await expect(manager.resume(admitted.taskId, [{ interruptId: interrupt.id, response: 'yes' }])).resolves.toEqual({
       ...admitted,
       status: 'queued',
       lastUpdatedAt: expect.any(String),
     })
-    await expect(manager.waitForTask(admitted.taskId)).resolves.toEqual({
+    await expect(manager.wait(admitted.taskId)).resolves.toEqual({
       ...admitted,
       status: 'completed',
       lastUpdatedAt: expect.any(String),
       result: { content: [{ text: 'approved:yes' }] },
+    })
+  })
+
+  it('fails tasks interrupted outside their tool context', async () => {
+    const { manager, work } = createFixture(() => {
+      throw new InterruptError(
+        new Interrupt({
+          id: 'hook:beforeToolCall:tool-use-1:approve_hook',
+          name: 'approve_hook',
+          source: 'hook',
+        })
+      )
+    })
+    const admitted = await submit(manager, work, 'hook-interrupt', 'tool-use-1')
+
+    await expect(manager.wait(admitted.taskId)).resolves.toEqual({
+      ...admitted,
+      status: 'failed',
+      lastUpdatedAt: expect.any(String),
+      error: { type: 'executionError', message: 'Interrupt raised: approve_hook' },
     })
   })
 })
