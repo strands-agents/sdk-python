@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 from opentelemetry import trace as trace_api
 
 from .._middleware.stages import InvokeModelContext, InvokeModelStage
+from ..agent import _continuation
 from ..experimental.checkpoint import Checkpoint, CheckpointPosition
 from ..hooks import AfterModelCallEvent, AfterToolsEvent, BeforeModelCallEvent, BeforeToolsEvent
 from ..telemetry.metrics import Trace
@@ -496,9 +497,27 @@ async def _handle_model_execution(
                 invocation_state=invocation_state,
                 projected_input_tokens=projected_input_tokens,
             )
-            await agent.hooks.invoke_callbacks_async(before_model_call_event)
+            model_continuation: Messages | None = None
+            try:
+                await agent.hooks.invoke_callbacks_async(before_model_call_event)
+                model_continuation = await _continuation.prepare(
+                    before_model_call_event,
+                    agent._convert_prompt_to_messages,
+                )
+            finally:
+                if model_continuation is None:
+                    await _continuation.abandon(
+                        before_model_call_event,
+                        RuntimeError(
+                            "Agent stream closed before continuation input was incorporated into agent history"
+                        ),
+                    )
 
             if before_model_call_event.cancel:
+                await _continuation.abandon(
+                    before_model_call_event,
+                    RuntimeError("Continuation abandoned by BeforeModelCallEvent"),
+                )
                 cancel_text = (
                     before_model_call_event.cancel
                     if isinstance(before_model_call_event.cancel, str)
@@ -523,6 +542,17 @@ async def _handle_model_execution(
                     continue
                 yield ModelStopReason(stop_reason=stop_reason, message=message, usage=usage, metrics=metrics)
                 break
+
+            if model_continuation is not None:
+                await agent._append_continuation_messages(model_continuation, before_model_call_event)
+                try:
+                    projected_input_tokens = await _estimate_input_tokens(agent)
+                except Exception as error:
+                    projected_input_tokens = None
+                    logger.debug(
+                        "error=<%s> | token estimation failed after continuation input, proceeding without estimate",
+                        error,
+                    )
 
             if structured_output_context.forced_mode:
                 tool_spec = structured_output_context.get_tool_spec()
