@@ -17,15 +17,15 @@ import {
   toolResultToContentBlocks,
   type SummarizeConfig,
 } from '../../methods/summarize.js'
+import { formatStashRefs } from '../../stash.js'
+import type { StashRef } from '../../stash.js'
 import {
   BaseOffloadStrategy,
   collectRemovableWithPair,
-  formatStashRefs,
   spliceWithPairs,
   repairAlternation,
   type OffloadConditions,
   type OffloadTarget,
-  type StashRef,
 } from './base.js'
 
 export class SummarizeStrategy extends BaseOffloadStrategy {

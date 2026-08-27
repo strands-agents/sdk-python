@@ -64,13 +64,6 @@ function finiteOrUndefined(value: number | undefined): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : undefined
 }
 
-/** Format stash refs for display in placeholders. */
-export function formatStashRefs(refs: StashRef[]): string {
-  if (refs.length === 1) return `ref: ${refs[0]!.ref} (${refs[0]!.contentType})`
-  return `refs: ${refs.map((r) => `${r.ref} (${r.contentType})`).join(', ')}`
-}
-
-export type { StashRef }
 
 /**
  * Builds a toolUseId → toolName map from all assistant messages in the conversation.

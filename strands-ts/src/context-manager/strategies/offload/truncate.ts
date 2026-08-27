@@ -10,14 +10,14 @@ import type { ContentBlock } from '../../../types/messages.js'
 import type { LocalAgent } from '../../../types/agent.js'
 import type { ContextStrategy, ContextState } from '../../types.js'
 import { truncateToolResultBlock, truncateTextBlock, type TruncateConfig } from '../../methods/truncate.js'
+import { formatStashRefs } from '../../stash.js'
+import type { StashRef } from '../../stash.js'
 import {
   BaseOffloadStrategy,
-  formatStashRefs,
   spliceWithPairs,
   repairAlternation,
   type OffloadConditions,
   type OffloadTarget,
-  type StashRef,
 } from './base.js'
 
 export class TruncateStrategy extends BaseOffloadStrategy {

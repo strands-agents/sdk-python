@@ -9,8 +9,10 @@ import { Message, TextBlock, ToolResultBlock } from '../../../types/messages.js'
 import type { ContentBlock } from '../../../types/messages.js'
 import type { LocalAgent } from '../../../types/agent.js'
 import type { ContextStrategy } from '../../types.js'
-import { BaseOffloadStrategy, formatStashRefs } from './base.js'
-import type { OffloadConditions, StashRef } from './base.js'
+import { formatStashRefs } from '../../stash.js'
+import type { StashRef } from '../../stash.js'
+import { BaseOffloadStrategy } from './base.js'
+import type { OffloadConditions } from './base.js'
 
 export const DROPPED_MARKER = '[Dropped]'
 

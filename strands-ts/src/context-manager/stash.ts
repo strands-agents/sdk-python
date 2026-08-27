@@ -41,6 +41,12 @@ function contentTypeOf(block: ContentBlock | ToolResultContent): string {
   return 'application/json'
 }
 
+/** Format stash refs for display in placeholders. */
+export function formatStashRefs(refs: StashRef[]): string {
+  if (refs.length === 1) return `ref: ${refs[0]!.ref} (${refs[0]!.contentType})`
+  return `refs: ${refs.map((r) => `${r.ref} (${r.contentType})`).join(', ')}`
+}
+
 /**
  * Wraps a Storage backend with key management and content framing for the
  * ContextManager's L1 stash.
