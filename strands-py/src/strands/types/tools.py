@@ -5,10 +5,11 @@ These types are modeled after the Bedrock API.
 - Bedrock docs: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_Types_Amazon_Bedrock_Runtime.html
 """
 
+import threading
 import uuid
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
 from typing_extensions import NotRequired, TypedDict
@@ -151,6 +152,11 @@ class ToolContext(_Interruptible):
                model configuration, and other agent state.
         invocation_state: Caller-provided kwargs that were passed to the agent when it was invoked (agent(),
                           agent.invoke_async(), etc.).
+        cancel_signal: Cancellation signal for this tool call. Poll ``cancel_signal.is_set()`` between
+                       steps, or forward it to an API that accepts one (e.g.
+                       :meth:`~strands.tools.mcp.mcp_client.MCPClient.call_tool_async`). A tool that
+                       ignores it runs to completion. Treat as read-only: setting or clearing it
+                       from a tool is unsupported.
 
     Note:
         This class is intended to be instantiated by the SDK. Direct construction by users
@@ -160,6 +166,10 @@ class ToolContext(_Interruptible):
     tool_use: ToolUse
     agent: Any  # Agent or BidiAgent - using Any for backwards compatibility
     invocation_state: dict[str, Any]
+    # Defaulted so a directly-constructed context stays valid; the SDK always supplies the
+    # invoking agent's signal. Kept out of repr and equality: an Event carries no useful text
+    # and compares by identity.
+    cancel_signal: threading.Event = field(default_factory=threading.Event, repr=False, compare=False)
 
     def _interrupt_id(self, name: str) -> str:
         """Unique id for the interrupt.

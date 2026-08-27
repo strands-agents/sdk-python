@@ -161,6 +161,7 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock.tool_executor = tool_executor
     mock._interrupt_state = _InterruptState()
     mock._cancel_signal = threading.Event()
+    mock._observe_cancellation = mock._cancel_signal.is_set
     mock._model_state = {}
     mock._system_prompt_content = None
     mock._middleware_registry = strands._middleware.MiddlewareRegistry()
@@ -410,6 +411,7 @@ async def test_event_loop_cycle_tool_result(
         system_prompt_content=unittest.mock.ANY,
         invocation_state=unittest.mock.ANY,
         model_state=unittest.mock.ANY,
+        cancel_signal=unittest.mock.ANY,
     )
 
 
@@ -926,6 +928,7 @@ async def test_request_state_initialization(alist):
     # not setting this to False results in endless recursion
     mock_agent._interrupt_state.activated = False
     mock_agent._cancel_signal = threading.Event()
+    mock_agent._observe_cancellation = mock_agent._cancel_signal.is_set
     mock_agent._system_prompt_content = None
     mock_agent.system_prompt = None
     mock_agent._model_state = {}
