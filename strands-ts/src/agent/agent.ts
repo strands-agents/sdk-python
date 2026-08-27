@@ -28,7 +28,7 @@ import { McpClient } from '../mcp/index.js'
 import { isValidToolName, type Tool } from '../tools/tool.js'
 import type { ToolChoice, ToolSpec } from '../tools/types.js'
 import { cloneSystemPrompt, systemPromptFromData } from '../types/messages.js'
-import { normalizeError, ConcurrentInvocationError, StructuredOutputError } from '../errors.js'
+import { normalizeError, ConcurrentInvocationError, MaxTokensError, StructuredOutputError } from '../errors.js'
 import { Model } from '../models/model.js'
 import type { BaseModelConfig, StreamAggregatedResult, StreamOptions } from '../models/model.js'
 import { ModelPlugin } from '../plugins/model-plugin.js'
@@ -2190,6 +2190,10 @@ export class Agent implements LocalAgent, InvokableAgent {
         if (errorEvent.retry) {
           attemptCount += 1
           continue
+        }
+
+        if (error instanceof MaxTokensError) {
+          yield this._appendMessage(error.partialMessage, invocationState)
         }
 
         // Re-throw error
