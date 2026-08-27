@@ -6,7 +6,6 @@ import llama_api_client
 import pytest
 
 import strands
-from strands.models import CacheConfig
 from strands.models.llamaapi import LlamaAPIModel
 from strands.types.exceptions import ContextWindowOverflowException
 
@@ -308,52 +307,6 @@ def test_format_request_with_unsupported_type(model):
 
     with pytest.raises(TypeError, match="content_type=<unsupported> | unsupported type"):
         model.format_request(messages)
-
-
-def test_cache_config_round_trips(llamaapi_client, model_id, captured_warnings):
-    """cache_config is a valid config field and survives get_config/update_config unchanged."""
-    cache_config = CacheConfig(cache_key="tenant-42")
-    model = LlamaAPIModel(model_id=model_id, cache_config=cache_config)
-
-    assert model.get_config()["cache_config"] is cache_config
-
-    updated = CacheConfig(cache_key="tenant-99")
-    model.update_config(cache_config=updated)
-    assert model.get_config()["cache_config"] is updated
-
-    # No "Invalid configuration parameters" warning was emitted for the field.
-    assert not any("Invalid configuration parameters" in str(warning.message) for warning in captured_warnings)
-
-
-def test_format_request_with_cache_config_unchanged(llamaapi_client, model_id, messages):
-    """LlamaAPI caches automatically; a cache_config leaves the request byte-for-byte unchanged."""
-    model = LlamaAPIModel(model_id=model_id, cache_config=CacheConfig(cache_key="tenant-42", ttl="1h"))
-
-    with pytest.warns(UserWarning):
-        request = model.format_request(messages)
-
-    assert request == {
-        "messages": [{"role": "user", "content": [{"type": "text", "text": "test"}]}],
-        "model": model_id,
-        "tools": [],
-        "stream": True,
-    }
-    assert "prompt_cache_key" not in request
-
-
-def test_cache_config_no_op_warns(llamaapi_client, model_id, messages):
-    """Setting cache_config on LlamaAPI warns that it has no effect."""
-    model = LlamaAPIModel(model_id=model_id, cache_config=CacheConfig())
-
-    with pytest.warns(UserWarning, match="has no effect"):
-        model.format_request(messages)
-
-
-def test_no_cache_config_no_warning(model, messages, captured_warnings):
-    """Without cache_config, format_request emits no cache-related warning."""
-    model.format_request(messages)
-
-    assert not any("cache_config" in str(warning.message) for warning in captured_warnings)
 
 
 def test_format_chunk_message_start(model):

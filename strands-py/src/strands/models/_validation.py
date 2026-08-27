@@ -87,6 +87,7 @@ def warn_on_cache_config_not_supported(
     provider: str,
     *,
     supported: Collection[str] = (),
+    additional_message: str | None = None,
     stacklevel: int = 4,
 ) -> None:
     """Warn once about supplied cache_config settings a provider does not support.
@@ -95,6 +96,7 @@ def warn_on_cache_config_not_supported(
         cache_config: The provider's configured cache settings, if any.
         provider: Human-readable provider name for the warning message.
         supported: Names of ``CacheConfig`` fields the provider applies; the rest are the no-ops.
+        additional_message: Optional trailing sentence appended to the warning.
         stacklevel: Frames to skip so the warning points at the caller. Defaults to 4, correct when a
             mapper one frame below ``format_request`` invokes this; pass 3 when ``format_request``
             calls it directly.
@@ -102,10 +104,12 @@ def warn_on_cache_config_not_supported(
     if cache_config is None:
         return
 
+    suffix = f" {additional_message}" if detail else ""
+
     if not supported:
         warnings.warn(
-            f"cache_config was provided to {provider}, which caches prompts automatically server-side "
-            "and exposes no cache controls; it has no effect and will be ignored.",
+            f"cache_config was provided to {provider}, but is unsupported; "
+            f"the config has no effect on this provider and will be ignored.{suffix}",
             stacklevel=stacklevel,
         )
         return
@@ -114,7 +118,7 @@ def warn_on_cache_config_not_supported(
     if unsupported:
         warnings.warn(
             f"cache_config fields {unsupported} have no effect on {provider}, which does not support them; "
-            "they will be ignored.",
+            f"they will be ignored.{suffix}",
             stacklevel=stacklevel,
         )
 
