@@ -93,7 +93,7 @@ export class TruncateStrategy extends BaseOffloadStrategy {
     if (block instanceof ToolResultBlock) {
       logger.debug(`toolUseId=<${block.toolUseId}>, tokens=<${tokens}> | truncated tool result`)
       const truncated = truncateToolResultBlock(block, this._truncateConfig)
-      if (stashRefs.length > 0 && truncated !== block) {
+      if (truncated !== block) {
         return appendStashRefs(truncated, stashRefs)
       }
       return truncated
@@ -102,18 +102,20 @@ export class TruncateStrategy extends BaseOffloadStrategy {
       logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | truncated text block`)
       return truncateTextBlock(block, this._truncateConfig)
     }
-    const refSuffix = stashRefs.length > 0 ? ` ${formatStashRefs(stashRefs)}` : ''
     logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | offloaded media block`)
-    return new TextBlock(`[Offloaded: ~${tokens} tokens${refSuffix}]`)
+    return new TextBlock(`[Offloaded: ~${tokens} tokens${formatStashRefs(stashRefs)}]`)
   }
 }
 
 function appendStashRefs(block: ToolResultBlock, stashRefs: StashRef[]): ToolResultBlock {
+  const refs = formatStashRefs(stashRefs)
+  if (!refs) return block
+
   const content = [...block.content]
   for (let index = 0; index < content.length; index++) {
     const item = content[index]!
     if (item instanceof TextBlock) {
-      content[index] = new TextBlock(`${item.text}\n\n[Stashed: ${formatStashRefs(stashRefs)}]`)
+      content[index] = new TextBlock(`${item.text}\n\n[Stashed:${refs}]`)
       return new ToolResultBlock({
         toolUseId: block.toolUseId,
         status: block.status,

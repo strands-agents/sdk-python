@@ -34,17 +34,17 @@ export class DropStrategy extends BaseOffloadStrategy {
     _agent: LocalAgent,
     stashRefs: StashRef[]
   ): Promise<ContentBlock | null> {
+    const marker = `${DROPPED_MARKER}${formatStashRefs(stashRefs)}`
+
     if (block instanceof ToolResultBlock) {
       logger.debug(`toolUseId=<${block.toolUseId}> | dropped tool result from context window`)
-      const marker = stashRefs.length > 0 ? `${DROPPED_MARKER} ${formatStashRefs(stashRefs)}` : DROPPED_MARKER
       return new ToolResultBlock({
         toolUseId: block.toolUseId,
         status: block.status,
         content: [new TextBlock(marker)],
       })
     }
-    const refSuffix = stashRefs.length > 0 ? ` ${formatStashRefs(stashRefs)}` : ''
     logger.debug(`trackingId=<${message.trackingId}> | dropped block from context window`)
-    return new TextBlock(`${DROPPED_MARKER}${refSuffix}`)
+    return new TextBlock(marker)
   }
 }

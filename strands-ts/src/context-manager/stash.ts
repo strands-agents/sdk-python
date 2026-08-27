@@ -41,10 +41,11 @@ function contentTypeOf(block: ContentBlock | ToolResultContent): string {
   return 'application/json'
 }
 
-/** Format stash refs for display in placeholders. */
+/** Format stash refs for display in placeholders. Returns '' when refs is empty. */
 export function formatStashRefs(refs: StashRef[]): string {
-  if (refs.length === 1) return `ref: ${refs[0]!.ref} (${refs[0]!.contentType})`
-  return `refs: ${refs.map((r) => `${r.ref} (${r.contentType})`).join(', ')}`
+  if (refs.length === 0) return ''
+  if (refs.length === 1) return ` ref: ${refs[0]!.ref} (${refs[0]!.contentType})`
+  return ` refs: ${refs.map((r) => `${r.ref} (${r.contentType})`).join(', ')}`
 }
 
 /**
