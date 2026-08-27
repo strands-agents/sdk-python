@@ -9,7 +9,14 @@
  */
 
 import { resolveNamespace, type Storage } from '../storage/storage.js'
-import { Message, TextBlock, ToolResultBlock, ToolUseBlock, CachePointBlock, ReasoningBlock } from '../types/messages.js'
+import {
+  Message,
+  TextBlock,
+  ToolResultBlock,
+  ToolUseBlock,
+  CachePointBlock,
+  ReasoningBlock,
+} from '../types/messages.js'
 import type { ContentBlock, ToolResultContent } from '../types/messages.js'
 import { ImageBlock, VideoBlock, DocumentBlock, AudioBlock } from '../types/media.js'
 import { logger } from '../logging/logger.js'

@@ -137,5 +137,4 @@ export class ContextManager implements Plugin {
     }
     return anyActed
   }
-
 }

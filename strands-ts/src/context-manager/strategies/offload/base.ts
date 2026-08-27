@@ -6,7 +6,14 @@
 
 import { logger } from '../../../logging/logger.js'
 import { MessageAddedEvent } from '../../../hooks/events.js'
-import { Message, TextBlock, ToolResultBlock, ToolUseBlock, CachePointBlock, ReasoningBlock } from '../../../types/messages.js'
+import {
+  Message,
+  TextBlock,
+  ToolResultBlock,
+  ToolUseBlock,
+  CachePointBlock,
+  ReasoningBlock,
+} from '../../../types/messages.js'
 import type { ContentBlock } from '../../../types/messages.js'
 import type { LocalAgent } from '../../../types/agent.js'
 import type { ContextStrategy, ContextState } from '../../types.js'
@@ -63,7 +70,6 @@ export interface OffloadStrategyBuilder extends ContextStrategy {
 function finiteOrUndefined(value: number | undefined): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : undefined
 }
-
 
 /**
  * Builds a toolUseId → toolName map from all assistant messages in the conversation.
@@ -411,13 +417,7 @@ export abstract class BaseOffloadStrategy implements ContextStrategy {
       if (tokens <= effectiveThreshold) continue
 
       const stashRefs = this._stash?.getRefs(block) ?? []
-      const replacement = await this._replaceBlock(
-        block,
-        tokens,
-        message,
-        agent,
-        stashRefs
-      )
+      const replacement = await this._replaceBlock(block, tokens, message, agent, stashRefs)
       if (replacement && replacement !== block) {
         ;(message.content as unknown[])[blockIndex] = replacement
         acted = true

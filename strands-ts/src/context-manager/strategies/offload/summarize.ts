@@ -118,7 +118,9 @@ export class SummarizeStrategy extends BaseOffloadStrategy {
         toolUseId: block.toolUseId,
         status: block.status,
         content: [
-          new TextBlock(`${SUMMARIZED_PREFIX} ~${tokens.toLocaleString()} tokens |${formatStashRefs(stashRefs)}]\n\n${summary}`),
+          new TextBlock(
+            `${SUMMARIZED_PREFIX} ~${tokens.toLocaleString()} tokens |${formatStashRefs(stashRefs)}]\n\n${summary}`
+          ),
         ],
       })
     }
