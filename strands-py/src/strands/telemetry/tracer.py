@@ -333,6 +333,28 @@ class Tracer:
         error = exception or Exception(error_message)
         self._end_span(span, error=error, error_message=error_message)
 
+    def end_span_with_cancellation(self, span: Span, cancellation: BaseException) -> None:
+        """End a span that was cancelled without marking it as success or failure.
+
+        Leaves the span status at its default UNSET (never sets OK or ERROR) and records
+        the cancellation type as an attribute so trace consumers can distinguish cancellation
+        from incomplete instrumentation.
+
+        Args:
+            span: The span to end.
+            cancellation: The BaseException that cancelled the operation.
+        """
+        if not span or not span.is_recording():
+            return
+
+        try:
+            span.set_attribute("gen_ai.event.end_time", datetime.now(timezone.utc).isoformat())
+            span.set_attribute("strands.cancellation.type", type(cancellation).__name__)
+        except Exception as exc:
+            logger.warning("error=<%s> | error while ending cancelled span", exc, exc_info=True)
+        finally:
+            span.end()
+
     def _add_event(
         self, span: Span | None, event_name: str, event_attributes: Attributes, to_span_attributes: bool = False
     ) -> None:

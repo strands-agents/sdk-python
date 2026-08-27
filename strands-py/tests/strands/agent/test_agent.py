@@ -1,3 +1,4 @@
+import asyncio
 import copy
 import importlib
 import json
@@ -11,6 +12,10 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import StatusCode
 from pydantic import BaseModel
 
 import strands
@@ -26,7 +31,7 @@ from strands.interrupt import Interrupt
 from strands.memory import MemoryManager, MemoryManagerConfig
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.session.repository_session_manager import RepositorySessionManager
-from strands.telemetry.tracer import serialize
+from strands.telemetry.tracer import Tracer, serialize
 from strands.types._events import EventLoopStopEvent, ModelStreamEvent
 from strands.types.agent import ConcurrentInvocationMode
 from strands.types.content import ContentBlock, Messages
@@ -3495,3 +3500,69 @@ async def test_checkpoint_resume_schema_mismatch_raises_checkpoint_exception() -
     prompt = {"checkpointResume": {"checkpoint": {"schema_version": "0.1", "position": "after_model"}}}
     with pytest.raises(CheckpointException, match="schema version"):
         await agent.invoke_async(prompt)
+
+
+@pytest.mark.asyncio
+async def test_agent_span_ends_on_cancellation():
+    """Root agent span is exported when the invocation is cancelled via asyncio timeout."""
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+    tracer = Tracer()
+    tracer.tracer_provider = provider
+    tracer.tracer = provider.get_tracer(tracer.service_name)
+
+    class SlowModel(MockedModelProvider):
+        async def stream(self, *args, **kwargs):
+            yield {"messageStart": {"role": "assistant"}}
+            yield {"contentBlockDelta": {"delta": {"text": "hi"}}}
+            await asyncio.sleep(10)
+
+    model = SlowModel([{"role": "assistant", "content": [{"text": "hi"}]}])
+
+    with unittest.mock.patch("strands.agent.agent.get_tracer", return_value=tracer):
+        agent = Agent(model=model, callback_handler=None)
+        with pytest.raises((asyncio.TimeoutError, asyncio.CancelledError)):
+            await asyncio.wait_for(agent.invoke_async("test"), timeout=0.1)
+
+    provider.force_flush()
+    spans = exporter.get_finished_spans()
+    agent_spans = [span for span in spans if span.name.startswith("invoke_agent")]
+    assert len(agent_spans) == 1
+    assert agent_spans[0].status.status_code == StatusCode.UNSET
+    assert agent_spans[0].attributes["strands.cancellation.type"] == "CancelledError"
+
+
+@pytest.mark.asyncio
+async def test_agent_span_ends_on_generator_exit():
+    """Root agent span is exported when consumer stops iterating (aclose/break)."""
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+    tracer = Tracer()
+    tracer.tracer_provider = provider
+    tracer.tracer = provider.get_tracer(tracer.service_name)
+
+    class SlowModel(MockedModelProvider):
+        async def stream(self, *args, **kwargs):
+            yield {"messageStart": {"role": "assistant"}}
+            yield {"contentBlockDelta": {"delta": {"text": "hi"}}}
+            await asyncio.sleep(10)
+
+    model = SlowModel([{"role": "assistant", "content": [{"text": "hi"}]}])
+
+    with unittest.mock.patch("strands.agent.agent.get_tracer", return_value=tracer):
+        agent = Agent(model=model, callback_handler=None)
+        stream = agent.stream_async("test")
+        async for _event in stream:
+            break
+        await stream.aclose()
+
+    provider.force_flush()
+    spans = exporter.get_finished_spans()
+    agent_spans = [span for span in spans if span.name.startswith("invoke_agent")]
+    assert len(agent_spans) == 1
+    assert agent_spans[0].status.status_code == StatusCode.UNSET
+    assert agent_spans[0].attributes["strands.cancellation.type"] == "GeneratorExit"

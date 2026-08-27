@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -154,6 +155,43 @@ def test_end_span_with_error_prefers_explicit_message(mock_span):
 
     mock_span.set_status.assert_called_once_with(StatusCode.ERROR, "Explicit error message")
     mock_span.record_exception.assert_called_once_with(error)
+    mock_span.end.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "cancellation",
+    [asyncio.CancelledError(), KeyboardInterrupt(), SystemExit()],
+)
+def test_end_span_with_cancellation(mock_span, cancellation):
+    """Cancelled spans end with UNSET status and a cancellation type attribute."""
+    tracer = Tracer()
+
+    tracer.end_span_with_cancellation(mock_span, cancellation)
+
+    mock_span.set_attribute.assert_any_call("strands.cancellation.type", type(cancellation).__name__)
+    mock_span.set_status.assert_not_called()
+    mock_span.record_exception.assert_not_called()
+    mock_span.end.assert_called_once()
+
+
+def test_end_span_with_cancellation_not_recording(mock_span):
+    """No-op when the span is not recording."""
+    mock_span.is_recording.return_value = False
+    tracer = Tracer()
+
+    tracer.end_span_with_cancellation(mock_span, asyncio.CancelledError())
+
+    mock_span.set_attribute.assert_not_called()
+    mock_span.end.assert_not_called()
+
+
+def test_end_span_with_cancellation_attribute_error(mock_span):
+    """Span is still ended even when set_attribute raises."""
+    mock_span.set_attribute.side_effect = RuntimeError("oops")
+    tracer = Tracer()
+
+    tracer.end_span_with_cancellation(mock_span, asyncio.CancelledError())
+
     mock_span.end.assert_called_once()
 
 
