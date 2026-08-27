@@ -104,7 +104,7 @@ def warn_on_cache_config_not_supported(
     if cache_config is None:
         return
 
-    suffix = f" {additional_message}" if detail else ""
+    suffix = f" {additional_message}" if additional_message else ""
 
     if not supported:
         warnings.warn(
