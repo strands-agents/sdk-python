@@ -49,6 +49,13 @@ def test__init__model_configs(llamaapi_client, model_id):
     assert tru_temperature == exp_temperature
 
 
+def test__init__emits_deprecation_warning(llamaapi_client, model_id):
+    _ = llamaapi_client
+
+    with pytest.warns(DeprecationWarning, match="LlamaAPIModel is deprecated"):
+        LlamaAPIModel(model_id=model_id)
+
+
 def test_update_config(model, model_id):
     model.update_config(model_id=model_id)
 

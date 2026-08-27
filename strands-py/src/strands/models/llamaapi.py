@@ -1,13 +1,16 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates
 """Llama API model provider.
 
-- Docs: https://llama.developer.meta.com/
+Deprecated: The Llama API service (https://llama.developer.meta.com/) has been deprecated by Meta.
+This provider will be removed in a future release. Migrate to another provider (e.g. Bedrock,
+Anthropic, OpenAI, Ollama) that hosts Llama or comparable models.
 """
 
 import base64
 import json
 import logging
 import mimetypes
+import warnings
 from collections.abc import AsyncGenerator
 from typing import Any, TypeVar, cast
 
@@ -25,11 +28,23 @@ from .model import BaseModelConfig, Model
 
 logger = logging.getLogger(__name__)
 
+_DEPRECATION_MESSAGE = (
+    "LlamaAPIModel is deprecated and will be removed in a future release. "
+    "The underlying Llama API service (https://llama.developer.meta.com/) has been deprecated by Meta. "
+    "Migrate to another provider that hosts Llama or comparable models "
+    "(for example, BedrockModel, OllamaModel, or OpenAIModel)."
+)
+
 T = TypeVar("T", bound=BaseModel)
 
 
 class LlamaAPIModel(Model):
-    """Llama API model provider implementation."""
+    """Llama API model provider implementation.
+
+    Deprecated: The Llama API service has been deprecated by Meta. This class will be removed
+    in a future release. Use another provider (e.g. BedrockModel, OllamaModel, OpenAIModel) that
+    hosts Llama or comparable models.
+    """
 
     OVERFLOW_MESSAGES = {
         "this model's maximum context length is",
@@ -71,6 +86,8 @@ class LlamaAPIModel(Model):
             client_args: Arguments for the Llama API client.
             **model_config: Configuration options for the Llama API model.
         """
+        warnings.warn(_DEPRECATION_MESSAGE, DeprecationWarning, stacklevel=2)
+
         validate_config_keys(model_config, self.LlamaConfig)
         self.config = LlamaAPIModel.LlamaConfig(**model_config)
         logger.debug("config=<%s> | initializing", self.config)
