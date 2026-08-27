@@ -1,7 +1,6 @@
 name: mem0-strands
-description: 'Long-term memory for Strands agents, backed by Mem0: a native MemoryStore with automatic recall and server-side memory extraction, hosted or self-hosted.'
+description: 'Persistent long-term memory for Strands agents, enabled by Mem0: a native MemoryStore with automatic recall and server-side extraction.'
 integrationType: memory-store
-maintainedBy: partner
 languages:
   python:
     package: mem0-strands
