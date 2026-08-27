@@ -1619,6 +1619,31 @@ def test_agent_state_get_breaks_deep_dict_reference():
     json.dumps(agent.state.get())
 
 
+def test_session_id_without_session_manager():
+    agent = Agent(model=MockedModelProvider([]))
+
+    first = agent.session_id
+    second = agent.session_id
+
+    assert first == second
+    assert len(first) == 8
+
+
+def test_session_id_different_per_instance():
+    agent1 = Agent(model=MockedModelProvider([]))
+    agent2 = Agent(model=MockedModelProvider([]))
+
+    assert agent1.session_id != agent2.session_id
+
+
+def test_session_id_delegates_to_session_manager():
+    mock_session_repository = MockedSessionRepository()
+    session_manager = RepositorySessionManager(session_id="my-session", session_repository=mock_session_repository)
+    agent = Agent(model=MockedModelProvider([]), session_manager=session_manager)
+
+    assert agent.session_id == "my-session"
+
+
 def test_agent_session_management():
     mock_session_repository = MockedSessionRepository()
     session_manager = RepositorySessionManager(session_id="123", session_repository=mock_session_repository)
