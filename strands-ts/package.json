@@ -243,6 +243,7 @@
     "@smithy/types": "^4.15.1",
     "@types/express": "^5.0.6",
     "@types/node": "^25.9.4",
+    "@types/turndown": "^5.0.6",
     "@typescript-eslint/eslint-plugin": "^8.62.1",
     "@typescript-eslint/parser": "^8.0.0",
     "@vitest/browser": "^4.1.10",
@@ -272,6 +273,7 @@
     "@smithy/fetch-http-handler": "^5.7.2",
     "@aws-sdk/client-bedrock-runtime": "^3.1112.0",
     "@types/json-schema": "^7.0.15",
+    "turndown": "^7.2.4",
     "uuid": "^14.0.2",
     "yaml": "^2.8.3"
   },
