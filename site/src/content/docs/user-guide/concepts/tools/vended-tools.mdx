@@ -329,10 +329,18 @@ result = agent("Summarize the changes in ./CHANGELOG.md")
 
 Fetches an HTTP(S) URL and returns its readable content as markdown suitable for a model to read. Scripts, styles, and other non-content noise are stripped from the extracted markdown. Distinct from the HTTP Request tool, which returns raw response bodies for API calls.
 
-_Supported in: all platforms (Python)._
+_Supported in: Python (all platforms)._
 
-:::caution[Security Warning]
-The model chooses the fetched URL, so the tool is intentionally strict at that boundary. Only http and https schemes are accepted. Every host is DNS-resolved and every returned address is required to be publicly routable, so private, loopback, link-local, cloud metadata, CGNAT, multicast, and reserved ranges are refused. Redirects are re-validated against the same rules and the tool connects to a specific already-validated IP address so a DNS rebinder cannot substitute a private address between validation and connect. Response bodies are capped at five mebibytes.
+:::note[Install required]
+`web_fetch` requires the optional `web-fetch` extra:
+
+```bash
+pip install 'strands-agents[web-fetch]'
+```
+:::
+
+:::note[Security posture]
+`web_fetch` accepts only `http://` and `https://` URLs and caps response bodies at five mebibytes. Egress control belongs at the layer that encapsulates the agent — a sandbox, microVM, or network policy — where it can be enforced consistently across all tools, including `shell`.
 :::
 
 **Example:**

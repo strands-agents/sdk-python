@@ -50,7 +50,9 @@ def __getattr__(name: str) -> Any:
     if name in ("make_web_fetch", "web_fetch"):
         from .web_fetch import make_web_fetch, web_fetch
 
-        return {"make_web_fetch": make_web_fetch, "web_fetch": web_fetch}[name]
+        if name == "web_fetch":
+            return web_fetch
+        return make_web_fetch
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 

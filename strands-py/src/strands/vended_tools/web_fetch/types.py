@@ -23,8 +23,6 @@ WEB_FETCH_DESCRIPTION = (
     "HTML pages are converted to markdown with the page title prepended; "
     "other content types are returned as-is. "
     "Scripts, styles, and non-content noise are stripped. "
-    "Returns status, content_type, and markdown. "
-    "Only http:// and https:// URLs are allowed. Private, loopback, and link-local "
-    "addresses are refused."
+    "Returns status (HTTP status code), content_type, and markdown."
 )
 """Description for the web fetch tool."""

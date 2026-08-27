@@ -8,6 +8,8 @@ so large inline blobs do not bloat the output. The page title is prepended.
 from __future__ import annotations
 
 import logging
+import unicodedata
+from urllib.parse import urlparse
 
 try:
     from bs4 import BeautifulSoup, Tag
@@ -20,7 +22,7 @@ except ImportError as e:
 
 logger = logging.getLogger(__name__)
 
-_DROPPED_ELEMENTS = [
+_DROPPED_ELEMENTS = frozenset([
     "script",
     "style",
     "noscript",
@@ -37,7 +39,15 @@ _DROPPED_ELEMENTS = [
     "button",
     "select",
     "textarea",
-]
+])
+
+
+def _url_scheme(url: str) -> str:
+    """Return the URL scheme, stripping leading invisible characters first."""
+    for index, char in enumerate(url):
+        if unicodedata.category(char) not in ("Cc", "Cf", "Zs"):
+            return urlparse(url[index:]).scheme
+    return ""
 
 
 def _tag_attribute(tag: Tag, name: str) -> str:
@@ -53,16 +63,16 @@ def _sanitize_tree(soup: BeautifulSoup) -> None:
     for element in soup(_DROPPED_ELEMENTS):
         element.decompose()
     for image in soup.find_all("img"):
-        source = _tag_attribute(image, "src").lstrip().lower()
-        # Image sources can be enormous blobs, so replace them with their alt text.
-        if source.startswith("data:"):
+        scheme = _url_scheme(_tag_attribute(image, "src"))
+        # data: URI blobs can be enormous, so replace them with their alt text.
+        if scheme == "data":
             image.replace_with(_tag_attribute(image, "alt"))
-        # javascript: sources are never useful to a model, so drop them outright.
-        elif source.startswith("javascript:"):
+        # javascript: sources are not useful to a model.
+        elif scheme == "javascript":
             image.decompose()
     # Unwrap javascript: links to their text so the scheme never reaches output.
     for anchor in soup.find_all("a"):
-        if _tag_attribute(anchor, "href").lstrip().lower().startswith("javascript:"):
+        if _url_scheme(_tag_attribute(anchor, "href")) == "javascript":
             anchor.unwrap()
 
 
