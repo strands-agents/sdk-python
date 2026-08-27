@@ -116,6 +116,13 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
     return 'strands:session-manager'
   }
 
+  /**
+   * The session identifier for this session manager.
+   */
+  get sessionId(): string {
+    return this._sessionId
+  }
+
   constructor(config: SessionManagerConfig) {
     this._sessionId = validateIdentifier(config.sessionId ?? 'default-session')
     this._configStorage = config.storage
