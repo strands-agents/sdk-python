@@ -26,7 +26,7 @@ export class DropStrategy extends BaseOffloadStrategy {
   }
 
   protected async _replaceBlock(
-    block: TextBlock | ToolResultBlock,
+    block: ContentBlock,
     _tokens: number,
     message: Message,
     _agent: LocalAgent,
@@ -41,7 +41,8 @@ export class DropStrategy extends BaseOffloadStrategy {
         content: [new TextBlock(marker)],
       })
     }
-    logger.debug(`trackingId=<${message.trackingId}> | dropped text block from context window`)
-    return new TextBlock(DROPPED_MARKER)
+    const refSuffix = stashRefs.length > 0 ? ` ${formatStashRefs(stashRefs)}` : ''
+    logger.debug(`trackingId=<${message.trackingId}> | dropped block from context window`)
+    return new TextBlock(`${DROPPED_MARKER}${refSuffix}`)
   }
 }

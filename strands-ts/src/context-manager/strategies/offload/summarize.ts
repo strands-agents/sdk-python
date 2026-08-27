@@ -100,7 +100,7 @@ export class SummarizeStrategy extends BaseOffloadStrategy {
   }
 
   protected async _replaceBlock(
-    block: TextBlock | ToolResultBlock,
+    block: ContentBlock,
     tokens: number,
     message: Message,
     agent: LocalAgent,
@@ -124,11 +124,17 @@ export class SummarizeStrategy extends BaseOffloadStrategy {
       })
     }
 
-    const summary = await summarizeContent([new TextBlock(block.text)], model, this._config)
-    if (!summary) return null
+    if (block instanceof TextBlock) {
+      const summary = await summarizeContent([new TextBlock(block.text)], model, this._config)
+      if (!summary) return null
 
-    logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | summarized text block`)
-    return new TextBlock(`${SUMMARIZED_PREFIX} ~${tokens.toLocaleString()} tokens]\n\n${summary}`)
+      logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | summarized text block`)
+      return new TextBlock(`${SUMMARIZED_PREFIX} ~${tokens.toLocaleString()} tokens]\n\n${summary}`)
+    }
+
+    const refSuffix = stashRefs.length > 0 ? ` ${formatStashRefs(stashRefs)}` : ''
+    logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | offloaded media block`)
+    return new TextBlock(`[Offloaded: ~${tokens} tokens${refSuffix}]`)
   }
 
   private _resolveModel(agent: LocalAgent): Model | undefined {

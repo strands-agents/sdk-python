@@ -49,9 +49,6 @@ export interface ContextState {
 }
 
 /**
- * Full configuration for a ContextManager instance.
- */
-/**
  * Configuration for the L1 stash (offloaded content persistence).
  */
 export interface StashConfig {

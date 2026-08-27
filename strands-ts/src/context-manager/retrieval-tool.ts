@@ -9,8 +9,6 @@
 import { z } from 'zod'
 import { tool } from '../tools/tool-factory.js'
 import { isSearchableContent, searchContent } from '../vended-plugins/context-offloader/search.js'
-import { ImageBlock, VideoBlock, DocumentBlock } from '../types/media.js'
-import type { ImageFormat, VideoFormat, DocumentFormat } from '../types/media.js'
 import type { JSONValue } from '../types/json.js'
 import type { Tool } from '../tools/tool.js'
 import type { Stash } from './stash.js'
@@ -68,14 +66,14 @@ export function createRetrievalTool(stash: Stash, maxResultTokens?: number): Too
       }
 
       if (!input.pattern && !input.line_range) {
-        return decodeContent(result.content, result.contentType, input.reference)
+        return result.data as JSONValue
       }
 
-      if (!isSearchableContent(result.contentType)) {
-        return `Error: cannot search binary content (${result.contentType}). Omit pattern/line_range to retrieve full content.`
+      const text = extractText(result.data)
+      if (!text || !isSearchableContent('text/plain')) {
+        return `Error: cannot search non-text content. Omit pattern/line_range to retrieve full content.`
       }
 
-      const text = new TextDecoder().decode(result.content)
       const contextLines = input.context_lines ?? 5
 
       return searchContent(
@@ -87,33 +85,15 @@ export function createRetrievalTool(stash: Stash, maxResultTokens?: number): Too
   })
 }
 
-function decodeContent(content: Uint8Array, contentType: string, reference: string): JSONValue {
-  if (contentType.startsWith('text/')) {
-    return new TextDecoder().decode(content)
-  }
-  if (contentType === 'application/json') {
-    const text = new TextDecoder().decode(content)
-    try {
-      return JSON.parse(text) as JSONValue
-    } catch {
-      return text
+function extractText(data: unknown): string | null {
+  if (typeof data === 'string') return data
+  if (data && typeof data === 'object') {
+    if ('text' in data && typeof (data as Record<string, unknown>).text === 'string') {
+      return (data as Record<string, unknown>).text as string
+    }
+    if ('json' in data) {
+      return JSON.stringify((data as Record<string, unknown>).json, null, 2)
     }
   }
-  if (contentType.startsWith('image/')) {
-    const format = contentType.slice(contentType.indexOf('/') + 1)
-    return new ImageBlock({ format: format as ImageFormat, source: { bytes: content } }) as unknown as JSONValue
-  }
-  if (contentType.startsWith('video/')) {
-    const format = contentType.slice(contentType.indexOf('/') + 1)
-    return new VideoBlock({ format: format as VideoFormat, source: { bytes: content } }) as unknown as JSONValue
-  }
-  if (contentType.startsWith('application/')) {
-    const format = contentType.slice(contentType.indexOf('/') + 1)
-    return new DocumentBlock({
-      format: format as DocumentFormat,
-      name: reference,
-      source: { bytes: content },
-    }) as unknown as JSONValue
-  }
-  return new TextDecoder('utf-8', { fatal: false }).decode(content)
+  return null
 }

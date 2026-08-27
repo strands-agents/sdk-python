@@ -64,7 +64,7 @@ describe('Offload strategies with stash', () => {
   describe('truncate + stash', () => {
     it('persists original content to stash before truncating', async () => {
       const storage = new InMemoryStorage()
-      const stash = new Stash(storage)
+      const stash = new Stash(storage, 'test-session')
       const largeText = 'important data '.repeat(1000)
       const messages = [makeToolResultMessage(largeText)]
       await stashAll(stash, messages)
@@ -80,11 +80,11 @@ describe('Offload strategies with stash', () => {
 
       const retrieved = await stash.retrieve(keys[0]!)
       expect(retrieved).not.toBeNull()
-      expect(new TextDecoder().decode(retrieved!.content)).toBe(largeText)
+      expect((retrieved!.data as { text: string }).text).toBe(largeText)
     })
 
     it('includes stash reference in the truncated preview', async () => {
-      const stash = new Stash(new InMemoryStorage())
+      const stash = new Stash(new InMemoryStorage(), 'test-session')
       const largeText = 'x'.repeat(20000)
       const messages = [makeToolResultMessage(largeText)]
       await stashAll(stash, messages)
@@ -114,7 +114,7 @@ describe('Offload strategies with stash', () => {
 
   describe('drop + stash', () => {
     it('persists original content before dropping', async () => {
-      const stash = new Stash(new InMemoryStorage())
+      const stash = new Stash(new InMemoryStorage(), 'test-session')
       const largeText = 'critical information '.repeat(500)
       const messages = [makeToolResultMessage(largeText)]
       await stashAll(stash, messages)
@@ -129,11 +129,11 @@ describe('Offload strategies with stash', () => {
       expect(keys.length).toBe(1)
 
       const retrieved = await stash.retrieve(keys[0]!)
-      expect(new TextDecoder().decode(retrieved!.content)).toBe(largeText)
+      expect((retrieved!.data as { text: string }).text).toBe(largeText)
     })
 
     it('includes stash reference in the drop marker', async () => {
-      const stash = new Stash(new InMemoryStorage())
+      const stash = new Stash(new InMemoryStorage(), 'test-session')
       const largeText = 'x'.repeat(20000)
       const messages = [makeToolResultMessage(largeText)]
       await stashAll(stash, messages)
@@ -150,7 +150,7 @@ describe('Offload strategies with stash', () => {
 
   describe('binary content stashing', () => {
     it('stashes image content from tool results', async () => {
-      const stash = new Stash(new InMemoryStorage())
+      const stash = new Stash(new InMemoryStorage(), 'test-session')
       const imageBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
       const messages = [
         new Message({
@@ -175,12 +175,14 @@ describe('Offload strategies with stash', () => {
       expect(keys.length).toBe(1)
 
       const retrieved = await stash.retrieve(keys[0]!)
-      expect(retrieved!.contentType).toBe('image/png')
-      expect(retrieved!.content).toEqual(imageBytes)
+      expect(retrieved!.contentType).toBe('application/json')
+      const data = retrieved!.data as { image: { format: string; source: { bytes: string } } }
+      expect(data.image.format).toBe('png')
+      expect(data.image.source.bytes).toBeDefined()
     })
 
     it('stashes each block independently when mixed content', async () => {
-      const stash = new Stash(new InMemoryStorage())
+      const stash = new Stash(new InMemoryStorage(), 'test-session')
       const imageBytes = new Uint8Array([0xff, 0xd8])
       const messages = [
         new Message({
@@ -207,20 +209,24 @@ describe('Offload strategies with stash', () => {
       expect(keys.length).toBe(2)
 
       const entries = await Promise.all(keys.map((key) => stash.retrieve(key)))
-      const textEntry = entries.find((entry) => entry!.contentType === 'text/plain')
-      const imageEntry = entries.find((entry) => entry!.contentType === 'image/jpeg')
+      const textEntry = entries.find(
+        (entry) => entry && typeof entry.data === 'object' && entry.data !== null && 'text' in entry.data
+      )
+      const imageEntry = entries.find(
+        (entry) => entry && typeof entry.data === 'object' && entry.data !== null && 'image' in entry.data
+      )
 
       expect(textEntry).not.toBeNull()
-      expect(new TextDecoder().decode(textEntry!.content)).toBe('description of image')
+      expect((textEntry!.data as { text: string }).text).toBe('description of image')
 
       expect(imageEntry).not.toBeNull()
-      expect(imageEntry!.content).toEqual(imageBytes)
+      expect((imageEntry!.data as { image: { format: string } }).image.format).toBe('jpeg')
     })
   })
 
   describe('eager stashing via storeMessage', () => {
     it('persists tool result content on message arrival', async () => {
-      const stash = new Stash(new InMemoryStorage())
+      const stash = new Stash(new InMemoryStorage(), 'test-session')
       const largeText = 'important data '.repeat(500)
       const message = makeToolResultMessage(largeText, 'call-1')
 
@@ -230,11 +236,11 @@ describe('Offload strategies with stash', () => {
       expect(keys.length).toBe(1)
       const retrieved = await stash.retrieve(keys[0]!)
       expect(retrieved).not.toBeNull()
-      expect(new TextDecoder().decode(retrieved!.content)).toBe(largeText)
+      expect((retrieved!.data as { text: string }).text).toBe(largeText)
     })
 
     it('persists text blocks from assistant messages on arrival', async () => {
-      const stash = new Stash(new InMemoryStorage())
+      const stash = new Stash(new InMemoryStorage(), 'test-session')
       const assistantText = 'important analysis '.repeat(200)
       const message = new Message({ role: 'assistant', content: [new TextBlock(assistantText)] })
 
@@ -243,13 +249,13 @@ describe('Offload strategies with stash', () => {
       const keys = await stash.list()
       expect(keys.length).toBe(1)
       const retrieved = await stash.retrieve(keys[0]!)
-      expect(new TextDecoder().decode(retrieved!.content)).toBe(assistantText)
+      expect((retrieved!.data as { text: string }).text).toBe(assistantText)
     })
   })
 
   describe('retrieval loop prevention', () => {
     it('does not offload retrieve_context tool results when stash is active', async () => {
-      const stash = new Stash(new InMemoryStorage())
+      const stash = new Stash(new InMemoryStorage(), 'test-session')
       const largeRetrievalResult = 'retrieved content '.repeat(1000)
 
       const messages = [

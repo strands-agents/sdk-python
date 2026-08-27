@@ -9,9 +9,9 @@
  */
 
 import { resolveNamespace, type Storage } from '../storage/storage.js'
-import { Message, TextBlock, JsonBlock, ToolResultBlock } from '../types/messages.js'
+import { Message, TextBlock, ToolResultBlock, ToolUseBlock, CachePointBlock, ReasoningBlock } from '../types/messages.js'
 import type { ContentBlock, ToolResultContent } from '../types/messages.js'
-import { ImageBlock, VideoBlock, DocumentBlock } from '../types/media.js'
+import { ImageBlock, VideoBlock, DocumentBlock, AudioBlock } from '../types/media.js'
 import { logger } from '../logging/logger.js'
 
 const STASH_PREFIX = 'context-stash'
@@ -24,52 +24,21 @@ export interface StashRef {
   contentType: string
 }
 
-function frameContent(content: Uint8Array, contentType: string): Uint8Array {
-  const ctBytes = new TextEncoder().encode(contentType)
-  const frame = new Uint8Array(2 + ctBytes.length + content.length)
-  frame[0] = (ctBytes.length >> 8) & 0xff
-  frame[1] = ctBytes.length & 0xff
-  frame.set(ctBytes, 2)
-  frame.set(content, 2 + ctBytes.length)
-  return frame
+function encode(value: unknown): Uint8Array {
+  return new TextEncoder().encode(JSON.stringify(value))
 }
 
-function unframeContent(frame: Uint8Array): { content: Uint8Array; contentType: string } {
-  const ctLen = (frame[0]! << 8) | frame[1]!
-  const contentType = new TextDecoder().decode(frame.subarray(2, 2 + ctLen))
-  const content = frame.subarray(2 + ctLen)
-  return { content, contentType }
+function decode(bytes: Uint8Array): unknown {
+  return JSON.parse(new TextDecoder().decode(bytes))
 }
 
-function serializeContentBlock(block: ToolResultContent): { bytes: Uint8Array | undefined; contentType: string } {
-  if (block instanceof TextBlock) {
-    return { bytes: new TextEncoder().encode(block.text), contentType: 'text/plain' }
-  }
-  if (block instanceof JsonBlock) {
-    return { bytes: new TextEncoder().encode(JSON.stringify(block.json, null, 2)), contentType: 'application/json' }
-  }
-  if (block instanceof ImageBlock) {
-    if (block.source.type === 'imageSourceBytes') {
-      return { bytes: block.source.bytes, contentType: `image/${block.format}` }
-    }
-    return { bytes: undefined, contentType: `image/${block.format}` }
-  }
-  if (block instanceof VideoBlock) {
-    if (block.source.type === 'videoSourceBytes') {
-      return { bytes: block.source.bytes, contentType: `video/${block.format}` }
-    }
-    return { bytes: undefined, contentType: `video/${block.format}` }
-  }
-  if (block instanceof DocumentBlock) {
-    if (block.source.type === 'documentSourceBytes') {
-      return { bytes: block.source.bytes, contentType: `application/${block.format}` }
-    }
-    if (block.source.type === 'documentSourceText') {
-      return { bytes: new TextEncoder().encode(block.source.text), contentType: 'text/plain' }
-    }
-    return { bytes: undefined, contentType: `application/${block.format}` }
-  }
-  return { bytes: undefined, contentType: 'application/octet-stream' }
+function contentTypeOf(block: ContentBlock | ToolResultContent): string {
+  if (block instanceof TextBlock) return 'text/plain'
+  if (block instanceof ImageBlock) return `image/${block.format}`
+  if (block instanceof VideoBlock) return `video/${block.format}`
+  if (block instanceof DocumentBlock) return `application/${block.format}`
+  if (block instanceof AudioBlock) return `audio/${block.format}`
+  return 'application/json'
 }
 
 /**
@@ -80,29 +49,26 @@ function serializeContentBlock(block: ToolResultContent): { bytes: Uint8Array | 
  */
 export class Stash {
   private readonly _storage: Storage
-  private readonly _sessionId: string
   private readonly _refsByBlock = new WeakMap<ContentBlock | ToolResultContent, StashRef[]>()
-  private _counter = 0
 
-  constructor(storage: Storage) {
-    this._sessionId = Math.random().toString(36).slice(2, 8)
-    this._storage = resolveNamespace(storage, STASH_PREFIX)
+  constructor(storage: Storage, sessionId: string) {
+    this._storage = resolveNamespace(storage, `${STASH_PREFIX}/${sessionId}`)
   }
 
   /**
-   * Store raw content and return a reference key.
+   * Store a serialized block and return a deterministic reference key.
    *
-   * @param toolUseId - The toolUseId this content belongs to
+   * Keys are deterministic (`<id>_<blockIndex>`) so they can be recomputed
+   * after a process restart or snapshot restore without the WeakMap cache.
+   *
+   * @param id - Identifier component for the key (e.g. toolUseId)
    * @param blockIndex - Index of the block within the tool result
-   * @param content - Raw content bytes
-   * @param contentType - MIME type of the content
+   * @param data - Serialized bytes to persist
    * @returns Reference key for retrieval
    */
-  async store(toolUseId: string, blockIndex: number, content: Uint8Array, contentType: string): Promise<string> {
-    this._counter++
-    const key = `${this._sessionId}_${this._counter}_${toolUseId}_${blockIndex}`
-    const framed = frameContent(content, contentType)
-    await this._storage.write(key, framed)
+  async store(id: string, blockIndex: number, data: Uint8Array): Promise<string> {
+    const key = `${id}_${blockIndex}`
+    await this._storage.write(key, data)
     return key
   }
 
@@ -125,37 +91,41 @@ export class Stash {
    * the block is replaced during offloading.
    *
    * @param message - The message whose content should be persisted
+   * @param skipToolUseIds - ToolUseIds to skip (e.g. retrieval tool results)
    */
-  async storeMessage(message: Message): Promise<void> {
-    for (const block of message.content) {
+  async storeMessage(message: Message, skipToolUseIds?: ReadonlySet<string>): Promise<void> {
+    for (let blockIndex = 0; blockIndex < message.content.length; blockIndex++) {
+      const block = message.content[blockIndex]!
       if (block instanceof ToolResultBlock) {
+        if (skipToolUseIds?.has(block.toolUseId)) continue
         const refs = await this._storeToolResult(block).catch((error) => {
           logger.debug(`toolUseId=<${block.toolUseId}>, error=<${error}> | failed to stash tool result`)
           return [] as StashRef[]
         })
         if (refs.length > 0) this._refsByBlock.set(block, refs)
-      } else if (block instanceof TextBlock && block.text.length > 0) {
+      } else if (block instanceof ToolUseBlock || block instanceof CachePointBlock || block instanceof ReasoningBlock) {
+        continue
+      } else {
         try {
-          const key = `text_${message.trackingId ?? 'msg'}`
-          const ref = await this.store(key, 0, new TextEncoder().encode(block.text), 'text/plain')
-          this._refsByBlock.set(block, [{ ref, contentType: 'text/plain' }])
+          const ref = await this.store(message.trackingId, blockIndex, encode(block.toJSON()))
+          this._refsByBlock.set(block, [{ ref, contentType: contentTypeOf(block) }])
         } catch (error) {
-          logger.debug(`trackingId=<${message.trackingId}>, error=<${error}> | failed to stash text block`)
+          logger.debug(`trackingId=<${message.trackingId}>, error=<${error}> | failed to stash block`)
         }
       }
     }
   }
 
   /**
-   * Retrieve previously stashed content.
+   * Retrieve previously stashed content as its serialized JSON form.
    *
    * @param reference - Key returned by a previous store call
-   * @returns Content bytes and content type, or null if not found
+   * @returns The deserialized block data (from `toJSON()`), or null if not found
    */
-  async retrieve(reference: string): Promise<{ content: Uint8Array; contentType: string } | null> {
-    const data = await this._storage.read(reference)
-    if (data === null) return null
-    return unframeContent(data)
+  async retrieve(reference: string): Promise<{ data: unknown; contentType: string } | null> {
+    const bytes = await this._storage.read(reference)
+    if (bytes === null) return null
+    return { data: decode(bytes), contentType: 'application/json' }
   }
 
   /**
@@ -179,15 +149,8 @@ export class Stash {
     const refs: StashRef[] = []
     for (let blockIndex = 0; blockIndex < block.content.length; blockIndex++) {
       const item = block.content[blockIndex]!
-      const serialized = serializeContentBlock(item)
-      if (!serialized.bytes) {
-        logger.debug(
-          `toolUseId=<${block.toolUseId}>, blockIndex=<${blockIndex}> | skipped non-byte content (${serialized.contentType})`
-        )
-        continue
-      }
-      const ref = await this.store(block.toolUseId, blockIndex, serialized.bytes, serialized.contentType)
-      refs.push({ ref, contentType: serialized.contentType })
+      const ref = await this.store(block.toolUseId, blockIndex, encode(item.toJSON()))
+      refs.push({ ref, contentType: contentTypeOf(item) })
     }
     return refs
   }

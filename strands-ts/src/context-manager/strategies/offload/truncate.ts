@@ -84,7 +84,7 @@ export class TruncateStrategy extends BaseOffloadStrategy {
   }
 
   protected async _replaceBlock(
-    block: TextBlock | ToolResultBlock,
+    block: ContentBlock,
     tokens: number,
     message: Message,
     _agent: LocalAgent,
@@ -98,8 +98,13 @@ export class TruncateStrategy extends BaseOffloadStrategy {
       }
       return truncated
     }
-    logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | truncated text block`)
-    return truncateTextBlock(block, this._truncateConfig)
+    if (block instanceof TextBlock) {
+      logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | truncated text block`)
+      return truncateTextBlock(block, this._truncateConfig)
+    }
+    const refSuffix = stashRefs.length > 0 ? ` ${formatStashRefs(stashRefs)}` : ''
+    logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | offloaded media block`)
+    return new TextBlock(`[Offloaded: ~${tokens} tokens${refSuffix}]`)
   }
 }
 

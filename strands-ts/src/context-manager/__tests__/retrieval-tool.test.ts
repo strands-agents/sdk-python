@@ -2,32 +2,35 @@ import { describe, it, expect } from 'vitest'
 import { createRetrievalTool, RETRIEVAL_TOOL_NAME } from '../retrieval-tool.js'
 import { Stash } from '../stash.js'
 import { InMemoryStorage } from '../../storage/in-memory-storage.js'
-import { ImageBlock } from '../../types/media.js'
 
 function invoke(retrievalTool: ReturnType<typeof createRetrievalTool>, input: unknown): Promise<unknown> {
   return (retrievalTool as unknown as { invoke(input: unknown): Promise<unknown> }).invoke(input)
 }
 
+function encodeJSON(value: unknown): Uint8Array {
+  return new TextEncoder().encode(JSON.stringify(value))
+}
+
 describe('retrieval tool', () => {
-  function makeStashWithContent(text: string): { stash: Stash; refPromise: Promise<string> } {
-    const stash = new Stash(new InMemoryStorage())
-    const refPromise = stash.store('tool-1', 0, new TextEncoder().encode(text), 'text/plain')
+  function makeStashWithTextBlock(text: string): { stash: Stash; refPromise: Promise<string> } {
+    const stash = new Stash(new InMemoryStorage(), 'test-session')
+    const refPromise = stash.store('tool-1', 0, encodeJSON({ text }))
     return { stash, refPromise }
   }
 
   it('has the correct tool name', () => {
-    const stash = new Stash(new InMemoryStorage())
+    const stash = new Stash(new InMemoryStorage(), 'test-session')
     const retrievalTool = createRetrievalTool(stash)
     expect(retrievalTool.name).toBe(RETRIEVAL_TOOL_NAME)
   })
 
   it('retrieves full text content', async () => {
-    const { stash, refPromise } = makeStashWithContent('hello world\nline two')
+    const { stash, refPromise } = makeStashWithTextBlock('hello world\nline two')
     const ref = await refPromise
     const retrievalTool = createRetrievalTool(stash)
 
     const result = await invoke(retrievalTool, { reference: ref })
-    expect(result).toBe('hello world\nline two')
+    expect(result).toEqual({ text: 'hello world\nline two' })
   })
 
   it('searches with pattern', async () => {
@@ -35,7 +38,7 @@ describe('retrieval tool', () => {
       { length: 20 },
       (_, index) => `line ${index + 1}: ${index % 3 === 0 ? 'ERROR' : 'ok'}`
     ).join('\n')
-    const { stash, refPromise } = makeStashWithContent(text)
+    const { stash, refPromise } = makeStashWithTextBlock(text)
     const ref = await refPromise
     const retrievalTool = createRetrievalTool(stash)
 
@@ -46,7 +49,7 @@ describe('retrieval tool', () => {
 
   it('returns line range', async () => {
     const text = Array.from({ length: 50 }, (_, index) => `line ${index + 1}`).join('\n')
-    const { stash, refPromise } = makeStashWithContent(text)
+    const { stash, refPromise } = makeStashWithTextBlock(text)
     const ref = await refPromise
     const retrievalTool = createRetrievalTool(stash)
 
@@ -57,42 +60,40 @@ describe('retrieval tool', () => {
   })
 
   it('returns error for unknown reference', async () => {
-    const stash = new Stash(new InMemoryStorage())
+    const stash = new Stash(new InMemoryStorage(), 'test-session')
     const retrievalTool = createRetrievalTool(stash)
 
     const result = (await invoke(retrievalTool, { reference: 'nonexistent' })) as string
     expect(result).toContain('Error: reference not found')
   })
 
-  it('retrieves binary content as native ImageBlock', async () => {
-    const stash = new Stash(new InMemoryStorage())
-    const imageBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
-    const ref = await stash.store('tool-img', 0, imageBytes, 'image/png')
+  it('retrieves image content as JSON', async () => {
+    const stash = new Stash(new InMemoryStorage(), 'test-session')
+    const imageData = { image: { format: 'png', source: { bytes: 'iVBORw0KGgo=' } } }
+    const ref = await stash.store('tool-img', 0, encodeJSON(imageData))
     const retrievalTool = createRetrievalTool(stash)
 
     const result = await invoke(retrievalTool, { reference: ref })
-    expect(result).toBeInstanceOf(ImageBlock)
-    expect((result as ImageBlock).format).toBe('png')
-    expect((result as ImageBlock).source.type).toBe('imageSourceBytes')
+    expect(result).toEqual(imageData)
   })
 
   it('retrieves JSON content as parsed object', async () => {
-    const stash = new Stash(new InMemoryStorage())
+    const stash = new Stash(new InMemoryStorage(), 'test-session')
     const json = { key: 'value', nested: [1, 2, 3] }
-    const ref = await stash.store('tool-json', 0, new TextEncoder().encode(JSON.stringify(json)), 'application/json')
+    const ref = await stash.store('tool-json', 0, encodeJSON({ json }))
     const retrievalTool = createRetrievalTool(stash)
 
     const result = await invoke(retrievalTool, { reference: ref })
-    expect(result).toEqual(json)
+    expect(result).toEqual({ json })
   })
 
-  it('returns error when searching binary content', async () => {
-    const stash = new Stash(new InMemoryStorage())
-    const imageBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
-    const ref = await stash.store('tool-img', 0, imageBytes, 'image/png')
+  it('returns error when searching non-text content', async () => {
+    const stash = new Stash(new InMemoryStorage(), 'test-session')
+    const imageData = { image: { format: 'png', source: { bytes: 'iVBORw0KGgo=' } } }
+    const ref = await stash.store('tool-img', 0, encodeJSON(imageData))
     const retrievalTool = createRetrievalTool(stash)
 
     const result = (await invoke(retrievalTool, { reference: ref, pattern: 'test' })) as string
-    expect(result).toContain('cannot search binary content')
+    expect(result).toContain('cannot search non-text content')
   })
 })

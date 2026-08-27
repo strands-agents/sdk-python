@@ -6,7 +6,7 @@
 
 import { logger } from '../../../logging/logger.js'
 import { MessageAddedEvent } from '../../../hooks/events.js'
-import { Message, TextBlock, ToolResultBlock, ToolUseBlock } from '../../../types/messages.js'
+import { Message, TextBlock, ToolResultBlock, ToolUseBlock, CachePointBlock, ReasoningBlock } from '../../../types/messages.js'
 import type { ContentBlock } from '../../../types/messages.js'
 import type { LocalAgent } from '../../../types/agent.js'
 import type { ContextStrategy, ContextState } from '../../types.js'
@@ -386,6 +386,9 @@ export abstract class BaseOffloadStrategy implements ContextStrategy {
 
   /** Whether a block is eligible for offload given the current target and filters. */
   protected _blockMatchesTarget(block: ContentBlock, message: Message, toolNameMap: Map<string, string>): boolean {
+    if (block instanceof ToolUseBlock) return false
+    if (block instanceof CachePointBlock) return false
+    if (block instanceof ReasoningBlock) return false
     if (block instanceof TextBlock) return targetMatchesMessage(this._target, message)
     if (block instanceof ToolResultBlock) {
       if (this._stash && toolNameMap.get(block.toolUseId) === RETRIEVAL_TOOL_NAME) return false
@@ -394,6 +397,7 @@ export abstract class BaseOffloadStrategy implements ContextStrategy {
         toolMatchesTarget(block, this._target, toolNameMap, this._includeFilter, this._excludeFilter)
       )
     }
+    if (this._target === '*' || this._target === undefined) return true
     return false
   }
 
@@ -415,7 +419,7 @@ export abstract class BaseOffloadStrategy implements ContextStrategy {
 
       const stashRefs = this._stash?.getRefs(block) ?? []
       const replacement = await this._replaceBlock(
-        block as TextBlock | ToolResultBlock,
+        block,
         tokens,
         message,
         agent,
@@ -473,7 +477,7 @@ export abstract class BaseOffloadStrategy implements ContextStrategy {
 
   /** Transform a block. Return the replacement, or null to skip. */
   protected abstract _replaceBlock(
-    block: TextBlock | ToolResultBlock,
+    block: ContentBlock,
     tokens: number,
     message: Message,
     agent: LocalAgent,
