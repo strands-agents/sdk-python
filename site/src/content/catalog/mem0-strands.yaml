@@ -1,5 +1,5 @@
 name: mem0-strands
-description: 'Persistent long-term memory for Strands agents, backed by Mem0: a native MemoryStore with recall injection and server-side extraction, hosted or self-hosted.'
+description: 'Long-term memory for Strands agents, backed by Mem0: a native MemoryStore with automatic recall and server-side memory extraction, hosted or self-hosted.'
 integrationType: memory-store
 maintainedBy: partner
 languages:
