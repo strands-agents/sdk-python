@@ -150,20 +150,20 @@ class CacheConfig:
             the same static system prefix hit the cache. A TTL string (e.g. "1h") sets this section's own
             duration and is honored as written; True derives the duration from ``ttl``; False disables it.
             A hand-placed system cache point is honored rather than doubled.
+        cache_key: Stable identity a provider can use to route its cache. Defaults to None.
         tools_ttl: Cache the tool definitions, auto-injecting a cache point on the tool block so repeated calls
             with the same tools hit the cache. Mirrors ``system_prompt_ttl``: a TTL string (e.g. "5m") sets this
             section's own duration and is honored as written; True derives the duration from ``ttl``; False
             disables it. The model-level ``cache_tools`` parameter is deprecated but, when set, takes precedence
             over this field so existing configurations keep working unchanged. Defaults to False; it will default
             to True once caching is enabled by default (matching TypeScript's ``toolsTTL``).
-        cache_key: Stable identity a provider can use to route its cache. Defaults to None.
     """
 
     strategy: Literal["auto", "anthropic"] = "auto"
     ttl: str | None = None
     system_prompt_ttl: bool | str = True
-    tools_ttl: bool | str = False
     cache_key: str | None = None
+    tools_ttl: bool | str = False
 
 
 @dataclass

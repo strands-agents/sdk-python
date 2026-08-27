@@ -685,3 +685,16 @@ class TestCacheConfig:
     def test_cache_key_round_trips(self):
         """cache_key preserves the value it was constructed with."""
         assert CacheConfig(cache_key="tenant-42").cache_key == "tenant-42"
+
+    def test_positional_cache_key_remains_backward_compatible(self):
+        """The fourth positional argument still maps to cache_key."""
+        config = CacheConfig("auto", "1h", True, "tenant-42")
+
+        assert config.cache_key == "tenant-42"
+        assert config.tools_ttl is False
+
+    def test_tools_ttl_can_still_be_set_explicitly(self):
+        """tools_ttl remains available via keyword construction."""
+        config = CacheConfig(tools_ttl="5m")
+
+        assert config.tools_ttl == "5m"
