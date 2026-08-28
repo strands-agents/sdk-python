@@ -20,7 +20,7 @@ Goals:
 - Make model choice a runtime decision, opt-in, with single-model usage unchanged.
 - Provide a small strategy interface for proactive selection that composes with ordered fallback.
 - Route among `Model` instances, including models backed by different providers.
-- Ship failure-driven fallback, a local heuristic, and one model-driven strategy in v1, so the feature is useful on its own.
+- Ship failure-driven fallback and one model-driven strategy in v1, so the feature is useful on its own.
 
 Non-Goals (v1):
 - Load balancing across deployments of the same model. This needs a global view of traffic and belongs in a gateway.
@@ -46,16 +46,16 @@ Routing decides among concrete **`Model` instances** in the SDK. Selection defau
 
 **The unit of routing is a `Model`.** A concrete `Model` is already the amalgamation of provider and model: it encapsulates the provider, its model id, region, and configuration, which is the typed-SDK equivalent of the `provider/model` string that LiteLLM and OpenRouter route over. Candidates can therefore represent models on one provider (`BedrockModel("haiku")`, `BedrockModel("sonnet")`), the same model through different providers (`BedrockModel("sonnet")`, `AnthropicModel("sonnet")`), regional copies, or configuration variants. A server-routed endpoint such as Bedrock intelligent prompt routing is likewise one candidate `Model`. The router does not parse `provider/model` strings itself; resolving such a string to a `Model` is a model-construction concern that the router consumes as a candidate. Traffic-aware load balancing across a deployment pool remains gateway territory because it needs a fleet-wide view.
 
-Three strategies ship in v1, chosen so each of the objectives the SDK can act on today has a working strategy:
+Two strategies ship in v1:
 
 | Strategy | Objective | Trigger | Basis |
 |---|---|---|---|
 | Fallback | availability/reliability | reactive | router-owned ordered candidates; retry the selected model, then advance. Reuses `ModelRetryStrategy` |
-| Context-fit | capacity | proactive | `count_tokens` and `context_window_limit`; local, with no extra model call |
 | Model-driven | quality/accuracy | proactive | a small decision model classifies the request and names a candidate |
 
 The remaining objectives are covered by candidate selection or deferred for a missing signal, not left unaddressed:
 - **Compliance/residency** is expressed by which models a caller lists (for example, only models in an approved region), so it needs no dedicated strategy.
+- **Capacity** is a proactive context-fit strategy over `count_tokens` and `context_window_limit`, local with no extra model call, deferred to a fast-follow (P1).
 - **Cost** is a proactive strategy blocked on per-model pricing, which the SDK does not carry yet (P1).
 - **Latency** needs runtime latency measurement or shared state, which is closer to the gateway load-balancing case the SDK delegates (P1).
 
@@ -104,7 +104,7 @@ Alternatives are in [Alternatives Considered](#alternatives-considered).
 
 Routing is opt-in through `model=`. Pass a `Model` for today's behavior, or a `ModelRouter` to route. Models, candidates, and strategies are configured once, then reused across invocations. A router may also be shared by multiple agents because its topology is immutable and all selection state lives in invocation or agent state.
 
-A configured `Model` remains the source of provider, model id, region, inference parameters, and context capacity. Routing does not duplicate those dimensions. `RoutingCandidate` adds only the stable name and task description that a semantic strategy needs. Plain `Model` objects and model-id strings remain shorthand for strategies such as fallback and context-fit that do not need candidate descriptions.
+A configured `Model` remains the source of provider, model id, region, inference parameters, and context capacity. Routing does not duplicate those dimensions. `RoutingCandidate` adds only the stable name and task description that a semantic strategy needs. Plain `Model` objects and model-id strings remain shorthand for strategies such as fallback that do not need candidate descriptions.
 
 ```python
 haiku  = BedrockModel(model_id="anthropic.claude-3-5-haiku-20241022-v1:0")
@@ -115,10 +115,6 @@ judge  = BedrockModel(model_id="amazon.nova-micro-v1:0")
 # Fallback: configure once, then reuse for every invocation.
 fallback = ModelRouter(models=[sonnet, opus], strategy=FallbackStrategy())
 agent = Agent(model=fallback)
-
-# Context-fit: local selection with no additional model call.
-context_fit = ModelRouter(models=[haiku, sonnet, opus], strategy=ContextFitStrategy())
-agent = Agent(model=context_fit)
 
 # Model-driven: the judge picks a named candidate from reusable descriptions.
 model_driven = ModelRouter(
@@ -143,12 +139,12 @@ research_agent = Agent(model=model_driven)  # the same profile can serve another
 agent = Agent(model=sonnet)
 ```
 
-The judge runs only for initial selection and the result is cached for the invocation, so tool-loop calls do not pay another routing call. Candidate names, descriptions, and metadata are optional evidence for the judge; missing fields read as unknown, and names must be unique when provided. The strategy validates the judge's output against the configured candidates. An unknown or malformed result, parse failure, or judge-call failure selects the router's first candidate and records the routing failure in tracing. Ordered fallback still applies if that candidate later fails. Applications that do not want a judge call use a local strategy such as context-fit or provide their own `RoutingStrategy`.
+The judge runs only for initial selection and the result is cached for the invocation, so tool-loop calls do not pay another routing call. Candidate names, descriptions, and metadata are optional evidence for the judge; missing fields read as unknown, and names must be unique when provided. The strategy validates the judge's output against the configured candidates. An unknown or malformed result, parse failure, or judge-call failure selects the router's first candidate and records the routing failure in tracing. Ordered fallback still applies if that candidate later fails. Applications that do not want a judge call use `FallbackStrategy` or provide their own `RoutingStrategy`.
 
 Routers can nest when each level has a different responsibility. Resolution is recursive and always produces a concrete model before the terminal runs:
 
 ```python
-adaptive = ModelRouter(models=[haiku, sonnet], strategy=ContextFitStrategy())
+adaptive = ModelRouter(models=[haiku, sonnet], strategy=ClassifierStrategy(judge))
 agent = Agent(model=ModelRouter(models=[adaptive, opus], strategy=FallbackStrategy()))
 ```
 
@@ -188,21 +184,20 @@ Agent(model: Model | str | ModelRouter = ...)
 ```
 
 - `ModelRouter` normalizes each input into a `RoutingCandidate`. Bare models, model-id strings, and nested routers need no public name because strategies return one of the candidate objects in `RoutingContext`, not a string identifier.
-- `RoutingCandidate` adds optional selection metadata, not another model configuration. `ClassifierStrategy` reads candidate names, descriptions, and metadata as optional evidence and treats missing fields as unknown; fallback and context-fit do not consult them.
+- `RoutingCandidate` adds optional selection metadata, not another model configuration. `ClassifierStrategy` reads candidate names, descriptions, and metadata as optional evidence and treats missing fields as unknown; fallback does not consult them.
 - The first declared candidate is the concrete default. This removes string-based default resolution and makes fallback order visible in the constructor call.
 - A strategy must return one of `context.candidates`; the router raises a clear `ValueError` for any other result. The strategy remains a domain `Protocol` rather than a `HookProvider` because `ModelRouter` owns lifecycle registration and the strategy has one decision point.
-- `RoutingContext` exposes immutable views of the request data and normalized candidates needed for selection. Context-fit calls each concrete candidate's `count_tokens` and compares the result with that candidate's `context_window_limit`.
+- `RoutingContext` exposes immutable views of the request data and normalized candidates needed for selection.
 - `ModelRouter` topology and strategy configuration are immutable after construction. The same router can be attached to multiple agents; selections and fallback position live in `invocation_state`, and future session affinity lives in the receiving agent's state.
 - `InvokeModelContext.model` always contains a concrete `Model` when the terminal runs.
 - Candidate normalization recursively rejects stateful models during `ModelRouter` construction with an actionable `ValueError`.
 - Agent invocations using `structured_output_model` pass through `InvokeModelStage` and reuse the invocation's selection. The deprecated direct `Agent.structured_output()` path bypasses this stage and uses the first candidate.
 
-`ContextFitStrategy` uses context capacity only. It chooses the smallest known context window that fits that candidate's token count and falls back to the largest known window when none fit. It does not depend on cost metadata.
-
 ## Work Plan
 
 - **P0, router core and fallback.** Add immutable, reusable `ModelRouter` and `RoutingCandidate` configuration; normalize candidate inputs; widen `model=`; recognize the router as a plugin during agent initialization; add `model` to `InvokeModelContext`; cache selection in invocation state; resolve nested routers; and make the terminal call the context model. Register routing before model-dependent invoke middleware, provide router-owned ordered fallback after `ModelRetryStrategy`, reset retry state when advancing, and reject stateful candidates during construction.
-- **P0, context-fit and model-driven strategies.** Add local context-window selection and decision-model selection over candidate evidence. Run the judge once per invocation, fall back to the first candidate when the judge fails or returns an invalid result, and record the outcome on the existing model-invoke span.
+- **P0, model-driven strategy.** Add decision-model selection over candidate evidence. Run the judge once per invocation, fall back to the first candidate when the judge fails or returns an invalid result, and record the outcome on the existing model-invoke span.
+- **P1, context-fit strategy.** Add local context-window selection over `count_tokens` and `context_window_limit`: choose the smallest known context window that fits the candidate's token count, falling back to the largest known window when none fit.
 - **P1, cost-aware routing.** Add a pricing source of truth, then rank context-fit survivors by price.
 - **P1, cache-affinity (sticky) routing.** When a request carries prompt-cache points, keep it on the model that wrote the cache so a cheaper route does not discard a cache hit. This is a session-scoped selection stored in agent state and matches LiteLLM's prompt-cache routing pre-call check.
 - **P1, embedding and semantic routing, and quality cascades.** Add learned or embedding selection without a decision-model call, and result-aware escalation once the SDK exposes a suitable quality signal.
@@ -219,7 +214,7 @@ Agent(model: Model | str | ModelRouter = ...)
 
 Easier:
 - Model choice becomes a runtime decision through one opt-in value, without custom model swapping in application code.
-- Fallback, context-fit, and model-driven routing reuse existing retry, token-counting, middleware, and tracing primitives.
+- Fallback and model-driven routing reuse existing retry, middleware, and tracing primitives.
 - Nested routers compose ordered groups with proactive selection.
 - Cross-provider routing uses the same candidate list as any other routing case.
 
