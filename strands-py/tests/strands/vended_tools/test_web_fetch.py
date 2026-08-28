@@ -208,6 +208,28 @@ class TestWebFetchToolCall:
         with pytest.raises(asyncio.CancelledError):
             await tool(url="https://example.com/", tool_context=ctx)
 
+    @pytest.mark.asyncio
+    async def test_mid_flight_cancel_aborts_between_chunks(self):
+        cancel = threading.Event()
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            async def body():
+                yield b"chunk-one"
+                cancel.set()  # signal mid-stream
+                yield b"chunk-two"
+
+            return httpx.Response(200, headers={"content-type": "text/plain"}, content=body())
+
+        agent = SimpleNamespace(_cancel_signal=cancel)
+        from strands.types.tools import ToolContext, ToolUse
+
+        tool_use = ToolUse(toolUseId="wf_2", name="web_fetch", input={})
+        ctx = ToolContext(tool_use=tool_use, agent=agent, invocation_state={})
+
+        tool = make_web_fetch(client=_client(handler))
+        with pytest.raises(asyncio.CancelledError):
+            await tool(url="https://example.com/", tool_context=ctx)
+
 
 class TestSummarizer:
     """Summarizer agent is called when model + prompt are both provided."""

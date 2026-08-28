@@ -64,8 +64,8 @@ def make_web_fetch(
             5 MiB.
         client: Optional ``httpx.AsyncClient`` to use for requests. When
             provided, the tool uses it directly and will not close it.
-            When ``None``, a new client is created per request with httpx
-            defaults.
+            When ``None``, a new client is created per request with
+            ``follow_redirects=True`` and httpx's default timeout (5s).
         model: Optional model for the summarizer. Resolution order when
             ``prompt`` is non-empty: this model, then the host agent's model,
             then ``ValueError`` if neither is available.
@@ -88,8 +88,7 @@ def make_web_fetch(
         """Fetches an HTTP(S) URL and returns readable content.
 
         Only ``http://`` and ``https://`` URLs are accepted. Raises
-        ``TimeoutError`` if the request does not complete within the
-        configured timeout.
+        ``TimeoutError`` if the request exceeds the client's timeout.
 
         Args:
             url: The URL to fetch. Must be ``http://`` or ``https://``.
@@ -125,8 +124,7 @@ def make_web_fetch(
             effective_model = summarizer_model or getattr(agent_obj, "model", None)
             if effective_model is None:
                 raise ValueError(
-                    "web_fetch: prompt requires a model. Pass model= to make_web_fetch "
-                    "or call the tool from an agent."
+                    "web_fetch: prompt requires a model. Pass model= to make_web_fetch or call the tool from an agent."
                 )
             # Fresh agent per call — no history from one fetch bleeds into the next.
             summarizer = Agent(
@@ -180,6 +178,7 @@ async def _fetch_once(
             chunks: list[bytes] = []
             total = 0
             async for chunk in response.aiter_bytes():
+                _check_cancelled(cancel_signal)
                 total += len(chunk)
                 if total > max_bytes:
                     raise ValueError(f"Response body exceeded {max_bytes} bytes. Refusing to buffer more.")
