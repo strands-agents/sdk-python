@@ -6,6 +6,7 @@ sidebar:
 tags: [tool-authoring]
 sourceLinks:
   - path: strands-ts/src/vended-tools/file-editor/file-editor.ts
+  - path: strands-py/src/strands/vended_tools/file_editor/file_editor.py
   - path: strands-ts/src/vended-tools/bash/bash.ts
   - path: strands-ts/src/vended-tools/http-request/http-request.ts
   - path: strands-ts/src/vended-tools/notebook/notebook.ts
@@ -44,7 +45,11 @@ Each tool is imported from its own subpath under `@strands-agents/sdk/vended-too
 
 ### File Editor
 
-Gives your agent the ability to read and modify files on disk — useful for coding agents, config management, or any workflow where the agent needs to inspect output and make targeted edits.
+Gives your agent the ability to read and modify files on disk — useful for coding agents, config management, or any workflow where the agent needs to inspect output and make targeted edits. Commands: `view`, `create`, `str_replace`, `insert`, `find_line`, and `undo_edit` (single-step, in-memory).
+
+Ambiguous `str_replace` matches are rejected unless the caller opts in with `replace_all: true`, so the model can't silently rewrite an entire file. Binary files and files above the configurable size cap (default 1 MB) are rejected with a clean error. Pass `root` to `makeFileEditor` / `make_file_editor` to confine every operation to a single directory — the resolver applies both a string-level check and, when the target exists on the local filesystem, a `realpath`-based symlink check. Confinement requires a locally resolvable directory: routing through a container-side sandbox (Docker/SSH) should either construct the editor without `root` and rely on the sandbox's own path policy, or construct it inside the sandbox.
+
+Undo history is per calling agent — two agents sharing one editor instance never see each other's snapshots. The pre-edit snapshot is captured only after the write to disk succeeds, so a transient write failure leaves the previous undo entry retryable.
 
 :::caution[Security Warning]
 This tool reads and writes files at arbitrary absolute paths with the full permissions of the process. Only use with trusted input and consider running in a [sandboxed environment](../sandbox/index.mdx) for production.
