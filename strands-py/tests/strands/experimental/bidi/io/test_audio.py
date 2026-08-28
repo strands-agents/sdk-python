@@ -287,6 +287,7 @@ def test_audio_processor_uses_defaults(audio_processor):
     if isinstance(audio_processor, dict):
         assert audio_processor == AudioProcessorConfig()
         assert audio_io._config["audio_processor"] is not audio_processor
+    assert audio_io._config["audio_processor"] is audio_io._audio_processor_config
     assert audio_io._audio_processor is not None
 
 
@@ -370,6 +371,7 @@ def test_no_audio_processor_when_processing_disabled(config):
     input_ = audio_io.input()
 
     assert audio_io._config["audio_processor"] is None
+    assert audio_io._audio_processor_config is None
     assert audio_io._audio_processor is None
     assert input_._audio_processor is None
     assert audio_io.output()._audio_processor is None
@@ -384,6 +386,7 @@ def test_audio_processor_shared_between_input_and_output():
     assert audio_processor_config == AudioProcessorConfig(stream_delay_ms=20)
     assert audio_io._config["audio_processor"] == AudioProcessorConfig(echo_cancellation=True, stream_delay_ms=20)
     assert audio_io._config["audio_processor"] is not audio_processor_config
+    assert audio_io._config["audio_processor"] is audio_io._audio_processor_config
     assert input_._audio_processor is audio_io._audio_processor
     assert output._audio_processor is audio_io._audio_processor
 

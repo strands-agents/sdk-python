@@ -408,6 +408,7 @@ class BidiAudioIO:
     """
 
     _audio_processor: "_AudioProcessor | None"
+    _audio_processor_config: AudioProcessorConfig | None
 
     def __init__(self, **config: Unpack[BidiAudioIOConfig]) -> None:
         """Initialize audio devices.
@@ -434,9 +435,10 @@ class BidiAudioIO:
         self._config = config
         audio_processor_config = self._config.get("audio_processor")
         if isinstance(audio_processor_config, dict):
-            self._config["audio_processor"] = AudioProcessorConfig(**audio_processor_config)
+            self._audio_processor_config = AudioProcessorConfig(**audio_processor_config)
         else:
-            self._config["audio_processor"] = AudioProcessorConfig() if audio_processor_config else None
+            self._audio_processor_config = AudioProcessorConfig() if audio_processor_config else None
+        self._config["audio_processor"] = self._audio_processor_config
 
         self._validate_config_echo_cancellation()
         self._validate_config_buffer_size()
@@ -446,8 +448,7 @@ class BidiAudioIO:
 
     def _import_audio_processor(self) -> None:
         """Import and initialize the optional audio processor implementation."""
-        config = self._config.get("audio_processor")
-        if not isinstance(config, dict):
+        if self._audio_processor_config is None:
             self._audio_processor = None
             return
 
@@ -460,31 +461,29 @@ class BidiAudioIO:
             ) from error
 
         self._audio_processor = _AudioProcessor(
-            echo_cancellation=config["echo_cancellation"],
-            stream_delay_ms=config["stream_delay_ms"],
+            echo_cancellation=self._audio_processor_config["echo_cancellation"],
+            stream_delay_ms=self._audio_processor_config["stream_delay_ms"],
             far_buffer_size=self._config.get("input_buffer_size"),
         )
 
     def _validate_config_echo_cancellation(self) -> None:
         """Validate and normalize echo cancellation configuration."""
-        audio_processor_config = self._config.get("audio_processor")
-        if not isinstance(audio_processor_config, dict):
+        if self._audio_processor_config is None:
             return
 
-        echo_cancellation = audio_processor_config.get("echo_cancellation", True)
-        stream_delay_ms = audio_processor_config.get("stream_delay_ms", 0)
+        echo_cancellation = self._audio_processor_config.get("echo_cancellation", True)
+        stream_delay_ms = self._audio_processor_config.get("stream_delay_ms", 0)
         if not 0 <= stream_delay_ms <= 1000:
             raise ValueError(f"stream_delay_ms=<{stream_delay_ms}> | must be between 0 and 1000")
         if not echo_cancellation and stream_delay_ms:
             raise ValueError("echo_cancellation=<False> | stream_delay_ms requires echo cancellation")
 
-        audio_processor_config["echo_cancellation"] = echo_cancellation
-        audio_processor_config["stream_delay_ms"] = stream_delay_ms
+        self._audio_processor_config["echo_cancellation"] = echo_cancellation
+        self._audio_processor_config["stream_delay_ms"] = stream_delay_ms
 
     def _validate_config_buffer_size(self) -> None:
         """Validate the configured input buffer size for echo cancellation."""
-        audio_processor_config = self._config.get("audio_processor")
-        if not isinstance(audio_processor_config, dict) or not audio_processor_config["echo_cancellation"]:
+        if self._audio_processor_config is None or not self._audio_processor_config["echo_cancellation"]:
             return
 
         size = self._config.get("input_buffer_size")
@@ -494,8 +493,7 @@ class BidiAudioIO:
 
     def _validate_config_frames_per_buffer(self) -> None:
         """Reject frame sizes that are calculated automatically for echo cancellation."""
-        audio_processor_config = self._config.get("audio_processor")
-        if not isinstance(audio_processor_config, dict) or not audio_processor_config["echo_cancellation"]:
+        if self._audio_processor_config is None or not self._audio_processor_config["echo_cancellation"]:
             return
 
         configured_fields = [
