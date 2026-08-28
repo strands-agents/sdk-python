@@ -28,7 +28,7 @@ Bedrock Nova Sonic is configured as an optional dependency in Strands Agents.
 To install it, run:
 
 ```bash
-pip install 'strands-agents[bidi-bedrock]'
+pip install 'strands-agents[bidi]'
 ```
 
 Or to install all bidirectional streaming providers at once:
@@ -39,7 +39,7 @@ pip install 'strands-agents[bidi-all]'
 
 ## Usage
 
-After installing `strands-agents[bidi-bedrock]`, you can import and initialize the Strands Agents' Bedrock Nova Sonic provider as follows:
+After installing `strands-agents[bidi]`, you can import and initialize the Strands Agents' Bedrock Nova Sonic provider as follows:
 
 ```python
 import asyncio
@@ -150,7 +150,7 @@ Nova Sonic caps conversation history passed via `messages` at 50KB per message a
 
 ### Module Not Found
 
-If you encounter the error `ModuleNotFoundError: No module named 'aws_sdk_bedrock_runtime'`, this means the experimental Bedrock runtime dependency hasn't been properly installed in your environment. To fix this, run `pip install 'strands-agents[bidi-bedrock]'`.
+If you encounter the error `ModuleNotFoundError: No module named 'aws_sdk_bedrock_runtime'`, this means the experimental Bedrock runtime dependency hasn't been properly installed in your environment. To fix this, run `pip install 'strands-agents[bidi]'`.
 
 :::note[Python Version Requirement]
 Nova Sonic requires Python 3.12+ due to the experimental AWS SDK dependency. If you're using an older Python version, you'll need to upgrade.

@@ -212,7 +212,7 @@ Build real-time voice and audio conversations with persistent streaming connecti
 
 ```bash
 # Server-side only (no audio I/O dependencies)
-pip install strands-agents[bidi-bedrock]
+pip install strands-agents[bidi]
 
 # With all portable Bidi providers, text I/O, and audio processing
 pip install strands-agents[bidi-all]
@@ -252,9 +252,9 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-> **Note**: `BidiTextIO` is included with the `bidi-bedrock` extra. `BidiAudioIO` requires the `bidi-pyaudio` extra and
+> **Note**: `BidiTextIO` is included with the `bidi` extra. `BidiAudioIO` requires the `bidi-pyaudio` extra and
 > the PortAudio system library. For server-side deployments where audio I/O is handled by clients (browsers,
-> mobile apps), install only `strands-agents[bidi-bedrock]` and implement custom input/output handlers using the
+> mobile apps), install only `strands-agents[bidi]` and implement custom input/output handlers using the
 > `BidiInput` and `BidiOutput` protocols.
 
 **Configuration Options:**
