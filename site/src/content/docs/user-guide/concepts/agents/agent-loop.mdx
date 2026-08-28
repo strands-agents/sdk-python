@@ -19,8 +19,8 @@ on top of it. The loop ships with the controls a production agent needs:
 - [Invocation limits](#invocation-limits) cap the turns and tokens one call may use
 - [Cancellation](#cancellation) stops a running agent mid-loop
 - [Stop reasons](#stop-reasons) report why the loop ended
-- [Concurrent invocations](#concurrent-invocations) run one agent across many
-  conversations at once
+- [Concurrent invocations](#concurrent-invocations) guard against overlapping
+  calls on one agent instance
 - [Hooks](./hooks.mdx) intercept any step, and
   [retry strategies](./retry-strategies.mdx) recover from model and tool errors
 
