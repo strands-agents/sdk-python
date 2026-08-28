@@ -83,42 +83,26 @@ def _cache_config_fields_set(cache_config: CacheConfig) -> set[str]:
 
 
 def warn_on_cache_config_not_supported(
-    cache_config: CacheConfig | None,
+    cache_config: CacheConfig,
     provider: str,
     *,
-    supported: Collection[str] = (),
-    additional_message: str | None = None,
+    supported: Collection[str],
     stacklevel: int = 4,
 ) -> None:
-    """Warn once about supplied cache_config settings a provider does not support.
+    """Warn once about supplied cache_config fields a provider does not support.
 
     Args:
-        cache_config: The provider's configured cache settings, if any.
+        cache_config: The provider's configured cache settings.
         provider: Human-readable provider name for the warning message.
         supported: Names of ``CacheConfig`` fields the provider applies; the rest are the no-ops.
-        additional_message: Optional trailing sentence appended to the warning.
         stacklevel: Frames to skip so the warning points at the caller. Defaults to 4, correct when a
-            mapper one frame below ``format_request`` invokes this; pass 3 when ``format_request``
-            calls it directly.
+            mapper one frame below ``format_request`` invokes this.
     """
-    if cache_config is None:
-        return
-
-    suffix = f" {additional_message}" if additional_message else ""
-
-    if not supported:
-        warnings.warn(
-            f"cache_config was provided to {provider}, but is unsupported; "
-            f"the config has no effect on this provider and will be ignored.{suffix}",
-            stacklevel=stacklevel,
-        )
-        return
-
     unsupported = sorted(field for field in _cache_config_fields_set(cache_config) if field not in supported)
     if unsupported:
         warnings.warn(
             f"cache_config fields {unsupported} have no effect on {provider}, which does not support them; "
-            f"they will be ignored.{suffix}",
+            "they will be ignored.",
             stacklevel=stacklevel,
         )
 
