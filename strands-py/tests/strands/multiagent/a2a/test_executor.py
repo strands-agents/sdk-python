@@ -1079,6 +1079,46 @@ async def test_execute_transitions_to_failed_on_streaming_error(
 
 
 @pytest.mark.asyncio
+async def test_execute_a2a_client_error_transitions_to_failed(
+    mock_strands_agent, mock_request_context, mock_event_queue
+):
+    """An A2AError subclass raised by a nested A2A call transitions the task to failed."""
+    from a2a.types import TaskState, TaskStatusUpdateEvent
+    from a2a.utils.errors import A2AError
+
+    class FakeClientError(A2AError):
+        """Simulates an A2A client error from a nested remote call."""
+
+    async def mock_stream(content_blocks, **kwargs):
+        yield {"data": "partial"}
+        raise FakeClientError(message="Remote agent timed out")
+
+    mock_strands_agent.stream_async = MagicMock(side_effect=mock_stream)
+
+    executor = StrandsA2AExecutor(mock_strands_agent)
+
+    mock_task = MagicMock()
+    mock_task.id = "task-client-err"
+    mock_task.context_id = "ctx-client-err"
+    mock_request_context.current_task = mock_task
+
+    mock_message = MagicMock()
+    mock_message.parts = [Part(text="call remote agent")]
+    mock_request_context.message = mock_message
+
+    await executor.execute(mock_request_context, mock_event_queue)
+
+    enqueued_events = [call[0][0] for call in mock_event_queue.enqueue_event.call_args_list]
+    failed_events = [
+        e
+        for e in enqueued_events
+        if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.TASK_STATE_FAILED
+    ]
+    assert len(failed_events) == 1
+    assert "Agent execution failed" in failed_events[0].status.message.parts[0].text
+
+
+@pytest.mark.asyncio
 async def test_cancel_with_valid_task(mock_strands_agent, mock_request_context, mock_event_queue):
     """Test that cancel transitions task to canceled state when task exists."""
     from a2a.types import TaskState, TaskStatusUpdateEvent
@@ -2038,6 +2078,37 @@ async def test_execute_multiple_interrupt_responses_all_delivered(
         {"interruptResponse": {"interruptId": "int-2", "response": "no"}},
     ]
     assert tru_input == exp_input
+
+
+@pytest.mark.asyncio
+async def test_execute_interrupt_response_coerces_whole_floats_to_int(
+    mock_strands_agent, mock_request_context, mock_event_queue
+):
+    """Whole-number floats introduced by the protobuf Value round trip are restored to int.
+
+    A non-whole float (1.5) is left untouched.
+    """
+    _park_interrupt(mock_strands_agent, "int-1")
+
+    mock_result = MagicMock(spec=SAAgentResult)
+    mock_result.stop_reason = "end_turn"
+    mock_result.interrupts = None
+    mock_result.__str__ = MagicMock(return_value="done")
+
+    async def mock_stream(agent_input, **kwargs):
+        yield {"result": mock_result}
+
+    mock_strands_agent.stream_async = MagicMock(side_effect=mock_stream)
+    executor = StrandsA2AExecutor(mock_strands_agent)
+
+    response = {"count": 3, "ratio": 1.5, "values": [1, 2, 3], "ok": True}
+    _request_with_parts(mock_request_context, [_interrupt_response_part("int-1", response)])
+    await executor.execute(mock_request_context, mock_event_queue)
+
+    tru_input = mock_strands_agent.stream_async.call_args[0][0]
+    exp_response = {"count": 3, "ratio": 1.5, "values": [1, 2, 3], "ok": True}
+    assert tru_input == [{"interruptResponse": {"interruptId": "int-1", "response": exp_response}}]
+    assert all(isinstance(v, int) for v in tru_input[0]["interruptResponse"]["response"]["values"])
 
 
 @pytest.mark.asyncio

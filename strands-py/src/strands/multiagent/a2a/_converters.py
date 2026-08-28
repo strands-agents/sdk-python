@@ -1,11 +1,12 @@
 """Conversion functions between Strands and A2A types."""
 
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 from typing import cast
 from uuid import uuid4
 
 from a2a.types import Message as A2AMessage
-from a2a.types import Part, Role, TaskState
+from a2a.types import Part, Role, TaskArtifactUpdateEvent, TaskState, TaskStatus
 
 from ...agent.agent_result import AgentResult
 from ...telemetry.metrics import EventLoopMetrics
@@ -26,11 +27,13 @@ _STATE_TO_STOP_REASON: dict[TaskState, StopReason] = {
 
 
 def _task_state_to_str(task_state: TaskState) -> str:
-    """Render a TaskState as the kebab-case wire string used by the A2A v0.3 JSON spec.
+    """Render a TaskState as the kebab-case string stored in ``AgentResult.state["a2a_task_state"]``.
 
-    v1.0's protobuf enum names are SCREAMING_SNAKE_CASE (e.g. ``TASK_STATE_INPUT_REQUIRED``);
-    this keeps ``AgentResult.state["a2a_task_state"]`` stable for existing Strands callers.
+    TaskState's protobuf enum names are SCREAMING_SNAKE_CASE (e.g. ``TASK_STATE_INPUT_REQUIRED``);
+    this renders the kebab-case form (e.g. ``"input-required"``) that existing Strands callers expect.
     """
+    if task_state == TaskState.TASK_STATE_UNSPECIFIED:
+        return "unknown"
     name: str = TaskState.Name(task_state)  # type: ignore[attr-defined]
     return name.removeprefix("TASK_STATE_").lower().replace("_", "-")
 
@@ -109,28 +112,102 @@ def _extract_task_state(response: A2AResponse) -> TaskState | None:
     """
     if response.HasField("status_update"):
         return response.status_update.status.state
-    if response.HasField("task"):
+    if response.HasField("task") and response.task.HasField("status"):
         return response.task.status.state
     return None
 
 
 def _parts_to_content(parts: Sequence[Part]) -> list[ContentBlock]:
-    """Convert a sequence of A2A text Parts into Strands ContentBlocks, dropping non-text parts."""
-    return [{"text": part.text} for part in parts if part.HasField("text")]
+    """Convert a sequence of A2A text Parts into Strands ContentBlocks.
+
+    Drops non-text parts and empty-text parts (the latter appear as a content-less
+    ``last_chunk`` marker on compliant-streaming artifact updates).
+    """
+    return [{"text": part.text} for part in parts if part.HasField("text") and part.text]
+
+
+@dataclass
+class _ResponseAccumulator:
+    """Accumulates content and task state across a full A2A StreamResponse sequence.
+
+    See ``convert_responses_to_agent_result`` for the content precedence this implements.
+    """
+
+    artifact_parts: dict[str, list[ContentBlock]] = field(default_factory=dict)
+    artifact_order: list[str] = field(default_factory=list)
+    terminal_message_content: list[ContentBlock] = field(default_factory=list)
+    narration_content: list[ContentBlock] = field(default_factory=list)
+    task_content: list[ContentBlock] = field(default_factory=list)
+    message_content: list[ContentBlock] = field(default_factory=list)
+    task_state: TaskState | None = None
+
+    def ingest(self, response: A2AResponse) -> None:
+        """Fold one StreamResponse event into the accumulated content and task state."""
+        state = _extract_task_state(response)
+        if state is not None:
+            self.task_state = state
+
+        if response.HasField("artifact_update"):
+            self._ingest_artifact_update(response.artifact_update)
+        elif response.HasField("status_update"):
+            self._ingest_status_update(response.status_update.status)
+        elif response.HasField("task"):
+            self.task_content = [
+                content for artifact in response.task.artifacts for content in _parts_to_content(artifact.parts)
+            ]
+        elif response.HasField("message"):
+            self.message_content = _parts_to_content(response.message.parts)
+
+    def _ingest_artifact_update(self, update: TaskArtifactUpdateEvent) -> None:
+        """Fold one artifact_update event, honoring ``append`` (A2A: false/unset replaces)."""
+        artifact_id = update.artifact.artifact_id
+        parts_content = _parts_to_content(update.artifact.parts)
+        if artifact_id not in self.artifact_parts:
+            self.artifact_parts[artifact_id] = []
+            self.artifact_order.append(artifact_id)
+        if update.append:
+            self.artifact_parts[artifact_id].extend(parts_content)
+        else:
+            self.artifact_parts[artifact_id] = parts_content
+
+    def _ingest_status_update(self, status: TaskStatus) -> None:
+        """Route a status_update's message: a terminal state carries actionable text, else narration."""
+        if not status.HasField("message"):
+            return
+        parts_content = _parts_to_content(status.message.parts)
+        if status.state in _STATE_TO_STOP_REASON:
+            self.terminal_message_content = parts_content
+        else:
+            self.narration_content = parts_content
+
+    @property
+    def artifact_content(self) -> list[ContentBlock]:
+        """Accumulated artifact content across all artifact ids, in first-seen order."""
+        return [content for artifact_id in self.artifact_order for content in self.artifact_parts[artifact_id]]
+
+    @property
+    def content(self) -> list[ContentBlock]:
+        """The final content for the AgentResult, per the precedence documented on the caller."""
+        artifact_content = self.artifact_content
+        if artifact_content or self.terminal_message_content:
+            return artifact_content + self.terminal_message_content
+        return self.narration_content or self.task_content or self.message_content
 
 
 def convert_responses_to_agent_result(responses: Sequence[A2AResponse]) -> AgentResult:
     """Convert the full sequence of A2A StreamResponse events from one call into an AgentResult.
 
-    A2A v1.0 streams flat ``StreamResponse`` events (``task`` | ``message`` | ``status_update`` |
-    ``artifact_update``) rather than pairing a cumulative Task with each update, so the final
+    Each StreamResponse carries at most one of ``task`` | ``message`` | ``status_update`` |
+    ``artifact_update``, and no single event is guaranteed to carry the final content by itself, so
     content is reconstructed across the whole stream:
-    - ``artifact_update`` parts accumulate: a compliant-streaming server sends incremental deltas,
-      while a non-compliant server that sends the full text once still works, as that is then the
-      only chunk.
-    - ``status_update`` messages are progress narration on non-compliant-streaming servers and
-      would duplicate the artifact content above, so they are only used when no artifact content
-      was found (e.g. a status-only terminal event such as a rejection or failure message).
+    - ``artifact_update`` parts accumulate per ``artifact_id``, honoring the event's ``append``
+      flag (A2A schema: unset/false replaces that artifact's accumulated parts, true appends to
+      them), so a peer that re-sends a cumulative artifact each turn doesn't duplicate content.
+    - a terminal ``status_update`` message (one whose state is in ``_STATE_TO_STOP_REASON``,
+      e.g. input_required or failed) is appended after any artifact content, since it carries
+      the actionable text (an approval prompt, a failure reason) rather than duplicating it.
+    - a non-terminal ``status_update`` message is progress narration and is only used as a
+      fallback when no artifact or terminal-status content was found.
     - a bare ``task`` or ``message`` response (no separate update events) supplies content
       directly.
 
@@ -148,35 +225,18 @@ def convert_responses_to_agent_result(responses: Sequence[A2AResponse]) -> Agent
     Returns:
         AgentResult with extracted content and metadata.
     """
-    artifact_content: list[ContentBlock] = []
-    status_message_content: list[ContentBlock] = []
-    task_content: list[ContentBlock] = []
-    message_content: list[ContentBlock] = []
-    task_state: TaskState | None = None
-
+    accumulator = _ResponseAccumulator()
     for response in responses:
-        state = _extract_task_state(response)
-        if state is not None:
-            task_state = state
+        accumulator.ingest(response)
 
-        if response.HasField("artifact_update"):
-            artifact_content.extend(_parts_to_content(response.artifact_update.artifact.parts))
-        elif response.HasField("status_update"):
-            if response.status_update.status.HasField("message"):
-                status_message_content = _parts_to_content(response.status_update.status.message.parts)
-        elif response.HasField("task"):
-            task_content = [
-                content for artifact in response.task.artifacts for content in _parts_to_content(artifact.parts)
-            ]
-        elif response.HasField("message"):
-            message_content = _parts_to_content(response.message.parts)
-
-    content = artifact_content or status_message_content or task_content or message_content
-    stop_reason: StopReason = _STATE_TO_STOP_REASON.get(task_state, "end_turn") if task_state else "end_turn"
+    task_state = accumulator.task_state
+    stop_reason: StopReason = (
+        _STATE_TO_STOP_REASON.get(task_state, "end_turn") if task_state is not None else "end_turn"
+    )
 
     message: Message = {
         "role": "assistant",
-        "content": content,
+        "content": accumulator.content,
     }
 
     # Build state dict with A2A metadata

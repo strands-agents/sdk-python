@@ -24,7 +24,7 @@ from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.server.tasks import TaskUpdater
 from a2a.types import Part, TaskState
-from a2a.utils.errors import A2AError, InternalError, InvalidParamsError, UnsupportedOperationError
+from a2a.utils.errors import InternalError, InvalidParamsError, UnsupportedOperationError
 from google.protobuf.json_format import MessageToDict
 
 from ...agent.agent import Agent as SAAgent
@@ -78,6 +78,22 @@ def _jsonable(value: Any) -> Any:
         json.dumps(value)
     except (TypeError, ValueError):
         return str(value)
+    return value
+
+
+def _coerce_whole_floats(value: Any) -> Any:
+    """Recursively convert whole-number floats back to int.
+
+    A protobuf ``Value`` (used for A2A data Parts) has no integer type, so
+    ``MessageToDict`` renders every JSON number as a Python float — an int a peer sent
+    would otherwise round-trip as e.g. ``1.0`` into user hook code resuming an interrupt.
+    """
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, dict):
+        return {key: _coerce_whole_floats(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_coerce_whole_floats(item) for item in value]
     return value
 
 
@@ -318,9 +334,9 @@ class StrandsA2AExecutor(AgentExecutor):
             event_queue: The A2A event queue used to send response events back to the client.
 
         Raises:
-            A2AError: If an unrecoverable error occurs during agent execution setup
-                (e.g., missing input). Agent execution errors are handled gracefully
-                by transitioning the task to the failed state.
+            InvalidParamsError: If the request carries malformed or unresolvable parameters.
+            InternalError: If the request is missing required content.
+            UnsupportedOperationError: If the operation is not supported in the current state.
         """
         task = context.current_task
         if not task:
@@ -331,8 +347,8 @@ class StrandsA2AExecutor(AgentExecutor):
 
         try:
             await self._execute_streaming(context, updater)
-        except A2AError:
-            # Re-raise A2AErrors (setup failures like missing input)
+        except (InvalidParamsError, InternalError, UnsupportedOperationError):
+            # Re-raise server-side setup failures (missing input, bad params, unsupported op).
             raise
         except asyncio.CancelledError:
             # asyncio.CancelledError is a BaseException (not Exception) — raised when
@@ -657,6 +673,12 @@ class StrandsA2AExecutor(AgentExecutor):
         Recognition is deliberately narrow: only the explicit shape above is treated as a resume, so
         an ordinary data Part still reaches the generic content-block path unchanged.
 
+        Note:
+            A2A data parts use protobuf ``Value``, which has no integer type — all numbers are
+            doubles. Whole-number floats (e.g. ``3.0``) are coerced back to ``int`` via
+            ``_coerce_whole_floats`` so that ``response`` values round-trip integers faithfully.
+            A genuine ``1.0`` float sent by a peer will arrive as ``1``.
+
         Args:
             parts: List of A2A Part objects from the inbound message.
 
@@ -673,7 +695,7 @@ class StrandsA2AExecutor(AgentExecutor):
         unrelated_parts = 0
 
         for part in parts:
-            data = MessageToDict(part.data) if part.HasField("data") else None
+            data = _coerce_whole_floats(MessageToDict(part.data)) if part.HasField("data") else None
             if not isinstance(data, dict) or INTERRUPT_RESPONSE_KEY not in data:
                 unrelated_parts += 1
                 continue
@@ -809,7 +831,7 @@ class StrandsA2AExecutor(AgentExecutor):
                 elif part.HasField("data"):
                     # Handle a data Part - convert structured data to JSON text
                     try:
-                        data_text = json.dumps(MessageToDict(part.data), indent=2)
+                        data_text = json.dumps(_coerce_whole_floats(MessageToDict(part.data)), indent=2)
                         content_blocks.append(ContentBlock(text=f"[Structured Data]\n{data_text}"))
                     except Exception:
                         logger.exception("Failed to serialize data part")

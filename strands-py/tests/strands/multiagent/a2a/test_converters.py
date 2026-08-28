@@ -19,6 +19,7 @@ from a2a.types import Message as A2AMessage
 from strands.agent.agent_result import AgentResult
 from strands.multiagent.a2a._converters import (
     _extract_task_state,
+    _parts_to_content,
     convert_content_blocks_to_parts,
     convert_input_to_message,
     convert_responses_to_agent_result,
@@ -253,6 +254,88 @@ def test_multiple_artifact_updates_accumulate_in_order():
     assert result.message["content"] == [{"text": "Hello, "}, {"text": "world!"}]
 
 
+def test_artifact_replace_does_not_duplicate_on_resend():
+    """A peer that re-sends its full cumulative artifact each turn (append=False) must not duplicate.
+
+    append=False (the default) means "replace this artifact's content", not "add to it".
+    """
+    responses = [
+        StreamResponse(
+            artifact_update=TaskArtifactUpdateEvent(
+                task_id="task-1", context_id="ctx-1", artifact=Artifact(artifact_id="a1", parts=[Part(text="Hel")])
+            )
+        ),
+        StreamResponse(
+            artifact_update=TaskArtifactUpdateEvent(
+                task_id="task-1", context_id="ctx-1", artifact=Artifact(artifact_id="a1", parts=[Part(text="Hello")])
+            )
+        ),
+        StreamResponse(
+            artifact_update=TaskArtifactUpdateEvent(
+                task_id="task-1",
+                context_id="ctx-1",
+                artifact=Artifact(artifact_id="a1", parts=[Part(text="Hello world")]),
+            )
+        ),
+    ]
+
+    result = convert_responses_to_agent_result(responses)
+
+    assert result.message["content"] == [{"text": "Hello world"}]
+
+
+def test_terminal_status_message_appended_after_artifact_content():
+    """An actionable terminal status message (e.g. an approval prompt) is not dropped when
+    artifact content already streamed — both are surfaced, in order.
+    """
+    artifact_event = StreamResponse(
+        artifact_update=TaskArtifactUpdateEvent(
+            task_id="task-1",
+            context_id="ctx-1",
+            artifact=Artifact(artifact_id="a1", parts=[Part(text="partial answer")]),
+        )
+    )
+    status_event = StreamResponse(
+        status_update=TaskStatusUpdateEvent(
+            task_id="task-1",
+            context_id="ctx-1",
+            status=TaskStatus(
+                state=TaskState.TASK_STATE_INPUT_REQUIRED,
+                message=A2AMessage(message_id=uuid4().hex, role=Role.ROLE_AGENT, parts=[Part(text="need approval")]),
+            ),
+        )
+    )
+
+    result = convert_responses_to_agent_result([artifact_event, status_event])
+
+    assert result.message["content"] == [{"text": "partial answer"}, {"text": "need approval"}]
+    assert result.stop_reason == "interrupt"
+
+
+def test_parts_to_content_drops_empty_text_parts():
+    """An empty-text part (the compliant-streaming last_chunk marker) yields no content block."""
+    assert _parts_to_content([Part(text="")]) == []
+    assert _parts_to_content([Part(text="real"), Part(text="")]) == [{"text": "real"}]
+
+
+def test_task_without_status_does_not_reset_observed_state():
+    """A bare `task` snapshot with no status field must not overwrite an already-observed state.
+
+    `task.status.state` reads as TASK_STATE_UNSPECIFIED (0) when `status` was never set, which
+    is a real enum value rather than "no state" — extraction must gate on HasField("status").
+    """
+    status_event = StreamResponse(
+        status_update=TaskStatusUpdateEvent(
+            task_id="task-1", context_id="ctx-1", status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED)
+        )
+    )
+    task_without_status = StreamResponse(task=Task(id="task-1", context_id="ctx-1"))
+
+    result = convert_responses_to_agent_result([status_event, task_without_status])
+
+    assert result.state.get("a2a_task_state") == "completed"
+
+
 # =========================================================================
 # Lifecycle state mapping
 # =========================================================================
@@ -269,7 +352,7 @@ def test_multiple_artifact_updates_accumulate_in_order():
         (TaskState.TASK_STATE_AUTH_REQUIRED, "interrupt", "auth-required"),
         (TaskState.TASK_STATE_WORKING, "end_turn", "working"),
         (TaskState.TASK_STATE_SUBMITTED, "end_turn", "submitted"),
-        (TaskState.TASK_STATE_UNSPECIFIED, "end_turn", "unspecified"),
+        (TaskState.TASK_STATE_UNSPECIFIED, "end_turn", "unknown"),
     ],
 )
 def test_convert_response_state_mapping(task_state, expected_stop_reason, expected_state_str):

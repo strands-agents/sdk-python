@@ -92,8 +92,9 @@ class A2AServer:
                 for backwards compatibility. Defaults to False.
 
         Raises:
-            ValueError: If neither or both of ``agent``/``agent_factory`` are provided, or if
-                ``max_contexts`` is less than 1.
+            ValueError: If neither or both of ``agent``/``agent_factory`` are provided, if
+                ``max_contexts`` is less than 1, or if the agent's ``name`` or ``description``
+                is None or empty (the AgentCard is validated at construction time).
         """
         if (agent is None) == (agent_factory is None):
             raise ValueError("Provide exactly one of 'agent' or 'agent_factory'.")
@@ -217,6 +218,8 @@ class A2AServer:
     def agent_card_url(self, url: str) -> None:
         """Override the URL advertised in the AgentCard.
 
+        Set this before calling ``to_starlette_app``/``to_fastapi_app``.
+
         Args:
             url: The URL to advertise in the AgentCard.
         """
@@ -231,6 +234,8 @@ class A2AServer:
     def agent_skills(self, skills: list[AgentSkill]) -> None:
         """Set the list of skills this agent provides.
 
+        Set this before calling ``to_starlette_app``/``to_fastapi_app``.
+
         Args:
             skills: A list of AgentSkill objects to set for this agent.
         """
@@ -244,12 +249,15 @@ class A2AServer:
 
         Args:
             app_kwargs: Additional keyword arguments to pass to the Starlette constructor.
+                Must not include ``routes`` (managed internally). Keys such as ``rpc_url``
+                or ``agent_card_url`` that were accepted by the v0.3 ``build()`` method are
+                no longer valid here — use the constructor parameters instead.
 
         Returns:
             Starlette: A Starlette application configured to serve this agent.
         """
         routes = create_agent_card_routes(self.public_agent_card)
-        routes.extend(create_jsonrpc_routes(self.request_handler, rpc_url="/"))
+        routes.extend(create_jsonrpc_routes(self.request_handler, rpc_url="/", enable_v0_3_compat=True))
         a2a_app = Starlette(routes=routes, **(app_kwargs or {}))
 
         if self.mount_path:
@@ -269,6 +277,9 @@ class A2AServer:
 
         Args:
             app_kwargs: Additional keyword arguments to pass to the FastAPI constructor.
+                Must not include ``routes`` (managed internally). Keys such as ``rpc_url``
+                or ``agent_card_url`` that were accepted by the v0.3 ``build()`` method are
+                no longer valid here — use the constructor parameters instead.
 
         Returns:
             FastAPI: A FastAPI application configured to serve this agent.
@@ -277,7 +288,7 @@ class A2AServer:
         add_a2a_routes_to_fastapi(
             a2a_app,
             agent_card_routes=create_agent_card_routes(self.public_agent_card),
-            jsonrpc_routes=create_jsonrpc_routes(self.request_handler, rpc_url="/"),
+            jsonrpc_routes=create_jsonrpc_routes(self.request_handler, rpc_url="/", enable_v0_3_compat=True),
         )
 
         if self.mount_path:
