@@ -1524,7 +1524,7 @@ class Agent(AgentBase):
                     if (
                         self._interrupt_state.activated
                         and (agent_result is None or agent_result.stop_reason != "interrupt")
-                        and not self._interrupt_state.has_pending_tool_execution
+                        and self._interrupt_state.pending_tool_execution is None
                     ):
                         self._interrupt_state.deactivate()
                 except InterruptException as interrupt_exception:
@@ -1532,7 +1532,7 @@ class Agent(AgentBase):
                     # and corrupt history.
                     if (
                         pass_progress.event_loop_produced_result
-                        and not self._interrupt_state.has_pending_tool_execution
+                        and self._interrupt_state.pending_tool_execution is None
                     ):
                         self._interrupt_state.deactivate()
                         raise RuntimeError(

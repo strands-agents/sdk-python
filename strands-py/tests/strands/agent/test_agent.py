@@ -22,7 +22,7 @@ from strands.agent.conversation_manager.sliding_window_conversation_manager impo
 from strands.agent.state import AgentState
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from strands.hooks import BeforeInvocationEvent, BeforeModelCallEvent, BeforeToolCallEvent
-from strands.interrupt import Interrupt
+from strands.interrupt import Interrupt, PendingToolExecution
 from strands.memory import MemoryManager, MemoryManagerConfig
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.session.repository_session_manager import RepositorySessionManager
@@ -1984,7 +1984,10 @@ def test_agent__call__resume_interrupt(mock_model, tool_decorated, agenerator):
         reason="test reason",
     )
 
-    agent._interrupt_state.context = {"tool_use_message": tool_use_message, "tool_results": []}
+    agent._interrupt_state.pending_tool_execution = PendingToolExecution(
+        assistant_message=tool_use_message,
+        completed_tool_results=[],
+    )
     agent._interrupt_state.interrupts[interrupt.id] = interrupt
     agent._interrupt_state.activate()
 
