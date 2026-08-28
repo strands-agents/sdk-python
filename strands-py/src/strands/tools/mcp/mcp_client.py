@@ -25,7 +25,7 @@ from importlib.metadata import version as pkg_version
 from pathlib import Path
 from re import Pattern
 from types import TracebackType
-from typing import Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 from urllib.parse import urlparse
 
 import anyio
@@ -46,6 +46,7 @@ from mcp.types import (
     ListPromptsResult,
     ListResourcesResult,
     ListResourceTemplatesResult,
+    PaginatedRequestParams,
     ReadResourceResult,
     TextResourceContents,
 )
@@ -61,15 +62,36 @@ from ...types.exceptions import MCPClientInitializationError, ToolProviderExcept
 from ...types.media import ImageFormat
 from ...types.tools import AgentTool, ToolResultContent, ToolResultStatus
 from ..tool_provider import ToolProvider
-from ._compat import MCPError, negotiate_session, streamable_http_transport
+from ._compat import (
+    MCPError,
+    negotiate_session,
+    next_cursor,
+    resource_templates,
+    streamable_http_transport,
+    task_support,
+)
 from .mcp_agent_tool import MCPAgentTool
 from .mcp_instrumentation import inject_trace_context, mcp_instrumentation
 from .mcp_tasks import DEFAULT_TASK_CONFIG, DEFAULT_TASK_POLL_TIMEOUT, DEFAULT_TASK_TTL, TasksConfig
 from .mcp_types import MCPClientCredentials, MCPToolResult, MCPTransport
 
+if TYPE_CHECKING:
+    # Only the mcp 1.x line spells this name; the runtime import stays inside
+    # the tasks-enabled branch of __init__.
+    from mcp.types import TaskExecutionMode
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+
+def _pagination_params(pagination_token: str | None) -> PaginatedRequestParams | None:
+    """Build the params object for a paginated list_* request.
+
+    The session list methods' `cursor` keyword is deprecated on the mcp 1.x
+    line and removed on 2.x; `params` is the form both lines accept.
+    """
+    return PaginatedRequestParams(cursor=pagination_token) if pagination_token is not None else None
 
 
 class _MCPCallCancelledError(RuntimeError):
@@ -620,7 +642,9 @@ class MCPClient(ToolProvider):
         effective_filters = self._tool_filters if tool_filters is None else tool_filters
 
         async def _list_tools_async() -> ListToolsResult:
-            return await cast(ClientSession, self._background_thread_session).list_tools(cursor=pagination_token)
+            return await cast(ClientSession, self._background_thread_session).list_tools(
+                params=_pagination_params(pagination_token)
+            )
 
         list_tools_response: ListToolsResult = self._invoke_on_background_thread(_list_tools_async()).result()
         self._log_debug_with_thread("received %d tools from MCP server", len(list_tools_response.tools))
@@ -629,10 +653,7 @@ class MCPClient(ToolProvider):
         for tool in list_tools_response.tools:
             if self._is_tasks_enabled():
                 # Cache taskSupport for task-augmented execution decisions
-                task_support = None
-                if tool.execution is not None and tool.execution.taskSupport is not None:
-                    task_support = tool.execution.taskSupport
-                self._tool_task_support_cache[tool.name] = task_support or "forbidden"
+                self._tool_task_support_cache[tool.name] = cast("TaskExecutionMode", task_support(tool) or "forbidden")
 
             # Apply prefix if specified
             if effective_prefix:
@@ -647,7 +668,7 @@ class MCPClient(ToolProvider):
                 mcp_tools.append(mcp_tool)
 
         self._log_debug_with_thread("successfully adapted %d MCP tools", len(mcp_tools))
-        return PaginatedList[MCPAgentTool](mcp_tools, token=list_tools_response.nextCursor)
+        return PaginatedList[MCPAgentTool](mcp_tools, token=next_cursor(list_tools_response))
 
     def list_prompts_sync(self, pagination_token: str | None = None) -> ListPromptsResult:
         """Synchronously retrieves the list of available prompts from the MCP server.
@@ -666,7 +687,9 @@ class MCPClient(ToolProvider):
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         async def _list_prompts_async() -> ListPromptsResult:
-            return await cast(ClientSession, self._background_thread_session).list_prompts(cursor=pagination_token)
+            return await cast(ClientSession, self._background_thread_session).list_prompts(
+                params=_pagination_params(pagination_token)
+            )
 
         list_prompts_result: ListPromptsResult = self._invoke_on_background_thread(_list_prompts_async()).result()
         self._log_debug_with_thread("received %d prompts from MCP server", len(list_prompts_result.prompts))
@@ -714,7 +737,9 @@ class MCPClient(ToolProvider):
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         async def _list_resources_async() -> ListResourcesResult:
-            return await cast(ClientSession, self._background_thread_session).list_resources(cursor=pagination_token)
+            return await cast(ClientSession, self._background_thread_session).list_resources(
+                params=_pagination_params(pagination_token)
+            )
 
         list_resources_result: ListResourcesResult = self._invoke_on_background_thread(_list_resources_async()).result()
         self._log_debug_with_thread("received %d resources from MCP server", len(list_resources_result.resources))
@@ -761,14 +786,14 @@ class MCPClient(ToolProvider):
 
         async def _list_resource_templates_async() -> ListResourceTemplatesResult:
             return await cast(ClientSession, self._background_thread_session).list_resource_templates(
-                cursor=pagination_token
+                params=_pagination_params(pagination_token)
             )
 
         list_resource_templates_result: ListResourceTemplatesResult = self._invoke_on_background_thread(
             _list_resource_templates_async()
         ).result()
         self._log_debug_with_thread(
-            "received %d resource templates from MCP server", len(list_resource_templates_result.resourceTemplates)
+            "received %d resource templates from MCP server", len(resource_templates(list_resource_templates_result))
         )
 
         return list_resource_templates_result
