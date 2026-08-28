@@ -371,6 +371,10 @@ def test_event_loop_metrics_update_usage_default_source_is_main(usage, event_loo
     exp_usage = Usage(inputTokens=1, outputTokens=2, totalTokens=3, cacheWriteInputTokens=2)
     assert event_loop_metrics.accumulated_usage_by_source == {"main": exp_usage}
 
+    metrics_client = event_loop_metrics._metrics_client
+    metrics_client.event_loop_input_tokens.record.assert_called_with(1, {"source": "main"})
+    metrics_client.event_loop_output_tokens.record.assert_called_with(2, {"source": "main"})
+
 
 def test_event_loop_metrics_update_usage_aux_source(usage, event_loop_metrics, mock_get_meter_provider):
     event_loop_metrics.reset_usage_metrics()
@@ -389,6 +393,11 @@ def test_event_loop_metrics_update_usage_aux_source(usage, event_loop_metrics, m
     # But not into per-invocation or per-cycle usage, which track the agent's own turns.
     assert event_loop_metrics.latest_agent_invocation.usage == exp_main_usage
     assert event_loop_metrics.agent_invocations[0].cycles[0].usage == exp_main_usage
+
+    # The exported OTel histograms carry the source dimension.
+    metrics_client = event_loop_metrics._metrics_client
+    metrics_client.event_loop_input_tokens.record.assert_called_with(10, {"source": "summarization"})
+    metrics_client.event_loop_output_tokens.record.assert_called_with(20, {"source": "summarization"})
 
 
 def test_event_loop_metrics_update_usage_aux_source_without_invocation(
@@ -523,6 +532,15 @@ def test_metrics_to_string(trace, child_trace, tool_metrics, exp_str, event_loop
     tru_str = strands.telemetry.metrics.metrics_to_string(event_loop_metrics)
 
     assert tru_str == exp_str
+
+
+def test_metrics_to_string_renders_auxiliary_token_breakdown(usage, event_loop_metrics, mock_get_meter_provider):
+    event_loop_metrics.update_usage(Usage(inputTokens=100, outputTokens=20, totalTokens=120), source="summarization")
+    event_loop_metrics.update_usage(Usage(inputTokens=3, outputTokens=1, totalTokens=4), source="routing")
+
+    tru_str = strands.telemetry.metrics.metrics_to_string(event_loop_metrics)
+
+    assert "├─ Auxiliary Tokens: summarization=120, routing=4" in tru_str
 
 
 def test_setup_meter_if_meter_provider_is_set(

@@ -218,7 +218,8 @@ class EventLoopMetrics:
             ``accumulated_usage`` covers every source, while per-invocation and per-cycle usage cover only
             ``"main"`` — so it can exceed the sum of ``agent_invocations[*].usage``. The old main-loop-only
             figure is ``accumulated_usage_by_source["main"]``.
-        accumulated_metrics: Accumulated performance metrics across all model invocations.
+        accumulated_metrics: Accumulated performance metrics across main-event-loop model
+            invocations only — auxiliary calls contribute usage, not latency.
         accumulated_usage_by_source: Accumulated token usage broken down by source — ``"main"`` for
             main-event-loop model calls, or the auxiliary feature that made the call (e.g.
             ``"summarization"``, ``"routing"``, ``"extraction"``).
