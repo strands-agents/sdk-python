@@ -24,7 +24,7 @@ Goals:
 
 Non-Goals (v1):
 - Load balancing across deployments of the same model. This needs a global view of traffic and belongs in a gateway.
-- Classifier or semantic routing, quality cascades, and cost-aware routing. These are fast-follow; cost is blocked on per-model pricing the SDK does not carry yet.
+- Semantic routing and quality cascades. These are fast-follow.
 - Response caching. A cache hit skips the model call entirely, so it sits in front of routing, not inside it.
 
 ## Prior Art
@@ -196,7 +196,6 @@ Agent(model: Model | str | ModelRouter = ...)
 
 - **P0, router core and fallback.** Add immutable, reusable `ModelRouter` and `RoutingCandidate` configuration; normalize candidate inputs; widen `model=`; recognize the router as a plugin during agent initialization; add `model` to `InvokeModelContext`; cache selection in invocation state; resolve nested routers; and make the terminal call the context model. Register routing before model-dependent invoke middleware, provide router-owned ordered fallback after `ModelRetryStrategy`, reset retry state when advancing, and reject stateful candidates during construction.
 - **P0, model-driven strategy.** Add decision-model selection over candidate evidence. Run the judge once per invocation, fall back to the first candidate when the judge fails or returns an invalid result, and record the outcome on the existing model-invoke span.
-- **P1, cost-aware routing.** Add a pricing source of truth, then rank capable candidates by price.
 - **P1, cache-affinity (sticky) routing.** When a request carries prompt-cache points, keep it on the model that wrote the cache so a cheaper route does not discard a cache hit. This is a session-scoped selection stored in agent state and matches LiteLLM's prompt-cache routing pre-call check.
 - **P1, embedding and semantic routing, and quality cascades.** Add learned or embedding selection without a decision-model call, and result-aware escalation once the SDK exposes a suitable quality signal.
 
@@ -223,7 +222,7 @@ Needs attention:
 - `BeforeModelCallEvent` and its projected token estimate run before `InvokeModelStage`, so they continue to use the concrete default in v1. Strategies that need candidate-specific token counts compute them from the candidates directly.
 - The router forwards canonical Strands messages without additional cross-provider normalization. Each candidate model remains responsible for validating and translating supported content.
 - Per-invocation selection preserves a provider prompt-cache hit within one invocation, but v1 re-decides on the next invocation and during fallback, so a later call can miss the cache. Cache-affinity (sticky) routing is the P1 that closes this gap.
-- Cost-aware routing needs a pricing source of truth and remains a follow-up.
+- Cost-aware routing is expressed through pricing in candidate `metadata` weighed by the classifier's routing policy; the SDK carries no pricing data of its own.
 
 Migration: none. `model=` continues to accept a `Model` or model-id string, and routing is opt-in by passing a `ModelRouter`.
 
