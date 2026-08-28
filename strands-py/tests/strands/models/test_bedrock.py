@@ -3,6 +3,7 @@ import copy
 import logging
 import os
 import sys
+import threading
 import time
 import traceback
 import unittest.mock
@@ -11,6 +12,7 @@ from unittest.mock import ANY
 import boto3
 import pydantic
 import pytest
+from botocore import UNSIGNED
 from botocore.config import Config as BotocoreConfig
 from botocore.exceptions import ClientError, EventStreamError
 
@@ -22,6 +24,8 @@ from strands.models.bedrock import (
     DEFAULT_BEDROCK_REGION,
     DEFAULT_READ_TIMEOUT,
     _clear_skip_count_tokens_cache,
+    _next_stream_event,
+    _suppress_task_exception,
 )
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from strands.types.tools import ToolSpec
@@ -305,6 +309,36 @@ def test__init__with_custom_boto_client_config_with_user_agent(session_cls, bedr
     assert kwargs["config"].read_timeout == 900
 
 
+def test__init__with_api_key_configures_bearer_auth(session_cls, bedrock_client):
+    """Use unsigned requests and a bearer authorization hook for an API key (#1238)."""
+    model = BedrockModel(
+        api_key="br-test-key", boto_client_config=BotocoreConfig(read_timeout=900, signature_version="v4")
+    )
+
+    client = session_cls.return_value.client
+    _, kwargs = client.call_args
+    assert kwargs["config"].signature_version == UNSIGNED
+    assert kwargs["config"].read_timeout == 900
+    assert model.get_config().get("api_key") is None
+
+    bedrock_client.meta.events.register.assert_called_once_with("before-send.bedrock-runtime.*", ANY)
+    auth_handler = bedrock_client.meta.events.register.call_args.args[1]
+    request = unittest.mock.Mock(headers={"Authorization": "AWS4-HMAC-SHA256 ..."})
+
+    auth_handler(request)
+
+    assert request.headers == {"Authorization": "Bearer br-test-key"}
+
+
+def test__init__without_api_key_does_not_register_bearer_auth(session_cls, bedrock_client):
+    """Keep the default IAM-signing path when no API key is provided."""
+    _ = BedrockModel()
+
+    _, kwargs = session_cls.return_value.client.call_args
+    assert kwargs["config"].signature_version is None
+    bedrock_client.meta.events.register.assert_not_called()
+
+
 def test__init__model_config(bedrock_client):
     _ = bedrock_client
 
@@ -372,6 +406,22 @@ def test_update_config(model, model_id):
     exp_model_id = model_id
 
     assert tru_model_id == exp_model_id
+
+
+def test_cache_key_round_trips_through_config(model):
+    """Bedrock accepts and preserves cache_config.cache_key through update_config/get_config."""
+    model.update_config(cache_config=CacheConfig(strategy="anthropic", cache_key="tenant-42"))
+
+    assert model.get_config()["cache_config"].cache_key == "tenant-42"
+
+
+def test_cache_key_does_not_change_request_shape(bedrock_client, messages):
+    """Bedrock ignores cache_key: two configs differing only in cache_key format identically."""
+    _ = bedrock_client
+    without_key = BedrockModel(model_id="m1", cache_config=CacheConfig(strategy="anthropic"))
+    with_key = BedrockModel(model_id="m1", cache_config=CacheConfig(strategy="anthropic", cache_key="tenant-42"))
+
+    assert with_key.format_request(messages) == without_key.format_request(messages)
 
 
 def test_format_request_default(model, messages, model_id):
@@ -1580,9 +1630,7 @@ async def test_stream_guardrails_redacts_without_trace_non_streaming(bedrock_cli
 
 
 @pytest.mark.asyncio
-async def test_stream_guardrails_redacts_exactly_once_across_metadata_events(
-    bedrock_client, model, messages, alist
-):
+async def test_stream_guardrails_redacts_exactly_once_across_metadata_events(bedrock_client, model, messages, alist):
     """Redaction fires at most once even when Bedrock emits multiple metadata events.
 
     Exercises the redaction_emitted guard. Guards against
@@ -1590,9 +1638,7 @@ async def test_stream_guardrails_redacts_exactly_once_across_metadata_events(
     """
     message_stop_event = {"messageStop": {"stopReason": "guardrail_intervened"}}
     metadata_event = {"metadata": {"usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}}}
-    bedrock_client.converse_stream.return_value = {
-        "stream": [message_stop_event, metadata_event, metadata_event]
-    }
+    bedrock_client.converse_stream.return_value = {"stream": [message_stop_event, metadata_event, metadata_event]}
 
     response = model.stream(messages)
 
@@ -2235,6 +2281,7 @@ async def test_add_note_on_validation_exception_throughput(bedrock_client, model
         "input length and `max_tokens` exceed context limit",
         "too many total text bytes",
         "prompt is too long: 903884 tokens > 200000 maximum",
+        "This model's maximum context length is 202752 tokens.",
     ],
 )
 @pytest.mark.asyncio
@@ -5498,3 +5545,166 @@ def test_should_convert_json_to_text_nova_variants(bedrock_client):
     for model_id in non_nova_ids:
         model = BedrockModel(model_id=model_id)
         assert not model._should_convert_json_to_text(), f"{model_id} should NOT convert JSON to text"
+
+
+class _FakeEventStream:
+    """Stand-in for botocore's ``EventStream``: iterable, closable, one chunk per gate release."""
+
+    def __init__(self, chunks, gate=None, on_chunk=None):
+        self.chunks = list(chunks)
+        self.gate = gate
+        self.on_chunk = on_chunk
+        self.emitted = []
+        self.closed = False
+
+    def __iter__(self):
+        for chunk in self.chunks:
+            if self.gate is not None:
+                self.gate.wait()
+                self.gate.clear()
+
+            self.emitted.append(chunk)
+            if self.on_chunk is not None:
+                self.on_chunk(chunk)
+
+            yield chunk
+
+    def close(self):
+        self.closed = True
+
+
+async def _wait_until(predicate, timeout=5.0):
+    deadline = time.time() + timeout
+    while not predicate():
+        assert time.time() < deadline, "condition was not met before the timeout"
+        await asyncio.sleep(0.01)
+
+
+@pytest.mark.asyncio
+async def test_stream_cancel_signal_closes_event_stream(bedrock_client, model, messages):
+    """A cancellation signal closes the Bedrock event stream instead of reading it to the end."""
+    gate = threading.Event()
+    event_stream = _FakeEventStream([{"chunk": index} for index in range(5)], gate=gate)
+    bedrock_client.converse_stream.return_value = {"stream": event_stream}
+    cancel_signal = threading.Event()
+
+    chunks = []
+    gate.set()
+    async for chunk in model.stream(messages, cancel_signal=cancel_signal):
+        chunks.append(chunk)
+        cancel_signal.set()
+        gate.set()
+
+    await _wait_until(lambda: event_stream.closed)
+
+    assert chunks == [{"chunk": 0}]
+    # The chunk read at the cancellation boundary is dropped; the rest is never read.
+    assert event_stream.emitted == [{"chunk": 0}, {"chunk": 1}]
+
+
+@pytest.mark.asyncio
+async def test_stream_cancel_signal_stops_in_flight_producer(bedrock_client, model, messages, alist):
+    """Cancelling mid-transfer stops the producer rather than draining the response."""
+    cancel_signal = threading.Event()
+    event_stream = _FakeEventStream(
+        [{"chunk": index} for index in range(100)],
+        on_chunk=lambda chunk: cancel_signal.set() if chunk == {"chunk": 5} else None,
+    )
+    bedrock_client.converse_stream.return_value = {"stream": event_stream}
+
+    chunks = await alist(model.stream(messages, cancel_signal=cancel_signal))
+
+    assert event_stream.closed
+    assert event_stream.emitted == [{"chunk": index} for index in range(6)]
+    # The caller stops at or before the last chunk the producer forwarded.
+    assert len(chunks) <= 5
+    assert chunks == [{"chunk": index} for index in range(len(chunks))]
+
+
+@pytest.mark.asyncio
+async def test_stream_cancel_signal_returns_promptly_when_producer_stalls(bedrock_client, model, messages):
+    """A stalled producer does not hold up the caller: the stream ends without waiting for it."""
+    gate = threading.Event()
+    event_stream = _FakeEventStream([{"chunk": 0}, {"chunk": 1}], gate=gate)
+    bedrock_client.converse_stream.return_value = {"stream": event_stream}
+    cancel_signal = threading.Event()
+
+    chunks = []
+
+    async def consume():
+        async for chunk in model.stream(messages, cancel_signal=cancel_signal):
+            chunks.append(chunk)
+            cancel_signal.set()
+
+    gate.set()
+    await asyncio.wait_for(consume(), timeout=10)
+
+    assert chunks == [{"chunk": 0}]
+    # The worker thread is still blocked in the transport, so the caller returned without it.
+    assert not event_stream.closed
+
+    gate.set()
+    await _wait_until(lambda: event_stream.closed)
+
+
+@pytest.mark.asyncio
+async def test_next_stream_event_consumer_cancellation_cancels_queue_get():
+    """Cancelling the consumer mid-race also cancels the internal ``queue.get()`` task."""
+    queue = asyncio.Queue()
+    cancel_poll = asyncio.get_running_loop().create_future()
+
+    consumer = asyncio.create_task(_next_stream_event(queue, cancel_poll))
+    await asyncio.sleep(0.01)  # let the consumer block in asyncio.wait
+    getter = next((task for task in asyncio.all_tasks() if task.get_coro().__qualname__ == "Queue.get"), None)
+    assert getter is not None, "consumer did not create a queue.get() task"
+
+    consumer.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await consumer
+
+    await asyncio.wait([getter], timeout=1)
+    assert getter.cancelled()
+
+    cancel_poll.cancel()
+
+
+@pytest.mark.asyncio
+async def test_suppress_task_exception_skips_cancelled_task():
+    """The done-callback tolerates a cancelled task, where ``Task.exception()`` would raise."""
+    task = asyncio.create_task(asyncio.sleep(1))
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    _suppress_task_exception(task)
+
+
+@pytest.mark.asyncio
+async def test_stream_cancel_signal_consumes_detached_task_exception(bedrock_client, model, messages):
+    """A worker that fails after the caller detached it does not report to the event loop."""
+    gate = threading.Event()
+    cancel_signal = threading.Event()
+
+    def on_chunk(chunk):
+        if chunk == {"chunk": 1}:
+            raise RuntimeError("producer failed after cancellation")
+
+    event_stream = _FakeEventStream([{"chunk": 0}, {"chunk": 1}], gate=gate, on_chunk=on_chunk)
+    bedrock_client.converse_stream.return_value = {"stream": event_stream}
+
+    captured: list[dict] = []
+    asyncio.get_running_loop().set_exception_handler(lambda _loop, context: captured.append(context))
+
+    chunks = []
+    gate.set()
+    async for chunk in model.stream(messages, cancel_signal=cancel_signal):
+        chunks.append(chunk)
+        cancel_signal.set()
+
+    # Release the worker before asserting so a failure reports instead of hanging at exit.
+    gate.set()
+    assert chunks == [{"chunk": 0}]
+
+    # The detached worker now fails; its exception must be consumed, not reported to the loop.
+    await asyncio.sleep(0.2)
+    assert not captured, f"detached task exception was not consumed: {captured}"

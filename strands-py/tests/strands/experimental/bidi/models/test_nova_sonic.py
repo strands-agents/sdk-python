@@ -31,6 +31,7 @@ from strands.experimental.bidi.types.events import (
     BidiAudioStreamEvent,
     BidiImageInputEvent,
     BidiInterruptionEvent,
+    BidiResponseCompleteEvent,
     BidiResponseStartEvent,
     BidiTextInputEvent,
     BidiTranscriptStreamEvent,
@@ -66,7 +67,7 @@ def mock_stream():
 @pytest.fixture
 def mock_client(mock_stream):
     """Mock Bedrock Runtime client."""
-    with patch("strands.experimental.bidi.models.nova_sonic.BedrockRuntimeClient") as mock_cls:
+    with patch("strands.experimental.bidi.models.nova_sonic.AsyncBedrockRuntimeClient") as mock_cls:
         mock_instance = AsyncMock()
         mock_instance.invoke_model_with_bidirectional_stream = AsyncMock(return_value=mock_stream)
         mock_cls.return_value = mock_instance
@@ -99,7 +100,7 @@ async def test_model_initialization(model_id, boto_session):
 @pytest.mark.asyncio
 async def test_start_sets_strands_user_agent_on_bedrock_runtime_client(model_id, boto_session, mock_stream):
     """Always set the Strands user agent marker on the generated Bedrock Runtime client."""
-    with patch("strands.experimental.bidi.models.nova_sonic.BedrockRuntimeClient") as mock_cls:
+    with patch("strands.experimental.bidi.models.nova_sonic.AsyncBedrockRuntimeClient") as mock_cls:
         mock_instance = AsyncMock()
         mock_instance.invoke_model_with_bidirectional_stream = AsyncMock(return_value=mock_stream)
         mock_cls.return_value = mock_instance
@@ -199,6 +200,7 @@ async def test_connection_lifecycle(nova_model, mock_client, mock_stream):
     # Test close
     await nova_model.stop()
     assert mock_stream.close.called
+    assert mock_client.close.called
 
     # Test connection with tools
     tools = [
@@ -217,6 +219,201 @@ async def test_connection_lifecycle(nova_model, mock_client, mock_stream):
 @pytest.mark.asyncio
 async def test_model_stop_alone(nova_model):
     await nova_model.stop()  # Should not raise
+
+
+@pytest.mark.asyncio
+async def test_stop_is_idempotent(nova_model, mock_stream):
+    """Calling stop() twice on a started model does not re-close the stream or raise."""
+    await nova_model.start()
+    await nova_model.stop()
+    assert mock_stream.close.call_count == 1
+
+    # Second stop must be a no-op: the stream reference is cleared on first stop, so
+    # close() is not called again and no AttributeError is raised.
+    await nova_model.stop()
+    assert mock_stream.close.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_content_end_end_turn_emits_response_complete(nova_model):
+    """A per-turn boundary (contentEnd END_TURN) emits a response-complete event."""
+    nova_model._current_completion_id = "c1"
+
+    # Intermediate blocks are not a turn boundary.
+    assert nova_model._convert_nova_event({"contentEnd": {"type": "TEXT", "stopReason": "PARTIAL_TURN"}}) is None
+
+    # The audio block's END_TURN is deduped away; only the FINAL assistant text block emits
+    # the per-turn complete (so it fires once, after that text is in history).
+    assert nova_model._convert_nova_event({"contentEnd": {"type": "AUDIO", "stopReason": "END_TURN"}}) is None
+
+    nova_model._generation_stage = "FINAL"
+    end = nova_model._convert_nova_event({"contentEnd": {"type": "TEXT", "stopReason": "END_TURN"}})
+    assert isinstance(end, BidiResponseCompleteEvent)
+    assert end.stop_reason == "complete"
+
+    # A barge-in ends the turn regardless of block/stage.
+    interrupted = nova_model._convert_nova_event({"contentEnd": {"type": "AUDIO", "stopReason": "INTERRUPTED"}})
+    assert isinstance(interrupted, BidiResponseCompleteEvent)
+    assert interrupted.stop_reason == "interrupted"
+
+
+@pytest.mark.asyncio
+async def test_completion_end_is_not_a_turn_boundary(nova_model):
+    """completionEnd brackets the whole session, so it is not a per-turn response-complete."""
+    nova_model._current_completion_id = "c1"
+    result = nova_model._convert_nova_event({"completionEnd": {"stopReason": "END_TURN"}})
+    assert result is None
+    assert nova_model._current_completion_id is None
+
+
+@pytest.mark.asyncio
+async def test_connection_config_declared(nova_model):
+    """Nova declares its reconnect deadline and cumulative usage semantics."""
+    assert nova_model.connection_config["restart_after_s"] == 420
+    assert nova_model.usage_is_cumulative is True
+
+
+@pytest.mark.asyncio
+async def test_connection_config_overrides_merge_over_defaults(model_id, boto_session):
+    """provider_config['connection'] tunes individual fields without dropping the defaults."""
+    model = BidiNovaSonicModel(
+        model_id=model_id,
+        client_config={"boto_session": boto_session},
+        provider_config={"connection": {"auto_reconnect": False}},
+    )
+
+    # Overridden field takes the caller's value.
+    assert model.connection_config["auto_reconnect"] is False
+    # Untouched default is preserved.
+    assert model.connection_config["restart_after_s"] == 420
+    # usage_is_cumulative is a separate provider trait, unaffected by connection overrides.
+    assert model.usage_is_cumulative is True
+
+
+@pytest.mark.asyncio
+async def test_reconnect_replays_history_through_start_path(nova_model, mock_stream):
+    """reconnect() stops the old connection and re-initializes with the same context."""
+    tools = [
+        {
+            "name": "get_weather",
+            "description": "Get weather information",
+            "inputSchema": {"json": json.dumps({"type": "object", "properties": {}})},
+        }
+    ]
+    messages = [
+        {"role": "user", "content": [{"text": "What's the weather?"}]},
+        {"role": "assistant", "content": [{"text": "It's sunny and 72 degrees."}]},
+    ]
+
+    await nova_model.start(system_prompt="You are helpful", tools=tools, messages=messages)
+    first_connection_id = nova_model._connection_id
+    mock_stream.input_stream.send.reset_mock()
+
+    await nova_model.reconnect(system_prompt="You are helpful", tools=tools, messages=messages)
+
+    # Old stream was closed and a fresh connection established with a new id.
+    assert mock_stream.close.called
+    assert nova_model._connection_id is not None
+    assert nova_model._connection_id != first_connection_id
+
+    # History was replayed through the same initialization path start() uses:
+    # sessionStart + promptStart + system prompt (3) + 2 text messages (3 events each).
+    sent_events = [call.args[0].value.bytes_.decode("utf-8") for call in mock_stream.input_stream.send.call_args_list]
+    user_events = [e for e in sent_events if '"role": "USER"' in e]
+    assistant_events = [e for e in sent_events if '"role": "ASSISTANT"' in e]
+    assert len(user_events) >= 1
+    assert len(assistant_events) >= 1
+
+    await nova_model.stop()
+
+
+@pytest.mark.asyncio
+async def test_reconnect_twice_does_not_raise(nova_model):
+    """Two reconnects in succession are safe (relies on idempotent stop())."""
+    await nova_model.start(system_prompt="You are helpful")
+    await nova_model.reconnect(system_prompt="You are helpful")
+    await nova_model.reconnect(system_prompt="You are helpful")
+    assert nova_model._connection_id is not None
+    await nova_model.stop()
+
+
+@pytest.mark.asyncio
+async def test_proactive_reconnect_end_to_end_through_agent(model_id, boto_session, mock_client, mock_stream):
+    """End-to-end: BidiAgent + real Nova model proactively reconnects before the deadline.
+
+    Drives the full chain against the real BidiNovaSonicModel (mocked Bedrock transport):
+    the loop reads Nova's connection_config, arms the proactive timer, emits a warning,
+    and reconnects through Nova's own reconnect() before the session deadline, replaying
+    history via Nova's initialization path. No live AWS calls are made.
+    """
+    from strands.experimental.bidi.agent.agent import BidiAgent
+    from strands.experimental.bidi.types.events import BidiConnectionWarningEvent
+
+    # Nova never emits events on its own here; await_output blocks so the model task idles
+    # while the proactive timer drives the reconnect.
+    output = AsyncMock()
+    never = asyncio.Event()
+
+    async def blocking_receive():
+        await never.wait()
+
+    output.receive = AsyncMock(side_effect=blocking_receive)
+    mock_stream.await_output = AsyncMock(return_value=(None, output))
+
+    model = BidiNovaSonicModel(model_id=model_id, client_config={"boto_session": boto_session})
+    # A small deadline; the injected clock below fires it without wall time.
+    model.connection_config = {"restart_after_s": 1}
+
+    agent = BidiAgent(model=model, system_prompt="You are helpful")
+
+    # Drive the timer without wall time: the first cycle's sleeps return immediately, the re-armed
+    # cycle after the swap parks, so exactly one proactive reconnect fires.
+    sleep_count = 0
+
+    async def fake_sleep(_seconds):
+        nonlocal sleep_count
+        sleep_count += 1
+        if sleep_count > 2:
+            await asyncio.Event().wait()
+        await asyncio.sleep(0)
+
+    agent._loop._reconnect_timer._sleep = fake_sleep
+
+    await agent.start()
+
+    first_connection_id = model._connection_id
+
+    warning_seen = False
+    async for event in agent.receive():
+        if isinstance(event, BidiConnectionWarningEvent):
+            warning_seen = True
+        # Once a reconnect has produced a new connection id, the proactive cycle completed.
+        if model._connection_id is not None and model._connection_id != first_connection_id:
+            break
+
+    assert warning_seen
+    assert model._connection_id != first_connection_id
+    assert mock_stream.close.called  # old connection was torn down via reconnect -> stop
+
+    await agent.stop()
+
+
+@pytest.mark.asyncio
+async def test_model_stop_after_start_failure(model_id, boto_session):
+    with patch("strands.experimental.bidi.models.nova_sonic.AsyncBedrockRuntimeClient") as mock_cls:
+        mock_instance = AsyncMock()
+        mock_instance.invoke_model_with_bidirectional_stream.side_effect = RuntimeError("connection failed")
+        mock_cls.return_value = mock_instance
+
+        model = BidiNovaSonicModel(model_id=model_id, client_config={"boto_session": boto_session})
+
+        with pytest.raises(RuntimeError, match="connection failed"):
+            await model.start()
+
+        await model.stop()
+
+        mock_instance.close.assert_awaited_once()
+        assert model._connection_id is None
 
 
 @pytest.mark.asyncio

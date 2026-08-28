@@ -23,9 +23,10 @@ from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
 from ._defaults import resolve_config_metadata
 from ._openai_bedrock import BedrockMantleConfig, resolve_bedrock_client_args
+from ._openai_cache import apply_cache_config
 from ._openai_errors import classify_openai_error
 from ._validation import _has_location_source, validate_config_keys
-from .model import BaseModelConfig, Model
+from .model import BaseModelConfig, CacheConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -57,11 +58,16 @@ class OpenAIModel(Model):
                 For a complete list of supported parameters, see
                 https://platform.openai.com/docs/api-reference/chat/create.
             stream: Whether to use OpenAI chat completion streaming. Defaults to True.
+            cache_config: Prompt-caching configuration. OpenAI routes cache reads on
+                ``cache_key`` (mapped to ``prompt_cache_key``) and honors ``ttl`` only when it names
+                an OpenAI retention value; other fields have no effect. An explicit
+                ``prompt_cache_key``/``prompt_cache_retention`` in ``params`` takes precedence.
         """
 
         model_id: str
         params: dict[str, Any] | None
         stream: bool
+        cache_config: CacheConfig | None
 
     def __init__(
         self,
@@ -526,6 +532,8 @@ class OpenAIModel(Model):
 
         if stream:
             request["stream_options"] = stream_options
+
+        apply_cache_config(request, cast(CacheConfig | None, self.config.get("cache_config")))
 
         return request
 

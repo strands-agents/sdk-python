@@ -1,5 +1,6 @@
 """Utilities for handling streaming responses from language models."""
 
+import copy
 import json
 import logging
 import threading
@@ -55,6 +56,10 @@ def _normalize_messages(messages: Messages) -> Messages:
     removed_blank_message_content_text = False
     replaced_blank_message_content_text = False
     replaced_tool_names = False
+
+    # Deep copy up front so downstream normalization can mutate freely without
+    # affecting the caller's message history.
+    messages = copy.deepcopy(messages)
 
     for message in messages:
         # only modify assistant messages
@@ -431,6 +436,7 @@ async def process_stream(
         The reason for stopping, the constructed message, and the usage metrics.
     """
     stop_reason: StopReason = "end_turn"
+    saw_message_stop = False
     first_byte_time = None
 
     state: dict[str, Any] = {
@@ -474,6 +480,7 @@ async def process_stream(
         elif "contentBlockStop" in chunk:
             state = handle_content_block_stop(state)
         elif "messageStop" in chunk:
+            saw_message_stop = True
             stop_reason = handle_message_stop(chunk["messageStop"], state["message"].get("content", []))
         elif "metadata" in chunk:
             time_to_first_byte_ms = (
@@ -482,6 +489,17 @@ async def process_stream(
             usage, metrics = extract_usage_metrics(chunk["metadata"], time_to_first_byte_ms)
         elif "redactContent" in chunk:
             handle_redact_content(chunk["redactContent"], state)
+
+    # A provider that aborts in flight ends the stream without messageStop; the in-loop check
+    # above cannot see it, so report the cancellation here rather than a truncated end_turn.
+    if not saw_message_stop and cancel_signal and cancel_signal.is_set():
+        yield ModelStopReason(
+            stop_reason="cancelled",
+            message={"role": "assistant", "content": [{"text": "Cancelled by user"}]},
+            usage=usage,
+            metrics=metrics,
+        )
+        return
 
     yield ModelStopReason(stop_reason=stop_reason, message=state["message"], usage=usage, metrics=metrics)
 
@@ -514,7 +532,8 @@ async def stream_messages(
         model_state: Runtime state for model providers (e.g., server-side response ids).
         dynamic_trailing_blocks: How many trailing blocks of the last user message are rebuilt on every
             call, so a provider placing cache points keeps its own ahead of them.
-        cancel_signal: Optional threading.Event to check for cancellation during streaming.
+        cancel_signal: Optional threading.Event to check for cancellation during streaming. Also
+            forwarded to the model so a provider can abort an in-flight request.
         **kwargs: Additional keyword arguments for future extensibility.
 
     Yields:
@@ -536,6 +555,7 @@ async def stream_messages(
         system_prompt_content=system_prompt_content,
         invocation_state=invocation_state,
         model_state=model_state,
+        cancel_signal=cancel_signal,
         # Omitted when zero, so an ordinary call's arguments are unchanged.
         **({"dynamic_trailing_blocks": dynamic_trailing_blocks} if dynamic_trailing_blocks else {}),
     )

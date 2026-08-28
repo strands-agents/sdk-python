@@ -994,6 +994,8 @@ def test_end_agent_span(mock_span):
             "gen_ai.usage.completion_tokens": 100,
             "gen_ai.usage.output_tokens": 100,
             "gen_ai.usage.total_tokens": 150,
+            "gen_ai.usage.cache_read.input_tokens": 0,
+            "gen_ai.usage.cache_creation.input_tokens": 0,
             "gen_ai.usage.cache_read_input_tokens": 0,
             "gen_ai.usage.cache_write_input_tokens": 0,
         }
@@ -1030,6 +1032,8 @@ def test_end_agent_span_with_langfuse_observation_type(mock_span, monkeypatch):
             "gen_ai.usage.completion_tokens": 100,
             "gen_ai.usage.output_tokens": 100,
             "gen_ai.usage.total_tokens": 150,
+            "gen_ai.usage.cache_read.input_tokens": 0,
+            "gen_ai.usage.cache_creation.input_tokens": 0,
             "gen_ai.usage.cache_read_input_tokens": 0,
             "gen_ai.usage.cache_write_input_tokens": 0,
         }
@@ -1058,6 +1062,7 @@ def test_end_agent_span_latest_conventions(mock_span, monkeypatch):
 
     tracer.end_agent_span(mock_span, mock_response)
 
+    # Opted into the latest conventions: semconv cache names only, deprecated aliases suppressed.
     mock_span.set_attributes.assert_called_once_with(
         {
             "gen_ai.usage.prompt_tokens": 50,
@@ -1065,8 +1070,8 @@ def test_end_agent_span_latest_conventions(mock_span, monkeypatch):
             "gen_ai.usage.completion_tokens": 100,
             "gen_ai.usage.output_tokens": 100,
             "gen_ai.usage.total_tokens": 150,
-            "gen_ai.usage.cache_read_input_tokens": 0,
-            "gen_ai.usage.cache_write_input_tokens": 0,
+            "gen_ai.usage.cache_read.input_tokens": 0,
+            "gen_ai.usage.cache_creation.input_tokens": 0,
         }
     )
     mock_span.add_event.assert_called_with(
@@ -1161,7 +1166,49 @@ def test_end_model_invoke_span_with_cache_metrics(mock_span):
             "gen_ai.usage.completion_tokens": 20,
             "gen_ai.usage.output_tokens": 20,
             "gen_ai.usage.total_tokens": 30,
+            "gen_ai.usage.cache_read.input_tokens": 5,
+            "gen_ai.usage.cache_creation.input_tokens": 3,
             "gen_ai.usage.cache_read_input_tokens": 5,
+            "gen_ai.usage.cache_write_input_tokens": 3,
+            "gen_ai.server.request.duration": 10,
+            "gen_ai.server.time_to_first_token": 5,
+        }
+    )
+    mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.end.assert_called_once()
+
+
+def test_end_model_invoke_span_counts_disjoint_cache_tokens(mock_span):
+    """Regression for #3546: input_tokens is the total prompt when cache is additional to inputTokens.
+
+    On disjoint providers (Bedrock/Anthropic) inputTokens + outputTokens != totalTokens, so the cache
+    reads/writes are additional and count toward the prompt the model processed. gen_ai.usage.input_tokens
+    (and its prompt_tokens alias) report 38, not the bare inputTokens of 10.
+    """
+    tracer = Tracer()
+    message = {"role": "assistant", "content": [{"text": "Response"}]}
+    usage = Usage(
+        inputTokens=10,
+        outputTokens=20,
+        totalTokens=58,
+        cacheReadInputTokens=25,
+        cacheWriteInputTokens=3,
+    )
+    stop_reason: StopReason = "end_turn"
+    metrics = Metrics(latencyMs=10, timeToFirstByteMs=5)
+
+    tracer.end_model_invoke_span(mock_span, message, usage, metrics, stop_reason)
+
+    mock_span.set_attributes.assert_called_once_with(
+        {
+            "gen_ai.usage.prompt_tokens": 38,
+            "gen_ai.usage.input_tokens": 38,
+            "gen_ai.usage.completion_tokens": 20,
+            "gen_ai.usage.output_tokens": 20,
+            "gen_ai.usage.total_tokens": 58,
+            "gen_ai.usage.cache_read.input_tokens": 25,
+            "gen_ai.usage.cache_creation.input_tokens": 3,
+            "gen_ai.usage.cache_read_input_tokens": 25,
             "gen_ai.usage.cache_write_input_tokens": 3,
             "gen_ai.server.request.duration": 10,
             "gen_ai.server.time_to_first_token": 5,
@@ -1199,12 +1246,91 @@ def test_end_agent_span_with_cache_metrics(mock_span):
             "gen_ai.usage.completion_tokens": 100,
             "gen_ai.usage.output_tokens": 100,
             "gen_ai.usage.total_tokens": 150,
+            "gen_ai.usage.cache_read.input_tokens": 25,
+            "gen_ai.usage.cache_creation.input_tokens": 10,
             "gen_ai.usage.cache_read_input_tokens": 25,
             "gen_ai.usage.cache_write_input_tokens": 10,
         }
     )
     mock_span.set_status.assert_called_once_with(StatusCode.OK)
     mock_span.end.assert_called_once()
+
+
+def test_end_agent_span_counts_disjoint_cache_tokens(mock_span):
+    """Regression for #3546: input_tokens is the total prompt when cache is additional to inputTokens.
+
+    On disjoint providers (Bedrock/Anthropic) inputTokens + outputTokens != totalTokens, so the cache
+    reads/writes are additional and count toward the prompt the model processed. gen_ai.usage.input_tokens
+    (and its prompt_tokens alias) report 85, not the bare inputTokens of 50.
+    """
+    tracer = Tracer()
+
+    mock_metrics = mock.MagicMock()
+    mock_metrics.accumulated_usage = {
+        "inputTokens": 50,
+        "outputTokens": 100,
+        "totalTokens": 185,
+        "cacheReadInputTokens": 25,
+        "cacheWriteInputTokens": 10,
+    }
+
+    mock_response = mock.MagicMock()
+    mock_response.metrics = mock_metrics
+    mock_response.stop_reason = "end_turn"
+    mock_response.__str__ = mock.MagicMock(return_value="Agent response")
+
+    tracer.end_agent_span(mock_span, mock_response)
+
+    mock_span.set_attributes.assert_called_once_with(
+        {
+            "gen_ai.usage.prompt_tokens": 85,
+            "gen_ai.usage.input_tokens": 85,
+            "gen_ai.usage.completion_tokens": 100,
+            "gen_ai.usage.output_tokens": 100,
+            "gen_ai.usage.total_tokens": 185,
+            "gen_ai.usage.cache_read.input_tokens": 25,
+            "gen_ai.usage.cache_creation.input_tokens": 10,
+            "gen_ai.usage.cache_read_input_tokens": 25,
+            "gen_ai.usage.cache_write_input_tokens": 10,
+        }
+    )
+    mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.end.assert_called_once()
+
+
+def test_end_model_invoke_span_dual_emits_semconv_and_deprecated_cache_names(mock_span):
+    """Cache usage is emitted under both the semconv names and the deprecated pre-semconv aliases.
+
+    Regression for https://github.com/strands-agents/harness-sdk/issues/3754.
+    """
+    tracer = Tracer()
+    message = {"role": "assistant", "content": [{"text": "Response"}]}
+    usage = Usage(inputTokens=10, outputTokens=4, totalTokens=14, cacheReadInputTokens=5848)
+    metrics = Metrics(latencyMs=0, timeToFirstByteMs=0)
+
+    tracer.end_model_invoke_span(mock_span, message, usage, metrics, "end_turn")
+
+    emitted = mock_span.set_attributes.call_args[0][0]
+    assert emitted["gen_ai.usage.cache_read.input_tokens"] == 5848
+    # deprecated alias kept so existing consumers keep resolving, value-identical to the semconv name
+    assert emitted["gen_ai.usage.cache_read_input_tokens"] == 5848
+
+
+def test_end_model_invoke_span_latest_conventions_suppresses_deprecated_cache_names(mock_span, monkeypatch):
+    """Opting into the latest conventions emits the semconv cache names only, without the deprecated aliases."""
+    monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
+    tracer = Tracer()
+    message = {"role": "assistant", "content": [{"text": "Response"}]}
+    usage = Usage(inputTokens=10, outputTokens=4, totalTokens=14, cacheReadInputTokens=5848, cacheWriteInputTokens=3)
+    metrics = Metrics(latencyMs=0, timeToFirstByteMs=0)
+
+    tracer.end_model_invoke_span(mock_span, message, usage, metrics, "end_turn")
+
+    emitted = mock_span.set_attributes.call_args[0][0]
+    assert emitted["gen_ai.usage.cache_read.input_tokens"] == 5848
+    assert emitted["gen_ai.usage.cache_creation.input_tokens"] == 3
+    assert "gen_ai.usage.cache_read_input_tokens" not in emitted
+    assert "gen_ai.usage.cache_write_input_tokens" not in emitted
 
 
 def test_get_tracer_singleton():

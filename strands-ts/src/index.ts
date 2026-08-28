@@ -191,6 +191,17 @@ export type { BaseModelConfig, CountTokensOptions, StreamOptions, CacheConfig } 
 
 export { Model } from './models/model.js'
 
+// Model routing
+export { FallbackStrategy, ModelRouter, RoutingCandidate } from './models/routing/index.js'
+export type {
+  CandidateInput,
+  ModelRouterOptions,
+  RoutingAttempt,
+  RoutingCandidateOptions,
+  RoutingContext,
+  RoutingStrategy,
+} from './models/routing/index.js'
+
 // Bedrock model provider
 export { BedrockModel as BedrockModel } from './models/bedrock.js'
 export type {

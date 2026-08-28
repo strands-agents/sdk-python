@@ -19,7 +19,12 @@ from typing import TYPE_CHECKING, Any, TypedDict
 import pyaudio
 from typing_extensions import Unpack
 
-from ..types.events import BidiAudioInputEvent, BidiAudioStreamEvent, BidiInterruptionEvent, BidiOutputEvent
+from ..types.events import (
+    BidiAudioInputEvent,
+    BidiAudioStreamEvent,
+    BidiInterruptionEvent,
+    BidiOutputEvent,
+)
 from ..types.io import BidiInput, BidiOutput
 
 if TYPE_CHECKING:

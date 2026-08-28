@@ -15,6 +15,7 @@ import type { StreamOptions } from '../model.js'
 import { logger } from '../../logging/logger.js'
 import { MODEL_DEFAULTS } from '../defaults.js'
 import { formatImageDataUrl, warnManagedParams as warnManagedParamsShared } from './formatting.js'
+import { applyCacheConfig } from './cache.js'
 import type { ChatStreamState, OpenAIChatConfig } from './types.js'
 
 export const DEFAULT_CHAT_MODEL_ID = MODEL_DEFAULTS.openai.modelId
@@ -137,6 +138,8 @@ export function formatChatRequest(
       }
     }
   }
+
+  applyCacheConfig(request, config.cacheConfig)
 
   if ('n' in request && request.n !== undefined && request.n !== null && request.n > 1) {
     throw new Error('Streaming with n > 1 is not supported')

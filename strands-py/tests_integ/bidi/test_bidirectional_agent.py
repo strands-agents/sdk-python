@@ -102,8 +102,8 @@ PROVIDER_CONFIGS = {
             # Uses default model and config (audio output + transcription enabled)
         },
         "silence_duration": 1.5,  # Gemini has good VAD, similar to OpenAI
-        "env_vars": ["GOOGLE_AI_API_KEY"],
-        "skip_reason": "GOOGLE_AI_API_KEY not available",
+        "env_vars": ["GOOGLE_API_KEY"],
+        "skip_reason": "GOOGLE_API_KEY not available",
     },
 }
 

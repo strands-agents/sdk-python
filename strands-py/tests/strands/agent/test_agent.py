@@ -47,9 +47,11 @@ FORMATTED_DEFAULT_MODEL_ID = DEFAULT_BEDROCK_MODEL_ID
 @pytest.fixture
 def mock_model(request):
     async def stream(*args, **kwargs):
-        # Skip deep copy of invocation_state which contains non-serializable objects (agent, spans, etc.)
+        # Skip deep copy of invocation_state (contains non-serializable objects: agent, spans, etc.)
+        # and cancel_signal (a threading.Event, shared by reference by design).
+        shared_by_reference = ("invocation_state", "cancel_signal")
         copied_kwargs = {
-            key: value if key == "invocation_state" else copy.deepcopy(value) for key, value in kwargs.items()
+            key: value if key in shared_by_reference else copy.deepcopy(value) for key, value in kwargs.items()
         }
         result = mock.mock_stream(*copy.deepcopy(args), **copied_kwargs)
         # If result is already an async generator, yield from it
@@ -412,6 +414,7 @@ def test_agent__call__(
                 system_prompt_content=[{"text": system_prompt}],
                 invocation_state=unittest.mock.ANY,
                 model_state=unittest.mock.ANY,
+                cancel_signal=unittest.mock.ANY,
             ),
             unittest.mock.call(
                 [
@@ -452,6 +455,7 @@ def test_agent__call__(
                 system_prompt_content=[{"text": system_prompt}],
                 invocation_state=unittest.mock.ANY,
                 model_state=unittest.mock.ANY,
+                cancel_signal=unittest.mock.ANY,
             ),
         ],
     )
@@ -575,6 +579,7 @@ def test_agent__call__retry_with_reduced_context(mock_model, agent, tool, agener
         system_prompt_content=unittest.mock.ANY,
         invocation_state=unittest.mock.ANY,
         model_state=unittest.mock.ANY,
+        cancel_signal=unittest.mock.ANY,
     )
 
     conversation_manager_spy.reduce_context.assert_called_once()
@@ -728,6 +733,7 @@ def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool, agene
         system_prompt_content=unittest.mock.ANY,
         invocation_state=unittest.mock.ANY,
         model_state=unittest.mock.ANY,
+        cancel_signal=unittest.mock.ANY,
     )
 
     assert conversation_manager_spy.reduce_context.call_count == 2
@@ -1617,6 +1623,31 @@ def test_agent_state_get_breaks_deep_dict_reference():
 
     # This will fail if AgentState reflects the updated reference
     json.dumps(agent.state.get())
+
+
+def test_session_id_without_session_manager():
+    agent = Agent(model=MockedModelProvider([]))
+
+    first = agent.session_id
+    second = agent.session_id
+
+    assert first == second
+    assert len(first) == 8
+
+
+def test_session_id_different_per_instance():
+    agent1 = Agent(model=MockedModelProvider([]))
+    agent2 = Agent(model=MockedModelProvider([]))
+
+    assert agent1.session_id != agent2.session_id
+
+
+def test_session_id_delegates_to_session_manager():
+    mock_session_repository = MockedSessionRepository()
+    session_manager = RepositorySessionManager(session_id="my-session", session_repository=mock_session_repository)
+    agent = Agent(model=MockedModelProvider([]), session_manager=session_manager)
+
+    assert agent.session_id == "my-session"
 
 
 def test_agent_session_management():
