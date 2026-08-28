@@ -23,6 +23,7 @@ from ..types.multiagent import MultiAgentInput
 from ..types.streaming import Metrics, StopReason, Usage
 from ..types.tools import ToolResult, ToolUse
 from ..types.traces import Attributes, AttributeValue
+from .metrics import _total_prompt_tokens
 
 if TYPE_CHECKING:
     from ..memory.types import MemoryEntry
@@ -263,10 +264,15 @@ class Tracer:
             metrics: Metrics from the model call
         """
         if "cacheReadInputTokens" in usage:
-            attributes["gen_ai.usage.cache_read_input_tokens"] = usage["cacheReadInputTokens"]
+            attributes["gen_ai.usage.cache_read.input_tokens"] = usage["cacheReadInputTokens"]
+            # Deprecated pre-semconv name, dual-emitted unless opted into the latest conventions
+            if not self.use_latest_genai_conventions:
+                attributes["gen_ai.usage.cache_read_input_tokens"] = usage["cacheReadInputTokens"]
 
         if "cacheWriteInputTokens" in usage:
-            attributes["gen_ai.usage.cache_write_input_tokens"] = usage["cacheWriteInputTokens"]
+            attributes["gen_ai.usage.cache_creation.input_tokens"] = usage["cacheWriteInputTokens"]
+            if not self.use_latest_genai_conventions:
+                attributes["gen_ai.usage.cache_write_input_tokens"] = usage["cacheWriteInputTokens"]
 
         if metrics.get("timeToFirstByteMs", 0) > 0:
             attributes["gen_ai.server.time_to_first_token"] = metrics["timeToFirstByteMs"]
@@ -327,6 +333,28 @@ class Tracer:
 
         error = exception or Exception(error_message)
         self._end_span(span, error=error, error_message=error_message)
+
+    def end_span_with_cancellation(self, span: Span, cancellation: BaseException) -> None:
+        """End a span that was cancelled without marking it as success or failure.
+
+        Leaves the span status at its default UNSET (never sets OK or ERROR) and records
+        the cancellation type as an attribute so trace consumers can distinguish cancellation
+        from incomplete instrumentation.
+
+        Args:
+            span: The span to end.
+            cancellation: The BaseException that cancelled the operation.
+        """
+        if not span or not span.is_recording():
+            return
+
+        try:
+            span.set_attribute("gen_ai.event.end_time", datetime.now(timezone.utc).isoformat())
+            span.set_attribute("strands.cancellation.type", type(cancellation).__name__)
+        except Exception as exc:
+            logger.warning("error=<%s> | error while ending cancelled span", exc, exc_info=True)
+        finally:
+            span.end()
 
     def _add_event(
         self, span: Span | None, event_name: str, event_attributes: Attributes, to_span_attributes: bool = False
@@ -438,9 +466,10 @@ class Tracer:
         if not span or not span.is_recording():
             return
 
+        prompt_tokens = _total_prompt_tokens(usage)
         attributes: dict[str, AttributeValue] = {
-            "gen_ai.usage.prompt_tokens": usage["inputTokens"],
-            "gen_ai.usage.input_tokens": usage["inputTokens"],
+            "gen_ai.usage.prompt_tokens": prompt_tokens,
+            "gen_ai.usage.input_tokens": prompt_tokens,
             "gen_ai.usage.completion_tokens": usage["outputTokens"],
             "gen_ai.usage.output_tokens": usage["outputTokens"],
             "gen_ai.usage.total_tokens": usage["totalTokens"],
@@ -816,17 +845,26 @@ class Tracer:
                         usage = latest_invocation.usage
                 else:
                     usage = response.metrics.accumulated_usage
+                prompt_tokens = _total_prompt_tokens(usage)
                 attributes.update(
                     {
-                        "gen_ai.usage.prompt_tokens": usage["inputTokens"],
+                        "gen_ai.usage.prompt_tokens": prompt_tokens,
                         "gen_ai.usage.completion_tokens": usage["outputTokens"],
-                        "gen_ai.usage.input_tokens": usage["inputTokens"],
+                        "gen_ai.usage.input_tokens": prompt_tokens,
                         "gen_ai.usage.output_tokens": usage["outputTokens"],
                         "gen_ai.usage.total_tokens": usage["totalTokens"],
-                        "gen_ai.usage.cache_read_input_tokens": usage.get("cacheReadInputTokens", 0),
-                        "gen_ai.usage.cache_write_input_tokens": usage.get("cacheWriteInputTokens", 0),
+                        "gen_ai.usage.cache_read.input_tokens": usage.get("cacheReadInputTokens", 0),
+                        "gen_ai.usage.cache_creation.input_tokens": usage.get("cacheWriteInputTokens", 0),
                     }
                 )
+                # Deprecated pre-semconv name, dual-emitted unless opted into the latest conventions
+                if not self.use_latest_genai_conventions:
+                    attributes.update(
+                        {
+                            "gen_ai.usage.cache_read_input_tokens": usage.get("cacheReadInputTokens", 0),
+                            "gen_ai.usage.cache_write_input_tokens": usage.get("cacheWriteInputTokens", 0),
+                        }
+                    )
 
         self._end_span(span, attributes, error)
 

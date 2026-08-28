@@ -274,6 +274,16 @@ export interface LocalAgent {
   readonly id: string
 
   /**
+   * A stable, unique identifier for the current conversation session.
+   *
+   * Resolution order:
+   * 1. If a SessionManager is attached, returns its session ID.
+   * 2. Otherwise, returns a lazily-generated random 8-character hex string
+   *    cached for the lifetime of the agent instance.
+   */
+  readonly sessionId: string
+
+  /**
    * App state storage accessible to tools and application logic.
    */
   appState: StateStore
@@ -518,7 +528,7 @@ export class AgentResult {
   }
 
   /**
-   * The most recent input token count from the last model invocation.
+   * The total prompt the model processed on the last invocation, including cached tokens.
    * Convenience accessor that delegates to `metrics.latestContextSize`.
    * Returns `undefined` when no metrics or invocations are available.
    */
@@ -527,7 +537,8 @@ export class AgentResult {
   }
 
   /**
-   * Projected context size for the next model call (inputTokens + outputTokens from the last call).
+   * Projected context size for the next model call (total prompt including cached tokens plus the
+   * generated output from the last call).
    * Convenience accessor that delegates to `metrics.projectedContextSize`.
    * Returns `undefined` when no metrics or invocations are available.
    */

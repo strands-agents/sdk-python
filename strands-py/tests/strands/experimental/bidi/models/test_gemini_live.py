@@ -8,6 +8,7 @@ Tests the unified BidiGeminiLiveModel interface including:
 """
 
 import base64
+import json
 import unittest.mock
 
 import pytest
@@ -23,6 +24,7 @@ from strands.experimental.bidi.types.events import (
     BidiInterruptionEvent,
     BidiTextInputEvent,
     BidiTranscriptStreamEvent,
+    BidiUsageEvent,
 )
 from strands.types._events import ToolResultEvent
 from strands.types.tools import ToolResult
@@ -47,6 +49,82 @@ def mock_genai_client():
         mock_client.aio.live.connect = unittest.mock.MagicMock(return_value=mock_live_session_cm)
 
         yield mock_client, mock_live_session, mock_live_session_cm
+
+
+@pytest.fixture
+def live_message():
+    """Build a LiveServerMessage-shaped mock with every field defaulted to None.
+
+    Bare Mocks auto-create truthy attributes, so unset fields would be misread as present.
+    """
+
+    def _build(**overrides):
+        message = unittest.mock.Mock()
+        message.data = None
+        message.go_away = None
+        message.session_resumption_update = None
+        message.tool_call = None
+        message.server_content = None
+        message.usage_metadata = None
+
+        for name, value in overrides.items():
+            setattr(message, name, value)
+
+        return message
+
+    return _build
+
+
+@pytest.fixture
+def server_content():
+    """Build a LiveServerContent-shaped mock with every field defaulted to None."""
+
+    def _build(**overrides):
+        content = unittest.mock.Mock()
+        content.interrupted = None
+        content.input_transcription = None
+        content.output_transcription = None
+        content.model_turn = None
+
+        for name, value in overrides.items():
+            setattr(content, name, value)
+
+        return content
+
+    return _build
+
+
+@pytest.fixture
+def usage_metadata():
+    """Build a UsageMetadata-shaped mock with token counts and no modality details."""
+
+    def _build(**overrides):
+        usage = unittest.mock.Mock()
+        usage.prompt_token_count = 10
+        usage.response_token_count = 20
+        usage.total_token_count = 30
+        usage.cached_content_token_count = None
+        usage.prompt_tokens_details = None
+        usage.response_tokens_details = None
+
+        for name, value in overrides.items():
+            setattr(usage, name, value)
+
+        return usage
+
+    return _build
+
+
+@pytest.fixture
+def text_part():
+    """Build a Part-shaped mock carrying text."""
+
+    def _build(text):
+        part = unittest.mock.Mock()
+        part.text = text
+        return part
+
+    return _build
 
 
 @pytest.fixture
@@ -348,16 +426,15 @@ async def test_receive_lifecycle_events(mock_genai_client, model, agenerator):
 
 
 @pytest.mark.asyncio
-async def test_receive_timeout(mock_genai_client, model, agenerator):
-    mock_resumption_response = unittest.mock.Mock()
-    mock_resumption_response.go_away = None
-    mock_resumption_response.session_resumption_update = unittest.mock.Mock()
-    mock_resumption_response.session_resumption_update.resumable = True
-    mock_resumption_response.session_resumption_update.new_handle = "h1"
+async def test_receive_timeout(mock_genai_client, model, agenerator, live_message):
+    mock_resumption_update = unittest.mock.Mock()
+    mock_resumption_update.resumable = True
+    mock_resumption_update.new_handle = "h1"
+    mock_resumption_response = live_message(session_resumption_update=mock_resumption_update)
 
-    mock_timeout_response = unittest.mock.Mock()
-    mock_timeout_response.go_away = unittest.mock.Mock()
-    mock_timeout_response.go_away.model_dump_json.return_value = "test timeout"
+    mock_go_away = unittest.mock.Mock()
+    mock_go_away.model_dump_json.return_value = "test timeout"
+    mock_timeout_response = live_message(go_away=mock_go_away)
 
     _, mock_live_session, _ = mock_genai_client
     mock_live_session.receive = unittest.mock.Mock(
@@ -376,31 +453,15 @@ async def test_receive_timeout(mock_genai_client, model, agenerator):
 
 
 @pytest.mark.asyncio
-async def test_event_conversion(mock_genai_client, model):
+async def test_event_conversion(mock_genai_client, model, live_message, server_content, text_part):
     """Test conversion of all Gemini Live event types to standard format."""
     _, _, _ = mock_genai_client
     await model.start()
 
     # Test text output (converted to transcript via model_turn.parts)
-    mock_text = unittest.mock.Mock()
-    mock_text.data = None
-    mock_text.go_away = None
-    mock_text.session_resumption_update = None
-    mock_text.tool_call = None
-
-    # Create proper server_content structure with model_turn
-    mock_server_content = unittest.mock.Mock()
-    mock_server_content.interrupted = False
-    mock_server_content.input_transcription = None
-    mock_server_content.output_transcription = None
-
     mock_model_turn = unittest.mock.Mock()
-    mock_part = unittest.mock.Mock()
-    mock_part.text = "Hello from Gemini"
-    mock_model_turn.parts = [mock_part]
-    mock_server_content.model_turn = mock_model_turn
-
-    mock_text.server_content = mock_server_content
+    mock_model_turn.parts = [text_part("Hello from Gemini")]
+    mock_text = live_message(server_content=server_content(model_turn=mock_model_turn))
 
     text_events = model._convert_gemini_live_event(mock_text)
     assert isinstance(text_events, list)
@@ -415,26 +476,9 @@ async def test_event_conversion(mock_genai_client, model):
     assert text_event.current_transcript == "Hello from Gemini"
 
     # Test multiple text parts (should concatenate)
-    mock_multi_text = unittest.mock.Mock()
-    mock_multi_text.data = None
-    mock_multi_text.go_away = None
-    mock_multi_text.session_resumption_update = None
-    mock_multi_text.tool_call = None
-
-    mock_server_content_multi = unittest.mock.Mock()
-    mock_server_content_multi.interrupted = False
-    mock_server_content_multi.input_transcription = None
-    mock_server_content_multi.output_transcription = None
-
     mock_model_turn_multi = unittest.mock.Mock()
-    mock_part1 = unittest.mock.Mock()
-    mock_part1.text = "Hello"
-    mock_part2 = unittest.mock.Mock()
-    mock_part2.text = "from Gemini"
-    mock_model_turn_multi.parts = [mock_part1, mock_part2]
-    mock_server_content_multi.model_turn = mock_model_turn_multi
-
-    mock_multi_text.server_content = mock_server_content_multi
+    mock_model_turn_multi.parts = [text_part("Hello"), text_part("from Gemini")]
+    mock_multi_text = live_message(server_content=server_content(model_turn=mock_model_turn_multi))
 
     multi_text_events = model._convert_gemini_live_event(mock_multi_text)
     assert isinstance(multi_text_events, list)
@@ -444,13 +488,7 @@ async def test_event_conversion(mock_genai_client, model):
     assert multi_text_event.text == "Hello from Gemini"  # Concatenated with space
 
     # Test audio output (base64 encoded)
-    mock_audio = unittest.mock.Mock()
-    mock_audio.text = None
-    mock_audio.data = b"audio_data"
-    mock_audio.go_away = None
-    mock_audio.session_resumption_update = None
-    mock_audio.tool_call = None
-    mock_audio.server_content = None
+    mock_audio = live_message(data=b"audio_data")
 
     audio_events = model._convert_gemini_live_event(mock_audio)
     assert isinstance(audio_events, list)
@@ -472,13 +510,7 @@ async def test_event_conversion(mock_genai_client, model):
     mock_tool_call = unittest.mock.Mock()
     mock_tool_call.function_calls = [mock_func_call]
 
-    mock_tool = unittest.mock.Mock()
-    mock_tool.text = None
-    mock_tool.data = None
-    mock_tool.go_away = None
-    mock_tool.session_resumption_update = None
-    mock_tool.tool_call = mock_tool_call
-    mock_tool.server_content = None
+    mock_tool = live_message(tool_call=mock_tool_call)
 
     tool_events = model._convert_gemini_live_event(mock_tool)
     # Should return a list of ToolUseStreamEvent
@@ -490,6 +522,8 @@ async def test_event_conversion(mock_genai_client, model):
     assert "toolUse" in tool_event["delta"]
     assert tool_event["delta"]["toolUse"]["toolUseId"] == "tool-123"
     assert tool_event["delta"]["toolUse"]["name"] == "calculator"
+    assert tool_event["delta"]["toolUse"]["input"] == json.dumps({"expression": "2+2"})
+    assert tool_event["current_tool_use"]["input"] == {"expression": "2+2"}
 
     # Test multiple tool calls (returns list with multiple events)
     mock_func_call_1 = unittest.mock.Mock()
@@ -505,13 +539,7 @@ async def test_event_conversion(mock_genai_client, model):
     mock_tool_call_multi = unittest.mock.Mock()
     mock_tool_call_multi.function_calls = [mock_func_call_1, mock_func_call_2]
 
-    mock_tool_multi = unittest.mock.Mock()
-    mock_tool_multi.text = None
-    mock_tool_multi.data = None
-    mock_tool_multi.go_away = None
-    mock_tool_multi.session_resumption_update = None
-    mock_tool_multi.tool_call = mock_tool_call_multi
-    mock_tool_multi.server_content = None
+    mock_tool_multi = live_message(tool_call=mock_tool_call_multi)
 
     tool_events_multi = model._convert_gemini_live_event(mock_tool_multi)
     # Should return a list with two ToolUseStreamEvent
@@ -521,26 +549,17 @@ async def test_event_conversion(mock_genai_client, model):
     # Verify first tool call
     assert tool_events_multi[0]["delta"]["toolUse"]["toolUseId"] == "tool-123"
     assert tool_events_multi[0]["delta"]["toolUse"]["name"] == "calculator"
-    assert tool_events_multi[0]["delta"]["toolUse"]["input"] == {"expression": "2+2"}
+    assert tool_events_multi[0]["delta"]["toolUse"]["input"] == json.dumps({"expression": "2+2"})
+    assert tool_events_multi[0]["current_tool_use"]["input"] == {"expression": "2+2"}
 
     # Verify second tool call
     assert tool_events_multi[1]["delta"]["toolUse"]["toolUseId"] == "tool-456"
     assert tool_events_multi[1]["delta"]["toolUse"]["name"] == "weather"
-    assert tool_events_multi[1]["delta"]["toolUse"]["input"] == {"location": "Seattle"}
+    assert tool_events_multi[1]["delta"]["toolUse"]["input"] == json.dumps({"location": "Seattle"})
+    assert tool_events_multi[1]["current_tool_use"]["input"] == {"location": "Seattle"}
 
     # Test interruption
-    mock_server_content = unittest.mock.Mock()
-    mock_server_content.interrupted = True
-    mock_server_content.input_transcription = None
-    mock_server_content.output_transcription = None
-
-    mock_interrupt = unittest.mock.Mock()
-    mock_interrupt.text = None
-    mock_interrupt.data = None
-    mock_interrupt.go_away = None
-    mock_interrupt.session_resumption_update = None
-    mock_interrupt.tool_call = None
-    mock_interrupt.server_content = mock_server_content
+    mock_interrupt = live_message(server_content=server_content(interrupted=True))
 
     interrupt_events = model._convert_gemini_live_event(mock_interrupt)
     assert isinstance(interrupt_events, list)
@@ -549,6 +568,160 @@ async def test_event_conversion(mock_genai_client, model):
     assert isinstance(interrupt_event, BidiInterruptionEvent)
     assert interrupt_event.get("type") == "bidi_interruption"
     assert interrupt_event.reason == "user_speech"
+
+    await model.stop()
+
+
+# Usage Metadata Tests
+
+
+@pytest.mark.asyncio
+async def test_usage_metadata_emitted_alongside_audio(mock_genai_client, model, live_message, usage_metadata):
+    """Usage metadata accompanying content is emitted, not dropped.
+
+    Guards https://github.com/strands-agents/harness-sdk/issues/3745 — usageMetadata sits outside the
+    messageType union, so it can ride along with any content field.
+    """
+    _, _, _ = mock_genai_client
+    await model.start()
+
+    message = live_message(data=b"audio_data", usage_metadata=usage_metadata())
+
+    events = model._convert_gemini_live_event(message)
+
+    assert [type(event) for event in events] == [BidiAudioStreamEvent, BidiUsageEvent]
+    assert events[1] == BidiUsageEvent(
+        input_tokens=10,
+        output_tokens=20,
+        total_tokens=30,
+        modality_details=None,
+        cache_read_input_tokens=None,
+    )
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_usage_metadata_emitted_alongside_session_resumption(
+    mock_genai_client, model, live_message, usage_metadata
+):
+    """Session resumption tracks the handle and still emits co-attached usage metadata.
+
+    Guards https://github.com/strands-agents/harness-sdk/issues/3745 — this branch previously
+    returned early, discarding usage outright.
+    """
+    _, _, _ = mock_genai_client
+    await model.start()
+
+    mock_resumption_update = unittest.mock.Mock()
+    mock_resumption_update.resumable = True
+    mock_resumption_update.new_handle = "handle-1"
+    message = live_message(session_resumption_update=mock_resumption_update, usage_metadata=usage_metadata())
+
+    events = model._convert_gemini_live_event(message)
+
+    assert model._live_session_handle == "handle-1"
+    assert events == [
+        BidiUsageEvent(
+            input_tokens=10,
+            output_tokens=20,
+            total_tokens=30,
+            modality_details=None,
+            cache_read_input_tokens=None,
+        )
+    ]
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_usage_metadata_modality_details(mock_genai_client, model, live_message, usage_metadata):
+    """Prompt and response token details merge into per-modality usage."""
+    _, _, _ = mock_genai_client
+    await model.start()
+
+    prompt_detail = unittest.mock.Mock()
+    prompt_detail.modality = "AUDIO"
+    prompt_detail.token_count = 7
+
+    response_detail = unittest.mock.Mock()
+    response_detail.modality = "AUDIO"
+    response_detail.token_count = 9
+
+    message = live_message(
+        usage_metadata=usage_metadata(
+            prompt_tokens_details=[prompt_detail],
+            response_tokens_details=[response_detail],
+            cached_content_token_count=4,
+        )
+    )
+
+    events = model._convert_gemini_live_event(message)
+
+    assert events == [
+        BidiUsageEvent(
+            input_tokens=10,
+            output_tokens=20,
+            total_tokens=30,
+            modality_details=[{"modality": "audio", "input_tokens": 7, "output_tokens": 9}],
+            cache_read_input_tokens=4,
+        )
+    ]
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_interruption_emitted_alongside_other_server_content(
+    mock_genai_client, model, live_message, server_content
+):
+    """An interruption is emitted even when other server content fields are set.
+
+    Guards https://github.com/strands-agents/harness-sdk/issues/3745 — interrupted may co-occur with
+    other serverContent fields and must not swallow them.
+    """
+    _, _, _ = mock_genai_client
+    await model.start()
+
+    mock_output_transcript = unittest.mock.Mock()
+    mock_output_transcript.text = "partial reply"
+    mock_output_transcript.finished = False
+
+    message = live_message(server_content=server_content(interrupted=True, output_transcription=mock_output_transcript))
+
+    events = model._convert_gemini_live_event(message)
+
+    assert [type(event) for event in events] == [BidiInterruptionEvent, BidiTranscriptStreamEvent]
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_audio_takes_precedence_over_model_turn_text(
+    mock_genai_client, model, live_message, server_content, text_part
+):
+    """Audio output suppresses model_turn text, avoiding a duplicate event for one response."""
+    _, _, _ = mock_genai_client
+    await model.start()
+
+    mock_model_turn = unittest.mock.Mock()
+    mock_model_turn.parts = [text_part("Hello from Gemini")]
+    message = live_message(data=b"audio_data", server_content=server_content(model_turn=mock_model_turn))
+
+    events = model._convert_gemini_live_event(message)
+
+    assert [type(event) for event in events] == [BidiAudioStreamEvent]
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_empty_message_emits_nothing(mock_genai_client, model, live_message):
+    """A message carrying no content and no usage yields no events."""
+    _, _, _ = mock_genai_client
+    await model.start()
+
+    assert model._convert_gemini_live_event(live_message()) == []
 
     await model.stop()
 
@@ -660,7 +833,7 @@ def test_tool_formatting(model, tool_spec):
 
 
 @pytest.mark.asyncio
-async def test_custom_audio_rates_in_events(mock_genai_client, model_id, api_key):
+async def test_custom_audio_rates_in_events(mock_genai_client, model_id, api_key, live_message):
     """Test that audio events use configured sample rates and channels."""
     _, _, _ = mock_genai_client
 
@@ -670,13 +843,7 @@ async def test_custom_audio_rates_in_events(mock_genai_client, model_id, api_key
     await model.start()
 
     # Test audio output event uses custom configuration
-    mock_audio = unittest.mock.Mock()
-    mock_audio.text = None
-    mock_audio.data = b"audio_data"
-    mock_audio.go_away = None
-    mock_audio.session_resumption_update = None
-    mock_audio.tool_call = None
-    mock_audio.server_content = None
+    mock_audio = live_message(data=b"audio_data")
 
     audio_events = model._convert_gemini_live_event(mock_audio)
     assert len(audio_events) == 1
@@ -691,7 +858,7 @@ async def test_custom_audio_rates_in_events(mock_genai_client, model_id, api_key
 
 
 @pytest.mark.asyncio
-async def test_default_audio_rates_in_events(mock_genai_client, model_id, api_key):
+async def test_default_audio_rates_in_events(mock_genai_client, model_id, api_key, live_message):
     """Test that audio events use default sample rates when no custom config."""
     _, _, _ = mock_genai_client
 
@@ -700,13 +867,7 @@ async def test_default_audio_rates_in_events(mock_genai_client, model_id, api_ke
     await model.start()
 
     # Test audio output event uses defaults
-    mock_audio = unittest.mock.Mock()
-    mock_audio.text = None
-    mock_audio.data = b"audio_data"
-    mock_audio.go_away = None
-    mock_audio.session_resumption_update = None
-    mock_audio.tool_call = None
-    mock_audio.server_content = None
+    mock_audio = live_message(data=b"audio_data")
 
     audio_events = model._convert_gemini_live_event(mock_audio)
     assert len(audio_events) == 1

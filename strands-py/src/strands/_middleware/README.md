@@ -157,6 +157,10 @@ carries — `cancel_signal`, structured-output config, `limits` — from the age
 those remain reachable on `agent` but are not surfaced as first-class context fields here. Since
 the stage is internal, that surface is not yet finalized.
 
+`ExecuteToolContext.cancel_signal` is executor-owned: middleware can observe it, but replacing it
+via `dataclasses.replace()` does not change the signal the tool receives — the executor hands the
+tool the agent's own signal, not the context's copy (matching TS, where the field is `readonly`).
+
 ### Transforming `messages` vs `invocation_state`
 
 The two agent-stream context fields have **different** transform semantics, and only one is fully

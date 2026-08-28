@@ -106,7 +106,7 @@ export default defineConfig({
       checkExternalLinks: false,      // Optional: check external links (default: false)
       cacheExternalLinks: false,      // Optional: cache verified external links to disk (default: true)
       throwError: true,               // Optional: fail the build if broken links are found (default: false)
-      linkCheckerDir: '.link-checker' // Optional: directory for cache and log files (default: '.link-checker')
+      linkCheckerDir: '.link-checker', // Optional: directory for cache and log files (default: '.link-checker')
     }),
    AutoImport({
       imports: [
@@ -119,7 +119,10 @@ export default defineConfig({
           ],
           './src/components/Syntax.astro': [
             ['default', 'Syntax']
-          ]
+          ],
+          '@astro-community/astro-embed-youtube': [
+            ['YouTube', 'YouTube']
+          ],
         },
       ],
       defaultComponents: {

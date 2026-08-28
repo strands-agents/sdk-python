@@ -111,12 +111,16 @@ export type {
 export { CitationsBlock } from './types/citations.js'
 
 // Media classes
-export { S3Location, ImageBlock, VideoBlock, DocumentBlock } from './types/media.js'
+export { S3Location, AudioBlock, ImageBlock, VideoBlock, DocumentBlock } from './types/media.js'
 
 // Media types
 export type {
   LocationData,
   S3LocationData,
+  AudioFormat,
+  AudioSource,
+  AudioSourceData,
+  AudioBlockData,
   ImageFormat,
   ImageSource,
   ImageSourceData,
@@ -195,6 +199,17 @@ export {
 export type { BaseModelConfig, CountTokensOptions, StreamOptions, CacheConfig } from './models/model.js'
 
 export { Model } from './models/model.js'
+
+// Model routing
+export { FallbackStrategy, ModelRouter, RoutingCandidate } from './models/routing/index.js'
+export type {
+  CandidateInput,
+  ModelRouterOptions,
+  RoutingAttempt,
+  RoutingCandidateOptions,
+  RoutingContext,
+  RoutingStrategy,
+} from './models/routing/index.js'
 
 // Bedrock model provider
 export { BedrockModel as BedrockModel } from './models/bedrock.js'

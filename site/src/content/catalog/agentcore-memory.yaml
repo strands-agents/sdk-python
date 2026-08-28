@@ -7,4 +7,4 @@ languages:
     package: bedrock-agentcore[strands-agents]
 github: https://github.com/aws/bedrock-agentcore-sdk-python
 docsPage: docs/integrations/session-managers/agentcore-memory
-addedDate: 2026-01-01
+addedDate: 2025-10-16
