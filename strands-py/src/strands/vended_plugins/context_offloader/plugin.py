@@ -518,7 +518,7 @@ class ContextOffloader(Plugin):
         # Store each content block individually
         storage = self._storage_for_agent(event.agent)
         cycle = event.agent.event_loop_metrics.cycle_count
-        references: list[tuple[str, str, str]] = []  # (ref, content_type, description)
+        references: list[tuple[str, str, str] | None] = []  # (ref, content_type, description) or None
         try:
             for i, block in enumerate(content):
                 key = f"{tool_use_id}_{i}"
@@ -540,7 +540,13 @@ class ContextOffloader(Plugin):
                         references.append((ref, f"image/{img_format}", f"image/{img_format}, {len(img_bytes):,} bytes"))
                         self._track_stored_cycle(event.agent, ref, cycle)
                     else:
-                        references.append(("", f"image/{img_format}", f"image/{img_format}, 0 bytes"))
+                        # Non-bytes image source (e.g. ``location`` / ``text`` /
+                        # ``content``). The storage backend only accepts byte
+                        # payloads, so nothing can be stored here — synthesize
+                        # nothing and keep the original block in place so the
+                        # downstream model and consumers still see the image
+                        # metadata. See #4017.
+                        references.append(None)
                 elif "document" in block:
                     doc = block["document"]
                     doc_format = doc.get("format", "unknown")
@@ -551,7 +557,13 @@ class ContextOffloader(Plugin):
                         references.append((ref, f"application/{doc_format}", f"{doc_name}, {len(doc_bytes):,} bytes"))
                         self._track_stored_cycle(event.agent, ref, cycle)
                     else:
-                        references.append(("", f"application/{doc_format}", f"{doc_name}, 0 bytes"))
+                        # Non-bytes document source (e.g. ``location`` / ``text`` /
+                        # ``content``). The storage backend only accepts byte
+                        # payloads, so nothing can be stored here — keep the
+                        # original block in place instead of replacing it with an
+                        # empty ``[document: …, 0 bytes]`` placeholder, which
+                        # silently destroys the document metadata. See #4017.
+                        references.append(None)
         except Exception:
             logger.warning(
                 "tool_use_id=<%s> | failed to offload tool result, keeping original",
@@ -569,7 +581,12 @@ class ContextOffloader(Plugin):
 
         # Build preview text — use tiktoken for exact slicing when available
         preview = self._slice_preview(full_text) if full_text else ""
-        ref_lines = "\n".join(f"  {ref} ({desc})" for ref, _, desc in references if ref)
+        # ``None`` entries in ``references`` mark blocks that the storage loop
+        # could not persist (image / document with a non-bytes source) — see
+        # #4017. Skip them when building the stored-references summary.
+        ref_lines = "\n".join(
+            f"  {ref} ({desc})" for entry in references if entry is not None for ref, _, desc in [entry] if ref
+        )
 
         guidance = (
             "Tool result was offloaded to external storage due to size.\n"
@@ -595,7 +612,16 @@ class ContextOffloader(Plugin):
         # Build new content with preview + placeholders for non-text blocks
         new_content: list[ToolResultContent] = [ToolResultContent(text=preview_text)]
         for i, block in enumerate(content):
-            ref = references[i][0] if i < len(references) else ""
+            # Blocks that the storage loop could not persist (image / document
+            # with a non-bytes source — e.g. ``location`` / ``text`` / ``content``)
+            # are marked with ``None`` in ``references``. Keep the original block
+            # in place so its metadata is preserved and the model is not misled
+            # by a ``0 bytes`` placeholder. See #4017.
+            ref_entry = references[i] if i < len(references) else None
+            if ref_entry is None:
+                new_content.append(block)
+                continue
+            ref = ref_entry[0]
             if "text" in block or "json" in block:
                 continue
             elif "image" in block:
