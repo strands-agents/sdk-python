@@ -349,27 +349,13 @@ export type AgentConfig = {
    * - `'throw'` (default): reject the new call with {@link ConcurrentInvocationError}.
    * - `'enqueue'`: queue the new call FIFO. Each queued call runs as its own
    *   invocation — with its own result, hook events, and cancellation signal — when
-   *   the current one finishes. The queue is observable via
-   *   {@link Agent.pendingInvocations} and, by default, rendered ephemerally into the
-   *   running invocation's model input so the model can wrap up early when a queued
-   *   request supersedes its work (see {@link ConcurrentInvocationModeConfig.visibleToModel}).
-   *
-   * The object form carries queue options:
-   *
-   * ```typescript
-   * const agent = new Agent({
-   *   model,
-   *   concurrentInvocationMode: { mode: 'enqueue', maxDepth: 10, visibleToModel: true },
-   * })
-   * ```
-   *
-   * Callers can override per call via {@link InvokeOptions.ifBusy}, including
-   * `'interrupt'` (cancel the running invocation and run next).
+   *   the current one finishes. The object form carries queue options
+   *   ({@link ConcurrentInvocationModeConfig}); callers can override per call via
+   *   {@link InvokeOptions.ifBusy}.
    *
    * Under `'enqueue'`, a tool or hook of the running invocation must not `await` its
    * own agent's `invoke()`/`stream()` — the inner call would queue behind the
-   * invocation it is part of and deadlock. (Under `'throw'` the same call rejects
-   * immediately.) Direct tool calls via `agent.tool.*` are unaffected.
+   * invocation it is part of and deadlock.
    */
   concurrentInvocationMode?: ConcurrentInvocationMode | ConcurrentInvocationModeConfig
 }
@@ -560,7 +546,6 @@ export class Agent implements LocalAgent, InvokableAgent {
   private _mcpClients: McpClient[]
   private _initialized: boolean
   private _isInvoking: boolean = false
-  /** Concurrency mode resolved from `concurrentInvocationMode` (per-call `ifBusy` overrides it). */
   private readonly _concurrentInvocationMode: ConcurrentInvocationMode
   /** Invocations waiting for the lock. Only populated under 'enqueue'/'interrupt' concurrency. */
   private readonly _invocationQueue: InvocationQueue
@@ -1092,11 +1077,6 @@ export class Agent implements LocalAgent, InvokableAgent {
    * Always empty unless the agent is configured with
    * `concurrentInvocationMode: 'enqueue'` or a caller used `ifBusy: 'enqueue'` /
    * `'interrupt'`. Returns a point-in-time snapshot; entries are not live objects.
-   *
-   * @example
-   * ```typescript
-   * app.get('/status', (_req, res) => res.json({ pending: agent.pendingInvocations }))
-   * ```
    */
   get pendingInvocations(): readonly PendingInvocation[] {
     return this._invocationQueue.snapshot()
@@ -1236,14 +1216,11 @@ export class Agent implements LocalAgent, InvokableAgent {
    * assistant messages containing tool uses are only added after tool execution succeeds
    * with valid toolResponses
    *
-   * Generators are lazy: the invocation (including its concurrency handling — the
-   * `'throw'` rejection or the `'enqueue'` queue entry) starts at the first `next()`
-   * call, not when `stream()` returns. An unconsumed stream never enters the queue.
-   * Conversely, calling `stream.return()` on a stream that is already *waiting in the
-   * queue* cannot dequeue it early (the return is processed once the generator resumes):
-   * the entry waits its turn, briefly starts, and immediately finishes. To remove a
-   * queued call promptly, pass a `cancelSignal` and abort it, or use
-   * {@link cancelPending}.
+   * Generators are lazy: the invocation starts at the first iteration, not when
+   * stream() returns. When the agent is configured to queue concurrent calls, a call
+   * made while another invocation is running waits in the agent's invocation queue;
+   * an unconsumed stream never enters the queue, and a queued stream can only be
+   * removed early by cancelling it.
    *
    * @param args - Arguments for invoking the agent
    * @param options - Optional per-invocation options

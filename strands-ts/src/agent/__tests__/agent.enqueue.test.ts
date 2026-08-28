@@ -43,7 +43,7 @@ async function until(condition: () => boolean, label: string): Promise<void> {
 }
 
 /** The text of a result's last message. */
-function textOf(result: { lastMessage: { content: readonly unknown[] } }): string {
+function resultText(result: { lastMessage: { content: readonly unknown[] } }): string {
   const block = result.lastMessage.content[0]
   return block instanceof TextBlock ? block.text : ''
 }
@@ -126,8 +126,8 @@ describe('concurrentInvocationMode', () => {
       await until(() => agent.pendingInvocations.length === 1, 'b to enter the queue')
 
       gate.release()
-      expect(textOf(await first)).toBe('A')
-      expect(textOf(await second)).toBe('B')
+      expect(resultText(await first)).toBe('A')
+      expect(resultText(await second)).toBe('B')
     })
   })
 
@@ -149,8 +149,8 @@ describe('concurrentInvocationMode', () => {
       const [resultA, resultB] = await Promise.all([first, second])
       expect(resultA.stopReason).toBe('endTurn')
       expect(resultB.stopReason).toBe('endTurn')
-      expect(textOf(resultA)).toBe('A')
-      expect(textOf(resultB)).toBe('B')
+      expect(resultText(resultA)).toBe('A')
+      expect(resultText(resultB)).toBe('B')
       expect(agent.pendingInvocations).toHaveLength(0)
       expect(agent.isInvoking).toBe(false)
     })
@@ -172,9 +172,9 @@ describe('concurrentInvocationMode', () => {
       await until(() => agent.pendingInvocations.length === 2, 'c queued')
 
       gate.release()
-      expect(textOf(await second)).toBe('B')
-      expect(textOf(await third)).toBe('C')
-      expect(textOf(await first)).toBe('A')
+      expect(resultText(await second)).toBe('B')
+      expect(resultText(await third)).toBe('C')
+      expect(resultText(await first)).toBe('A')
     })
 
     it('surfaces queued calls on pendingInvocations with id and preview', async () => {
@@ -288,8 +288,8 @@ describe('concurrentInvocationMode', () => {
       expect(agent.cancelPending('pending-99')).toBe(false)
 
       gate.release()
-      expect(textOf(await first)).toBe('A')
-      expect(textOf(await third)).toBe('C')
+      expect(resultText(await first)).toBe('A')
+      expect(resultText(await third)).toBe('C')
     })
 
     it("a queued caller's cancelSignal abort removes it from the queue", async () => {
@@ -334,7 +334,7 @@ describe('concurrentInvocationMode', () => {
 
       gate.release()
       await expect(first).rejects.toThrow('model exploded')
-      expect(textOf(await second)).toBe('B')
+      expect(resultText(await second)).toBe('B')
     })
 
     it('hands the lock to the next queued call when the consumer abandons the stream', async () => {
@@ -363,7 +363,7 @@ describe('concurrentInvocationMode', () => {
       gate.release()
       await abandoned
 
-      expect(textOf(await second)).toBe('B')
+      expect(resultText(await second)).toBe('B')
     })
 
     it('does not enqueue an unconsumed stream (lazy generator)', async () => {
@@ -396,7 +396,7 @@ describe('concurrentInvocationMode', () => {
 
       await agent.invoke('a')
       expect(late).toBeDefined()
-      expect(textOf(await late!)).toBe('LATE')
+      expect(resultText(await late!)).toBe('LATE')
     })
 
     it('cancel() ends only the running invocation; queued calls still run with a fresh signal', async () => {
@@ -417,7 +417,7 @@ describe('concurrentInvocationMode', () => {
 
       const resultB = await second
       expect(resultB.stopReason).toBe('endTurn')
-      expect(textOf(resultB)).toBe('B')
+      expect(resultText(resultB)).toBe('B')
     })
   })
 
@@ -438,7 +438,7 @@ describe('concurrentInvocationMode', () => {
 
       const resultC = await interrupter
       expect(resultC.stopReason).toBe('endTurn')
-      expect(textOf(resultC)).toBe('C')
+      expect(resultText(resultC)).toBe('C')
     })
 
     it('jumps ahead of already-queued invocations', async () => {
@@ -459,8 +459,8 @@ describe('concurrentInvocationMode', () => {
       expect(agent.pendingInvocations[0]!.preview).toBe('c')
 
       expect((await first).stopReason).toBe('cancelled')
-      expect(textOf(await interrupter)).toBe('C')
-      expect(textOf(await second)).toBe('B')
+      expect(resultText(await interrupter)).toBe('C')
+      expect(resultText(await second)).toBe('B')
     })
 
     it('runs immediately when the agent is idle', async () => {
@@ -469,7 +469,7 @@ describe('concurrentInvocationMode', () => {
 
       const result = await agent.invoke('a', { ifBusy: 'interrupt' })
       expect(result.stopReason).toBe('endTurn')
-      expect(textOf(result)).toBe('solo')
+      expect(resultText(result)).toBe('solo')
     })
   })
 })
