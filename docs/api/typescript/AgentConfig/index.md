@@ -1,6 +1,7 @@
 ```ts
 type AgentConfig = {
   model?:   | Model<BaseModelConfig>
+     | ModelRouter
      | string;
   messages?:   | Message[]
      | MessageData[];
@@ -34,7 +35,7 @@ type AgentConfig = {
 };
 ```
 
-Defined in: [src/agent/agent.ts:182](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/agent/agent.ts#L182)
+Defined in: [src/agent/agent.ts:183](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/agent/agent.ts#L183)
 
 Configuration object for creating a new Agent.
 
@@ -45,12 +46,13 @@ Configuration object for creating a new Agent.
 ```ts
 optional model?:
   | Model<BaseModelConfig>
+  | ModelRouter
   | string;
 ```
 
-Defined in: [src/agent/agent.ts:205](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/agent/agent.ts#L205)
+Defined in: [src/agent/agent.ts:206](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/agent/agent.ts#L206)
 
-The model instance that the agent will use to make decisions. Accepts either a Model instance or a string representing a Bedrock model ID. When a string is provided, it will be used to create a BedrockModel instance.
+The model instance or router that the agent will use to make decisions. Accepts a Model, ModelRouter, or a string representing a Bedrock model ID. When a router is provided, `agent.model` remains its default concrete model.
 
 #### Example
 
@@ -80,7 +82,7 @@ optional messages?:
   | MessageData[];
 ```
 
-Defined in: [src/agent/agent.ts:207](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/agent/agent.ts#L207)
+Defined in: [src/agent/agent.ts:208](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/agent/agent.ts#L208)
 
 An initial set of messages to seed the agent’s conversation history.
 
@@ -92,7 +94,7 @@ An initial set of messages to seed the agent’s conversation history.
 optional tools?: ToolList;
 ```
 
-Defined in: [src/agent/agent.ts:213](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/agent/agent.ts#L213)
+Defined in: [src/agent/agent.ts:214](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/agent/agent.ts#L214)
 
 An initial set of tools to register with the agent. Accepts nested arrays of tools at any depth, which will be flattened automatically. [Agent](/docs/api/typescript/Agent/index.md) instances are automatically wrapped as tools via [Agent.asTool](/docs/api/typescript/Agent/index.md#astool).
 
@@ -106,7 +108,7 @@ optional systemPrompt?:
   | SystemPromptData;
 ```
 
-Defined in: [src/agent/agent.ts:217](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/agent/agent.ts#L217)
+Defined in: [src/agent/agent.ts:218](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/agent/agent.ts#L218)
 
 A system prompt which guides model behavior.
 
@@ -118,7 +120,7 @@ A system prompt which guides model behavior.
 optional appState?: Record<string, JSONValue>;
 ```
 
-Defined in: [src/agent/agent.ts:219](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/agent/agent.ts#L219)
+Defined in: [src/agent/agent.ts:220](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/agent/agent.ts#L220)
 
 Optional initial state values for the agent.
 
@@ -130,7 +132,7 @@ Optional initial state values for the agent.
 optional modelState?: Record<string, JSONValue>;
 ```
 
-Defined in: [src/agent/agent.ts:224](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/agent/agent.ts#L224)
+Defined in: [src/agent/agent.ts:225](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/agent/agent.ts#L225)
 
 Optional initial model-provider state (e.g., restoring `responseId` from a prior session). Typically only set when hydrating from a snapshot.
 
@@ -142,7 +144,7 @@ Optional initial model-provider state (e.g., restoring `responseId` from a prior
 optional printer?: boolean;
 ```
 
-Defined in: [src/agent/agent.ts:230](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/agent/agent.ts#L230)
+Defined in: [src/agent/agent.ts:231](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/agent/agent.ts#L231)
 
 Enable automatic printing of agent output to console. When true, prints text generation, reasoning, and tool usage as they occur. Defaults to true.
 
@@ -154,7 +156,7 @@ Enable automatic printing of agent output to console. When true, prints text gen
 optional conversationManager?: ConversationManager;
 ```
 
-Defined in: [src/agent/agent.ts:235](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/agent/agent.ts#L235)
+Defined in: [src/agent/agent.ts:236](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/agent/agent.ts#L236)
 
 Conversation manager for handling message history and context overflow. Defaults to SlidingWindowConversationManager with windowSize of 40.
 
@@ -166,7 +168,7 @@ Conversation manager for handling message history and context overflow. Defaults
 optional contextManager?: ContextManagerStrategy;
 ```
 
-Defined in: [src/agent/agent.ts:252](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/agent/agent.ts#L252)
+Defined in: [src/agent/agent.ts:253](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/agent/agent.ts#L253)
 
 Context management strategy that controls how messages are compressed and offloaded.
 
@@ -189,7 +191,7 @@ The offloader uses in-memory storage by default. When an agent-level `storage` i
 optional plugins?: Plugin[];
 ```
 
-Defined in: [src/agent/agent.ts:256](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/agent/agent.ts#L256)
+Defined in: [src/agent/agent.ts:257](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/agent/agent.ts#L257)
 
 Plugins to register with the agent.
 
@@ -204,7 +206,7 @@ optional retryStrategy?:
   | null;
 ```
 
-Defined in: [src/agent/agent.ts:267](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/agent/agent.ts#L267)
+Defined in: [src/agent/agent.ts:268](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/agent/agent.ts#L268)
 
 Retry strategy (or strategies) for failed model/tool calls.
 
@@ -221,7 +223,7 @@ Retry strategy (or strategies) for failed model/tool calls.
 optional interventions?: InterventionHandler[];
 ```
 
-Defined in: [src/agent/agent.ts:271](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/agent/agent.ts#L271)
+Defined in: [src/agent/agent.ts:272](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/agent/agent.ts#L272)
 
 Intervention handlers evaluated in registration order at each lifecycle point.
 
@@ -233,7 +235,7 @@ Intervention handlers evaluated in registration order at each lifecycle point.
 optional structuredOutputSchema?: z.ZodSchema;
 ```
 
-Defined in: [src/agent/agent.ts:275](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/agent/agent.ts#L275)
+Defined in: [src/agent/agent.ts:276](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/agent/agent.ts#L276)
 
 Zod schema for structured output validation.
 
@@ -245,7 +247,7 @@ Zod schema for structured output validation.
 optional sessionManager?: SessionManager;
 ```
 
-Defined in: [src/agent/agent.ts:279](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/agent/agent.ts#L279)
+Defined in: [src/agent/agent.ts:280](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/agent/agent.ts#L280)
 
 Session manager for saving and restoring agent sessions
 
@@ -259,7 +261,7 @@ optional memoryManager?:
   | MemoryManagerConfig;
 ```
 
-Defined in: [src/agent/agent.ts:285](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/agent/agent.ts#L285)
+Defined in: [src/agent/agent.ts:286](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/agent/agent.ts#L286)
 
 Memory manager for cross-session memory retrieval and storage. Manages one or more memory stores and exposes search/add tools. Accepts a [MemoryManager](/docs/api/typescript/MemoryManager/index.md) instance or a [MemoryManagerConfig](/docs/api/typescript/MemoryManagerConfig/index.md) object (auto-wrapped).
 
@@ -271,7 +273,7 @@ Memory manager for cross-session memory retrieval and storage. Manages one or mo
 optional traceAttributes?: Record<string, AttributeValue>;
 ```
 
-Defined in: [src/agent/agent.ts:291](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/agent/agent.ts#L291)
+Defined in: [src/agent/agent.ts:292](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/agent/agent.ts#L292)
 
 Custom trace attributes to include in all spans. These attributes are merged with standard attributes in telemetry spans. Telemetry must be enabled globally via telemetry.setupTracer() for these to take effect.
 
@@ -283,7 +285,7 @@ Custom trace attributes to include in all spans. These attributes are merged wit
 optional name?: string;
 ```
 
-Defined in: [src/agent/agent.ts:295](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/agent/agent.ts#L295)
+Defined in: [src/agent/agent.ts:296](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/agent/agent.ts#L296)
 
 Optional name for the agent. Defaults to “Strands Agent”.
 
@@ -295,7 +297,7 @@ Optional name for the agent. Defaults to “Strands Agent”.
 optional description?: string;
 ```
 
-Defined in: [src/agent/agent.ts:299](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/agent/agent.ts#L299)
+Defined in: [src/agent/agent.ts:300](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/agent/agent.ts#L300)
 
 Optional description of what the agent does.
 
@@ -307,7 +309,7 @@ Optional description of what the agent does.
 optional id?: string;
 ```
 
-Defined in: [src/agent/agent.ts:303](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/agent/agent.ts#L303)
+Defined in: [src/agent/agent.ts:304](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/agent/agent.ts#L304)
 
 Optional unique identifier for the agent. Defaults to “agent”.
 
@@ -322,7 +324,7 @@ optional toolExecutor?:
   | ToolExecutorStrategy;
 ```
 
-Defined in: [src/agent/agent.ts:311](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/agent/agent.ts#L311)
+Defined in: [src/agent/agent.ts:312](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/agent/agent.ts#L312)
 
 Executor for tool calls from a single assistant turn.
 
@@ -336,7 +338,7 @@ Accepts a [ConcurrentToolExecutor](/docs/api/typescript/ConcurrentToolExecutor/i
 optional checkpointing?: boolean;
 ```
 
-Defined in: [src/agent/agent.ts:324](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/agent/agent.ts#L324)
+Defined in: [src/agent/agent.ts:325](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/agent/agent.ts#L325)
 
 **`Experimental`**
 
@@ -352,7 +354,7 @@ The SDK does not capture conversation state in the checkpoint; pair with a `Sess
 optional sandbox?: Sandbox | false;
 ```
 
-Defined in: [src/agent/agent.ts:338](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/agent/agent.ts#L338)
+Defined in: [src/agent/agent.ts:339](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/agent/agent.ts#L339)
 
 Execution environment for running commands, code, and file operations. When provided, sandbox-aware tools route operations through it.
 
@@ -371,7 +373,7 @@ Keep `false` distinct from omitting so the opt-out stays stable even if the defa
 optional storage?: Storage;
 ```
 
-Defined in: [src/agent/agent.ts:348](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/agent/agent.ts#L348)
+Defined in: [src/agent/agent.ts:349](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/agent/agent.ts#L349)
 
 Default storage backend for agent subsystems.
 

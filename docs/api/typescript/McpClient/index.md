@@ -1,4 +1,4 @@
-Defined in: [src/mcp/client.ts:154](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/mcp/client.ts#L154)
+Defined in: [src/mcp/client.ts:154](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/mcp/client.ts#L154)
 
 MCP Client for interacting with Model Context Protocol servers.
 
@@ -10,7 +10,7 @@ MCP Client for interacting with Model Context Protocol servers.
 new McpClient(args): McpClient;
 ```
 
-Defined in: [src/mcp/client.ts:194](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/mcp/client.ts#L194)
+Defined in: [src/mcp/client.ts:194](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/mcp/client.ts#L194)
 
 #### Parameters
 
@@ -30,7 +30,7 @@ Defined in: [src/mcp/client.ts:194](https://github.com/strands-agents/harness-sd
 readonly static DEFAULT_TTL: 60000 = 60000;
 ```
 
-Defined in: [src/mcp/client.ts:156](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/mcp/client.ts#L156)
+Defined in: [src/mcp/client.ts:156](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/mcp/client.ts#L156)
 
 Default TTL for task polling in milliseconds (60 seconds).
 
@@ -42,7 +42,7 @@ Default TTL for task polling in milliseconds (60 seconds).
 readonly static DEFAULT_POLL_TIMEOUT: 300000 = 300000;
 ```
 
-Defined in: [src/mcp/client.ts:159](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/mcp/client.ts#L159)
+Defined in: [src/mcp/client.ts:159](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/mcp/client.ts#L159)
 
 Default poll timeout for task completion in milliseconds (5 minutes).
 
@@ -56,7 +56,7 @@ Default poll timeout for task completion in milliseconds (5 minutes).
 get client(): Client;
 ```
 
-Defined in: [src/mcp/client.ts:265](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/mcp/client.ts#L265)
+Defined in: [src/mcp/client.ts:265](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/mcp/client.ts#L265)
 
 ##### Returns
 
@@ -72,7 +72,7 @@ Defined in: [src/mcp/client.ts:265](https://github.com/strands-agents/harness-sd
 get serverCapabilities(): any;
 ```
 
-Defined in: [src/mcp/client.ts:269](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/mcp/client.ts#L269)
+Defined in: [src/mcp/client.ts:269](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/mcp/client.ts#L269)
 
 ##### Returns
 
@@ -88,7 +88,7 @@ Defined in: [src/mcp/client.ts:269](https://github.com/strands-agents/harness-sd
 get serverVersion(): any;
 ```
 
-Defined in: [src/mcp/client.ts:273](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/mcp/client.ts#L273)
+Defined in: [src/mcp/client.ts:273](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/mcp/client.ts#L273)
 
 ##### Returns
 
@@ -104,7 +104,7 @@ Defined in: [src/mcp/client.ts:273](https://github.com/strands-agents/harness-sd
 get serverInstructions(): string;
 ```
 
-Defined in: [src/mcp/client.ts:277](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/mcp/client.ts#L277)
+Defined in: [src/mcp/client.ts:277](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/mcp/client.ts#L277)
 
 ##### Returns
 
@@ -120,7 +120,7 @@ Defined in: [src/mcp/client.ts:277](https://github.com/strands-agents/harness-sd
 get connectionState(): McpConnectionState;
 ```
 
-Defined in: [src/mcp/client.ts:281](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/mcp/client.ts#L281)
+Defined in: [src/mcp/client.ts:281](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/mcp/client.ts#L281)
 
 ##### Returns
 
@@ -136,7 +136,7 @@ Defined in: [src/mcp/client.ts:281](https://github.com/strands-agents/harness-sd
 get clientName(): string;
 ```
 
-Defined in: [src/mcp/client.ts:285](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/mcp/client.ts#L285)
+Defined in: [src/mcp/client.ts:285](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/mcp/client.ts#L285)
 
 ##### Returns
 
@@ -152,7 +152,7 @@ Defined in: [src/mcp/client.ts:285](https://github.com/strands-agents/harness-sd
 get continueOnError(): boolean;
 ```
 
-Defined in: [src/mcp/client.ts:289](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/mcp/client.ts#L289)
+Defined in: [src/mcp/client.ts:289](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/mcp/client.ts#L289)
 
 ##### Returns
 
@@ -168,7 +168,7 @@ Defined in: [src/mcp/client.ts:289](https://github.com/strands-agents/harness-sd
 set onToolsChanged(callback): void;
 ```
 
-Defined in: [src/mcp/client.ts:417](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/mcp/client.ts#L417)
+Defined in: [src/mcp/client.ts:417](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/mcp/client.ts#L417)
 
 Sets a callback invoked when the MCP server’s tool list changes at runtime.
 
@@ -190,7 +190,7 @@ Sets a callback invoked when the MCP server’s tool list changes at runtime.
 static loadServers(config, defaults?): Promise<McpClient[]>;
 ```
 
-Defined in: [src/mcp/client.ts:168](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/mcp/client.ts#L168)
+Defined in: [src/mcp/client.ts:168](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/mcp/client.ts#L168)
 
 Parses an MCP servers config (file path or object) and returns McpClient instances.
 
@@ -215,7 +215,7 @@ An array of McpClient instances ready to be passed to an Agent.
 connect(reconnect?): Promise<void>;
 ```
 
-Defined in: [src/mcp/client.ts:303](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/mcp/client.ts#L303)
+Defined in: [src/mcp/client.ts:303](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/mcp/client.ts#L303)
 
 Connects the MCP client to the server.
 
@@ -241,7 +241,7 @@ A promise that resolves when the connection is established.
 disconnect(): Promise<void>;
 ```
 
-Defined in: [src/mcp/client.ts:335](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/mcp/client.ts#L335)
+Defined in: [src/mcp/client.ts:335](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/mcp/client.ts#L335)
 
 Disconnects the MCP client from the server and cleans up resources.
 
@@ -259,7 +259,7 @@ A promise that resolves when the disconnection is complete.
 asyncDispose: Promise<void>;
 ```
 
-Defined in: [src/mcp/client.ts:346](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/mcp/client.ts#L346)
+Defined in: [src/mcp/client.ts:346](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/mcp/client.ts#L346)
 
 Enables the `await using` pattern for automatic resource cleanup. Delegates to [McpClient.disconnect](#disconnect).
 
@@ -275,7 +275,7 @@ Enables the `await using` pattern for automatic resource cleanup. Delegates to [
 listTools(options?): Promise<McpTool[]>;
 ```
 
-Defined in: [src/mcp/client.ts:360](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/mcp/client.ts#L360)
+Defined in: [src/mcp/client.ts:360](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/mcp/client.ts#L360)
 
 Lists the tools available on the server and returns them as executable McpTool instances.
 
@@ -304,7 +304,7 @@ callTool(
 options?): Promise<JSONValue>;
 ```
 
-Defined in: [src/mcp/client.ts:455](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/mcp/client.ts#L455)
+Defined in: [src/mcp/client.ts:455](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/mcp/client.ts#L455)
 
 Invoke a tool on the connected MCP server using an McpTool instance.
 

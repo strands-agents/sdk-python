@@ -47,7 +47,7 @@ agent.tool.my_tool(param1="hello", param2=123)
 class FunctionToolMetadata()
 ```
 
-Defined in: [src/strands/tools/decorator.py:79](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L79)
+Defined in: [src/strands/tools/decorator.py:80](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L80)
 
 Helper class to extract and manage function metadata for tool decoration.
 
@@ -67,7 +67,7 @@ def __init__(func: Callable[..., Any],
              context_param: str | None = None) -> None
 ```
 
-Defined in: [src/strands/tools/decorator.py:93](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L93)
+Defined in: [src/strands/tools/decorator.py:94](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L94)
 
 Initialize with the function to process.
 
@@ -82,7 +82,7 @@ Initialize with the function to process.
 def extract_metadata() -> ToolSpec
 ```
 
-Defined in: [src/strands/tools/decorator.py:283](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L283)
+Defined in: [src/strands/tools/decorator.py:284](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L284)
 
 Extract metadata from the function to create a tool specification.
 
@@ -104,7 +104,7 @@ A dictionary containing the tool specification.
 def validate_input(input_data: dict[str, Any]) -> dict[str, Any]
 ```
 
-Defined in: [src/strands/tools/decorator.py:369](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L369)
+Defined in: [src/strands/tools/decorator.py:370](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L370)
 
 Validate input data using the Pydantic model.
 
@@ -130,7 +130,7 @@ def inject_special_parameters(validated_input: dict[str,
                               invocation_state: dict[str, Any]) -> None
 ```
 
-Defined in: [src/strands/tools/decorator.py:395](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L395)
+Defined in: [src/strands/tools/decorator.py:396](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L396)
 
 Inject special framework-provided parameters into the validated input.
 
@@ -156,7 +156,7 @@ Return type
 class DecoratedFunctionTool(AgentTool, Generic[P, R])
 ```
 
-Defined in: [src/strands/tools/decorator.py:446](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L446)
+Defined in: [src/strands/tools/decorator.py:453](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L453)
 
 An AgentTool that wraps a function that was decorated with @tool.
 
@@ -171,7 +171,7 @@ def __init__(tool_name: str, tool_spec: ToolSpec, tool_func: Callable[P, R],
              metadata: FunctionToolMetadata)
 ```
 
-Defined in: [src/strands/tools/decorator.py:461](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L461)
+Defined in: [src/strands/tools/decorator.py:468](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L468)
 
 Initialize the decorated function tool.
 
@@ -189,7 +189,7 @@ def __get__(instance: Any,
             obj_type: type | None = None) -> "DecoratedFunctionTool[P, R]"
 ```
 
-Defined in: [src/strands/tools/decorator.py:485](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L485)
+Defined in: [src/strands/tools/decorator.py:492](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L492)
 
 Descriptor protocol implementation for proper method binding.
 
@@ -223,7 +223,7 @@ tool = instance.my_tool
 def __call__(*args: P.args, **kwargs: P.kwargs) -> R
 ```
 
-Defined in: [src/strands/tools/decorator.py:518](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L518)
+Defined in: [src/strands/tools/decorator.py:525](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L525)
 
 Call the original function with the provided arguments.
 
@@ -245,7 +245,7 @@ The result of the original function call.
 def tool_name() -> str
 ```
 
-Defined in: [src/strands/tools/decorator.py:534](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L534)
+Defined in: [src/strands/tools/decorator.py:541](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L541)
 
 Get the name of the tool.
 
@@ -260,7 +260,7 @@ The tool name as a string.
 def tool_spec() -> ToolSpec
 ```
 
-Defined in: [src/strands/tools/decorator.py:543](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L543)
+Defined in: [src/strands/tools/decorator.py:550](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L550)
 
 Get the tool specification.
 
@@ -275,7 +275,7 @@ The tool specification dictionary containing metadata for Agent integration.
 def tool_spec(value: ToolSpec) -> None
 ```
 
-Defined in: [src/strands/tools/decorator.py:552](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L552)
+Defined in: [src/strands/tools/decorator.py:559](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L559)
 
 Set the tool specification.
 
@@ -296,7 +296,7 @@ This allows runtime modification of the tool’s schema, enabling dynamic tool c
 def tool_type() -> str
 ```
 
-Defined in: [src/strands/tools/decorator.py:577](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L577)
+Defined in: [src/strands/tools/decorator.py:584](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L584)
 
 Get the type of the tool.
 
@@ -312,7 +312,7 @@ async def stream(tool_use: ToolUse, invocation_state: dict[str, Any],
                  **kwargs: Any) -> ToolGenerator
 ```
 
-Defined in: [src/strands/tools/decorator.py:586](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L586)
+Defined in: [src/strands/tools/decorator.py:593](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L593)
 
 Stream the tool with a tool use specification.
 
@@ -343,7 +343,7 @@ Tool events with the last being the tool result.
 def supports_hot_reload() -> bool
 ```
 
-Defined in: [src/strands/tools/decorator.py:703](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L703)
+Defined in: [src/strands/tools/decorator.py:710](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L710)
 
 Check if this tool supports automatic reloading when modified.
 
@@ -358,7 +358,7 @@ Always true for function-based tools.
 def get_display_properties() -> dict[str, str]
 ```
 
-Defined in: [src/strands/tools/decorator.py:712](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L712)
+Defined in: [src/strands/tools/decorator.py:719](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L719)
 
 Get properties to display in UI representations.
 
@@ -379,7 +379,7 @@ def tool(
                                             DecoratedFunctionTool[P, R]]
 ```
 
-Defined in: [src/strands/tools/decorator.py:736](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L736)
+Defined in: [src/strands/tools/decorator.py:743](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/decorator.py#L743)
 
 Decorator that transforms a Python function into a Strands tool.
 

@@ -1,4 +1,4 @@
-Defined in: [src/tools/function-tool.ts:100](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/tools/function-tool.ts#L100)
+Defined in: [src/tools/function-tool.ts:100](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/tools/function-tool.ts#L100)
 
 A Tool implementation that wraps a callback function and handles all ToolResultBlock conversion.
 
@@ -44,7 +44,7 @@ const streamingTool = new FunctionTool({
 new FunctionTool(config): FunctionTool;
 ```
 
-Defined in: [src/tools/function-tool.ts:148](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/tools/function-tool.ts#L148)
+Defined in: [src/tools/function-tool.ts:148](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/tools/function-tool.ts#L148)
 
 Creates a new FunctionTool instance.
 
@@ -93,7 +93,7 @@ const statusTool = new FunctionTool({
 readonly name: string;
 ```
 
-Defined in: [src/tools/function-tool.ts:104](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/tools/function-tool.ts#L104)
+Defined in: [src/tools/function-tool.ts:104](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/tools/function-tool.ts#L104)
 
 The unique name of the tool.
 
@@ -113,7 +113,7 @@ The unique name of the tool.
 readonly description: string;
 ```
 
-Defined in: [src/tools/function-tool.ts:109](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/tools/function-tool.ts#L109)
+Defined in: [src/tools/function-tool.ts:109](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/tools/function-tool.ts#L109)
 
 Human-readable description of what the tool does.
 
@@ -133,7 +133,7 @@ Human-readable description of what the tool does.
 readonly toolSpec: ToolSpec;
 ```
 
-Defined in: [src/tools/function-tool.ts:114](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/tools/function-tool.ts#L114)
+Defined in: [src/tools/function-tool.ts:114](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/tools/function-tool.ts#L114)
 
 OpenAPI JSON specification for the tool.
 
@@ -153,7 +153,7 @@ OpenAPI JSON specification for the tool.
 stream(toolContext): AsyncGenerator<ToolStreamEvent, ToolResultBlock, unknown>;
 ```
 
-Defined in: [src/tools/function-tool.ts:175](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/tools/function-tool.ts#L175)
+Defined in: [src/tools/function-tool.ts:175](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/tools/function-tool.ts#L175)
 
 Executes the tool with streaming support. Handles all callback patterns (async generator, promise, sync) and converts results to ToolResultBlock.
 
@@ -185,7 +185,7 @@ Async generator that yields ToolStreamEvents and returns a ToolResultBlock
 invoke(input, context?): Promise<JSONValue>;
 ```
 
-Defined in: [src/tools/function-tool.ts:229](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/tools/function-tool.ts#L229)
+Defined in: [src/tools/function-tool.ts:229](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/tools/function-tool.ts#L229)
 
 Invokes the tool directly with raw input and returns the unwrapped result.
 

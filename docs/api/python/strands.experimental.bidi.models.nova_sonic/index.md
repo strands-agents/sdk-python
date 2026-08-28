@@ -18,7 +18,7 @@ Note, BidiNovaSonicModel is only supported for Python 3.12+
 class BidiNovaSonicModel(BidiModel)
 ```
 
-Defined in: [src/strands/experimental/bidi/models/nova\_sonic.py:106](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/nova_sonic.py#L106)
+Defined in: [src/strands/experimental/bidi/models/nova\_sonic.py:109](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/nova_sonic.py#L109)
 
 Nova Sonic implementation for bidirectional streaming.
 
@@ -39,7 +39,7 @@ def __init__(model_id: str = NOVA_SONIC_V2_MODEL_ID,
              **kwargs: Any) -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/models/nova\_sonic.py:121](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/nova_sonic.py#L121)
+Defined in: [src/strands/experimental/bidi/models/nova\_sonic.py:124](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/nova_sonic.py#L124)
 
 Initialize Nova Sonic bidirectional model.
 
@@ -51,6 +51,7 @@ Initialize Nova Sonic bidirectional model.
     -   inference: Model inference settings (max\_tokens, temperature, top\_p)
     -   turn\_detection: Turn detection configuration (v2 only feature)
     -   endpointingSensitivity: “HIGH” | “MEDIUM” | “LOW” (optional)
+    -   connection: Reconnect overrides merged over the provider defaults (e.g. restart\_after\_s, auto\_reconnect); see BidiConnectionConfig.
 -   `client_config` - AWS authentication (boto\_session OR region, not both)
 -   `**kwargs` - Reserved for future parameters.
 
@@ -69,7 +70,7 @@ async def start(system_prompt: str | None = None,
                 **kwargs: Any) -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/models/nova\_sonic.py:225](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/nova_sonic.py#L225)
+Defined in: [src/strands/experimental/bidi/models/nova\_sonic.py:244](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/nova_sonic.py#L244)
 
 Establish bidirectional connection to Nova Sonic.
 
@@ -90,7 +91,7 @@ Establish bidirectional connection to Nova Sonic.
 async def receive() -> AsyncGenerator[BidiOutputEvent, None]
 ```
 
-Defined in: [src/strands/experimental/bidi/models/nova\_sonic.py:361](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/nova_sonic.py#L361)
+Defined in: [src/strands/experimental/bidi/models/nova\_sonic.py:381](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/nova_sonic.py#L381)
 
 Receive Nova Sonic events and convert to provider-agnostic format.
 
@@ -104,7 +105,7 @@ Receive Nova Sonic events and convert to provider-agnostic format.
 async def send(content: BidiInputEvent | ToolResultEvent) -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/models/nova\_sonic.py:408](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/nova_sonic.py#L408)
+Defined in: [src/strands/experimental/bidi/models/nova\_sonic.py:428](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/nova_sonic.py#L428)
 
 Unified send method for all content types. Sends the given content to Nova Sonic.
 
@@ -124,6 +125,26 @@ Dispatches to appropriate internal handler based on content type.
 async def stop() -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/models/nova\_sonic.py:554](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/nova_sonic.py#L554)
+Defined in: [src/strands/experimental/bidi/models/nova\_sonic.py:574](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/nova_sonic.py#L574)
 
 Close Nova Sonic connection with proper cleanup sequence.
+
+#### reconnect
+
+```python
+async def reconnect(system_prompt: str | None = None,
+                    tools: list[ToolSpec] | None = None,
+                    messages: Messages | None = None,
+                    **restart_kwargs: Any) -> None
+```
+
+Defined in: [src/strands/experimental/bidi/models/nova\_sonic.py:611](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/nova_sonic.py#L611)
+
+Reconnect by closing the connection and starting a new one, replaying messages.
+
+**Arguments**:
+
+-   `system_prompt` - System instructions for the new connection.
+-   `tools` - Tool specifications for the new connection.
+-   `messages` - Conversation history to replay into the new connection.
+-   `**restart_kwargs` - Reserved for provider-specific restart options.

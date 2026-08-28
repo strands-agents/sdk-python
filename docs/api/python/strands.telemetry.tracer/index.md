@@ -8,7 +8,7 @@ This module provides tracing capabilities using OpenTelemetry, enabling trace da
 class JSONEncoder(json.JSONEncoder)
 ```
 
-Defined in: [src/strands/telemetry/tracer.py:35](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L35)
+Defined in: [src/strands/telemetry/tracer.py:36](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L36)
 
 Custom JSON encoder that handles non-serializable types.
 
@@ -18,7 +18,7 @@ Custom JSON encoder that handles non-serializable types.
 def encode(obj: Any) -> str
 ```
 
-Defined in: [src/strands/telemetry/tracer.py:38](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L38)
+Defined in: [src/strands/telemetry/tracer.py:39](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L39)
 
 Recursively encode objects, preserving structure and only replacing unserializable values.
 
@@ -36,7 +36,7 @@ JSON string representation of the object
 class Tracer()
 ```
 
-Defined in: [src/strands/telemetry/tracer.py:83](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L83)
+Defined in: [src/strands/telemetry/tracer.py:84](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L84)
 
 Handles OpenTelemetry tracing.
 
@@ -60,7 +60,7 @@ Sensitive attributes subject to the redaction policy are: `gen_ai.input.messages
 def __init__() -> None
 ```
 
-Defined in: [src/strands/telemetry/tracer.py:115](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L115)
+Defined in: [src/strands/telemetry/tracer.py:116](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L116)
 
 Initialize the tracer.
 
@@ -71,7 +71,7 @@ Initialize the tracer.
 def is_langfuse() -> bool
 ```
 
-Defined in: [src/strands/telemetry/tracer.py:197](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L197)
+Defined in: [src/strands/telemetry/tracer.py:198](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L198)
 
 Check if Langfuse is configured as the OTLP endpoint.
 
@@ -87,7 +87,7 @@ def end_span_with_error(span: Span,
                         exception: Exception | None = None) -> None
 ```
 
-Defined in: [src/strands/telemetry/tracer.py:317](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L317)
+Defined in: [src/strands/telemetry/tracer.py:323](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L323)
 
 End a span with error status.
 
@@ -111,7 +111,7 @@ def start_model_invoke_span(messages: Messages,
                             **kwargs: Any) -> Span
 ```
 
-Defined in: [src/strands/telemetry/tracer.py:380](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L380)
+Defined in: [src/strands/telemetry/tracer.py:386](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L386)
 
 Start a new span for a model invocation.
 
@@ -136,7 +136,7 @@ def end_model_invoke_span(span: Span, message: Message, usage: Usage,
                           metrics: Metrics, stop_reason: StopReason) -> None
 ```
 
-Defined in: [src/strands/telemetry/tracer.py:421](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L421)
+Defined in: [src/strands/telemetry/tracer.py:427](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L427)
 
 End a model invocation span with results and metrics.
 
@@ -158,7 +158,7 @@ def start_tool_call_span(tool: ToolUse,
                          **kwargs: Any) -> Span
 ```
 
-Defined in: [src/strands/telemetry/tracer.py:480](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L480)
+Defined in: [src/strands/telemetry/tracer.py:487](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L487)
 
 Start a new span for a tool call.
 
@@ -181,7 +181,7 @@ def end_tool_call_span(span: Span,
                        error: Exception | None = None) -> None
 ```
 
-Defined in: [src/strands/telemetry/tracer.py:556](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L556)
+Defined in: [src/strands/telemetry/tracer.py:563](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L563)
 
 End a tool call span with results.
 
@@ -202,7 +202,7 @@ def start_event_loop_cycle_span(
         **kwargs: Any) -> Span
 ```
 
-Defined in: [src/strands/telemetry/tracer.py:616](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L616)
+Defined in: [src/strands/telemetry/tracer.py:623](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L623)
 
 Start a new span for an event loop cycle.
 
@@ -227,7 +227,7 @@ def end_event_loop_cycle_span(
         tool_result_message: Message | None = None) -> None
 ```
 
-Defined in: [src/strands/telemetry/tracer.py:657](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L657)
+Defined in: [src/strands/telemetry/tracer.py:664](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L664)
 
 End an event loop cycle span with results.
 
@@ -250,7 +250,7 @@ def start_agent_span(messages: Messages,
                      **kwargs: Any) -> Span
 ```
 
-Defined in: [src/strands/telemetry/tracer.py:704](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L704)
+Defined in: [src/strands/telemetry/tracer.py:711](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L711)
 
 Start a new span for an agent invocation.
 
@@ -276,7 +276,7 @@ def end_agent_span(span: Span,
                    error: Exception | None = None) -> None
 ```
 
-Defined in: [src/strands/telemetry/tracer.py:763](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L763)
+Defined in: [src/strands/telemetry/tracer.py:770](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L770)
 
 End an agent span with results and metrics.
 
@@ -296,7 +296,7 @@ def start_multiagent_span(
 ) -> Span
 ```
 
-Defined in: [src/strands/telemetry/tracer.py:845](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L845)
+Defined in: [src/strands/telemetry/tracer.py:861](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L861)
 
 Start a new span for swarm invocation.
 
@@ -306,7 +306,7 @@ Start a new span for swarm invocation.
 def end_swarm_span(span: Span, result: str | None = None) -> None
 ```
 
-Defined in: [src/strands/telemetry/tracer.py:883](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L883)
+Defined in: [src/strands/telemetry/tracer.py:899](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L899)
 
 End a swarm span with results.
 
@@ -323,7 +323,7 @@ def start_memory_search_span(query: str,
                              **kwargs: Any) -> Span
 ```
 
-Defined in: [src/strands/telemetry/tracer.py:947](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L947)
+Defined in: [src/strands/telemetry/tracer.py:963](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L963)
 
 Start a new span for a memory search.
 
@@ -351,7 +351,7 @@ def end_memory_search_span(span: Span,
                            error: Exception | None = None) -> None
 ```
 
-Defined in: [src/strands/telemetry/tracer.py:988](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L988)
+Defined in: [src/strands/telemetry/tracer.py:1004](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L1004)
 
 End a memory search span with results.
 
@@ -374,7 +374,7 @@ def start_memory_add_span(content: str,
                           **kwargs: Any) -> Span
 ```
 
-Defined in: [src/strands/telemetry/tracer.py:1033](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L1033)
+Defined in: [src/strands/telemetry/tracer.py:1049](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L1049)
 
 Start a new span for a memory add.
 
@@ -401,7 +401,7 @@ def end_memory_add_span(span: Span,
                         error: Exception | None = None) -> None
 ```
 
-Defined in: [src/strands/telemetry/tracer.py:1072](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L1072)
+Defined in: [src/strands/telemetry/tracer.py:1088](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L1088)
 
 End a memory add span.
 
@@ -422,7 +422,7 @@ def start_memory_inject_span(max_entries: int | None = None,
                              **kwargs: Any) -> Span
 ```
 
-Defined in: [src/strands/telemetry/tracer.py:1091](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L1091)
+Defined in: [src/strands/telemetry/tracer.py:1107](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L1107)
 
 Start a new span for memory context injection.
 
@@ -446,7 +446,7 @@ def end_memory_inject_span(span: Span,
                            format_error: bool = False) -> None
 ```
 
-Defined in: [src/strands/telemetry/tracer.py:1118](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L1118)
+Defined in: [src/strands/telemetry/tracer.py:1134](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L1134)
 
 End a memory injection span.
 
@@ -470,7 +470,7 @@ def start_memory_extract_span(store_name: str,
                               **kwargs: Any) -> Span
 ```
 
-Defined in: [src/strands/telemetry/tracer.py:1148](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L1148)
+Defined in: [src/strands/telemetry/tracer.py:1164](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L1164)
 
 Start a new root span for a background memory extraction.
 
@@ -497,7 +497,7 @@ def end_memory_extract_span(span: Span,
                             error: Exception | None = None) -> None
 ```
 
-Defined in: [src/strands/telemetry/tracer.py:1198](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L1198)
+Defined in: [src/strands/telemetry/tracer.py:1214](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L1214)
 
 End a memory extraction span.
 
@@ -513,7 +513,7 @@ End a memory extraction span.
 def get_tracer() -> Tracer
 ```
 
-Defined in: [src/strands/telemetry/tracer.py:1369](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L1369)
+Defined in: [src/strands/telemetry/tracer.py:1385](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L1385)
 
 Get or create the global tracer.
 
@@ -527,7 +527,7 @@ The global tracer instance.
 def serialize(obj: Any) -> str
 ```
 
-Defined in: [src/strands/telemetry/tracer.py:1383](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L1383)
+Defined in: [src/strands/telemetry/tracer.py:1399](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/tracer.py#L1399)
 
 Serialize an object to JSON with consistent settings.
 

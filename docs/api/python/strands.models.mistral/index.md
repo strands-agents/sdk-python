@@ -94,7 +94,7 @@ def format_request(messages: Messages,
                    system_prompt: str | None = None) -> dict[str, Any]
 ```
 
-Defined in: [src/strands/models/mistral.py:250](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/mistral.py#L250)
+Defined in: [src/strands/models/mistral.py:254](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/mistral.py#L254)
 
 Format a Mistral chat streaming request.
 
@@ -118,7 +118,7 @@ A Mistral chat streaming request.
 def format_chunk(event: dict[str, Any]) -> StreamEvent
 ```
 
-Defined in: [src/strands/models/mistral.py:296](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/mistral.py#L296)
+Defined in: [src/strands/models/mistral.py:300](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/mistral.py#L300)
 
 Format the Mistral response events into standardized message chunks.
 
@@ -146,7 +146,7 @@ async def stream(messages: Messages,
                  **kwargs: Any) -> AsyncGenerator[StreamEvent, None]
 ```
 
-Defined in: [src/strands/models/mistral.py:407](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/mistral.py#L407)
+Defined in: [src/strands/models/mistral.py:411](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/mistral.py#L411)
 
 Stream conversation with the Mistral model.
 
@@ -178,7 +178,7 @@ async def structured_output(
         **kwargs: Any) -> AsyncGenerator[dict[str, T | Any], None]
 ```
 
-Defined in: [src/strands/models/mistral.py:519](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/mistral.py#L519)
+Defined in: [src/strands/models/mistral.py:523](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/mistral.py#L523)
 
 Get structured output from the model.
 

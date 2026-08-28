@@ -137,7 +137,7 @@ Note: This event uses reverse callback ordering, meaning callbacks registered la
 
 -   `message` - The user-role message containing the tool results.
 -   `invocation_state` - State and configuration passed through the agent invocation.
--   `end_turn` - When set, the agent loop halts after this tool batch without calling the model again. If a string, that string becomes the content of a final assistant text message. If True, a default message is used. In both cases stop\_reason on the returned result is “end\_turn”.
+-   `end_turn` - When set, the agent loop halts after this tool batch without calling the model again. A string becomes the final assistant text. A list of content blocks becomes the final assistant message content. If True, a default message is used. In any case, the stop\_reason is “end\_turn”.
 
 #### should\_reverse\_callbacks
 

@@ -1,6 +1,8 @@
-Defined in: [src/models/model.ts:70](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/models/model.ts#L70)
+Defined in: [src/models/model.ts:72](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/models/model.ts#L72)
 
 Configuration for prompt caching.
+
+Providers consume only the fields they support.
 
 ## Properties
 
@@ -10,7 +12,7 @@ Configuration for prompt caching.
 optional strategy?: "auto" | "anthropic";
 ```
 
-Defined in: [src/models/model.ts:79](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/models/model.ts#L79)
+Defined in: [src/models/model.ts:81](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/models/model.ts#L81)
 
 Whether to skip caching for models that do not support it.
 
@@ -31,7 +33,7 @@ Whether to skip caching for models that do not support it.
 optional ttl?: CacheTTL;
 ```
 
-Defined in: [src/models/model.ts:91](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/models/model.ts#L91)
+Defined in: [src/models/model.ts:93](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/models/model.ts#L93)
 
 TTL for every cache point, overridden by a per-section TTL. Provider default when omitted.
 
@@ -45,7 +47,7 @@ Bedrock requires checkpoint TTLs to be non-increasing across `toolConfig`, syste
 optional toolsTTL?: boolean | CacheTTL;
 ```
 
-Defined in: [src/models/model.ts:98](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/models/model.ts#L98)
+Defined in: [src/models/model.ts:100](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/models/model.ts#L100)
 
 Cache the tool definitions. A TTL sets this section’s duration; `false` disables it.
 
@@ -63,7 +65,7 @@ true
 optional systemPromptTTL?: boolean | CacheTTL;
 ```
 
-Defined in: [src/models/model.ts:107](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/models/model.ts#L107)
+Defined in: [src/models/model.ts:109](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/models/model.ts#L109)
 
 Cache the system prompt, auto-injecting a cache point at its end so repeated calls with the same static system prefix hit the cache. A TTL sets this section’s duration; `true` (the default) reads the value from `ttl`; `false` disables systemPrompt cache injection.
 
@@ -81,7 +83,7 @@ true
 optional messagesTTL?: boolean | CacheTTL;
 ```
 
-Defined in: [src/models/model.ts:115](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/models/model.ts#L115)
+Defined in: [src/models/model.ts:117](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/models/model.ts#L117)
 
 Cache the conversation prefix, on the last user message. A TTL sets this section’s duration; `false` disables it.
 
@@ -90,3 +92,15 @@ Cache the conversation prefix, on the last user message. A TTL sets this section
 ```ts
 true
 ```
+
+---
+
+### cacheKey?
+
+```ts
+optional cacheKey?: string;
+```
+
+Defined in: [src/models/model.ts:120](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/models/model.ts#L120)
+
+Stable identity a provider can use to route its cache.

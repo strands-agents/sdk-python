@@ -385,7 +385,7 @@ Most event properties are read-only to prevent unintended modifications. However
     -   `exception` *(read-only)* - The original exception if the tool raised one, otherwise `None`. See [Exception Handling](#exception-handling).
 -   [`AfterToolsEvent`](/docs/api/python/strands.hooks.events#AfterToolsEvent)
     
-    -   `end_turn` - Halt the agent loop after the tool batch without calling the model again. Set `True` for a default final assistant message, or a string to use as the final assistant message. The returned result has `stop_reason="end_turn"`.
+    -   `end_turn` - Halt the agent loop after the tool batch without calling the model again. Set `True` for a default final assistant message, a string to use as the final assistant message, or a list of content blocks to use as the final assistant message content directly. The returned result has `stop_reason="end_turn"`.
 -   [`AfterInvocationEvent`](/docs/api/python/strands.hooks.events#AfterInvocationEvent)
     
     -   `resume` - Trigger a follow-up agent invocation with new input. See [Invocation resume](#invocation-resume).
@@ -415,7 +415,7 @@ Most event properties are read-only to prevent unintended modifications. However
     -   `result` - Mutable. Rewrite the `ToolResultBlock` before it propagates to the model. See [Result Modification](#result-modification).
 -   `AfterToolsEvent`
     
-    -   `endTurn` - Halt the agent loop after the tool batch without calling the model again. Set `true` for a default final assistant message, or a string to use as the final assistant message. The returned result has `stopReason="endTurn"`.
+    -   `endTurn` - Halt the agent loop after the tool batch without calling the model again. Set `true` for a default final assistant message, a string to use as the final assistant message, or a list of content blocks to use as the final assistant message content directly. The returned result has `stopReason="endTurn"`.
 -   `AfterInvocationEvent`
     
     -   `resume` - Trigger a follow-up agent invocation with new input. Setting it re-enters the agent loop under the same invocation lock. See [Invocation resume](#invocation-resume).

@@ -82,10 +82,10 @@ Out of the box, Strands provides `BidiAudioIO` to help connect your microphone a
 
 Installation Required
 
-`BidiAudioIO` requires the `bidi-io` extra:
+`BidiAudioIO` requires the `bidi-pyaudio` extra and the PortAudio system library:
 
 ```bash
-pip install "strands-agents[bidi,bidi-io]"
+pip install "strands-agents[bidi,bidi-pyaudio]"
 ```
 
 ```python
@@ -137,10 +137,10 @@ Strands also provides `BidiTextIO` for terminal-based text input and output usin
 
 Installation Required
 
-`BidiTextIO` requires the `bidi-io` extra:
+`BidiTextIO` is included with the `bidi` extra:
 
 ```bash
-pip install "strands-agents[bidi,bidi-io]"
+pip install "strands-agents[bidi]"
 ```
 
 ```python

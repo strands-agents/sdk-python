@@ -28,8 +28,8 @@ Each trace consists of multiple spans that represent different operations in you
 | - gen_ai.usage.completion_tokens: <number>                                          |
 | - gen_ai.usage.output_tokens: <number>                                              |
 | - gen_ai.usage.total_tokens: <number>                                               |
-| - gen_ai.usage.cache_read_input_tokens: <number>                                    |
-| - gen_ai.usage.cache_write_input_tokens: <number>                                   |
+| - gen_ai.usage.cache_read.input_tokens: <number>                                    |
+| - gen_ai.usage.cache_creation.input_tokens: <number>                                |
 |                                                                                     |
 |  +-------------------------------------------------------------------------------+  |
 |  | Cycle <cycle-id>                                                              |  |
@@ -56,8 +56,8 @@ Each trace consists of multiple spans that represent different operations in you
 |  |  | - gen_ai.usage.completion_tokens: <number>                            |    |  |
 |  |  | - gen_ai.usage.output_tokens: <number>                                |    |  |
 |  |  | - gen_ai.usage.total_tokens: <number>                                 |    |  |
-|  |  | - gen_ai.usage.cache_read_input_tokens: <number>                      |    |  |
-|  |  | - gen_ai.usage.cache_write_input_tokens: <number>                     |    |  |
+|  |  | - gen_ai.usage.cache_read.input_tokens: <number>                      |    |  |
+|  |  | - gen_ai.usage.cache_creation.input_tokens: <number>                  |    |  |
 |  |  +-----------------------------------------------------------------------+    |  |
 |  |                                                                               |  |
 |  |  +-----------------------------------------------------------------------+    |  |
@@ -243,8 +243,10 @@ Strands traces include rich attributes that provide context for each operation:
 | `gen_ai.usage.completion_tokens` | Total tokens used for completions |
 | `gen_ai.usage.output_tokens` | Total tokens used for completions (duplicate) |
 | `gen_ai.usage.total_tokens` | Total token usage |
-| `gen_ai.usage.cache_read_input_tokens` | Number of input tokens read from cache (Note: Not all model providers support cache tokens. This defaults to 0 in that case) |
-| `gen_ai.usage.cache_write_input_tokens` | Number of input tokens written to cache (Note: Not all model providers support cache tokens. This defaults to 0 in that case) |
+| `gen_ai.usage.cache_read.input_tokens` | Number of input tokens read from cache (Note: Not all model providers support cache tokens. This defaults to 0 in that case) |
+| `gen_ai.usage.cache_creation.input_tokens` | Number of input tokens written to cache (Note: Not all model providers support cache tokens. This defaults to 0 in that case) |
+| `gen_ai.usage.cache_read_input_tokens` | Deprecated alias for `gen_ai.usage.cache_read.input_tokens` (omitted when `gen_ai_latest_experimental` is set) |
+| `gen_ai.usage.cache_write_input_tokens` | Deprecated alias for `gen_ai.usage.cache_creation.input_tokens` (omitted when `gen_ai_latest_experimental` is set) |
 
 ### Cycle-Level Attributes
 
@@ -275,8 +277,10 @@ Strands traces include rich attributes that provide context for each operation:
 | `gen_ai.usage.completion_tokens` | Total tokens used for completions |
 | `gen_ai.usage.output_tokens` | Total tokens used for completions (duplicate) |
 | `gen_ai.usage.total_tokens` | Total token usage |
-| `gen_ai.usage.cache_read_input_tokens` | Number of input tokens read from cache (Note: Not all model providers support cache tokens. This defaults to 0 in that case) |
-| `gen_ai.usage.cache_write_input_tokens` | Number of input tokens written to cache (Note: Not all model providers support cache tokens. This defaults to 0 in that case) |
+| `gen_ai.usage.cache_read.input_tokens` | Number of input tokens read from cache (Note: Not all model providers support cache tokens. This defaults to 0 in that case) |
+| `gen_ai.usage.cache_creation.input_tokens` | Number of input tokens written to cache (Note: Not all model providers support cache tokens. This defaults to 0 in that case) |
+| `gen_ai.usage.cache_read_input_tokens` | Deprecated alias for `gen_ai.usage.cache_read.input_tokens` (omitted when `gen_ai_latest_experimental` is set) |
+| `gen_ai.usage.cache_write_input_tokens` | Deprecated alias for `gen_ai.usage.cache_creation.input_tokens` (omitted when `gen_ai_latest_experimental` is set) |
 
 ### Tool-Level Attributes
 

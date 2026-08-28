@@ -17,4 +17,4 @@ type AudioFormat =
   | "webm";
 ```
 
-Defined in: [src/mime.ts:9](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/mime.ts#L9)
+Defined in: [src/mime.ts:9](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/mime.ts#L9)

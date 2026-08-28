@@ -6,7 +6,7 @@ Amazon S3 storage implementation.
 class S3Storage()
 ```
 
-Defined in: [src/strands/storage/s3\_storage.py:15](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/s3_storage.py#L15)
+Defined in: [src/strands/storage/s3\_storage.py:18](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/s3_storage.py#L18)
 
 Persists bytes as objects in an Amazon S3 bucket.
 
@@ -32,7 +32,7 @@ def __init__(bucket: str,
              boto_client_config: Any = None) -> None
 ```
 
-Defined in: [src/strands/storage/s3\_storage.py:30](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/s3_storage.py#L30)
+Defined in: [src/strands/storage/s3\_storage.py:33](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/s3_storage.py#L33)
 
 Initialize S3 storage.
 
@@ -54,7 +54,7 @@ Initialize S3 storage.
 async def write(key: str, data: bytes) -> None
 ```
 
-Defined in: [src/strands/storage/s3\_storage.py:62](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/s3_storage.py#L62)
+Defined in: [src/strands/storage/s3\_storage.py:65](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/s3_storage.py#L65)
 
 Store data as an S3 object.
 
@@ -73,7 +73,7 @@ Store data as an S3 object.
 async def read(key: str) -> bytes | None
 ```
 
-Defined in: [src/strands/storage/s3\_storage.py:81](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/s3_storage.py#L81)
+Defined in: [src/strands/storage/s3\_storage.py:84](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/s3_storage.py#L84)
 
 Read an S3 object.
 
@@ -95,7 +95,7 @@ The object contents as bytes, or None if the key does not exist.
 async def delete(key: str) -> None
 ```
 
-Defined in: [src/strands/storage/s3\_storage.py:108](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/s3_storage.py#L108)
+Defined in: [src/strands/storage/s3\_storage.py:111](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/s3_storage.py#L111)
 
 Delete an S3 object. No-op if the key does not exist.
 
@@ -113,7 +113,7 @@ Delete an S3 object. No-op if the key does not exist.
 async def list(query: str = "") -> builtins.list[str]
 ```
 
-Defined in: [src/strands/storage/s3\_storage.py:126](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/s3_storage.py#L126)
+Defined in: [src/strands/storage/s3\_storage.py:129](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/s3_storage.py#L129)
 
 List S3 objects matching the given prefix.
 
@@ -131,13 +131,31 @@ Matching keys sorted ascending, with the storage-level prefix stripped.
 
 -   `StorageError` - If the listing fails.
 
+#### search
+
+```python
+async def search(query: str) -> builtins.list[StorageSearchResult]
+```
+
+Defined in: [src/strands/storage/s3\_storage.py:180](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/s3_storage.py#L180)
+
+Search stored content by keyword token-overlap scoring.
+
+**Arguments**:
+
+-   `query` - Natural-language search query.
+
+**Returns**:
+
+All matches with relevance scores, ranked best-first.
+
 #### namespace
 
 ```python
 def namespace(prefix: str) -> _NamespacedStorage
 ```
 
-Defined in: [src/strands/storage/s3\_storage.py:177](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/s3_storage.py#L177)
+Defined in: [src/strands/storage/s3\_storage.py:193](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/s3_storage.py#L193)
 
 Return a view of this storage with all keys prefixed.
 

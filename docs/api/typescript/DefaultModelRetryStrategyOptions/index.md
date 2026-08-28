@@ -1,4 +1,4 @@
-Defined in: [src/retry/default-model-retry-strategy.ts:29](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/retry/default-model-retry-strategy.ts#L29)
+Defined in: [src/retry/default-model-retry-strategy.ts:24](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/retry/default-model-retry-strategy.ts#L24)
 
 Options for [DefaultModelRetryStrategy](/docs/api/typescript/DefaultModelRetryStrategy/index.md).
 
@@ -10,7 +10,7 @@ Options for [DefaultModelRetryStrategy](/docs/api/typescript/DefaultModelRetrySt
 optional maxAttempts?: number;
 ```
 
-Defined in: [src/retry/default-model-retry-strategy.ts:34](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/retry/default-model-retry-strategy.ts#L34)
+Defined in: [src/retry/default-model-retry-strategy.ts:29](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/retry/default-model-retry-strategy.ts#L29)
 
 Total model attempts before giving up and re-raising the error. Must be >= 1. Default DEFAULT\_MAX\_ATTEMPTS.
 
@@ -22,6 +22,6 @@ Total model attempts before giving up and re-raising the error. Must be >= 1. De
 optional backoff?: BackoffStrategy;
 ```
 
-Defined in: [src/retry/default-model-retry-strategy.ts:39](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/retry/default-model-retry-strategy.ts#L39)
+Defined in: [src/retry/default-model-retry-strategy.ts:34](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/retry/default-model-retry-strategy.ts#L34)
 
 Backoff used to compute the delay between retries. Default: `new ExponentialBackoff({ baseMs: DEFAULT_BACKOFF_BASE_MS, maxMs: DEFAULT_BACKOFF_MAX_MS })`.

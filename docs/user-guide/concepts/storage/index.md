@@ -1,4 +1,4 @@
-To persist agent state between restarts, pass a Storage backend to the plugins that need it. You pick the backend once; plugins like [Context Offloader](/docs/user-guide/concepts/plugins/context-offloader/index.md), [Session Management](/docs/user-guide/concepts/agents/session-management/index.md), and [Memory](/docs/user-guide/concepts/memory/overview/index.md) handle the rest.
+Pass a Storage backend to the Agent and every subsystem that needs persistence resolves from it automatically. The SDK handles namespacing so sessions and offloaded content never collide. You can also pass storage directly to individual plugins when different subsystems need different backends.
 
 The SDK ships three backends. Pick one based on where you need your data to live:
 
@@ -8,33 +8,89 @@ The SDK ships three backends. Pick one based on where you need your data to live
 | `LocalFileStorage` | Local filesystem | Development, single-machine |
 | `S3Storage` | Amazon S3 | Production, multi-instance |
 
-## Usage
+## Agent-level storage
 
-Pass a storage instance to whichever plugin needs persistence:
+The simplest approach: pass a single storage backend to the Agent and let subsystems resolve from it.
 
 (( tab "Python" ))
 ```python
-storage = LocalFileStorage()
+storage = S3Storage("my-bucket", prefix="agents/prod/")
 
-agent = Agent(plugins=[
-    ContextOffloader(storage=storage)
-])
+agent = Agent(
+    storage=storage,
+    session_manager=SnapshotSessionManager("my-session"),
+    context_manager="auto",
+)
 ```
 (( /tab "Python" ))
 
 (( tab "TypeScript" ))
 ```typescript
-import { LocalFileStorage } from '@strands-agents/sdk/storage'
-import { Agent } from '@strands-agents/sdk'
-import { ContextOffloader } from '@strands-agents/sdk/vended-plugins/context-offloader'
+import { S3Storage } from '@strands-agents/sdk/storage'
+import { Agent, SessionManager } from '@strands-agents/sdk'
 
-const storage = new LocalFileStorage()
+const storage = new S3Storage('my-bucket', {
+  prefix: 'agents/prod/',
+})
 
 const agent = new Agent({
-  plugins: [new ContextOffloader({ storage })],
+  storage,
+  sessionManager: new SessionManager({
+    sessionId: 'my-session',
+  }),
+  contextManager: 'auto',
 })
 ```
 (( /tab "TypeScript" ))
+
+Both the session manager and context offloader read from the same backend without extra wiring. Each subsystem auto-namespaces its keys (`session/` for sessions, `offloader/` for offloaded content), so data never collides.
+
+## Per-plugin storage
+
+When different subsystems need different backends, pass storage directly to the plugin. This overrides the agent-level default for that plugin only.
+
+(( tab "Python" ))
+```python
+agent = Agent(
+    session_manager=SnapshotSessionManager(
+        "my-session", storage=S3Storage("my-bucket")
+    ),
+    plugins=[ContextOffloader(storage=InMemoryStorage())],
+)
+```
+(( /tab "Python" ))
+
+(( tab "TypeScript" ))
+```typescript
+import { InMemoryStorage, S3Storage } from '@strands-agents/sdk/storage'
+import { Agent, SessionManager } from '@strands-agents/sdk'
+import { ContextOffloader } from '@strands-agents/sdk/vended-plugins/context-offloader'
+
+const agent = new Agent({
+  sessionManager: new SessionManager({
+    sessionId: 'my-session',
+    storage: new S3Storage('my-bucket'),
+  }),
+  plugins: [
+    new ContextOffloader({
+      storage: new InMemoryStorage(),
+    }),
+  ],
+})
+```
+(( /tab "TypeScript" ))
+
+## Precedence
+
+Storage resolves in this order for each subsystem:
+
+1.  **Explicit**: storage passed directly to the plugin
+2.  **Agent-level**: the agent’s `storage``storage` parameter (namespaced automatically)
+3.  **Fallback**: `InMemoryStorage` for Context Offloader; `LocalFileStorage` for Session Manager in Python, or an error in TypeScript
+
+Note
+
+Python `SessionManager` is deprecated, and does not use the provided `Storage` parameter. Use `SnapshotSessionManager` in Python or `SessionManager` in TypeScript to take advantage of agent-level storage.
 
 ## Built-in backends
 
@@ -116,7 +172,11 @@ Implement four async methods (`write, read, delete, list``write, read, delete, l
 
 Community backends can add methods beyond the core four (e.g. `search` for vector similarity, or structured queries for databases like DynamoDB). Plugins that only need basic persistence use the four standard methods; plugins that need richer access can check for and use the extra surface your backend provides.
 
-Plugins scope their own keys automatically, so you don’t need to worry about collisions between session data and offloaded content.
+When using agent-level storage, each subsystem scopes its keys under its own prefix automatically (`session/`, `offloader/`), so you never need to worry about collisions. If you write a custom plugin that consumes agent-level storage, call
+
+`storage.namespace('my-prefix/')``storage.namespace('my-prefix/')`
+
+to claim your own prefix and avoid overlapping with other subsystems.
 
 ## Next steps
 

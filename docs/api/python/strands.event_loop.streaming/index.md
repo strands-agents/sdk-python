@@ -6,7 +6,7 @@ Utilities for handling streaming responses from language models.
 def remove_blank_messages_content_text(messages: Messages) -> Messages
 ```
 
-Defined in: [src/strands/event\_loop/streaming.py:111](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L111)
+Defined in: [src/strands/event\_loop/streaming.py:116](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L116)
 
 Remove or replace blank text in message content.
 
@@ -27,7 +27,7 @@ def handle_message_start(event: MessageStartEvent,
                          message: Message) -> Message
 ```
 
-Defined in: [src/strands/event\_loop/streaming.py:167](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L167)
+Defined in: [src/strands/event\_loop/streaming.py:172](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L172)
 
 Handles the start of a message by setting the role in the message dictionary.
 
@@ -47,7 +47,7 @@ def handle_content_block_start(
         event: ContentBlockStartEvent) -> dict[str, Any]
 ```
 
-Defined in: [src/strands/event\_loop/streaming.py:181](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L181)
+Defined in: [src/strands/event\_loop/streaming.py:186](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L186)
 
 Handles the start of a content block by extracting tool usage information if any.
 
@@ -67,7 +67,7 @@ def handle_content_block_delta(
         state: dict[str, Any]) -> tuple[dict[str, Any], ModelStreamEvent]
 ```
 
-Defined in: [src/strands/event\_loop/streaming.py:204](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L204)
+Defined in: [src/strands/event\_loop/streaming.py:209](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L209)
 
 Handles content block delta updates by appending text, tool input, or reasoning content to the state.
 
@@ -86,7 +86,7 @@ Updated state with appended text or tool input.
 def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]
 ```
 
-Defined in: [src/strands/event\_loop/streaming.py:273](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L273)
+Defined in: [src/strands/event\_loop/streaming.py:278](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L278)
 
 Handles the end of a content block by finalizing tool usage, text content, or reasoning content.
 
@@ -105,7 +105,7 @@ def handle_message_stop(event: MessageStopEvent,
                         content: list[dict[str, Any]]) -> StopReason
 ```
 
-Defined in: [src/strands/event\_loop/streaming.py:359](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L359)
+Defined in: [src/strands/event\_loop/streaming.py:364](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L364)
 
 Handles the end of a message by returning the stop reason.
 
@@ -127,7 +127,7 @@ def handle_redact_content(event: RedactContentEvent, state: dict[str,
                                                                  Any]) -> None
 ```
 
-Defined in: [src/strands/event\_loop/streaming.py:386](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L386)
+Defined in: [src/strands/event\_loop/streaming.py:391](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L391)
 
 Handles redacting content from the input or output.
 
@@ -144,7 +144,7 @@ def extract_usage_metrics(
         time_to_first_byte_ms: int | None = None) -> tuple[Usage, Metrics]
 ```
 
-Defined in: [src/strands/event\_loop/streaming.py:397](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L397)
+Defined in: [src/strands/event\_loop/streaming.py:402](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L402)
 
 Extracts usage metrics from the metadata chunk.
 
@@ -167,7 +167,7 @@ async def process_stream(
 ) -> AsyncGenerator[TypedEvent, None]
 ```
 
-Defined in: [src/strands/event\_loop/streaming.py:418](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L418)
+Defined in: [src/strands/event\_loop/streaming.py:423](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L423)
 
 Processes the response stream from the API, constructing the final message and extracting usage metrics.
 
@@ -199,7 +199,7 @@ async def stream_messages(model: Model,
                           **kwargs: Any) -> AsyncGenerator[TypedEvent, None]
 ```
 
-Defined in: [src/strands/event\_loop/streaming.py:489](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L489)
+Defined in: [src/strands/event\_loop/streaming.py:507](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/streaming.py#L507)
 
 Streams messages to the model and processes the response.
 
@@ -214,7 +214,7 @@ Streams messages to the model and processes the response.
 -   `invocation_state` - Caller-provided state/context that was passed to the agent when it was invoked.
 -   `model_state` - Runtime state for model providers (e.g., server-side response ids).
 -   `dynamic_trailing_blocks` - How many trailing blocks of the last user message are rebuilt on every call, so a provider placing cache points keeps its own ahead of them.
--   `cancel_signal` - Optional threading.Event to check for cancellation during streaming.
+-   `cancel_signal` - Optional threading.Event to check for cancellation during streaming. Also forwarded to the model so a provider can abort an in-flight request.
 -   `**kwargs` - Additional keyword arguments for future extensibility.
 
 **Yields**:

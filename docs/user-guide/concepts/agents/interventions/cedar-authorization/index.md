@@ -498,7 +498,9 @@ cedar = CedarAuthorization(
       )
       when {
         context.session has environment &&
-        context.session.environment != "production"
+        ["staging", "dev"].contains(
+          context.session.environment
+        )
       };
     """,
     context_enricher=lambda ctx: {
@@ -524,6 +526,10 @@ agent(
     "Deploy the service",
     invocation_state={"environment": "production"},
 )
+
+# denied when environment is absent: the enricher falls
+# back to "unknown", which is outside the permitted set
+agent("Deploy the service")
 ```
 (( /tab "Python" ))
 
@@ -544,7 +550,7 @@ const cedar = new CedarAuthorization({
   policies: `
     permit(principal, action == Action::"deploy", resource)
     when { context.session has environment &&
-           context.session.environment != "production" };
+           ["staging", "dev"].contains(context.session.environment) };
   `,
   contextEnricher: ({ invocationState }) => ({
     environment: String(invocationState.environment ?? 'unknown'),
@@ -565,8 +571,14 @@ await agent.invoke('Deploy the service', {
 await agent.invoke('Deploy the service', {
   invocationState: { environment: 'production' },
 })
+
+// denied when environment is absent: the enricher falls back to
+// 'unknown', which is outside the permitted set
+await agent.invoke('Deploy the service')
 ```
 (( /tab "TypeScript" ))
+
+Permit an allowlist of environments rather than denying `"production"`. An allowlist stays fail-closed: when `environment` is missing from `invocation_state``invocationState`, the enricher’s fallback value falls outside the permitted set and the call is denied. A rule that denies `"production"` instead would permit that call, along with any spelling the rule doesn’t match exactly — `"Production"`, `"prod"`, `"prod-us-east-1"`.
 
 ## File-based policies
 

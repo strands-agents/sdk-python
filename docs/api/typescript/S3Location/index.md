@@ -1,4 +1,4 @@
-Defined in: [src/types/media.ts:102](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/types/media.ts#L102)
+Defined in: [src/types/media.ts:102](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/types/media.ts#L102)
 
 S3 location for media and document sources.
 
@@ -15,7 +15,7 @@ S3 location for media and document sources.
 new S3Location(data): S3Location;
 ```
 
-Defined in: [src/types/media.ts:107](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/types/media.ts#L107)
+Defined in: [src/types/media.ts:107](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/types/media.ts#L107)
 
 #### Parameters
 
@@ -35,7 +35,7 @@ Defined in: [src/types/media.ts:107](https://github.com/strands-agents/harness-s
 readonly type: "s3";
 ```
 
-Defined in: [src/types/media.ts:103](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/types/media.ts#L103)
+Defined in: [src/types/media.ts:103](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/types/media.ts#L103)
 
 Location type — always “s3”.
 
@@ -51,7 +51,7 @@ Location type — always “s3”.
 readonly uri: string;
 ```
 
-Defined in: [src/types/media.ts:104](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/types/media.ts#L104)
+Defined in: [src/types/media.ts:104](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/types/media.ts#L104)
 
 S3 URI in format: s3://bucket-name/key-name
 
@@ -67,7 +67,7 @@ S3 URI in format: s3://bucket-name/key-name
 readonly optional bucketOwner?: string;
 ```
 
-Defined in: [src/types/media.ts:105](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/types/media.ts#L105)
+Defined in: [src/types/media.ts:105](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/types/media.ts#L105)
 
 AWS account ID of the S3 bucket owner (12-digit). Required if the bucket belongs to another AWS account.
 
@@ -83,7 +83,7 @@ AWS account ID of the S3 bucket owner (12-digit). Required if the bucket belongs
 toJSON(): S3LocationData;
 ```
 
-Defined in: [src/types/media.ts:118](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/types/media.ts#L118)
+Defined in: [src/types/media.ts:118](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/types/media.ts#L118)
 
 Serializes the S3Location to a JSON-compatible S3LocationData object. Called automatically by JSON.stringify().
 
@@ -105,7 +105,7 @@ JSONSerializable.toJSON
 static fromJSON(data): S3Location;
 ```
 
-Defined in: [src/types/media.ts:132](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/types/media.ts#L132)
+Defined in: [src/types/media.ts:132](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/types/media.ts#L132)
 
 Creates an S3Location instance from S3LocationData.
 

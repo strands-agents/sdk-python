@@ -20,7 +20,7 @@
 - Concepts
   - [agent-loop](https://strandsagents.com/docs/user-guide/concepts/agents/agent-loop/index.md): How Strands agents reason, plan, and act. Understand the model-driven loop that orchestrates tool use, reflection, and goal completion.
   - [state](https://strandsagents.com/docs/user-guide/concepts/agents/state/index.md): Maintain state in Strands agents across turns and sessions: conversation history, key-value agent state, and per-request invocation state.
-  - [storage](https://strandsagents.com/docs/user-guide/concepts/storage/index.md): Choose a storage backend and pass it to plugins that need persistence: session managers, context offloaders, and memory.
+  - [storage](https://strandsagents.com/docs/user-guide/concepts/storage/index.md): Choose a storage backend and pass it to the Agent for automatic subsystem resolution, or to individual plugins for fine-grained control.
   - [session-management](https://strandsagents.com/docs/user-guide/concepts/agents/session-management/index.md): Persist agent conversations across sessions. Save and restore chat history, tool state, and context for long-running AI workflows.
   - [snapshots](https://strandsagents.com/docs/user-guide/concepts/agents/snapshots/index.md): Capture and restore agent state at any point in time. Use snapshots for checkpointing, undo/redo, branching conversations, and custom persistence.
   - [prompts](https://strandsagents.com/docs/user-guide/concepts/agents/prompts/index.md): Write system prompts and user messages for Strands agents. Covers multi-modal prompting, direct tool calls, and prompt engineering with agent SOPs.
@@ -170,7 +170,7 @@
     - [simulators](https://strandsagents.com/docs/user-guide/evals-sdk/simulators/index.md): Evaluate agents with dynamic simulators that drive multi-turn conversations and generate realistic tool responses beyond static test cases.
     - [user_simulation](https://strandsagents.com/docs/user-guide/evals-sdk/simulators/user_simulation/index.md): Simulate realistic end users with ActorSimulator to evaluate agents in dynamic, goal-oriented multi-turn conversations without scripted inputs.
     - [tool_simulation](https://strandsagents.com/docs/user-guide/evals-sdk/simulators/tool_simulation/index.md): Replace real tool execution with LLM-generated, schema-validated responses using ToolSimulator to evaluate agents without live infrastructure.
-  - [chaos_testing](https://strandsagents.com/docs/user-guide/evals-sdk/chaos_testing/index.md): Test agent resilience by injecting controlled tool failures with ChaosPlugin: simulate timeouts, network errors, and corrupted responses safely.
+  - [chaos_testing](https://strandsagents.com/docs/user-guide/evals-sdk/chaos_testing/index.md): Test agent resilience by injecting controlled tool and model-output failures with ChaosPlugin: simulate timeouts, network errors, corrupted responses, refusals, and malformed output safely.
   - Remote Trace Providers
     - [trace_providers](https://strandsagents.com/docs/user-guide/evals-sdk/how-to/trace_providers/index.md): Evaluate production agent traces without re-running them: fetch execution data from CloudWatch, Langfuse, or OpenSearch with trace providers.
   - [cli](https://strandsagents.com/docs/user-guide/evals-sdk/cli/index.md): Run agent evaluations from the command line with strands-evals: execute experiments, validate JSON, render reports, and diagnose failures in CI.
@@ -305,6 +305,7 @@
 - [strands.experimental.bidi.agent.agent](https://strandsagents.com/docs/api/python/strands.experimental.bidi.agent.agent/index.md)
 - [strands.experimental.bidi.agent.loop](https://strandsagents.com/docs/api/python/strands.experimental.bidi.agent.loop/index.md)
 - [strands.experimental.bidi.audio](https://strandsagents.com/docs/api/python/strands.experimental.bidi.audio/index.md)
+- [strands.experimental.bidi.io](https://strandsagents.com/docs/api/python/strands.experimental.bidi.io/index.md)
 - [strands.experimental.bidi.io.audio](https://strandsagents.com/docs/api/python/strands.experimental.bidi.io.audio/index.md)
 - [strands.experimental.bidi.io.text](https://strandsagents.com/docs/api/python/strands.experimental.bidi.io.text/index.md)
 - [strands.experimental.bidi.models](https://strandsagents.com/docs/api/python/strands.experimental.bidi.models/index.md)
@@ -345,6 +346,7 @@
 - [strands.models.ollama](https://strandsagents.com/docs/api/python/strands.models.ollama/index.md)
 - [strands.models.openai](https://strandsagents.com/docs/api/python/strands.models.openai/index.md)
 - [strands.models.openai_responses](https://strandsagents.com/docs/api/python/strands.models.openai_responses/index.md)
+- [strands.models.routing.classifier_strategy](https://strandsagents.com/docs/api/python/strands.models.routing.classifier_strategy/index.md)
 - [strands.models.routing.fallback_strategy](https://strandsagents.com/docs/api/python/strands.models.routing.fallback_strategy/index.md)
 - [strands.models.routing.router](https://strandsagents.com/docs/api/python/strands.models.routing.router/index.md)
 - [strands.models.routing.strategy](https://strandsagents.com/docs/api/python/strands.models.routing.strategy/index.md)
@@ -377,6 +379,8 @@
 - [strands.storage.in_memory_storage](https://strandsagents.com/docs/api/python/strands.storage.in_memory_storage/index.md)
 - [strands.storage.local_file_storage](https://strandsagents.com/docs/api/python/strands.storage.local_file_storage/index.md)
 - [strands.storage.s3_storage](https://strandsagents.com/docs/api/python/strands.storage.s3_storage/index.md)
+- [strands.storage.search.keyword](https://strandsagents.com/docs/api/python/strands.storage.search.keyword/index.md)
+- [strands.storage.search.types](https://strandsagents.com/docs/api/python/strands.storage.search.types/index.md)
 - [strands.storage.storage](https://strandsagents.com/docs/api/python/strands.storage.storage/index.md)
 - [strands.telemetry.config](https://strandsagents.com/docs/api/python/strands.telemetry.config/index.md)
 - [strands.telemetry.metrics](https://strandsagents.com/docs/api/python/strands.telemetry.metrics/index.md)
@@ -416,6 +420,8 @@
 - [strands.vended_memory_stores](https://strandsagents.com/docs/api/python/strands.vended_memory_stores/index.md)
 - [strands.vended_memory_stores.bedrock_knowledge_base.store](https://strandsagents.com/docs/api/python/strands.vended_memory_stores.bedrock_knowledge_base.store/index.md)
 - [strands.vended_memory_stores.bedrock_knowledge_base.types](https://strandsagents.com/docs/api/python/strands.vended_memory_stores.bedrock_knowledge_base.types/index.md)
+- [strands.vended_memory_stores.file_memory_store.store](https://strandsagents.com/docs/api/python/strands.vended_memory_stores.file_memory_store.store/index.md)
+- [strands.vended_memory_stores.file_memory_store.types](https://strandsagents.com/docs/api/python/strands.vended_memory_stores.file_memory_store.types/index.md)
 - [strands.vended_memory_stores.test_memory_store.store](https://strandsagents.com/docs/api/python/strands.vended_memory_stores.test_memory_store.store/index.md)
 - [strands.vended_memory_stores.test_memory_store.types](https://strandsagents.com/docs/api/python/strands.vended_memory_stores.test_memory_store.types/index.md)
 - [strands.vended_plugins.context_injector.plugin](https://strandsagents.com/docs/api/python/strands.vended_plugins.context_injector.plugin/index.md)
@@ -476,6 +482,7 @@
 - [CacheConfig](https://strandsagents.com/docs/api/typescript/CacheConfig/index.md)
 - [CachePointBlock](https://strandsagents.com/docs/api/typescript/CachePointBlock/index.md)
 - [CachePointBlockData](https://strandsagents.com/docs/api/typescript/CachePointBlockData/index.md)
+- [CandidateInput](https://strandsagents.com/docs/api/typescript/CandidateInput/index.md)
 - [Citation](https://strandsagents.com/docs/api/typescript/Citation/index.md)
 - [CitationGeneratedContent](https://strandsagents.com/docs/api/typescript/CitationGeneratedContent/index.md)
 - [CitationLocation](https://strandsagents.com/docs/api/typescript/CitationLocation/index.md)
@@ -525,6 +532,7 @@
 - [ExtractionTriggerContext](https://strandsagents.com/docs/api/typescript/ExtractionTriggerContext/index.md)
 - [Extractor](https://strandsagents.com/docs/api/typescript/Extractor/index.md)
 - [ExtractorContext](https://strandsagents.com/docs/api/typescript/ExtractorContext/index.md)
+- [FallbackStrategy](https://strandsagents.com/docs/api/typescript/FallbackStrategy/index.md)
 - [FileInfo](https://strandsagents.com/docs/api/typescript/FileInfo/index.md)
 - [FileStorage](https://strandsagents.com/docs/api/typescript/FileStorage/index.md)
 - [FunctionTool](https://strandsagents.com/docs/api/typescript/FunctionTool/index.md)
@@ -640,6 +648,8 @@
 - [ModelRedactionEvent](https://strandsagents.com/docs/api/typescript/ModelRedactionEvent/index.md)
 - [ModelRedactionEventData](https://strandsagents.com/docs/api/typescript/ModelRedactionEventData/index.md)
 - [ModelRetryStrategy](https://strandsagents.com/docs/api/typescript/ModelRetryStrategy/index.md)
+- [ModelRouter](https://strandsagents.com/docs/api/typescript/ModelRouter/index.md)
+- [ModelRouterOptions](https://strandsagents.com/docs/api/typescript/ModelRouterOptions/index.md)
 - [ModelStopResponse](https://strandsagents.com/docs/api/typescript/ModelStopResponse/index.md)
 - [ModelStreamEvent](https://strandsagents.com/docs/api/typescript/ModelStreamEvent/index.md)
 - [ModelStreamUpdateEvent](https://strandsagents.com/docs/api/typescript/ModelStreamUpdateEvent/index.md)
@@ -660,6 +670,11 @@
 - [RetryDecision](https://strandsagents.com/docs/api/typescript/RetryDecision/index.md)
 - [RetryStrategy](https://strandsagents.com/docs/api/typescript/RetryStrategy/index.md)
 - [Role](https://strandsagents.com/docs/api/typescript/Role/index.md)
+- [RoutingAttempt](https://strandsagents.com/docs/api/typescript/RoutingAttempt/index.md)
+- [RoutingCandidate](https://strandsagents.com/docs/api/typescript/RoutingCandidate/index.md)
+- [RoutingCandidateOptions](https://strandsagents.com/docs/api/typescript/RoutingCandidateOptions/index.md)
+- [RoutingContext](https://strandsagents.com/docs/api/typescript/RoutingContext/index.md)
+- [RoutingStrategy](https://strandsagents.com/docs/api/typescript/RoutingStrategy/index.md)
 - [S3Location](https://strandsagents.com/docs/api/typescript/S3Location/index.md)
 - [S3LocationData](https://strandsagents.com/docs/api/typescript/S3LocationData/index.md)
 - [Sandbox](https://strandsagents.com/docs/api/typescript/Sandbox/index.md)
@@ -743,6 +758,7 @@
 
 ## Blog
 
+- [Robots working together: connecting agents to the physical world with Strands Robots and the Model Hardware Standard](https://strandsagents.com/blog/robots-working-together-model-hardware-standard-strands-robots/index.md): How Strands Robots lets agents read from and act on many robots and devices at once, across Zenoh, AWS IoT, and the new Model Hardware Standard (MHS), in simulation and the real world.
 - [Figma to Code at Scale: Building with Strands Agents](https://strandsagents.com/blog/figma-to-code-at-scale-building-with-strands-agents/index.md): A team at Amazon Ads built a multi-agent system that converts Figma designs into production ad layouts. Here's what their architecture looks like, why they chose Strands, and the lessons they learned shipping it.
 - [Introducing Harness Optimizer: Automatically optimize your agent harness](https://strandsagents.com/blog/introducing-harness-optimizer/index.md): Harness Optimizer is an open-source library that optimizes the context around your LLM agent (system prompt, tool docs, skills) the way you'd train a model: rollouts in, rewards out, parameters updated.
 - [Reduced cost, better isolation, and more resilience: Strands Agents evolves next-gen capabilities](https://strandsagents.com/blog/reduced-cost-better-isolation-more-resilience/index.md): Strands Agents ships context management that cuts costs in half, Strands Shell for sandboxed agent execution, and chaos testing and red teaming in Strands Evals 1.0.
@@ -769,6 +785,7 @@
 
 - [Changelog](https://strandsagents.com/changelog/index.md): All releases across the Harness and Evals SDKs
 - Harness Python
+  - [v1.54.0](https://strandsagents.com/changelog/harness/python-v1.54.0/index.md): Harness Python v1.54.0 (2026-08-27)
   - [v1.53.0](https://strandsagents.com/changelog/harness/python-v1.53.0/index.md): Harness Python v1.53.0 (2026-08-21)
   - [v1.52.0](https://strandsagents.com/changelog/harness/python-v1.52.0/index.md): Harness Python v1.52.0 (2026-08-12)
   - [v1.51.0](https://strandsagents.com/changelog/harness/python-v1.51.0/index.md): Harness Python v1.51.0 (2026-08-07)

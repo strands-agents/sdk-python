@@ -186,7 +186,7 @@ AgentInvocation contains all the event loop cycles and accumulated token usage f
 class EventLoopMetrics()
 ```
 
-Defined in: [src/strands/telemetry/metrics.py:185](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L185)
+Defined in: [src/strands/telemetry/metrics.py:207](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L207)
 
 Aggregated metrics for an event loop’s execution.
 
@@ -207,7 +207,7 @@ Aggregated metrics for an event loop’s execution.
 def latest_context_size() -> int | None
 ```
 
-Defined in: [src/strands/telemetry/metrics.py:207](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L207)
+Defined in: [src/strands/telemetry/metrics.py:229](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L229)
 
 Most recent context size from the last LLM call.
 
@@ -215,7 +215,7 @@ This represents the current context size as reported by the model.
 
 **Returns**:
 
-The input token count from the most recent cycle, or None if no data is available.
+The total prompt the model processed on the most recent cycle, including cached tokens, or None if no data is available.
 
 #### projected\_context\_size
 
@@ -224,11 +224,11 @@ The input token count from the most recent cycle, or None if no data is availabl
 def projected_context_size() -> int | None
 ```
 
-Defined in: [src/strands/telemetry/metrics.py:220](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L220)
+Defined in: [src/strands/telemetry/metrics.py:245](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L245)
 
 Projected context size for the next model call.
 
-Computed as inputTokens + outputTokens from the most recent cycle’s usage, representing the approximate input token count for the next model call (prior input + generated output that is now part of the conversation).
+Computed from the most recent cycle’s usage as the total prompt the model processed (including cached tokens) plus the generated output that is now part of the conversation, approximating the input token count for the next model call.
 
 **Returns**:
 
@@ -241,7 +241,7 @@ The projected token count, or None if no data is available.
 def latest_agent_invocation() -> AgentInvocation | None
 ```
 
-Defined in: [src/strands/telemetry/metrics.py:244](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L244)
+Defined in: [src/strands/telemetry/metrics.py:269](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L269)
 
 Get the most recent agent invocation.
 
@@ -255,7 +255,7 @@ The most recent AgentInvocation, or None if no invocations exist.
 def start_cycle(attributes: dict[str, Any]) -> tuple[float, Trace]
 ```
 
-Defined in: [src/strands/telemetry/metrics.py:252](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L252)
+Defined in: [src/strands/telemetry/metrics.py:277](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L277)
 
 Start a new event loop cycle and create a trace for it.
 
@@ -275,7 +275,7 @@ def end_cycle(start_time: float,
               attributes: dict[str, Any] | None = None) -> None
 ```
 
-Defined in: [src/strands/telemetry/metrics.py:280](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L280)
+Defined in: [src/strands/telemetry/metrics.py:305](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L305)
 
 End the current event loop cycle and record its duration.
 
@@ -295,7 +295,7 @@ def add_tool_usage(tool: ToolUse,
                    message: Message | None = None) -> None
 ```
 
-Defined in: [src/strands/telemetry/metrics.py:295](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L295)
+Defined in: [src/strands/telemetry/metrics.py:320](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L320)
 
 Record metrics for a tool invocation.
 
@@ -313,7 +313,7 @@ Record metrics for a tool invocation.
 def update_usage(usage: Usage) -> None
 ```
 
-Defined in: [src/strands/telemetry/metrics.py:355](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L355)
+Defined in: [src/strands/telemetry/metrics.py:380](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L380)
 
 Update the accumulated token usage with new usage data.
 
@@ -327,7 +327,7 @@ Update the accumulated token usage with new usage data.
 def reset_usage_metrics() -> None
 ```
 
-Defined in: [src/strands/telemetry/metrics.py:378](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L378)
+Defined in: [src/strands/telemetry/metrics.py:403](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L403)
 
 Start a new agent invocation by creating a new AgentInvocation.
 
@@ -339,7 +339,7 @@ This should be called at the start of a new request to begin tracking a new agen
 def update_metrics(metrics: Metrics) -> None
 ```
 
-Defined in: [src/strands/telemetry/metrics.py:386](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L386)
+Defined in: [src/strands/telemetry/metrics.py:411](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L411)
 
 Update the accumulated performance metrics with new metrics data.
 
@@ -353,7 +353,7 @@ Update the accumulated performance metrics with new metrics data.
 def get_summary() -> dict[str, Any]
 ```
 
-Defined in: [src/strands/telemetry/metrics.py:397](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L397)
+Defined in: [src/strands/telemetry/metrics.py:422](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L422)
 
 Generate a comprehensive summary of all collected metrics.
 
@@ -368,7 +368,7 @@ def metrics_to_string(event_loop_metrics: EventLoopMetrics,
                       allowed_names: set[str] | None = None) -> str
 ```
 
-Defined in: [src/strands/telemetry/metrics.py:536](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L536)
+Defined in: [src/strands/telemetry/metrics.py:561](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L561)
 
 Convert event loop metrics to a human-readable string representation.
 
@@ -387,7 +387,7 @@ A formatted string representation of the metrics.
 class MetricsClient()
 ```
 
-Defined in: [src/strands/telemetry/metrics.py:549](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L549)
+Defined in: [src/strands/telemetry/metrics.py:574](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L574)
 
 Singleton client for managing OpenTelemetry metrics instruments.
 
@@ -401,7 +401,7 @@ This class uses a thread-safe double-checked locking pattern to ensure safe conc
 def __new__(cls) -> "MetricsClient"
 ```
 
-Defined in: [src/strands/telemetry/metrics.py:577](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L577)
+Defined in: [src/strands/telemetry/metrics.py:602](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L602)
 
 Create or return the singleton instance of MetricsClient.
 
@@ -417,7 +417,7 @@ The single MetricsClient instance.
 def __init__() -> None
 ```
 
-Defined in: [src/strands/telemetry/metrics.py:592](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L592)
+Defined in: [src/strands/telemetry/metrics.py:617](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L617)
 
 Initialize the MetricsClient.
 
@@ -429,6 +429,6 @@ This method only runs once due to the singleton pattern. Sets up the OpenTelemet
 def create_instruments() -> None
 ```
 
-Defined in: [src/strands/telemetry/metrics.py:612](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L612)
+Defined in: [src/strands/telemetry/metrics.py:637](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L637)
 
 Create and initialize all OpenTelemetry metric instruments.

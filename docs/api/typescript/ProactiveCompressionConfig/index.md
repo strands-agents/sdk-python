@@ -4,7 +4,7 @@ type ProactiveCompressionConfig = {
 };
 ```
 
-Defined in: [src/conversation-manager/conversation-manager.ts:55](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/conversation-manager/conversation-manager.ts#L55)
+Defined in: [src/conversation-manager/conversation-manager.ts:55](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/conversation-manager/conversation-manager.ts#L55)
 
 Configuration for proactive compression when passed as an object.
 
@@ -16,6 +16,6 @@ Configuration for proactive compression when passed as an object.
 compressionThreshold: number;
 ```
 
-Defined in: [src/conversation-manager/conversation-manager.ts:61](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/conversation-manager/conversation-manager.ts#L61)
+Defined in: [src/conversation-manager/conversation-manager.ts:61](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/conversation-manager/conversation-manager.ts#L61)
 
 Ratio of context window usage that triggers proactive compression. Value between 0 (exclusive) and 1 (inclusive). Defaults to 0.7 (compress when 70% of the context window is used).

@@ -5,4 +5,4 @@ type SystemContentBlock =
   | GuardContentBlock;
 ```
 
-Defined in: [src/types/messages.ts:813](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/types/messages.ts#L813)
+Defined in: [src/types/messages.ts:813](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/types/messages.ts#L813)

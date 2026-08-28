@@ -6,7 +6,7 @@ Local filesystem storage implementation.
 class LocalFileStorage()
 ```
 
-Defined in: [src/strands/storage/local\_file\_storage.py:20](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/local_file_storage.py#L20)
+Defined in: [src/strands/storage/local\_file\_storage.py:22](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/local_file_storage.py#L22)
 
 Persists each key as a file under a base directory.
 
@@ -29,7 +29,7 @@ def __init__(base_dir: str = "./.strands/",
              sandbox: Sandbox | None = None) -> None
 ```
 
-Defined in: [src/strands/storage/local\_file\_storage.py:35](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/local_file_storage.py#L35)
+Defined in: [src/strands/storage/local\_file\_storage.py:37](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/local_file_storage.py#L37)
 
 Initialize local file storage.
 
@@ -38,13 +38,24 @@ Initialize local file storage.
 -   `base_dir` - Root directory under which all keys are stored.
 -   `sandbox` - Optional sandbox to route I/O through.
 
+#### base\_dir
+
+```python
+@property
+def base_dir() -> str
+```
+
+Defined in: [src/strands/storage/local\_file\_storage.py:48](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/local_file_storage.py#L48)
+
+The root directory under which all keys are stored.
+
 #### for\_sandbox
 
 ```python
 def for_sandbox(sandbox: Sandbox) -> LocalFileStorage
 ```
 
-Defined in: [src/strands/storage/local\_file\_storage.py:45](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/local_file_storage.py#L45)
+Defined in: [src/strands/storage/local\_file\_storage.py:52](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/local_file_storage.py#L52)
 
 Return a copy bound to the given sandbox.
 
@@ -64,7 +75,7 @@ A LocalFileStorage instance bound to the sandbox.
 async def write(key: str, data: bytes) -> None
 ```
 
-Defined in: [src/strands/storage/local\_file\_storage.py:60](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/local_file_storage.py#L60)
+Defined in: [src/strands/storage/local\_file\_storage.py:70](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/local_file_storage.py#L70)
 
 Store data as a file, creating parent directories as needed.
 
@@ -85,7 +96,7 @@ On the host filesystem, writes are atomic via write-to-temp-then-rename.
 async def read(key: str) -> bytes | None
 ```
 
-Defined in: [src/strands/storage/local\_file\_storage.py:99](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/local_file_storage.py#L99)
+Defined in: [src/strands/storage/local\_file\_storage.py:109](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/local_file_storage.py#L109)
 
 Read the file corresponding to key.
 
@@ -107,7 +118,7 @@ The file contents as bytes, or None if the file does not exist.
 async def delete(key: str) -> None
 ```
 
-Defined in: [src/strands/storage/local\_file\_storage.py:127](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/local_file_storage.py#L127)
+Defined in: [src/strands/storage/local\_file\_storage.py:137](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/local_file_storage.py#L137)
 
 Delete the file corresponding to key. No-op if it does not exist.
 
@@ -125,7 +136,7 @@ Delete the file corresponding to key. No-op if it does not exist.
 async def list(query: str = "") -> builtins.list[str]
 ```
 
-Defined in: [src/strands/storage/local\_file\_storage.py:156](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/local_file_storage.py#L156)
+Defined in: [src/strands/storage/local\_file\_storage.py:166](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/local_file_storage.py#L166)
 
 List keys matching the given prefix by walking the directory tree.
 
@@ -141,17 +152,35 @@ Matching keys sorted ascending.
 
 -   `StorageError` - If the listing fails.
 
+#### search
+
+```python
+async def search(query: str) -> builtins.list[StorageSearchResult]
+```
+
+Defined in: [src/strands/storage/local\_file\_storage.py:191](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/local_file_storage.py#L191)
+
+Search stored content by keyword token-overlap scoring.
+
+**Arguments**:
+
+-   `query` - Natural-language search query.
+
+**Returns**:
+
+All matches with relevance scores, ranked best-first.
+
 #### namespace
 
 ```python
-def namespace(prefix: str) -> _NamespacedStorage
+def namespace(prefix: str) -> LocalFileStorage
 ```
 
-Defined in: [src/strands/storage/local\_file\_storage.py:181](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/local_file_storage.py#L181)
+Defined in: [src/strands/storage/local\_file\_storage.py:202](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/local_file_storage.py#L202)
 
-Return a view of this storage with all keys prefixed.
+Return a new LocalFileStorage scoped to a subdirectory.
 
-The returned view preserves `for_sandbox` via delegation to the underlying storage, so sandbox routing works even when storage is pre-namespaced before being passed to a plugin.
+Unlike a generic `_NamespacedStorage` wrapper, this returns a real `LocalFileStorage` whose `base_dir` incorporates the prefix. This preserves access to `base_dir` for strategies that need the filesystem path (e.g. index-based search), and `for_sandbox` continues to work.
 
 **Arguments**:
 
@@ -159,4 +188,4 @@ The returned view preserves `for_sandbox` via delegation to the underlying stora
 
 **Returns**:
 
-A namespaced storage view.
+A new LocalFileStorage rooted at the sub-path.

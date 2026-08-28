@@ -14,7 +14,7 @@ Gemini Live is configured as an optional dependency in Strands Agents.
 To install it, run:
 
 ```bash
-pip install 'strands-agents[bidi-gemini]'
+pip install 'strands-agents[bidi-google]'
 ```
 
 Or to install all bidirectional streaming providers at once:
@@ -25,7 +25,7 @@ pip install 'strands-agents[bidi-all]'
 
 ## Usage
 
-After installing `strands-agents[bidi-gemini]`, you can import and initialize the Strands Agents’ Gemini Live provider as follows:
+After installing `strands-agents[bidi-google]`, import and initialize the Gemini Live model provider:
 
 ```python
 import asyncio
@@ -83,7 +83,7 @@ Currently, `BidiGeminiLiveModel` does not produce a message history and so has l
 
 ### Module Not Found
 
-If you encounter the error `ModuleNotFoundError: No module named 'google.genai'`, this means the `google-genai` dependency hasn’t been properly installed in your environment. To fix this, run `pip install 'strands-agents[bidi-gemini]'`.
+The error `ModuleNotFoundError: No module named 'google.genai'` means the `google-genai` dependency is missing. Install it with `pip install 'strands-agents[bidi-google]'`.
 
 ### API Key Issues
 

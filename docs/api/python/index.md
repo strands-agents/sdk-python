@@ -48,6 +48,7 @@
     -   [Openai](/docs/api/python/strands.models.openai)
     -   [Openai Responses](/docs/api/python/strands.models.openai_responses)
     -   **Routing**
+        -   [Classifier Strategy](/docs/api/python/strands.models.routing.classifier_strategy)
         -   [Fallback Strategy](/docs/api/python/strands.models.routing.fallback_strategy)
         -   [Router](/docs/api/python/strands.models.routing.router)
         -   [Strategy](/docs/api/python/strands.models.routing.strategy)
@@ -86,6 +87,9 @@
     -   [In Memory Storage](/docs/api/python/strands.storage.in_memory_storage)
     -   [Local File Storage](/docs/api/python/strands.storage.local_file_storage)
     -   [S3 Storage](/docs/api/python/strands.storage.s3_storage)
+    -   **Search**
+        -   [Keyword](/docs/api/python/strands.storage.search.keyword)
+        -   [Types](/docs/api/python/strands.storage.search.types)
     -   [Storage](/docs/api/python/strands.storage.storage)
 -   **Telemetry**
     -   [Config](/docs/api/python/strands.telemetry.config)
@@ -136,6 +140,9 @@
     -   **Bedrock Knowledge Base**
         -   [Store](/docs/api/python/strands.vended_memory_stores.bedrock_knowledge_base.store)
         -   [Types](/docs/api/python/strands.vended_memory_stores.bedrock_knowledge_base.types)
+    -   **File Memory Store**
+        -   [Store](/docs/api/python/strands.vended_memory_stores.file_memory_store.store)
+        -   [Types](/docs/api/python/strands.vended_memory_stores.file_memory_store.types)
     -   **Test Memory Store**
         -   [Store](/docs/api/python/strands.vended_memory_stores.test_memory_store.store)
         -   [Types](/docs/api/python/strands.vended_memory_stores.test_memory_store.types)
@@ -183,6 +190,7 @@
             -   [Loop](/docs/api/python/strands.experimental.bidi.agent.loop)
         -   [Audio](/docs/api/python/strands.experimental.bidi.audio)
         -   **Io**
+            -   [Overview](/docs/api/python/strands.experimental.bidi.io)
             -   [Audio](/docs/api/python/strands.experimental.bidi.io.audio)
             -   [Text](/docs/api/python/strands.experimental.bidi.io.text)
         -   **Models**

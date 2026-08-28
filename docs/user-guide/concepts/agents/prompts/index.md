@@ -115,12 +115,21 @@ result = agent.tool.current_time(timezone="US/Pacific")
 (( /tab "Python" ))
 
 (( tab "TypeScript" ))
-```ts
-// Not supported in TypeScript
+```typescript
+import { Agent } from '@strands-agents/sdk'
+import { notebook } from '@strands-agents/sdk/vended-tools/notebook'
+
+const agent = new Agent({
+  tools: [notebook],
+})
+
+// notebook is registered when the agent is created, so the non-null assertion is safe.
+const result = await agent.tool.notebook!.invoke({ mode: 'list' })
+console.log(result)
 ```
 (( /tab "TypeScript" ))
 
-Direct tool calls bypass the natural language interface and execute the tool using specified parameters. These calls are added to the conversation history by default. However, you can opt out of this behavior by setting `record_direct_tool_call=False``recordDirectToolCall: false`.
+Direct tool calls bypass the natural language interface and execute the tool using specified parameters. These calls are added to the conversation history by default. However, you can opt out of this behavior by setting `record_direct_tool_call=False``{ recordDirectToolCall: false }`.
 
 ## Prompt Engineering
 

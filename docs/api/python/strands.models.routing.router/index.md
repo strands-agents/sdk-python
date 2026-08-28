@@ -23,11 +23,26 @@ Known limitation: routing applies to `InvokeModelStage`, so `agent.model` stays 
 class RoutingCandidate()
 ```
 
-Defined in: [src/strands/models/routing/router.py:74](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/routing/router.py#L74)
+Defined in: [src/strands/models/routing/router.py:78](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/routing/router.py#L78)
 
-A routing candidate: a model with an optional name and description.
+A model or model group with optional classifier-facing evidence.
 
-`model` may be a nested `ModelRouter`, which contributes one candidate: its strategy picks from its own candidates, and the group performs no internal failover.
+`model` may be a nested `ModelRouter`, which contributes one opaque candidate. Its strategy selects from its own candidates, and the group performs no internal failover. Metadata must be a JSON-serializable mapping; classifier-based strategies may send it across provider boundaries, so it must not contain secrets. The candidate stores the caller’s mapping without copying, so it must not be mutated after construction.
+
+**Raises**:
+
+-   `TypeError` - If metadata is not a mapping with string keys.
+-   `ValueError` - If metadata is not JSON-serializable.
+
+#### \_\_post\_init\_\_
+
+```python
+def __post_init__() -> None
+```
+
+Defined in: [src/strands/models/routing/router.py:96](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/routing/router.py#L96)
+
+Validate caller-owned metadata.
 
 ## ModelRouter
 
@@ -35,7 +50,7 @@ A routing candidate: a model with an optional name and description.
 class ModelRouter(Plugin)
 ```
 
-Defined in: [src/strands/models/routing/router.py:106](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/routing/router.py#L106)
+Defined in: [src/strands/models/routing/router.py:130](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/routing/router.py#L130)
 
 A reusable set of candidate models routed in strategy-defined preference order.
 
@@ -48,13 +63,13 @@ def __init__(models: Sequence[CandidateInput],
              max_switches: int | None = None) -> None
 ```
 
-Defined in: [src/strands/models/routing/router.py:111](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/routing/router.py#L111)
+Defined in: [src/strands/models/routing/router.py:135](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/routing/router.py#L135)
 
 Initialize the router.
 
 **Arguments**:
 
--   `models` - The models to route among, as a sequence. Each is a `Model`, a nested `ModelRouter`, or a `RoutingCandidate` wrapping one with a name and description. The first is the router’s default, used when a strategy declines, and each is normalized into the `RoutingCandidate` a strategy chooses from.
+-   `models` - The models to route among, as a sequence. Each is a `Model`, a nested `ModelRouter`, or a `RoutingCandidate` wrapping one with a name, description, and metadata. The first is the router’s default, used when a strategy declines, and each is normalized into the `RoutingCandidate` a strategy chooses from.
 -   `strategy` - Chooses the candidate for each model call, and is asked again after a failed call. Defaults to `FallbackStrategy`, which prefers the candidate with the fewest recorded failures and breaks ties by declaration order, so an invocation with no failures behind it is ordered failover. A success re-arms every candidate.
 -   `max_switches` - Cap on model switches within one invocation, after which the router stops asking and lets the error surface. Selection is asked once per invocation, but every failed model call can switch, so an invocation running a long tool loop has many chances to switch. Defaults to `None`, leaving the stop decision to the strategy.
 
@@ -71,7 +86,7 @@ Initialize the router.
 def candidates() -> tuple[RoutingCandidate, ...]
 ```
 
-Defined in: [src/strands/models/routing/router.py:158](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/routing/router.py#L158)
+Defined in: [src/strands/models/routing/router.py:182](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/routing/router.py#L182)
 
 The normalized candidates, in declaration order.
 
@@ -82,7 +97,7 @@ The normalized candidates, in declaration order.
 def default_model() -> Model
 ```
 
-Defined in: [src/strands/models/routing/router.py:163](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/routing/router.py#L163)
+Defined in: [src/strands/models/routing/router.py:187](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/routing/router.py#L187)
 
 The first declared candidate resolved to a concrete model, without consulting a strategy.
 
@@ -92,7 +107,7 @@ The first declared candidate resolved to a concrete model, without consulting a 
 def init_agent(agent: Agent) -> None
 ```
 
-Defined in: [src/strands/models/routing/router.py:172](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/routing/router.py#L172)
+Defined in: [src/strands/models/routing/router.py:196](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/routing/router.py#L196)
 
 Register routing middleware and hooks; reject attachment through `plugins=[...]`.
 

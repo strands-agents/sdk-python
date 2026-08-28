@@ -1,4 +1,4 @@
-Defined in: [src/models/model.ts:296](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/models/model.ts#L296)
+Defined in: [src/models/model.ts:301](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/models/model.ts#L301)
 
 Base abstract class for model providers. Defines the contract that all model provider implementations must follow.
 
@@ -36,7 +36,7 @@ new Model<T>(): Model<T>;
 get modelId(): string;
 ```
 
-Defined in: [src/models/model.ts:315](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/models/model.ts#L315)
+Defined in: [src/models/model.ts:320](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/models/model.ts#L320)
 
 The model ID from the current configuration, if configured.
 
@@ -54,7 +54,7 @@ The model ID from the current configuration, if configured.
 get stateful(): boolean;
 ```
 
-Defined in: [src/models/model.ts:331](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/models/model.ts#L331)
+Defined in: [src/models/model.ts:336](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/models/model.ts#L336)
 
 Whether this model manages conversation state server-side.
 
@@ -76,7 +76,7 @@ Model providers that support server-side state management should override this t
 abstract updateConfig(modelConfig): void;
 ```
 
-Defined in: [src/models/model.ts:303](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/models/model.ts#L303)
+Defined in: [src/models/model.ts:308](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/models/model.ts#L308)
 
 Updates the model configuration. Merges the provided configuration with existing settings.
 
@@ -98,7 +98,7 @@ Updates the model configuration. Merges the provided configuration with existing
 abstract getConfig(): T;
 ```
 
-Defined in: [src/models/model.ts:310](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/models/model.ts#L310)
+Defined in: [src/models/model.ts:315](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/models/model.ts#L315)
 
 Retrieves the current model configuration.
 
@@ -116,7 +116,7 @@ The current configuration object
 abstract stream(messages, options?): AsyncIterable<ModelStreamEvent>;
 ```
 
-Defined in: [src/models/model.ts:343](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/models/model.ts#L343)
+Defined in: [src/models/model.ts:348](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/models/model.ts#L348)
 
 Streams a conversation with the model. Returns an async iterable that yields streaming events as they occur.
 
@@ -141,7 +141,7 @@ Async iterable of streaming events
 countTokens(messages, options?): Promise<number>;
 ```
 
-Defined in: [src/models/model.ts:359](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/models/model.ts#L359)
+Defined in: [src/models/model.ts:364](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/models/model.ts#L364)
 
 Count tokens for the given input before sending to the model.
 
@@ -170,7 +170,7 @@ Total input token count
 estimateUtilization(inputTokens): number;
 ```
 
-Defined in: [src/models/model.ts:372](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/models/model.ts#L372)
+Defined in: [src/models/model.ts:377](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/models/model.ts#L377)
 
 Estimate the fraction of the model’s context window consumed by the given input token count.
 
@@ -198,7 +198,7 @@ streamAggregated(messages, options?): AsyncGenerator<
 | ModelStreamEvent, StreamAggregatedResult, undefined>;
 ```
 
-Defined in: [src/models/model.ts:439](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/models/model.ts#L439)
+Defined in: [src/models/model.ts:444](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/models/model.ts#L444)
 
 Streams a conversation with aggregated content blocks and messages. Returns an async generator that yields streaming events and content blocks, and returns the final message with stop reason and optional metadata.
 

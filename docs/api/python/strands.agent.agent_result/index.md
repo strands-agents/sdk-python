@@ -36,7 +36,7 @@ Most recent context size in tokens from the last LLM call.
 
 **Returns**:
 
-The input token count from the most recent cycle, or None if no data is available.
+The total prompt the model processed on the most recent cycle, including cached tokens, or None if no data is available.
 
 #### projected\_context\_size
 
@@ -45,13 +45,13 @@ The input token count from the most recent cycle, or None if no data is availabl
 def projected_context_size() -> int | None
 ```
 
-Defined in: [src/strands/agent/agent\_result.py:53](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent_result.py#L53)
+Defined in: [src/strands/agent/agent\_result.py:54](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent_result.py#L54)
 
 Projected context size for the next model call.
 
 **Returns**:
 
-The projected token count (inputTokens + outputTokens), or None if no data is available.
+The projected token count (total prompt including cached tokens plus generated output), or None if no data is available.
 
 #### \_\_str\_\_
 
@@ -59,7 +59,7 @@ The projected token count (inputTokens + outputTokens), or None if no data is av
 def __str__() -> str
 ```
 
-Defined in: [src/strands/agent/agent\_result.py:61](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent_result.py#L61)
+Defined in: [src/strands/agent/agent\_result.py:63](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent_result.py#L63)
 
 Return a string representation of the agent result.
 
@@ -80,7 +80,7 @@ String representation based on the priority order above.
 def from_dict(cls, data: dict[str, Any]) -> "AgentResult"
 ```
 
-Defined in: [src/strands/agent/agent\_result.py:94](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent_result.py#L94)
+Defined in: [src/strands/agent/agent\_result.py:96](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent_result.py#L96)
 
 Rehydrate an AgentResult from persisted JSON.
 
@@ -102,7 +102,7 @@ AgentResult instance
 def to_dict() -> dict[str, Any]
 ```
 
-Defined in: [src/strands/agent/agent\_result.py:120](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent_result.py#L120)
+Defined in: [src/strands/agent/agent\_result.py:122](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent_result.py#L122)
 
 Convert this AgentResult to JSON-serializable dictionary.
 

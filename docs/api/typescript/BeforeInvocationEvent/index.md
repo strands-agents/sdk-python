@@ -1,4 +1,4 @@
-Defined in: [src/hooks/events.ts:139](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/hooks/events.ts#L139)
+Defined in: [src/hooks/events.ts:139](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/hooks/events.ts#L139)
 
 Event triggered at the beginning of a new agent request. Fired before any model inference or tool execution occurs.
 
@@ -14,7 +14,7 @@ Event triggered at the beginning of a new agent request. Fired before any model 
 new BeforeInvocationEvent(data): BeforeInvocationEvent;
 ```
 
-Defined in: [src/hooks/events.ts:151](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/hooks/events.ts#L151)
+Defined in: [src/hooks/events.ts:151](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/hooks/events.ts#L151)
 
 #### Parameters
 
@@ -40,7 +40,7 @@ Defined in: [src/hooks/events.ts:151](https://github.com/strands-agents/harness-
 readonly type: "beforeInvocationEvent";
 ```
 
-Defined in: [src/hooks/events.ts:140](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/hooks/events.ts#L140)
+Defined in: [src/hooks/events.ts:140](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/hooks/events.ts#L140)
 
 ---
 
@@ -50,7 +50,7 @@ Defined in: [src/hooks/events.ts:140](https://github.com/strands-agents/harness-
 readonly agent: LocalAgent;
 ```
 
-Defined in: [src/hooks/events.ts:141](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/hooks/events.ts#L141)
+Defined in: [src/hooks/events.ts:141](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/hooks/events.ts#L141)
 
 ---
 
@@ -60,7 +60,7 @@ Defined in: [src/hooks/events.ts:141](https://github.com/strands-agents/harness-
 readonly invocationState: InvocationState;
 ```
 
-Defined in: [src/hooks/events.ts:142](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/hooks/events.ts#L142)
+Defined in: [src/hooks/events.ts:142](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/hooks/events.ts#L142)
 
 ---
 
@@ -70,7 +70,7 @@ Defined in: [src/hooks/events.ts:142](https://github.com/strands-agents/harness-
 cancel: string | boolean = false;
 ```
 
-Defined in: [src/hooks/events.ts:149](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/hooks/events.ts#L149)
+Defined in: [src/hooks/events.ts:149](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/hooks/events.ts#L149)
 
 Set by hook callbacks to cancel this invocation. When set to `true`, a default cancel message is used. When set to a string, that string is used as the assistant response message.
 
@@ -82,7 +82,7 @@ Set by hook callbacks to cancel this invocation. When set to `true`, a default c
 toJSON(): Pick<BeforeInvocationEvent, "type">;
 ```
 
-Defined in: [src/hooks/events.ts:161](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/hooks/events.ts#L161)
+Defined in: [src/hooks/events.ts:161](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/hooks/events.ts#L161)
 
 Serializes for wire transport, excluding the agent reference and invocationState. Called automatically by JSON.stringify().
 

@@ -1,4 +1,4 @@
-Defined in: [src/retry/backoff-strategy.ts:16](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/retry/backoff-strategy.ts#L16)
+Defined in: [src/retry/backoff-strategy.ts:16](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/retry/backoff-strategy.ts#L16)
 
 Context passed to a [BackoffStrategy](/docs/api/typescript/BackoffStrategy/index.md) for each retry decision.
 
@@ -12,7 +12,7 @@ Treated as an open, additive-only contract: new optional fields may be added ove
 attempt: number;
 ```
 
-Defined in: [src/retry/backoff-strategy.ts:18](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/retry/backoff-strategy.ts#L18)
+Defined in: [src/retry/backoff-strategy.ts:18](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/retry/backoff-strategy.ts#L18)
 
 1-based index of the attempt that just failed. Must be >= 1.
 
@@ -24,7 +24,7 @@ Defined in: [src/retry/backoff-strategy.ts:18](https://github.com/strands-agents
 elapsedMs: number;
 ```
 
-Defined in: [src/retry/backoff-strategy.ts:20](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/retry/backoff-strategy.ts#L20)
+Defined in: [src/retry/backoff-strategy.ts:20](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/retry/backoff-strategy.ts#L20)
 
 Total milliseconds elapsed since the first attempt started.
 
@@ -36,6 +36,6 @@ Total milliseconds elapsed since the first attempt started.
 optional lastDelayMs?: number;
 ```
 
-Defined in: [src/retry/backoff-strategy.ts:22](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/retry/backoff-strategy.ts#L22)
+Defined in: [src/retry/backoff-strategy.ts:22](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/retry/backoff-strategy.ts#L22)
 
 Previously computed delay, if any. Absent before the first retry.

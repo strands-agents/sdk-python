@@ -1,4 +1,4 @@
-Defined in: [src/mcp/config.ts:9](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/mcp/config.ts#L9)
+Defined in: [src/mcp/config.ts:9](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/mcp/config.ts#L9)
 
 Tool filters in a serializable form, for an MCP server config entry. Because a config file cannot carry a `RegExp`, each pattern is a string compiled to a regex, matched from the start of the server-side tool name.
 
@@ -10,7 +10,7 @@ Tool filters in a serializable form, for an MCP server config entry. Because a c
 optional allowed?: string[];
 ```
 
-Defined in: [src/mcp/config.ts:11](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/mcp/config.ts#L11)
+Defined in: [src/mcp/config.ts:11](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/mcp/config.ts#L11)
 
 When present, only tools whose names match one of these patterns are exposed.
 
@@ -22,6 +22,6 @@ When present, only tools whose names match one of these patterns are exposed.
 optional rejected?: string[];
 ```
 
-Defined in: [src/mcp/config.ts:13](https://github.com/strands-agents/harness-sdk/blob/1fd743a7fe7cba5547824c6123aab7e6f3a7f10f/strands-ts/src/mcp/config.ts#L13)
+Defined in: [src/mcp/config.ts:13](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/mcp/config.ts#L13)
 
 Tools whose names match one of these patterns are excluded, even when also allowed.
