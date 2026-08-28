@@ -1420,6 +1420,11 @@ class Agent(AgentBase):
                     self._end_agent_trace_span(error=e)
                     self._concurrency.complete(begin.registered_token, error=e)
                     raise
+                except BaseException as cancellation:
+                    # Waiter settlement deferred to the finally block (aborted path) — propagating
+                    # CancelledError into unrelated waiters would be incorrect.
+                    self._end_agent_trace_span(cancellation=cancellation)
+                    raise
 
         finally:
             if cancel_watcher is not None:
@@ -1792,15 +1797,20 @@ class Agent(AgentBase):
         self,
         response: AgentResult | None = None,
         error: Exception | None = None,
+        cancellation: BaseException | None = None,
     ) -> None:
         """Ends a trace span for the agent.
 
         Args:
-            span: The span to end.
             response: Response to record as a trace attribute.
             error: Error to record as a trace attribute.
+            cancellation: BaseException that cancelled the invocation (e.g. CancelledError).
         """
         if self.trace_span:
+            if cancellation is not None:
+                self.tracer.end_span_with_cancellation(self.trace_span, cancellation)
+                return
+
             trace_attributes: dict[str, Any] = {
                 "span": self.trace_span,
             }
