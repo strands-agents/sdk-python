@@ -453,6 +453,46 @@ class TestSageMakerAIModel:
         assert len(captured_warnings) == 0
 
     @pytest.mark.asyncio
+    async def test_stream_multiple_events_per_payload_part(self, sagemaker_client, model, messages, captured_warnings):
+        """Every SSE event is surfaced when a PayloadPart carries more than one event or splits one.
+
+        SageMaker does not align PayloadParts to SSE event boundaries: a container such as vLLM or
+        TGI may flush several ``data:`` events into one part or split a single event mid-JSON across
+        parts. All content up to and including the terminating event must be yielded in order.
+        """
+
+        def sse(content: str, finish_reason: str | None = None) -> str:
+            event = {"choices": [{"delta": {"content": content}, "finish_reason": finish_reason}]}
+            return f"data: {json.dumps(event)}\n\n"
+
+        final_event = sse("!", finish_reason="stop")
+        split = len(final_event) // 2
+        mock_response = {
+            "Body": [
+                # Two complete SSE events packed into a single PayloadPart.
+                {"PayloadPart": {"Bytes": (sse("Paris is ") + sse("the capital of France")).encode("utf-8")}},
+                # A third event split mid-JSON across two parts.
+                {"PayloadPart": {"Bytes": final_event[:split].encode("utf-8")}},
+                {"PayloadPart": {"Bytes": final_event[split:].encode("utf-8")}},
+            ]
+        }
+        sagemaker_client.invoke_endpoint_with_response_stream.return_value = mock_response
+
+        response = [chunk async for chunk in model.stream(messages)]
+
+        text = "".join(
+            event["contentBlockDelta"]["delta"]["text"]
+            for event in response
+            if "contentBlockDelta" in event and "text" in event["contentBlockDelta"]["delta"]
+        )
+        message_stop = next((event for event in response if "messageStop" in event), None)
+
+        assert text == "Paris is the capital of France!"
+        assert message_stop is not None
+        assert message_stop["messageStop"]["stopReason"] == "end_turn"
+        assert len(captured_warnings) == 0
+
+    @pytest.mark.asyncio
     async def test_tool_choice_not_supported_warns(self, sagemaker_client, model, messages, captured_warnings, alist):
         """Test that non-None toolChoice emits warning for unsupported providers."""
         tool_choice = {"auto": {}}
