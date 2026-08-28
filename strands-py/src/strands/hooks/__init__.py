@@ -30,7 +30,7 @@ type-safe system that supports multiple subscribers per event type.
 """
 
 from .events import (
-    AfterAuxModelCallEvent,
+    AfterAuxiliaryModelCallEvent,
     AfterInvocationEvent,
     AfterModelCallEvent,
     # Multiagent hook events
@@ -39,7 +39,7 @@ from .events import (
     AfterToolCallEvent,
     AfterToolsEvent,
     AgentInitializedEvent,
-    BeforeAuxModelCallEvent,
+    BeforeAuxiliaryModelCallEvent,
     BeforeInvocationEvent,
     BeforeModelCallEvent,
     BeforeMultiAgentInvocationEvent,
@@ -60,8 +60,8 @@ __all__ = [
     "AfterToolsEvent",
     "BeforeModelCallEvent",
     "AfterModelCallEvent",
-    "BeforeAuxModelCallEvent",
-    "AfterAuxModelCallEvent",
+    "BeforeAuxiliaryModelCallEvent",
+    "AfterAuxiliaryModelCallEvent",
     "AfterInvocationEvent",
     "MessageAddedEvent",
     "HookEvent",

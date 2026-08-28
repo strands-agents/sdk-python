@@ -13,9 +13,9 @@ from strands.agent.conversation_manager.compression.context_compression import (
     matches_message_type,
 )
 from strands.agent.conversation_manager.compression.pin_message import partition_pinned, pin_message
-from strands.hooks import AfterAuxModelCallEvent, BeforeAuxModelCallEvent
+from strands.hooks import AfterAuxiliaryModelCallEvent, BeforeAuxiliaryModelCallEvent
 from strands.types.content import Message
-from strands.types.exceptions import AuxModelCallCancelledException, ContextWindowOverflowException
+from strands.types.exceptions import AuxiliaryModelCallCancelledException, ContextWindowOverflowException
 from tests.fixtures.mock_hook_provider import MockHookProvider
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
@@ -207,7 +207,7 @@ class TestGenerateSummary:
     async def test_fires_aux_hooks_and_records_usage_when_agent_provided(self):
         model = Mock()
         model.stream = Mock(side_effect=lambda *a, **kw: _mock_model_stream_with_usage("Summary"))
-        hook_provider = MockHookProvider([BeforeAuxModelCallEvent, AfterAuxModelCallEvent])
+        hook_provider = MockHookProvider([BeforeAuxiliaryModelCallEvent, AfterAuxiliaryModelCallEvent])
         agent = Agent(model=MockedModelProvider([]), hooks=[hook_provider])
 
         result = await generate_summary([text_msg("user", "hello")], model, agent=agent)
@@ -223,12 +223,12 @@ class TestGenerateSummary:
         model = mock_model("Summary")
         agent = Agent(model=MockedModelProvider([]))
 
-        def cancel(event: BeforeAuxModelCallEvent) -> None:
+        def cancel(event: BeforeAuxiliaryModelCallEvent) -> None:
             event.cancel = "summarization blocked"
 
-        agent.hooks.add_callback(BeforeAuxModelCallEvent, cancel)
+        agent.hooks.add_callback(BeforeAuxiliaryModelCallEvent, cancel)
 
-        with pytest.raises(AuxModelCallCancelledException, match="summarization blocked"):
+        with pytest.raises(AuxiliaryModelCallCancelledException, match="summarization blocked"):
             await generate_summary([text_msg("user", "hello")], model, agent=agent)
 
     async def test_propagates_model_errors(self):

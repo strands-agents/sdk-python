@@ -16,6 +16,7 @@ from opentelemetry import trace as trace_api
 from ...models.model import Model
 from ...telemetry.tracer import get_tracer
 from ...types.content import Message
+from ...types.exceptions import AuxiliaryModelCallCancelledException
 from .types import ExtractionResult, ExtractorContext
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ class ModelExtractor:
         Raises:
             ValueError: If no model is configured and no default is available.
             RuntimeError: If the model returns no response.
-            AuxModelCallCancelledException: If a ``BeforeAuxModelCallEvent`` hook
+            AuxiliaryModelCallCancelledException: If a ``BeforeAuxModelCallEvent`` hook
                 cancelled the extraction call.
         """
         model = self._model or (context.default_model if context else None)
@@ -82,7 +83,7 @@ class ModelExtractor:
         }
 
         # Lazy import to avoid a circular import with ``event_loop.streaming``.
-        from ...event_loop._aux_model_call import instrument_aux_model_call
+        from ...event_loop._auxiliary_model_call import instrument_auxiliary_model_call
         from ...event_loop.streaming import stream_messages
 
         tracer = get_tracer()
@@ -93,9 +94,9 @@ class ModelExtractor:
         stop: Any = None
         try:
             with trace_api.use_span(span, end_on_exit=False):
-                events = instrument_aux_model_call(
+                events = instrument_auxiliary_model_call(
                     stream_messages(model, self._system_prompt, [prompt], tool_specs=[]),
-                    source="memory_extraction",
+                    source="extraction",
                     agent=context.agent if context else None,
                     messages=[prompt],
                 )
@@ -106,6 +107,11 @@ class ModelExtractor:
                     if candidate is not None:
                         stop = candidate
                         final_message = stop[1]
+        except AuxiliaryModelCallCancelledException:
+            # A hook cancelled the call before the model was invoked: close the span
+            # cleanly rather than recording a phantom failed model call.
+            span.end()
+            raise
         except Exception as error:
             tracer.end_span_with_error(span, str(error), error)
             raise

@@ -3,13 +3,13 @@ from typing import Literal
 
 from strands import Agent
 from strands.hooks import (
-    AfterAuxModelCallEvent,
+    AfterAuxiliaryModelCallEvent,
     AfterInvocationEvent,
     AfterModelCallEvent,
     AfterToolCallEvent,
     AfterToolsEvent,
     AgentInitializedEvent,
-    BeforeAuxModelCallEvent,
+    BeforeAuxiliaryModelCallEvent,
     BeforeInvocationEvent,
     BeforeModelCallEvent,
     BeforeToolCallEvent,
@@ -34,8 +34,8 @@ class MockHookProvider(HookProvider):
                 AfterToolsEvent,
                 BeforeModelCallEvent,
                 AfterModelCallEvent,
-                BeforeAuxModelCallEvent,
-                AfterAuxModelCallEvent,
+                BeforeAuxiliaryModelCallEvent,
+                AfterAuxiliaryModelCallEvent,
                 MessageAddedEvent,
             ]
 

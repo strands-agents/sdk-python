@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from strands import Agent
-from strands.hooks import AfterAuxModelCallEvent, BeforeAuxModelCallEvent
+from strands.hooks import AfterAuxiliaryModelCallEvent, BeforeAuxiliaryModelCallEvent
 from strands.models import ClassifierStrategy, ModelRouter, RoutingAttempt, RoutingCandidate
 from strands.models.routing.classifier_strategy import (
     _CLASSIFICATION_OMISSION_MARKER,
@@ -58,14 +58,15 @@ class _ConfigGuardModel(MockedModelProvider):
         raise AssertionError("candidate configuration must not be read")
 
 
-def _context(router: ModelRouter, messages=None, attempts=(), invocation_state=None) -> RoutingContext:
+def _context(router: ModelRouter, messages=None, attempts=(), agent=None) -> RoutingContext:
     return RoutingContext(
         messages=messages or [{"role": "user", "content": [{"text": "Plan a safe migration"}]}],
         system_prompt="Be precise",
         tool_specs=[],
         candidates=router.candidates,
-        invocation_state=invocation_state if invocation_state is not None else {},
+        invocation_state={},
         attempts=attempts,
+        _agent=agent,
     )
 
 
@@ -110,26 +111,26 @@ async def test_select_fires_aux_hooks_and_records_usage_on_owning_agent():
     classifier = _StopEventClassifierModel(selected_index=1)
     strategy = ClassifierStrategy(classifier)
     router = ModelRouter(models=[_candidate("simple"), _candidate("complex")], strategy=strategy)
-    hook_provider = MockHookProvider([BeforeAuxModelCallEvent, AfterAuxModelCallEvent])
+    hook_provider = MockHookProvider([BeforeAuxiliaryModelCallEvent, AfterAuxiliaryModelCallEvent])
     agent = Agent(model=MockedModelProvider([]), hooks=[hook_provider])
 
-    tru_candidate = await strategy.select(_context(router, invocation_state={"agent": agent}))
+    tru_candidate = await strategy.select(_context(router, agent=agent))
 
     assert tru_candidate is router.candidates[1]
     before_event, after_event = hook_provider.events_received
-    assert before_event.source == "routing_classifier"
-    assert after_event.source == "routing_classifier"
+    assert before_event.source == "routing"
+    assert after_event.source == "routing"
     assert after_event.stop_response.usage == {"inputTokens": 30, "outputTokens": 3, "totalTokens": 33}
-    assert agent.event_loop_metrics.accumulated_usage_by_source["routing_classifier"]["totalTokens"] == 33
+    assert agent.event_loop_metrics.accumulated_usage_by_source["routing"]["totalTokens"] == 33
 
 
 @pytest.mark.asyncio
-async def test_select_without_agent_in_invocation_state_still_classifies():
+async def test_select_without_owning_agent_still_classifies():
     classifier = _ClassifierModel(selected_index=1)
     strategy = ClassifierStrategy(classifier)
     router = ModelRouter(models=[_candidate("simple"), _candidate("complex")], strategy=strategy)
 
-    tru_candidate = await strategy.select(_context(router, invocation_state={"agent": "not-an-agent"}))
+    tru_candidate = await strategy.select(_context(router))
 
     assert tru_candidate is router.candidates[1]
 
@@ -141,13 +142,13 @@ async def test_select_declines_when_hook_cancels_classification(caplog):
     router = ModelRouter(models=[_candidate("simple"), _candidate("complex")], strategy=strategy)
     agent = Agent(model=MockedModelProvider([]))
 
-    def cancel(event: BeforeAuxModelCallEvent) -> None:
+    def cancel(event: BeforeAuxiliaryModelCallEvent) -> None:
         event.cancel = True
 
-    agent.hooks.add_callback(BeforeAuxModelCallEvent, cancel)
+    agent.hooks.add_callback(BeforeAuxiliaryModelCallEvent, cancel)
 
     with caplog.at_level(logging.WARNING):
-        tru_candidate = await strategy.select(_context(router, invocation_state={"agent": agent}))
+        tru_candidate = await strategy.select(_context(router, agent=agent))
 
     assert tru_candidate is None
     assert "classification declined" in caplog.text

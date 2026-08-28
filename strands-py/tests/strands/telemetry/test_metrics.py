@@ -395,11 +395,11 @@ def test_event_loop_metrics_update_usage_aux_source_without_invocation(
     usage, event_loop_metrics, mock_get_meter_provider
 ):
     # Auxiliary calls can happen before any invocation is tracked (no reset_usage_metrics).
-    event_loop_metrics.update_usage(usage, source="memory_extraction")
+    event_loop_metrics.update_usage(usage, source="extraction")
 
     exp_usage = Usage(inputTokens=1, outputTokens=2, totalTokens=3, cacheWriteInputTokens=2)
     assert event_loop_metrics.accumulated_usage == exp_usage
-    assert event_loop_metrics.accumulated_usage_by_source == {"memory_extraction": exp_usage}
+    assert event_loop_metrics.accumulated_usage_by_source == {"extraction": exp_usage}
     assert event_loop_metrics.agent_invocations == []
 
 

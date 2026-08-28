@@ -6,18 +6,15 @@ import asyncio
 import json
 import logging
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pydantic import BaseModel, Field
 
-from ...event_loop._aux_model_call import instrument_aux_model_call
+from ...event_loop._auxiliary_model_call import instrument_auxiliary_model_call
 from ...types.content import Message, Messages, SystemPrompt
 from ..model import Model
 from .router import RoutingCandidate
 from .strategy import RoutingContext
-
-if TYPE_CHECKING:
-    from ...agent.agent import Agent
 
 logger = logging.getLogger(__name__)
 
@@ -90,14 +87,14 @@ async def _invoke_classifier(
 ) -> _ClassifierSelection:
     """Invoke a model directly and return its structured classification."""
     request_messages: Messages = [{"role": "user", "content": [{"text": request}]}]
-    events = instrument_aux_model_call(
+    events = instrument_auxiliary_model_call(
         model.structured_output(
             _ClassifierSelection,
             request_messages,
             system_prompt=system_prompt,
         ),
-        source="routing_classifier",
-        agent=_resolve_owning_agent(context.invocation_state),
+        source="routing",
+        agent=context._agent,
         messages=request_messages,
         # A copy: RoutingContext.invocation_state is documented read-only, so hook
         # callbacks observe it without being able to write through to the live state.
@@ -111,15 +108,6 @@ async def _invoke_classifier(
     if not isinstance(output, _ClassifierSelection):
         raise ValueError("classifier returned an invalid structured result")
     return output
-
-
-def _resolve_owning_agent(invocation_state: Mapping[str, Any]) -> Agent | None:
-    """Return the agent this invocation runs for, when the invocation state carries one."""
-    # Lazy import to avoid a circular import: ``agent`` imports the models package.
-    from ...agent.agent import Agent
-
-    candidate = invocation_state.get("agent")
-    return candidate if isinstance(candidate, Agent) else None
 
 
 class ClassifierStrategy:

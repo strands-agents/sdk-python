@@ -36,6 +36,17 @@ class Metrics(TypedDict, total=False):
     timeToFirstByteMs: int
 
 
+AuxiliaryModelCallSource = Literal["summarization", "extraction", "routing"]
+"""The auxiliary feature making an SDK-internal model call.
+
+May gain values in minor releases as new auxiliary features land; consumers should
+treat unknown values as opaque rather than exhaustive-match on them.
+"""
+
+UsageSource = Literal["main"] | AuxiliaryModelCallSource
+"""Where a model call's token usage originated: the main event loop, or an auxiliary feature."""
+
+
 StopReason = Literal[
     "cancelled",
     "checkpoint",

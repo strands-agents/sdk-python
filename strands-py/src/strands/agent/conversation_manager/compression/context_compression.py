@@ -10,7 +10,7 @@ messages by type.
 import logging
 from typing import TYPE_CHECKING, Literal, cast
 
-from ....event_loop._aux_model_call import instrument_aux_model_call
+from ....event_loop._auxiliary_model_call import instrument_auxiliary_model_call
 from ....event_loop.streaming import process_stream
 from ....types.content import Message
 from ....types.exceptions import ContextWindowOverflowException
@@ -159,7 +159,7 @@ async def generate_summary(
 
     This bypasses the full agent pipeline (lock, traces, tool loop) and simply asks the
     underlying model to summarize the conversation. When ``agent`` is provided, the call
-    fires the ``Before/AfterAuxModelCallEvent`` hook pair and its token usage rolls into
+    fires the ``Before/AfterAuxiliaryModelCallEvent`` hook pair and its token usage rolls into
     the agent's metrics under the ``"summarization"`` source.
 
     Args:
@@ -175,7 +175,7 @@ async def generate_summary(
 
     Raises:
         RuntimeError: If the model fails to produce a response.
-        AuxModelCallCancelledException: If a ``BeforeAuxModelCallEvent`` hook cancelled
+        AuxiliaryModelCallCancelledException: If a ``BeforeAuxiliaryModelCallEvent`` hook cancelled
             the summarization call.
     """
     resolved_system_prompt = system_prompt if system_prompt is not None else DEFAULT_SUMMARIZATION_PROMPT
@@ -191,7 +191,7 @@ async def generate_summary(
     )
 
     result_message: Message | None = None
-    events = instrument_aux_model_call(
+    events = instrument_auxiliary_model_call(
         process_stream(chunks),
         source="summarization",
         agent=agent,

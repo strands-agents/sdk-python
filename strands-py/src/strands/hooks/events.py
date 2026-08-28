@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 from ..types.agent import AgentInput
 from ..types.content import ContentBlock, Message, Messages
-from ..types.event_loop import Usage
+from ..types.event_loop import AuxiliaryModelCallSource, Usage
 from ..types.interrupt import _Interruptible
 from ..types.streaming import StopReason
 from ..types.tools import AgentTool, ToolResult, ToolUse
@@ -395,7 +395,7 @@ class AfterModelCallEvent(HookEvent):
 
 
 @dataclass
-class BeforeAuxModelCallEvent(HookEvent):
+class BeforeAuxiliaryModelCallEvent(HookEvent):
     """Event triggered before an SDK-internal (non-main-loop) model call.
 
     Auxiliary model calls are calls the SDK makes on the user's behalf outside the
@@ -404,28 +404,35 @@ class BeforeAuxModelCallEvent(HookEvent):
     :class:`BeforeModelCallEvent`, which keeps meaning "the agent's turn"; a consumer
     that wants to observe auxiliary calls opts in by subscribing to this event.
 
+    Note: Only the SDK's built-in auxiliary features fire this event pair. A custom
+    component (e.g. a user-written conversation manager or extractor) that calls a
+    model directly is not covered, so subscribers must not assume the pair is an
+    exhaustive record of every non-main-loop model call.
+
     Note: Depending on the auxiliary feature, this event may fire outside an active
     agent invocation (e.g. background memory extraction), and possibly on a different
     event loop than the agent's (e.g. summarization triggered from a synchronous
     caller).
 
     Attributes:
-        source: The auxiliary feature making the call, e.g. ``"summarization"``,
-            ``"routing_classifier"``, or ``"memory_extraction"``. Open-ended so future
-            auxiliary features can add values.
-        messages: The messages sent to the model, when the call site exposes them.
+        source: The auxiliary feature making the call. May gain values in minor
+            releases; treat unknown values as opaque rather than exhaustive-match on
+            them.
+        messages: The messages sent to the model.
         invocation_state: State and configuration passed through the agent invocation,
             when the call site has access to it.
         cancel: When set, cancels the auxiliary model call by raising
-            :class:`~strands.types.exceptions.AuxModelCallCancelledException`. If a
+            :class:`~strands.types.exceptions.AuxiliaryModelCallCancelledException`. If a
             string, used as the cancellation message. How cancellation degrades is up
-            to the auxiliary feature: summarization fails the context reduction,
-            routing classification declines (the router serves its default model), and
-            memory extraction skips the batch.
+            to the auxiliary feature: routing classification declines (the router
+            serves its default model) and memory extraction skips the batch, but
+            cancelling summarization fails the context reduction — in the reactive
+            overflow path the exception propagates out of the agent invocation itself,
+            so the caller sees ``AuxiliaryModelCallCancelledException``.
     """
 
-    source: str = ""
-    messages: Messages | None = None
+    source: AuxiliaryModelCallSource
+    messages: Messages
     invocation_state: dict[str, Any] = field(default_factory=dict)
     cancel: bool | str = False
 
@@ -434,11 +441,11 @@ class BeforeAuxModelCallEvent(HookEvent):
 
 
 @dataclass
-class AfterAuxModelCallEvent(HookEvent):
+class AfterAuxiliaryModelCallEvent(HookEvent):
     """Event triggered after an SDK-internal (non-main-loop) model call completes.
 
-    Fired after every :class:`BeforeAuxModelCallEvent` whose call was not cancelled,
-    whether the call succeeded or raised. See :class:`BeforeAuxModelCallEvent` for
+    Fired after every :class:`BeforeAuxiliaryModelCallEvent` whose call was not cancelled,
+    whether the call succeeded or raised. See :class:`BeforeAuxiliaryModelCallEvent` for
     what counts as an auxiliary model call.
 
     Note: This event uses reverse callback ordering, meaning callbacks registered
@@ -446,7 +453,7 @@ class AfterAuxModelCallEvent(HookEvent):
 
     Attributes:
         source: The auxiliary feature that made the call. See
-            :attr:`BeforeAuxModelCallEvent.source`.
+            :attr:`BeforeAuxiliaryModelCallEvent.source`.
         invocation_state: State and configuration passed through the agent invocation,
             when the call site has access to it.
         stop_response: The model response data if the call succeeded and reported a
@@ -470,7 +477,7 @@ class AfterAuxModelCallEvent(HookEvent):
         stop_reason: StopReason
         usage: Usage
 
-    source: str = ""
+    source: AuxiliaryModelCallSource
     invocation_state: dict[str, Any] = field(default_factory=dict)
     stop_response: ModelStopResponse | None = None
     exception: BaseException | None = None

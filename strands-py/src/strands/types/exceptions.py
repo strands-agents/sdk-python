@@ -49,10 +49,10 @@ class ContextWindowOverflowException(Exception):
     pass
 
 
-class AuxModelCallCancelledException(Exception):
+class AuxiliaryModelCallCancelledException(Exception):
     """Exception raised when a hook cancels an SDK-internal auxiliary model call.
 
-    Raised when a ``BeforeAuxModelCallEvent`` callback sets ``cancel``, aborting the
+    Raised when a ``BeforeAuxiliaryModelCallEvent`` callback sets ``cancel``, aborting the
     auxiliary call (e.g. summarization, routing classification, memory extraction)
     before the model is invoked.
     """

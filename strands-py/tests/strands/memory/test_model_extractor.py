@@ -20,11 +20,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from strands import Agent
-from strands.hooks import AfterAuxModelCallEvent, BeforeAuxModelCallEvent
+from strands.hooks import AfterAuxiliaryModelCallEvent, BeforeAuxiliaryModelCallEvent
 from strands.memory.extraction.model_extractor import ModelExtractor
 from strands.memory.extraction.types import ExtractionResult, ExtractorContext
 from strands.types.content import Message
-from strands.types.exceptions import AuxModelCallCancelledException
+from strands.types.exceptions import AuxiliaryModelCallCancelledException
 from tests.fixtures.mock_hook_provider import MockHookProvider
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
@@ -78,17 +78,17 @@ async def test_fires_aux_hooks_and_records_usage_on_context_agent():
         usages=[{"inputTokens": 21, "outputTokens": 7, "totalTokens": 28}],
     )
     extractor = ModelExtractor(model=model)
-    hook_provider = MockHookProvider([BeforeAuxModelCallEvent, AfterAuxModelCallEvent])
+    hook_provider = MockHookProvider([BeforeAuxiliaryModelCallEvent, AfterAuxiliaryModelCallEvent])
     agent = Agent(model=MockedModelProvider([]), hooks=[hook_provider])
 
     entries = await extractor.extract([_user_turn("I like dark mode")], ExtractorContext(agent=agent))
 
     assert entries == [ExtractionResult(content="fact")]
     before_event, after_event = hook_provider.events_received
-    assert before_event.source == "memory_extraction"
-    assert after_event.source == "memory_extraction"
+    assert before_event.source == "extraction"
+    assert after_event.source == "extraction"
     assert after_event.stop_response.usage == {"inputTokens": 21, "outputTokens": 7, "totalTokens": 28}
-    assert agent.event_loop_metrics.accumulated_usage_by_source["memory_extraction"]["totalTokens"] == 28
+    assert agent.event_loop_metrics.accumulated_usage_by_source["extraction"]["totalTokens"] == 28
 
 
 @pytest.mark.asyncio
@@ -97,12 +97,12 @@ async def test_cancel_hook_aborts_extraction():
     extractor = ModelExtractor(model=model)
     agent = Agent(model=MockedModelProvider([]))
 
-    def cancel(event: BeforeAuxModelCallEvent) -> None:
+    def cancel(event: BeforeAuxiliaryModelCallEvent) -> None:
         event.cancel = "extraction blocked"
 
-    agent.hooks.add_callback(BeforeAuxModelCallEvent, cancel)
+    agent.hooks.add_callback(BeforeAuxiliaryModelCallEvent, cancel)
 
-    with pytest.raises(AuxModelCallCancelledException, match="extraction blocked"):
+    with pytest.raises(AuxiliaryModelCallCancelledException, match="extraction blocked"):
         await extractor.extract([_user_turn("I like dark mode")], ExtractorContext(agent=agent))
 
 
