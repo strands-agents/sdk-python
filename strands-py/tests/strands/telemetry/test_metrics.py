@@ -391,7 +391,9 @@ def test_event_loop_metrics_update_usage_aux_source(usage, event_loop_metrics, m
     assert event_loop_metrics.agent_invocations[0].cycles[0].usage == exp_main_usage
 
 
-def test_event_loop_metrics_update_usage_aux_source_without_invocation(usage, event_loop_metrics, mock_get_meter_provider):
+def test_event_loop_metrics_update_usage_aux_source_without_invocation(
+    usage, event_loop_metrics, mock_get_meter_provider
+):
     # Auxiliary calls can happen before any invocation is tracked (no reset_usage_metrics).
     event_loop_metrics.update_usage(usage, source="memory_extraction")
 

@@ -56,7 +56,7 @@ class ExtractorContext:
     """
 
     default_model: Model | None = None
-    agent: "Agent | None" = None
+    agent: Agent | None = None
 
 
 class Extractor(Protocol):

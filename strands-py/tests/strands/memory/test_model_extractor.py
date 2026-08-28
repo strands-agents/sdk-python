@@ -71,6 +71,43 @@ async def test_parses_a_json_array_of_entries_from_the_model_response():
 
 
 @pytest.mark.asyncio
+async def test_fires_aux_hooks_and_records_usage_on_context_agent():
+    model = MockedModelProvider(
+        [_assistant_text('[{"content": "fact"}]')],
+        usages=[{"inputTokens": 21, "outputTokens": 7, "totalTokens": 28}],
+    )
+    extractor = ModelExtractor(model=model)
+    agent = Agent(model=MockedModelProvider([]))
+    received = []
+    agent.hooks.add_callback(BeforeAuxModelCallEvent, received.append)
+    agent.hooks.add_callback(AfterAuxModelCallEvent, received.append)
+
+    entries = await extractor.extract([_user_turn("I like dark mode")], ExtractorContext(agent=agent))
+
+    assert entries == [ExtractionResult(content="fact")]
+    before_event, after_event = received
+    assert before_event.source == "memory_extraction"
+    assert after_event.source == "memory_extraction"
+    assert after_event.stop_response.usage == {"inputTokens": 21, "outputTokens": 7, "totalTokens": 28}
+    assert agent.event_loop_metrics.accumulated_usage_by_source["memory_extraction"]["totalTokens"] == 28
+
+
+@pytest.mark.asyncio
+async def test_cancel_hook_aborts_extraction():
+    model = MockedModelProvider([_assistant_text('[{"content": "fact"}]')])
+    extractor = ModelExtractor(model=model)
+    agent = Agent(model=MockedModelProvider([]))
+
+    def cancel(event: BeforeAuxModelCallEvent) -> None:
+        event.cancel = "extraction blocked"
+
+    agent.hooks.add_callback(BeforeAuxModelCallEvent, cancel)
+
+    with pytest.raises(AuxModelCallCancelledException, match="extraction blocked"):
+        await extractor.extract([_user_turn("I like dark mode")], ExtractorContext(agent=agent))
+
+
+@pytest.mark.asyncio
 async def test_extracts_a_json_array_even_when_wrapped_in_prose_or_a_code_fence():
     model = MockedModelProvider(
         [_assistant_text('Here are the facts:\n```json\n[{"content": "fact"}]\n```\nHope that helps.')]

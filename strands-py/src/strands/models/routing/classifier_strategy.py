@@ -111,7 +111,7 @@ async def _invoke_classifier(
     return output
 
 
-def _resolve_owning_agent(invocation_state: Mapping[str, Any]) -> "Agent | None":
+def _resolve_owning_agent(invocation_state: Mapping[str, Any]) -> Agent | None:
     """Return the agent this invocation runs for, when the invocation state carries one."""
     # Lazy import to avoid a circular import: ``agent`` imports the models package.
     from ...agent.agent import Agent

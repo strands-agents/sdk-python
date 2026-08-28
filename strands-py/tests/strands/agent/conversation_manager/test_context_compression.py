@@ -51,7 +51,8 @@ async def _mock_model_stream_error(error):
 async def _mock_model_stream_with_usage(response_text):
     async for event in _mock_model_stream(response_text):
         yield event
-    yield {"metadata": {"usage": {"inputTokens": 12, "outputTokens": 4, "totalTokens": 16}, "metrics": {"latencyMs": 1}}}
+    usage = {"inputTokens": 12, "outputTokens": 4, "totalTokens": 16}
+    yield {"metadata": {"usage": usage, "metrics": {"latencyMs": 1}}}
 
 
 def mock_model(summary_text="Summary of conversation"):

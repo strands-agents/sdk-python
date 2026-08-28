@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from opentelemetry import trace as trace_api
 from opentelemetry.trace import SpanContext
@@ -23,6 +24,9 @@ from ...types.exceptions import AggregateMemoryError
 from ..types import AddMessagesContext, MemoryStore
 from .resolve_extraction_config import _ResolvedExtractionConfig
 from .types import Extractor, ExtractorContext, MemoryMessageFilter
+
+if TYPE_CHECKING:
+    from ...agent.agent import Agent
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +86,7 @@ class ExtractionCoordinator:
             id(binding.store): binding.config for binding in bindings
         }
         self._default_model = default_model
+        self._agent = agent
         # Messages waiting to be saved, oldest first.
         self._pending: list[_Buffered] = []
         # The ``seq`` to assign the next buffered message.

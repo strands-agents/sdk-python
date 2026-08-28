@@ -137,9 +137,7 @@ async def test_stream_error_fires_after_event_with_exception(agent, hook_events)
 async def test_stream_without_stop_event_fires_hooks_without_usage(agent, hook_events):
     events = [
         event
-        async for event in instrument_aux_model_call(
-            _stream_without_stop(), source="routing_classifier", agent=agent
-        )
+        async for event in instrument_aux_model_call(_stream_without_stop(), source="routing_classifier", agent=agent)
     ]
 
     assert events == [{"output": "structured"}]
