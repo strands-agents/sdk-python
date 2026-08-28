@@ -1317,6 +1317,24 @@ describe('OpenAIModel', () => {
       expect(captured.request.prompt_cache_retention).toBe('24h')
     })
 
+    it('does not warn about an unsupported ttl when an explicit prompt_cache_retention already wins', async () => {
+      const captured: { request: any } = { request: null }
+      const provider = new OpenAIModel({
+        api: 'chat',
+        client: createMockClientWithCapture(captured),
+        params: { prompt_cache_retention: '24h' },
+        cacheConfig: { ttl: '5m' },
+      })
+
+      await collectIterator(provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })]))
+
+      expect(captured.request.prompt_cache_retention).toBe('24h')
+      expect(warnOnce).not.toHaveBeenCalledWith(
+        expect.objectContaining({ warn: expect.any(Function) }),
+        expect.stringContaining('not an openai retention value')
+      )
+    })
+
     it('warns once that placement fields have no effect', async () => {
       const captured: { request: any } = { request: null }
       const provider = new OpenAIModel({

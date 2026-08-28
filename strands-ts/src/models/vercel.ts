@@ -7,6 +7,8 @@
  * @see https://github.com/vercel/ai/tree/main/packages/provider/src/language-model/v3
  */
 import type {
+  JSONObject,
+  JSONValue,
   LanguageModelV3,
   LanguageModelV3CallOptions,
   LanguageModelV3FilePart,
@@ -21,6 +23,7 @@ import type {
   LanguageModelV3ToolResultOutput,
   LanguageModelV3ToolResultPart,
   LanguageModelV3Usage,
+  SharedV3ProviderOptions,
 } from '@ai-sdk/provider'
 import { APICallError } from '@ai-sdk/provider'
 import type { SystemPrompt, StopReason } from '../types/messages.js'
@@ -28,7 +31,15 @@ import type { ToolChoice, ToolSpec } from '../tools/types.js'
 import type { ModelStreamEvent, Usage } from './streaming.js'
 import { Message, TextBlock, type ToolResultContent } from '../types/messages.js'
 import { encodeBase64, ImageBlock, DocumentBlock, VideoBlock } from '../types/media.js'
-import { Model, type BaseModelConfig, type StreamOptions } from './model.js'
+import {
+  Model,
+  resolveCacheSection,
+  type BaseModelConfig,
+  type CacheConfig,
+  type CacheTTL,
+  type StreamOptions,
+} from './model.js'
+import { resolveOpenAICache, warnUnsupportedRetention } from './openai/cache.js'
 import {
   ModelContentBlockDeltaEvent,
   ModelContentBlockStartEvent,
@@ -40,6 +51,7 @@ import {
 import { ContextWindowOverflowError, ModelError, ModelThrottledError } from '../errors.js'
 import { toMimeType } from '../mime.js'
 import { logger } from '../logging/logger.js'
+import { warnOnce } from '../logging/warn-once.js'
 
 /**
  * Error message patterns that indicate context window overflow.
@@ -72,7 +84,15 @@ type LanguageModelCallSettings = Omit<LanguageModelV3CallOptions, 'prompt' | 'to
  * Note: `maxTokens` (from BaseModelConfig) maps to `maxOutputTokens` in the underlying call.
  * If both are set, `maxOutputTokens` takes precedence.
  */
-export interface VercelModelConfig extends BaseModelConfig, LanguageModelCallSettings {}
+export interface VercelModelConfig extends BaseModelConfig, LanguageModelCallSettings {
+  /**
+   * Caching config, routed by the underlying Vercel provider: Anthropic gets content-addressed
+   * cache points (`providerOptions.anthropic.cacheControl` on tools, system, and the last user
+   * message); OpenAI gets key-routed caching (`cacheKey`/retention `ttl` mapped onto
+   * `providerOptions.openai`). Other providers are unsupported and the config is ignored.
+   */
+  cacheConfig?: CacheConfig
+}
 
 /**
  * Options for creating a VercelModel instance.
@@ -141,7 +161,7 @@ export class VercelModel extends Model<VercelModelConfig> {
     const tools = options?.toolSpecs ? formatTools(options.toolSpecs) : undefined
     const toolChoice = options?.toolChoice ? formatToolChoice(options.toolChoice) : undefined
 
-    const { modelId: _, maxTokens, ...callSettings } = this._config
+    const { modelId: _, maxTokens, cacheConfig, ...callSettings } = this._config
 
     const callOptions: LanguageModelV3CallOptions = {
       prompt,
@@ -150,6 +170,8 @@ export class VercelModel extends Model<VercelModelConfig> {
       ...(maxTokens != null && { maxOutputTokens: maxTokens }),
       ...callSettings,
     }
+
+    applyVercelCacheConfig(callOptions, this._provider.provider, cacheConfig)
 
     let result
     try {
@@ -209,6 +231,144 @@ export class VercelModel extends Model<VercelModelConfig> {
       reader.releaseLock()
     }
   }
+}
+
+/**
+ * Applies a `CacheConfig` to a Vercel call by the underlying provider, mutating `callOptions` in
+ * place. See {@link VercelModelConfig.cacheConfig} for the per-provider routing.
+ *
+ * @internal
+ */
+function applyVercelCacheConfig(
+  callOptions: LanguageModelV3CallOptions,
+  provider: string,
+  cacheConfig: CacheConfig | undefined
+): void {
+  if (!cacheConfig) return
+
+  // The segment before the first '.' is the provider namespace, matching ai-sdk's own key.
+  switch (provider.split('.')[0]) {
+    case 'anthropic':
+      applyAnthropicCache(callOptions, cacheConfig)
+      break
+    case 'openai':
+      applyOpenAICache(callOptions, cacheConfig)
+      break
+    default:
+      warnOnce(logger, `provider=<${provider}> | cacheConfig is not supported for this vercel provider, ignoring`)
+  }
+}
+
+/**
+ * Injects Anthropic `cacheControl` breakpoints, mirroring `anthropic.ts` placement.
+ *
+ * When the final turn is tool-results-only, `formatMessages` emits no trailing `{ role: 'user' }`
+ * message, so the conversation breakpoint lands on an earlier user turn — a cache-efficiency
+ * difference from `anthropic.ts`, not a correctness bug.
+ *
+ * @internal
+ */
+function applyAnthropicCache(callOptions: LanguageModelV3CallOptions, cacheConfig: CacheConfig): void {
+  const strategy = cacheConfig.strategy ?? 'auto'
+  if (strategy !== 'auto' && strategy !== 'anthropic') {
+    logger.warn(`strategy=<${strategy}> | unknown cache strategy, prompt caching disabled`)
+    return
+  }
+
+  const tools = resolveCacheSection(cacheConfig.toolsTTL, cacheConfig.ttl)
+  if (tools.enabled) cacheLastFunctionTool(callOptions.tools, tools.ttl)
+
+  const systemPrompt = resolveCacheSection(cacheConfig.systemPromptTTL, cacheConfig.ttl)
+  if (systemPrompt.enabled) {
+    const system = callOptions.prompt.find((message) => message.role === 'system')
+    if (system) setAnthropicCacheControl(system, systemPrompt.ttl)
+  }
+
+  const messages = resolveCacheSection(cacheConfig.messagesTTL, cacheConfig.ttl)
+  if (messages.enabled) cacheLastUserMessage(callOptions.prompt, messages.ttl)
+}
+
+/**
+ * Sets the cache breakpoint on the last function tool; Anthropic caches the whole prefix up to it,
+ * so one breakpoint covers every tool definition. Provider-defined tools carry no `providerOptions`,
+ * so the scan skips them.
+ *
+ * @internal
+ */
+function cacheLastFunctionTool(tools: LanguageModelV3CallOptions['tools'], ttl?: CacheTTL): void {
+  for (let index = (tools?.length ?? 0) - 1; index >= 0; index--) {
+    const tool = tools?.[index]
+    if (tool?.type === 'function') {
+      setAnthropicCacheControl(tool, ttl)
+      return
+    }
+  }
+}
+
+/**
+ * Marks the last user message; ai-sdk applies message-level cacheControl to its last part.
+ *
+ * @internal
+ */
+function cacheLastUserMessage(prompt: LanguageModelV3CallOptions['prompt'], ttl?: CacheTTL): void {
+  for (let index = prompt.length - 1; index >= 0; index--) {
+    const message = prompt[index]
+    if (message?.role === 'user') {
+      setAnthropicCacheControl(message, ttl)
+      return
+    }
+  }
+  logger.debug('no user message to cache, skipped conversation cache point')
+}
+
+/**
+ * Sets `providerOptions.anthropic.cacheControl` on a tool or message, preserving other options.
+ *
+ * @internal
+ */
+function setAnthropicCacheControl(target: { providerOptions?: SharedV3ProviderOptions }, ttl?: CacheTTL): void {
+  target.providerOptions = {
+    ...target.providerOptions,
+    anthropic: { ...target.providerOptions?.anthropic, cacheControl: anthropicCacheControl(ttl) },
+  }
+}
+
+/**
+ * Builds an Anthropic `cacheControl` value. A falsy `ttl` leaves the API default.
+ *
+ * @internal
+ */
+function anthropicCacheControl(ttl?: CacheTTL): JSONValue {
+  return ttl ? { type: 'ephemeral', ttl } : { type: 'ephemeral' }
+}
+
+/**
+ * Maps a `CacheConfig` onto `providerOptions.openai`, mirroring `openai/cache.ts` semantics.
+ *
+ * ai-sdk translates the camelCase options to the wire `prompt_cache_key`/`prompt_cache_retention`,
+ * so the Vercel path writes camelCase rather than the flat wire fields the direct OpenAI adapter
+ * writes. The caching decision itself is shared with the direct adapter via `resolveOpenAICache`
+ * (which also warns once about placement fields OpenAI cannot honor); an explicit value already in
+ * `providerOptions.openai` wins.
+ *
+ * @internal
+ */
+function applyOpenAICache(callOptions: LanguageModelV3CallOptions, cacheConfig: CacheConfig): void {
+  const openai: JSONObject = { ...callOptions.providerOptions?.openai }
+  const resolved = resolveOpenAICache(cacheConfig)
+
+  if (resolved.cacheKey !== undefined && openai.promptCacheKey === undefined) {
+    openai.promptCacheKey = resolved.cacheKey
+  }
+
+  // Leave an explicit promptCacheRetention untouched; otherwise map a retention ttl or, if it names
+  // no retention literal, warn that it was ignored.
+  if (openai.promptCacheRetention === undefined) {
+    if (resolved.retention !== undefined) openai.promptCacheRetention = resolved.retention
+    else if (resolved.unsupportedTtl !== undefined) warnUnsupportedRetention(resolved.unsupportedTtl)
+  }
+
+  callOptions.providerOptions = { ...callOptions.providerOptions, openai }
 }
 
 /**

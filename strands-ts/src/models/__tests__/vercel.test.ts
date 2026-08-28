@@ -9,18 +9,23 @@ import { APICallError } from '@ai-sdk/provider'
 import { VercelModel } from '../vercel.js'
 import { ContextWindowOverflowError, ModelError, ModelThrottledError } from '../../errors.js'
 import { logger } from '../../logging/logger.js'
+import { warnOnce } from '../../logging/warn-once.js'
 import { collectIterator } from '../../__fixtures__/model-test-helpers.js'
 import { Message, TextBlock, ToolUseBlock, ToolResultBlock, ReasoningBlock, JsonBlock } from '../../types/messages.js'
 import { DocumentBlock, ImageBlock, VideoBlock } from '../../types/media.js'
 import type { ToolSpec } from '../../tools/types.js'
 
+vi.mock('../../logging/warn-once.js', () => ({
+  warnOnce: vi.fn(),
+}))
+
 /**
  * Creates a mock LanguageModelV3 that streams the given parts.
  */
-function createMockModel(parts: LanguageModelV3StreamPart[]): LanguageModelV3 {
+function createMockModel(parts: LanguageModelV3StreamPart[], provider = 'test'): LanguageModelV3 {
   return {
     specificationVersion: 'v3',
-    provider: 'test',
+    provider,
     modelId: 'test-model',
     supportedUrls: {},
     doGenerate: vi.fn(),
@@ -58,14 +63,15 @@ const minimalParts: LanguageModelV3StreamPart[] = [
  */
 function setupCaptureTest(
   parts: LanguageModelV3StreamPart[] = minimalParts,
-  config?: Parameters<typeof VercelModel.prototype.updateConfig>[0]
+  config?: Parameters<typeof VercelModel.prototype.updateConfig>[0],
+  provider = 'test'
 ): {
   model: VercelModel
   mock: LanguageModelV3
   callArgs: () => LanguageModelV3CallOptions
   collect: (messages: Message[], options?: Parameters<VercelModel['stream']>[1]) => ReturnType<typeof collectIterator>
 } {
-  const mock = createMockModel(parts)
+  const mock = createMockModel(parts, provider)
   const model = new VercelModel({ provider: mock, ...config })
   return {
     model,
@@ -943,6 +949,229 @@ describe('VercelModel', () => {
       const args = callArgs()
       expect(args).not.toHaveProperty('tools')
       expect(args).not.toHaveProperty('toolChoice')
+    })
+  })
+
+  describe('prompt caching', () => {
+    const userMessages = [new Message({ role: 'user', content: [new TextBlock('durable prefix')] })]
+    const toolSpecs: ToolSpec[] = [{ name: 'calculator', description: 'Calculate', inputSchema: { type: 'object' } }]
+
+    /** cacheControl on the last function tool. */
+    const toolCacheControl = (args: LanguageModelV3CallOptions): unknown => {
+      const tools = args.tools ?? []
+      for (let index = tools.length - 1; index >= 0; index--) {
+        const tool = tools[index]
+        if (tool?.type === 'function') return tool.providerOptions?.anthropic?.cacheControl
+      }
+      return undefined
+    }
+
+    /** cacheControl on the last user message. */
+    const messageCacheControl = (args: LanguageModelV3CallOptions): unknown => {
+      const lastUser = [...args.prompt].reverse().find((message) => message.role === 'user')
+      return lastUser?.providerOptions?.anthropic?.cacheControl
+    }
+
+    /** cacheControl on the system message. */
+    const systemCacheControl = (args: LanguageModelV3CallOptions): unknown => {
+      const system = args.prompt.find((message) => message.role === 'system')
+      return system?.providerOptions?.anthropic?.cacheControl
+    }
+
+    it('strips cacheConfig from downstream call settings', async () => {
+      const { collect, callArgs } = setupCaptureTest(minimalParts, { cacheConfig: { ttl: '1h' } }, 'anthropic.messages')
+      await collect(userMessages)
+
+      expect(callArgs()).not.toHaveProperty('cacheConfig')
+    })
+
+    it('adds no cache markers when cacheConfig is unset', async () => {
+      const { collect, callArgs } = setupCaptureTest(minimalParts, undefined, 'anthropic.messages')
+      await collect(userMessages, { toolSpecs })
+
+      const args = callArgs()
+      expect(toolCacheControl(args)).toBeUndefined()
+      expect(messageCacheControl(args)).toBeUndefined()
+    })
+
+    describe('anthropic underlying provider', () => {
+      it('caches the last tool, the system prompt, and the last user message by default', async () => {
+        const { collect, callArgs } = setupCaptureTest(minimalParts, { cacheConfig: {} }, 'anthropic.messages')
+        await collect(userMessages, { toolSpecs, systemPrompt: 'be helpful' })
+
+        const args = callArgs()
+        expect(toolCacheControl(args)).toEqual({ type: 'ephemeral' })
+        expect(systemCacheControl(args)).toEqual({ type: 'ephemeral' })
+        expect(messageCacheControl(args)).toEqual({ type: 'ephemeral' })
+      })
+
+      it('carries a shared ttl onto every section', async () => {
+        const { collect, callArgs } = setupCaptureTest(
+          minimalParts,
+          { cacheConfig: { ttl: '1h' } },
+          'anthropic.messages'
+        )
+        await collect(userMessages, { toolSpecs, systemPrompt: 'be helpful' })
+
+        const args = callArgs()
+        expect(toolCacheControl(args)).toEqual({ type: 'ephemeral', ttl: '1h' })
+        expect(systemCacheControl(args)).toEqual({ type: 'ephemeral', ttl: '1h' })
+        expect(messageCacheControl(args)).toEqual({ type: 'ephemeral', ttl: '1h' })
+      })
+
+      it('lets a per-section ttl override the shared ttl', async () => {
+        const config = { cacheConfig: { ttl: '1h', messagesTTL: '5m' as const } }
+        const { collect, callArgs } = setupCaptureTest(minimalParts, config, 'anthropic.messages')
+        await collect(userMessages, { toolSpecs })
+
+        const args = callArgs()
+        expect(toolCacheControl(args)).toEqual({ type: 'ephemeral', ttl: '1h' })
+        expect(messageCacheControl(args)).toEqual({ type: 'ephemeral', ttl: '5m' })
+      })
+
+      it('disables a section set to false', async () => {
+        const config = { cacheConfig: { ttl: '1h', toolsTTL: false as const, messagesTTL: false as const } }
+        const { collect, callArgs } = setupCaptureTest(minimalParts, config, 'anthropic.messages')
+        await collect(userMessages, { toolSpecs })
+
+        const args = callArgs()
+        expect(toolCacheControl(args)).toBeUndefined()
+        expect(messageCacheControl(args)).toBeUndefined()
+      })
+
+      it('adds message-level cacheControl without disturbing call-level provider options', async () => {
+        const config = {
+          cacheConfig: { messagesTTL: '1h' as const },
+          providerOptions: { anthropic: { thinking: { type: 'enabled' } } },
+        }
+        const { collect, callArgs } = setupCaptureTest(minimalParts, config, 'anthropic.messages')
+        await collect(userMessages)
+
+        const args = callArgs()
+        expect(args.providerOptions?.anthropic).toEqual({ thinking: { type: 'enabled' } })
+        expect(messageCacheControl(args)).toEqual({ type: 'ephemeral', ttl: '1h' })
+      })
+
+      it('ignores cacheKey for the content-addressed anthropic provider', async () => {
+        const config = { cacheConfig: { cacheKey: 'tenant-42' } }
+        const { collect, callArgs } = setupCaptureTest(minimalParts, config, 'anthropic.messages')
+        await collect(userMessages)
+
+        expect(callArgs().providerOptions?.openai).toBeUndefined()
+        expect(messageCacheControl(callArgs())).toEqual({ type: 'ephemeral' })
+      })
+
+      it('disables caching and warns on an unknown strategy', async () => {
+        const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
+        const config = { cacheConfig: { strategy: 'bogus' as unknown as 'auto' } }
+        const { collect, callArgs } = setupCaptureTest(minimalParts, config, 'anthropic.messages')
+        await collect(userMessages, { toolSpecs })
+
+        expect(toolCacheControl(callArgs())).toBeUndefined()
+        expect(messageCacheControl(callArgs())).toBeUndefined()
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('unknown cache strategy'))
+        warnSpy.mockRestore()
+      })
+    })
+
+    describe('openai underlying provider', () => {
+      it.each(['openai.chat', 'openai.responses'])('maps cacheKey to promptCacheKey for %s', async (provider) => {
+        const config = { cacheConfig: { cacheKey: 'tenant-42' } }
+        const { collect, callArgs } = setupCaptureTest(minimalParts, config, provider)
+        await collect(userMessages)
+
+        expect(callArgs().providerOptions?.openai?.promptCacheKey).toBe('tenant-42')
+      })
+
+      it('omits promptCacheKey when cacheKey is unset', async () => {
+        const { collect, callArgs } = setupCaptureTest(minimalParts, { cacheConfig: {} }, 'openai.chat')
+        await collect(userMessages)
+
+        expect(callArgs().providerOptions?.openai?.promptCacheKey).toBeUndefined()
+      })
+
+      it('lets an explicit promptCacheKey in providerOptions win over cacheConfig', async () => {
+        const config = {
+          cacheConfig: { cacheKey: 'from-config' },
+          providerOptions: { openai: { promptCacheKey: 'explicit' } },
+        }
+        const { collect, callArgs } = setupCaptureTest(minimalParts, config, 'openai.chat')
+        await collect(userMessages)
+
+        expect(callArgs().providerOptions?.openai?.promptCacheKey).toBe('explicit')
+      })
+
+      it.each(['24h', 'in_memory'])('maps retention-literal ttl %s to promptCacheRetention', async (ttl) => {
+        const { collect, callArgs } = setupCaptureTest(minimalParts, { cacheConfig: { ttl } }, 'openai.chat')
+        await collect(userMessages)
+
+        expect(callArgs().providerOptions?.openai?.promptCacheRetention).toBe(ttl)
+      })
+
+      it('ignores a non-retention ttl and warns once', async () => {
+        const { collect, callArgs } = setupCaptureTest(minimalParts, { cacheConfig: { ttl: '5m' } }, 'openai.chat')
+        await collect(userMessages)
+
+        expect(callArgs().providerOptions?.openai?.promptCacheRetention).toBeUndefined()
+        expect(warnOnce).toHaveBeenCalledWith(
+          expect.objectContaining({ warn: expect.any(Function) }),
+          expect.stringContaining('not an openai retention value')
+        )
+      })
+
+      it('lets an explicit promptCacheRetention in providerOptions win over cacheConfig', async () => {
+        const config = {
+          cacheConfig: { ttl: 'in_memory' as const },
+          providerOptions: { openai: { promptCacheRetention: '24h' } },
+        }
+        const { collect, callArgs } = setupCaptureTest(minimalParts, config, 'openai.chat')
+        await collect(userMessages)
+
+        expect(callArgs().providerOptions?.openai?.promptCacheRetention).toBe('24h')
+      })
+
+      it('does not warn about an unsupported ttl when an explicit promptCacheRetention already wins', async () => {
+        const config = {
+          cacheConfig: { ttl: '5m' },
+          providerOptions: { openai: { promptCacheRetention: '24h' } },
+        }
+        const { collect, callArgs } = setupCaptureTest(minimalParts, config, 'openai.chat')
+        await collect(userMessages)
+
+        expect(callArgs().providerOptions?.openai?.promptCacheRetention).toBe('24h')
+        expect(warnOnce).not.toHaveBeenCalledWith(
+          expect.objectContaining({ warn: expect.any(Function) }),
+          expect.stringContaining('not an openai retention value')
+        )
+      })
+
+      it('warns once that placement fields have no effect', async () => {
+        const config = { cacheConfig: { strategy: 'anthropic' as const, toolsTTL: '1h' as const, cacheKey: 'k' } }
+        const { collect } = setupCaptureTest(minimalParts, config, 'openai.chat')
+        await collect(userMessages)
+
+        expect(warnOnce).toHaveBeenCalledWith(
+          expect.objectContaining({ warn: expect.any(Function) }),
+          expect.stringContaining('have no effect')
+        )
+      })
+    })
+
+    describe('unsupported underlying provider', () => {
+      it.each(['amazon-bedrock', 'google.generative-ai'])('warns once and adds no markers for %s', async (provider) => {
+        const config = { cacheConfig: { ttl: '1h', cacheKey: 'k' } }
+        const { collect, callArgs } = setupCaptureTest(minimalParts, config, provider)
+        await collect(userMessages, { toolSpecs })
+
+        const args = callArgs()
+        expect(toolCacheControl(args)).toBeUndefined()
+        expect(messageCacheControl(args)).toBeUndefined()
+        expect(args.providerOptions?.openai).toBeUndefined()
+        expect(warnOnce).toHaveBeenCalledWith(
+          expect.objectContaining({ warn: expect.any(Function) }),
+          expect.stringContaining('not supported for this vercel provider')
+        )
+      })
     })
   })
 })
