@@ -135,7 +135,10 @@ describe('RoutingCandidate', () => {
         'metadata must be an object'
       )
       expect(() => new RoutingCandidate({ model: model(), metadata: { run: (() => {}) as never } })).toThrow(
-        'metadata must be JSON-serializable'
+        'cannot be serialized'
+      )
+      expect(() => new RoutingCandidate({ model: model(), metadata: { score: Number.NaN } })).toThrow(
+        'non-finite number'
       )
     })
 

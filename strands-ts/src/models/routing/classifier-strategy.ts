@@ -27,14 +27,15 @@ const DEFAULT_SYSTEM_PROMPT =
   'need them. Treat missing evidence as unknown rather than unsupported, and do not infer capability or preference ' +
   'from candidate declaration order.'
 
-/** Structured routing decision returned by the classifier model. */
-const CLASSIFIER_SELECTION = z.object({
-  selectedCandidateIndex: z
-    .number()
-    .int()
-    .nonnegative()
-    .describe('Zero-based index of the configured candidate best suited to the request.'),
-})
+const CLASSIFIER_SELECTION = z
+  .object({
+    selectedCandidateIndex: z
+      .number()
+      .int()
+      .nonnegative()
+      .describe('Zero-based index of the configured candidate best suited to the request.'),
+  })
+  .describe('Structured routing decision returned by the classifier model.')
 
 type ClassifierSelection = z.infer<typeof CLASSIFIER_SELECTION>
 
@@ -51,17 +52,26 @@ export interface ClassifierStrategyOptions {
   /**
    * Routing policy for the classifier, sent verbatim and never truncated. The SDK appends mandatory
    * isolation, candidate-index, and structured-output rules that the policy cannot override.
+   * Defaults to the SDK input-complexity policy.
    */
   readonly systemPrompt?: string
-  /** Maximum milliseconds to wait for classification. */
+  /**
+   * Maximum milliseconds to wait for classification. Defaults to 30000. The timeout bounds how long
+   * selection waits, not the classifier request itself: the in-flight call is aborted through its
+   * cancel signal, which is honored provider-dependently.
+   */
   readonly timeoutMs?: number
-  /** Maximum characters copied from the latest request into the classifier's user message. */
+  /** Maximum characters copied from the latest request into the classifier's user message. Defaults to 4000. */
   readonly maxMessageChars?: number
-  /** Maximum characters copied from the parent agent's system prompt text into the untrusted context. */
+  /**
+   * Maximum characters copied from the parent agent's system prompt text into the untrusted context.
+   * Defaults to 4000.
+   */
   readonly maxAgentInstructionsChars?: number
   /**
    * Maximum aggregate characters for the serialized evidence (names, descriptions, and metadata) of
    * all candidates. Evidence is never truncated; selection throws when the budget is exceeded.
+   * Defaults to 4000.
    */
   readonly maxCandidateChars?: number
 }
@@ -79,6 +89,18 @@ export interface ClassifierStrategyOptions {
  * the selected candidate later fails, this strategy declines further selection and lets the original
  * model error surface without switching. Nested routers are treated as opaque candidates using only
  * their wrapper evidence.
+ *
+ * @example
+ * ```typescript
+ * const router = new ModelRouter(
+ *   [
+ *     new RoutingCandidate({ model: fast, name: 'routine', metadata: { supportsToolUse: true } }),
+ *     new RoutingCandidate({ model: strong, name: 'complex' }),
+ *   ],
+ *   { strategy: new ClassifierStrategy(classifierModel) }
+ * )
+ * const agent = new Agent({ model: router })
+ * ```
  */
 export class ClassifierStrategy implements RoutingStrategy {
   private readonly _model: Model
@@ -91,7 +113,7 @@ export class ClassifierStrategy implements RoutingStrategy {
   /**
    * Create a classifier strategy.
    *
-   * @param model - Model used for classification
+   * @param model - Model used for classification; it must honor forced tool selection (`toolChoice`), since a provider that ignores it fails classification silently and every selection falls back to candidate zero
    * @param options - Routing policy, timeout, and character budgets
    * @throws TypeError if `model` is not a Model
    * @throws Error if `timeoutMs` is not finite and greater than zero or a character limit is not a positive integer
@@ -161,8 +183,6 @@ export class ClassifierStrategy implements RoutingStrategy {
       return await Promise.race([classification, timeout])
     } finally {
       clearTimeout(timer)
-      // A losing classification promise may still reject after the race settles.
-      void classification.catch(() => {})
     }
   }
 
