@@ -9,12 +9,11 @@ from __future__ import annotations
 
 import logging
 import unicodedata
-from typing import cast
 from urllib.parse import urlparse
 
 try:
-    from bs4 import BeautifulSoup, Tag  # type: ignore[import-not-found]
-    from markdownify import MarkdownConverter  # type: ignore[import-not-found]
+    from bs4 import BeautifulSoup, Tag
+    from markdownify import MarkdownConverter
 except ImportError as e:
     raise ImportError(
         "web_fetch requires the 'web-fetch' extra (markdownify, beautifulsoup4). "
@@ -91,7 +90,7 @@ def html_to_markdown(html: str) -> str:
         if soup.head is not None:
             soup.head.decompose()
         _sanitize_tree(soup)
-        markdown = cast(str, MarkdownConverter(heading_style="ATX", bullets="-").convert_soup(soup)).strip()
+        markdown = MarkdownConverter(heading_style="ATX", bullets="-").convert_soup(soup).strip()
         if title:
             markdown = f"# {title}\n\n{markdown}"
     except Exception:

@@ -3,18 +3,22 @@
 Distinct from the http_request tool, which returns raw response bodies for API
 calls. This tool is intentionally narrow: HTTP(S) GET, decoded body, HTML to
 markdown. It is not a general-purpose scraper.
+
+The tool delegates all networking to the ``httpx.AsyncClient`` instance
+provided by the operator, giving full control over transport configuration,
+caching, proxies, redirects, and connection pooling.
 """
 
 from __future__ import annotations
 
 import asyncio
-from http.client import HTTPException
-from typing import TYPE_CHECKING
-from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+import threading
+from typing import TYPE_CHECKING, Any
+
+import httpx
 
 from ...tools.decorator import tool
+from ...types.tools import ToolContext
 from ._extract import html_to_markdown
 from .types import WEB_FETCH_DESCRIPTION
 
@@ -24,39 +28,10 @@ if TYPE_CHECKING:
 _HEADERS = {
     "User-Agent": "strands-agents-web-fetch/1.0",
     "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
-    "Accept-Encoding": "identity",
-    "Connection": "close",
 }
-_DEFAULT_TIMEOUT = 30
+
+
 _DEFAULT_MAX_BYTES = 5 * 1024 * 1024  # 5 MiB
-
-
-def _fetch_once(url: str, timeout: float, max_bytes: int) -> tuple[str, str]:
-    """Perform one HTTP(S) request, returning ``(content_type, body_text)``.
-
-    Raises:
-        ValueError: When the URL scheme is not http(s) or the response body exceeds ``max_bytes``.
-    """
-    if urlparse(url).scheme not in ("http", "https"):
-        raise ValueError(f"web_fetch only supports http(s) URLs, got {url!r}.")
-    with urlopen(Request(url, headers=_HEADERS), timeout=timeout) as response:
-        encoding = response.headers.get("Content-Encoding", "").strip().lower()
-        if encoding and encoding != "identity":
-            raise ValueError(
-                f"Server returned Content-Encoding: {encoding!r} despite "
-                "requesting uncompressed content. This URL cannot be fetched "
-                "with this tool."
-            )
-        body = response.read(max_bytes + 1)
-        if len(body) > max_bytes:
-            raise ValueError(f"Response body exceeded max_bytes={max_bytes}. Refusing to buffer more.")
-        charset = response.headers.get_content_charset() or "utf-8"
-        try:
-            raw = body.decode(charset, errors="replace")
-        except LookupError:
-            raw = body.decode("utf-8", errors="replace")
-        content_type = response.headers.get("Content-Type", "")
-    return content_type, raw
 
 
 def make_web_fetch(
@@ -64,49 +39,59 @@ def make_web_fetch(
     name: str = "web_fetch",
     description: str = WEB_FETCH_DESCRIPTION,
     max_bytes: int = _DEFAULT_MAX_BYTES,
-    timeout: int = _DEFAULT_TIMEOUT,
+    client: httpx.AsyncClient | None = None,
 ) -> DecoratedFunctionTool:
     """Create a web fetch tool.
 
     Args:
         name: Tool name. Defaults to ``"web_fetch"``.
         description: Tool description shown to the model.
-        max_bytes: Maximum response body size, in bytes. Larger responses are
-            rejected without buffering the entire body.
-        timeout: Total wall-clock timeout in seconds for each request.
+        max_bytes: Maximum response body size in bytes. Responses larger than
+            this are rejected without buffering the entire body. Defaults to
+            5 MiB.
+        client: Optional ``httpx.AsyncClient`` to use for requests. When
+            provided, the tool uses it directly and will not close it.
+            When ``None``, a new client is created per request with httpx
+            defaults.
 
     Returns:
         A decorated tool that fetches a URL and returns the extracted markdown.
     """
     if max_bytes <= 0:
         raise ValueError(f"max_bytes must be positive, got {max_bytes}")
-    if timeout <= 0:
-        raise ValueError(f"timeout must be positive, got {timeout}")
+    external_client = client
 
-    @tool(name=name, description=description)
-    async def web_fetch_tool(url: str) -> str:
+    @tool(name=name, description=description, context=True)
+    async def web_fetch_tool(
+        url: str,
+        tool_context: ToolContext | None = None,
+    ) -> str:
         """Fetches an HTTP(S) URL and returns readable markdown.
 
-        Only ``http://`` and ``https://`` URLs are accepted. Response body size
-        is capped before buffering. Raises ``TimeoutError`` if the request does
-        not complete within the configured timeout.
+        Only ``http://`` and ``https://`` URLs are accepted. Raises
+        ``TimeoutError`` if the request does not complete within the
+        configured timeout.
 
         Args:
             url: The URL to fetch. Must be ``http://`` or ``https://``.
+            tool_context: Framework-injected. Not model-visible. Carries the
+                agent so the tool can read its cancel signal.
         """
+        cancel_signal = _extract_cancel_signal(tool_context)
         try:
-            content_type, raw = await asyncio.wait_for(
-                asyncio.to_thread(_fetch_once, url, float(timeout), max_bytes),
-                timeout=float(timeout),
+            content_type, raw = await _fetch_once(
+                url=url,
+                max_bytes=max_bytes,
+                client=external_client,
+                cancel_signal=cancel_signal,
             )
-        except asyncio.TimeoutError as error:
-            raise TimeoutError(f"web_fetch exceeded total timeout of {timeout}s for {url!r}") from error
-        except (HTTPError, URLError, HTTPException, ValueError) as exc:
+        except httpx.TimeoutException as error:
+            raise TimeoutError(f"web_fetch timed out fetching {url!r}") from error
+        except (httpx.RequestError, ValueError) as exc:
             raise ValueError(f"Failed to fetch {url}: {exc}") from exc
 
         is_markup = "html" in content_type.lower() or "xml" in content_type.lower()
         markdown = html_to_markdown(raw) if is_markup else raw
-        # Extraction failed; fall back to raw text so the model receives the content.
         if not markdown and is_markup:
             markdown = raw
         return markdown
@@ -116,3 +101,81 @@ def make_web_fetch(
 
 web_fetch = make_web_fetch()
 """Default web fetch tool."""
+
+
+# ---- Internals ----
+
+
+async def _fetch_once(
+    *,
+    url: str,
+    max_bytes: int,
+    client: httpx.AsyncClient | None,
+    cancel_signal: threading.Event | None,
+) -> tuple[str, str]:
+    """Perform one HTTP GET, returning ``(content_type, body_text)``.
+
+    Raises:
+        asyncio.CancelledError: When the agent cancel signal is set.
+        httpx.TimeoutException: When the request times out.
+        httpx.RequestError: On any transport-level failure.
+        ValueError: When the response body exceeds ``max_bytes``.
+    """
+    _check_cancelled(cancel_signal)
+
+    owns_client = client is None
+    active_client = client if client is not None else httpx.AsyncClient(follow_redirects=True)
+    try:
+        request = active_client.build_request("GET", url, headers=_HEADERS)
+        response = await active_client.send(request, stream=True)
+        try:
+            content_type = response.headers.get("content-type", "")
+            if response.status_code >= 400:
+                raise ValueError(f"HTTP {response.status_code} {response.reason_phrase}")
+            chunks: list[bytes] = []
+            total = 0
+            async for chunk in response.aiter_bytes():
+                total += len(chunk)
+                if total > max_bytes:
+                    raise ValueError(f"Response body exceeded {max_bytes} bytes. Refusing to buffer more.")
+                chunks.append(chunk)
+            body = b"".join(chunks)
+        finally:
+            await response.aclose()
+    finally:
+        if owns_client:
+            await active_client.aclose()
+
+    charset = _parse_charset(content_type)
+    try:
+        raw = body.decode(charset, errors="replace")
+    except LookupError:
+        raw = body.decode("utf-8", errors="replace")
+
+    return content_type, raw
+
+
+def _parse_charset(content_type: str) -> str:
+    """Extract the charset from a Content-Type header, defaulting to ``utf-8``."""
+    for part in content_type.split(";"):
+        part = part.strip()
+        if part.lower().startswith("charset="):
+            value = part[8:].strip().strip("'\"")
+            if value:
+                return value
+    return "utf-8"
+
+
+def _extract_cancel_signal(tool_context: ToolContext | None) -> threading.Event | None:
+    """Return the agent's cancellation event when available."""
+    if tool_context is None:
+        return None
+    agent: Any = getattr(tool_context, "agent", None)
+    signal: Any = getattr(agent, "_cancel_signal", None)
+    return signal if isinstance(signal, threading.Event) else None
+
+
+def _check_cancelled(cancel_signal: threading.Event | None) -> None:
+    """Raise :class:`asyncio.CancelledError` if the agent's cancel signal has been set."""
+    if cancel_signal is not None and cancel_signal.is_set():
+        raise asyncio.CancelledError("Request cancelled")

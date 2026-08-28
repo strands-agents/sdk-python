@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import importlib
-from unittest.mock import MagicMock
+import threading
+from types import SimpleNamespace
 
+import httpx
 import pytest
 
 # The tool named ``web_fetch`` (re-exported by the package ``__init__``) shadows
@@ -19,6 +21,19 @@ from strands.vended_tools.web_fetch import _extract as extract_module  # noqa: E
 from strands.vended_tools.web_fetch import make_web_fetch, web_fetch  # noqa: E402
 from strands.vended_tools.web_fetch._extract import _tag_attribute, html_to_markdown  # noqa: E402
 from strands.vended_tools.web_fetch.types import WEB_FETCH_DESCRIPTION  # noqa: E402
+
+
+def _transport(handler):
+    """Build a mock httpx transport from a request handler callable."""
+    return httpx.MockTransport(handler)
+
+
+def _client(handler) -> httpx.AsyncClient:
+    return httpx.AsyncClient(transport=_transport(handler))
+
+
+def _raising_beautiful_soup(*args, **kwargs):
+    raise RuntimeError("boom")
 
 
 class TestToolMetadata:
@@ -41,88 +56,57 @@ class TestToolMetadata:
         with pytest.raises(ValueError, match="max_bytes"):
             make_web_fetch(max_bytes=max_bytes)
 
-    @pytest.mark.parametrize("timeout", [0, -1])
-    def test_rejects_non_positive_timeout(self, timeout):
-        with pytest.raises(ValueError, match="timeout"):
-            make_web_fetch(timeout=timeout)
 
+class TestLazyLoad:
+    """web_fetch and make_web_fetch are lazy-loaded via __getattr__."""
 
-@pytest.mark.parametrize(
-    "url",
-    [
-        "file:///etc/passwd",
-        "ftp://example.com/foo",
-        "javascript:alert(1)",
-        "data:text/html,<script>1</script>",
-    ],
-)
-def test__fetch_once_rejects_non_http_schemes(url):
-    with pytest.raises(ValueError, match="only supports http"):
-        web_fetch_module._fetch_once(url, timeout=5.0, max_bytes=1024)
+    def test_make_web_fetch_accessible_from_vended_tools(self):
+        import strands.vended_tools as vt
 
+        assert vt.make_web_fetch is make_web_fetch
 
-def _raising_beautiful_soup(*args, **kwargs):
-    raise RuntimeError("boom")
+    def test_unknown_attribute_raises(self):
+        import strands.vended_tools as vt
 
-
-def _fake_urlopen(body: bytes, content_type: str = "text/html", charset: str = "utf-8"):
-    """Return a context-manager mock that urlopen can be patched with."""
-    inner = MagicMock()
-    inner.read.return_value = body
-    inner.headers = MagicMock()
-    inner.headers.get_content_charset.return_value = charset
-    inner.headers.get.side_effect = lambda key, default="": content_type if key == "Content-Type" else default
-    inner.status = 200
-
-    outer = MagicMock()
-    outer.__enter__ = MagicMock(return_value=inner)
-    outer.__exit__ = MagicMock(return_value=False)
-    return outer
-
-
-def test__fetch_once_returns_content_type_and_body(monkeypatch):
-    monkeypatch.setattr(web_fetch_module, "urlopen", lambda *a, **kw: _fake_urlopen(b"hello", "text/plain"))
-    tru_content_type, tru_raw = web_fetch_module._fetch_once("https://example.com/", timeout=5.0, max_bytes=1024)
-    assert (tru_content_type, tru_raw) == ("text/plain", "hello")
-
-
-def test__fetch_once_rejects_body_over_cap(monkeypatch):
-    big = b"x" * 100
-    monkeypatch.setattr(web_fetch_module, "urlopen", lambda *a, **kw: _fake_urlopen(big))
-
-    with pytest.raises(ValueError, match="max_bytes"):
-        web_fetch_module._fetch_once("https://example.com/", timeout=5.0, max_bytes=50)
+        with pytest.raises(AttributeError):
+            _ = vt.not_a_real_tool
 
 
 class TestWebFetchToolCall:
-    """End-to-end tool behavior with the network layer stubbed out."""
+    """End-to-end tool behavior with the transport stubbed out."""
 
     @pytest.mark.asyncio
-    async def test_html_response_returns_markdown(self, monkeypatch):
-        def stub(url, timeout, max_bytes):
-            return "text/html; charset=utf-8", "<html><head><title>T</title></head><body><h1>Hi</h1></body></html>"
+    async def test_html_response_returns_markdown(self):
+        html = "<html><head><title>T</title></head><body><h1>Hi</h1></body></html>"
 
-        monkeypatch.setattr(web_fetch_module, "_fetch_once", stub)
-        tru_result = await web_fetch(url="https://example.com/")
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, headers={"content-type": "text/html; charset=utf-8"}, text=html)
+
+        tool = make_web_fetch(client=_client(handler))
+        tru_result = await tool(url="https://example.com/")
         assert "# T" in tru_result
         assert "# Hi" in tru_result
 
     @pytest.mark.asyncio
-    async def test_non_html_response_returns_body(self, monkeypatch):
-        def stub(url, timeout, max_bytes):
-            return "text/plain", "plain text response"
+    async def test_non_html_response_returns_body(self):
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, headers={"content-type": "text/plain"}, text="plain text response")
 
-        monkeypatch.setattr(web_fetch_module, "_fetch_once", stub)
-        tru_result = await web_fetch(url="https://example.com/robots.txt")
+        tool = make_web_fetch(client=_client(handler))
+        tru_result = await tool(url="https://example.com/robots.txt")
         assert tru_result == "plain text response"
 
     @pytest.mark.asyncio
-    async def test_xml_content_type_is_converted_to_markdown(self, monkeypatch):
-        def stub(url, timeout, max_bytes):
-            return "application/xhtml+xml", "<html><body><p>xhtml</p></body></html>"
+    async def test_xml_content_type_is_converted_to_markdown(self):
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                headers={"content-type": "application/xhtml+xml"},
+                text="<html><body><p>xhtml</p></body></html>",
+            )
 
-        monkeypatch.setattr(web_fetch_module, "_fetch_once", stub)
-        tru_result = await web_fetch(url="https://example.com/page.xhtml")
+        tool = make_web_fetch(client=_client(handler))
+        tru_result = await tool(url="https://example.com/page.xhtml")
         assert "xhtml" in tru_result
 
     @pytest.mark.asyncio
@@ -131,38 +115,114 @@ class TestWebFetchToolCall:
             await web_fetch(url="file:///etc/passwd")
 
     @pytest.mark.asyncio
-    async def test_http_exception_is_wrapped_as_value_error(self, monkeypatch):
-        # http.client.BadStatusLine (and other HTTPException subclasses) are not
-        # subclasses of URLError, so they must be caught explicitly.
-        from http.client import BadStatusLine
+    async def test_transport_error_is_wrapped_as_value_error(self):
+        def handler(_request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("connection refused")
 
-        def boom(url, timeout, max_bytes):
-            raise BadStatusLine("garbage")
-
-        monkeypatch.setattr(web_fetch_module, "_fetch_once", boom)
+        tool = make_web_fetch(client=_client(handler))
         with pytest.raises(ValueError, match="Failed to fetch"):
-            await web_fetch(url="https://example.com/")
+            await tool(url="https://example.com/")
 
     @pytest.mark.asyncio
-    async def test_total_timeout_wraps_slow_transport(self, monkeypatch):
-        def slow(url, timeout, max_bytes):
-            raise asyncio.TimeoutError()
+    async def test_body_over_cap_is_rejected(self):
+        big = b"x" * 100
 
-        monkeypatch.setattr(web_fetch_module, "_fetch_once", slow)
-        with pytest.raises(TimeoutError, match="total timeout"):
-            await web_fetch(url="https://example.com/")
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, headers={"content-type": "text/plain"}, content=big)
+
+        tool = make_web_fetch(client=_client(handler), max_bytes=50)
+        with pytest.raises(ValueError, match="exceeded"):
+            await tool(url="https://example.com/")
+
+    @pytest.mark.asyncio
+    async def test_error_status_raises(self):
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(404, text="Not Found")
+
+        tool = make_web_fetch(client=_client(handler))
+        with pytest.raises(ValueError, match="HTTP 404"):
+            await tool(url="https://example.com/missing")
+
+    @pytest.mark.asyncio
+    async def test_user_client_redirect_behaviour_is_respected(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/old":
+                return httpx.Response(
+                    301, headers={"location": "https://example.com/new", "content-type": "text/plain"}, text="moved"
+                )
+            return httpx.Response(200, headers={"content-type": "text/plain"}, text="new page")
+
+        # User-supplied client with follow_redirects=False: redirect is not followed.
+        client = httpx.AsyncClient(transport=_transport(handler), follow_redirects=False)
+        tool = make_web_fetch(client=client)
+        tru_result = await tool(url="https://example.com/old")
+        assert tru_result == "moved"
+
+    @pytest.mark.asyncio
+    async def test_timeout_is_wrapped_as_timeout_error(self):
+        async def handler(_request: httpx.Request) -> httpx.Response:
+            raise httpx.TimeoutException("timed out")
+
+        tool = make_web_fetch(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+        with pytest.raises(TimeoutError):
+            await tool(url="https://example.com/")
 
     @pytest.mark.asyncio
     async def test_html_extraction_failure_falls_back_to_raw(self, monkeypatch):
         # When html_to_markdown returns "" (extraction failed), the tool falls
         # back to raw text so the model receives content rather than nothing.
-        def stub(url, timeout, max_bytes):
-            return "text/html", "<p>raw content</p>"
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, headers={"content-type": "text/html"}, text="<p>raw content</p>")
 
-        monkeypatch.setattr(web_fetch_module, "_fetch_once", stub)
         monkeypatch.setattr(extract_module, "BeautifulSoup", _raising_beautiful_soup)
-        tru_result = await web_fetch(url="https://example.com/")
+        tool = make_web_fetch(client=_client(handler))
+        tru_result = await tool(url="https://example.com/")
         assert tru_result == "<p>raw content</p>"
+
+    @pytest.mark.asyncio
+    async def test_sends_correct_headers(self):
+        received: dict[str, str] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            received.update(request.headers)
+            return httpx.Response(200, headers={"content-type": "text/plain"}, text="ok")
+
+        tool = make_web_fetch(client=_client(handler))
+        await tool(url="https://example.com/")
+        assert "strands-agents-web-fetch" in received.get("user-agent", "")
+
+    @pytest.mark.asyncio
+    async def test_pre_flight_cancel_short_circuits(self):
+        def handler(_request: httpx.Request) -> httpx.Response:
+            raise AssertionError("transport should not be called if cancel is pre-set")
+
+        cancel = threading.Event()
+        cancel.set()
+        agent = SimpleNamespace(_cancel_signal=cancel)
+        from strands.types.tools import ToolContext, ToolUse
+
+        tool_use = ToolUse(toolUseId="wf_1", name="web_fetch", input={})
+        ctx = ToolContext(tool_use=tool_use, agent=agent, invocation_state={})
+
+        tool = make_web_fetch(client=_client(handler))
+        with pytest.raises(asyncio.CancelledError):
+            await tool(url="https://example.com/", tool_context=ctx)
+
+
+class TestParseCharset:
+    """_parse_charset extracts charset from Content-Type values, defaulting to utf-8."""
+
+    def test_plain_charset(self):
+        assert web_fetch_module._parse_charset("text/html; charset=utf-8") == "utf-8"
+
+    def test_quoted_charset(self):
+        assert web_fetch_module._parse_charset('text/html; charset="iso-8859-1"') == "iso-8859-1"
+
+    def test_missing_charset_defaults_to_utf8(self):
+        assert web_fetch_module._parse_charset("text/plain") == "utf-8"
+
+    def test_empty_charset_defaults_to_utf8(self):
+        assert web_fetch_module._parse_charset("text/html; charset=") == "utf-8"
 
 
 class TestHtmlToMarkdown:
@@ -209,6 +269,12 @@ class TestHtmlToMarkdown:
         md = html_to_markdown(html)
         assert "javascript:" not in md
 
+    @pytest.mark.parametrize("prefix", [" ", "\u200b", "\ufeff"])
+    def test_javascript_img_src_with_invisible_prefix_is_dropped(self, prefix):
+        html = f'<img src="{prefix}javascript:alert(1)" alt="x">'
+        md = html_to_markdown(html)
+        assert "javascript:" not in md
+
     @pytest.mark.parametrize("prefix", [" ", "\t", "\u200b", "\ufeff", "\u00ad"])
     def test_javascript_href_with_invisible_prefix_is_dropped(self, prefix):
         # Invisible/whitespace prefixes before "javascript:" must not bypass the check.
@@ -216,12 +282,6 @@ class TestHtmlToMarkdown:
         md = html_to_markdown(html)
         assert "javascript:" not in md
         assert "click" in md
-
-    @pytest.mark.parametrize("prefix", [" ", "\u200b", "\ufeff"])
-    def test_javascript_img_src_with_invisible_prefix_is_dropped(self, prefix):
-        html = f'<img src="{prefix}javascript:alert(1)" alt="x">'
-        md = html_to_markdown(html)
-        assert "javascript:" not in md
 
     def test_preserves_headings_lists_and_links(self):
         html = """
