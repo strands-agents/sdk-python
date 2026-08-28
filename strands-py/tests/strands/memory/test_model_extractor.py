@@ -25,6 +25,7 @@ from strands.memory.extraction.model_extractor import ModelExtractor
 from strands.memory.extraction.types import ExtractionResult, ExtractorContext
 from strands.types.content import Message
 from strands.types.exceptions import AuxModelCallCancelledException
+from tests.fixtures.mock_hook_provider import MockHookProvider
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 
@@ -77,15 +78,13 @@ async def test_fires_aux_hooks_and_records_usage_on_context_agent():
         usages=[{"inputTokens": 21, "outputTokens": 7, "totalTokens": 28}],
     )
     extractor = ModelExtractor(model=model)
-    agent = Agent(model=MockedModelProvider([]))
-    received = []
-    agent.hooks.add_callback(BeforeAuxModelCallEvent, received.append)
-    agent.hooks.add_callback(AfterAuxModelCallEvent, received.append)
+    hook_provider = MockHookProvider([BeforeAuxModelCallEvent, AfterAuxModelCallEvent])
+    agent = Agent(model=MockedModelProvider([]), hooks=[hook_provider])
 
     entries = await extractor.extract([_user_turn("I like dark mode")], ExtractorContext(agent=agent))
 
     assert entries == [ExtractionResult(content="fact")]
-    before_event, after_event = received
+    before_event, after_event = hook_provider.events_received
     assert before_event.source == "memory_extraction"
     assert after_event.source == "memory_extraction"
     assert after_event.stop_response.usage == {"inputTokens": 21, "outputTokens": 7, "totalTokens": 28}

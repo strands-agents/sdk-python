@@ -18,6 +18,7 @@ from strands.models.routing.classifier_strategy import (
     _latest_request_text,
 )
 from strands.models.routing.strategy import RoutingContext
+from tests.fixtures.mock_hook_provider import MockHookProvider
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 
@@ -109,15 +110,13 @@ async def test_select_fires_aux_hooks_and_records_usage_on_owning_agent():
     classifier = _StopEventClassifierModel(selected_index=1)
     strategy = ClassifierStrategy(classifier)
     router = ModelRouter(models=[_candidate("simple"), _candidate("complex")], strategy=strategy)
-    agent = Agent(model=MockedModelProvider([]))
-    received = []
-    agent.hooks.add_callback(BeforeAuxModelCallEvent, received.append)
-    agent.hooks.add_callback(AfterAuxModelCallEvent, received.append)
+    hook_provider = MockHookProvider([BeforeAuxModelCallEvent, AfterAuxModelCallEvent])
+    agent = Agent(model=MockedModelProvider([]), hooks=[hook_provider])
 
     tru_candidate = await strategy.select(_context(router, invocation_state={"agent": agent}))
 
     assert tru_candidate is router.candidates[1]
-    before_event, after_event = received
+    before_event, after_event = hook_provider.events_received
     assert before_event.source == "routing_classifier"
     assert after_event.source == "routing_classifier"
     assert after_event.stop_response.usage == {"inputTokens": 30, "outputTokens": 3, "totalTokens": 33}

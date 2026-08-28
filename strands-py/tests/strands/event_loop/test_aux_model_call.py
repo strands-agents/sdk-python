@@ -1,5 +1,7 @@
 """Tests for the shared auxiliary model call instrumentation helper."""
 
+import asyncio
+
 import pytest
 
 from strands import Agent
@@ -8,6 +10,7 @@ from strands.hooks import AfterAuxModelCallEvent, BeforeAuxModelCallEvent
 from strands.types.content import Message
 from strands.types.event_loop import Metrics, Usage
 from strands.types.exceptions import AuxModelCallCancelledException
+from tests.fixtures.mock_hook_provider import MockHookProvider
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 STOP_MESSAGE: Message = {"role": "assistant", "content": [{"text": "response"}]}
@@ -24,30 +27,31 @@ async def _stream_without_stop():
     yield {"output": "structured"}
 
 
+async def _stream_with_malformed_stop():
+    yield {"stop": ("end_turn", STOP_MESSAGE)}
+
+
 async def _stream_that_raises(error):
     yield {"contentBlockDelta": {"delta": {"text": "partial"}}}
     raise error
 
 
 @pytest.fixture
-def agent():
-    return Agent(model=MockedModelProvider([]))
+def hook_provider():
+    return MockHookProvider([BeforeAuxModelCallEvent, AfterAuxModelCallEvent])
 
 
 @pytest.fixture
-def hook_events(agent):
-    received = []
-    agent.hooks.add_callback(BeforeAuxModelCallEvent, received.append)
-    agent.hooks.add_callback(AfterAuxModelCallEvent, received.append)
-    return received
+def agent(hook_provider):
+    return Agent(model=MockedModelProvider([]), hooks=[hook_provider])
 
 
 @pytest.mark.asyncio
-async def test_fires_hook_pair_and_records_usage(agent, hook_events):
+async def test_fires_hook_pair_and_records_usage(agent, hook_provider):
     messages = [{"role": "user", "content": [{"text": "summarize"}]}]
     invocation_state = {"key": "value"}
 
-    events = [
+    tru_events = [
         event
         async for event in instrument_aux_model_call(
             _stream_with_stop(),
@@ -62,9 +66,9 @@ async def test_fires_hook_pair_and_records_usage(agent, hook_events):
         {"contentBlockDelta": {"delta": {"text": "response"}}},
         {"stop": ("end_turn", STOP_MESSAGE, STOP_USAGE, STOP_METRICS)},
     ]
-    assert events == exp_events
+    assert tru_events == exp_events
 
-    before_event, after_event = hook_events
+    before_event, after_event = hook_provider.events_received
     assert isinstance(before_event, BeforeAuxModelCallEvent)
     assert before_event.source == "summarization"
     assert before_event.messages == messages
@@ -83,15 +87,15 @@ async def test_fires_hook_pair_and_records_usage(agent, hook_events):
 
 @pytest.mark.asyncio
 async def test_agent_none_passes_events_through_uninstrumented():
-    events = [
+    tru_events = [
         event async for event in instrument_aux_model_call(_stream_with_stop(), source="summarization", agent=None)
     ]
 
-    assert len(events) == 2
+    assert len(tru_events) == 2
 
 
 @pytest.mark.asyncio
-async def test_cancel_raises_and_skips_after_event(agent, hook_events):
+async def test_cancel_raises_and_skips_after_event(agent, hook_provider):
     def cancel(event: BeforeAuxModelCallEvent) -> None:
         event.cancel = True
 
@@ -101,7 +105,7 @@ async def test_cancel_raises_and_skips_after_event(agent, hook_events):
         async for _ in instrument_aux_model_call(_stream_with_stop(), source="summarization", agent=agent):
             pass
 
-    assert [type(event) for event in hook_events] == [BeforeAuxModelCallEvent]
+    assert hook_provider.event_types_received == [BeforeAuxModelCallEvent]
     assert agent.event_loop_metrics.accumulated_usage_by_source == {}
 
 
@@ -118,14 +122,14 @@ async def test_cancel_with_message_uses_it(agent):
 
 
 @pytest.mark.asyncio
-async def test_stream_error_fires_after_event_with_exception(agent, hook_events):
+async def test_stream_error_fires_after_event_with_exception(agent, hook_provider):
     error = RuntimeError("model failed")
 
     with pytest.raises(RuntimeError, match="model failed"):
         async for _ in instrument_aux_model_call(_stream_that_raises(error), source="summarization", agent=agent):
             pass
 
-    before_event, after_event = hook_events
+    before_event, after_event = hook_provider.events_received
     assert isinstance(before_event, BeforeAuxModelCallEvent)
     assert isinstance(after_event, AfterAuxModelCallEvent)
     assert after_event.exception is error
@@ -134,16 +138,51 @@ async def test_stream_error_fires_after_event_with_exception(agent, hook_events)
 
 
 @pytest.mark.asyncio
-async def test_stream_without_stop_event_fires_hooks_without_usage(agent, hook_events):
-    events = [
+async def test_cancellation_mid_stream_fires_after_event(agent, hook_provider):
+    """CancelledError is a BaseException; the After event must still fire (e.g. wait_for timeouts)."""
+    error = asyncio.CancelledError()
+
+    with pytest.raises(asyncio.CancelledError):
+        async for _ in instrument_aux_model_call(_stream_that_raises(error), source="routing_classifier", agent=agent):
+            pass
+
+    before_event, after_event = hook_provider.events_received
+    assert isinstance(before_event, BeforeAuxModelCallEvent)
+    assert isinstance(after_event, AfterAuxModelCallEvent)
+    assert after_event.exception is error
+    assert after_event.stop_response is None
+
+
+@pytest.mark.asyncio
+async def test_stream_without_stop_event_fires_hooks_without_usage(agent, hook_provider):
+    tru_events = [
         event
         async for event in instrument_aux_model_call(_stream_without_stop(), source="routing_classifier", agent=agent)
     ]
 
-    assert events == [{"output": "structured"}]
+    assert tru_events == [{"output": "structured"}]
 
-    before_event, after_event = hook_events
+    before_event, after_event = hook_provider.events_received
     assert before_event.source == "routing_classifier"
+    assert after_event.stop_response is None
+    assert after_event.exception is None
+    assert agent.event_loop_metrics.accumulated_usage_by_source == {}
+
+
+@pytest.mark.asyncio
+async def test_malformed_stop_event_is_skipped_without_error(agent, hook_provider):
+    """A third-party stream's malformed stop payload must not crash the call or lose the After event."""
+    tru_events = [
+        event
+        async for event in instrument_aux_model_call(
+            _stream_with_malformed_stop(), source="routing_classifier", agent=agent
+        )
+    ]
+
+    assert tru_events == [{"stop": ("end_turn", STOP_MESSAGE)}]
+
+    before_event, after_event = hook_provider.events_received
+    assert isinstance(before_event, BeforeAuxModelCallEvent)
     assert after_event.stop_response is None
     assert after_event.exception is None
     assert agent.event_loop_metrics.accumulated_usage_by_source == {}

@@ -227,8 +227,8 @@ class EventLoopMetrics:
     agent_invocations: list[AgentInvocation] = field(default_factory=list)
     traces: list[Trace] = field(default_factory=list)
     accumulated_usage: Usage = field(default_factory=lambda: Usage(inputTokens=0, outputTokens=0, totalTokens=0))
-    accumulated_usage_by_source: dict[str, Usage] = field(default_factory=dict)
     accumulated_metrics: Metrics = field(default_factory=lambda: Metrics(latencyMs=0))
+    accumulated_usage_by_source: dict[str, Usage] = field(default_factory=dict)
 
     @property
     def latest_context_size(self) -> int | None:

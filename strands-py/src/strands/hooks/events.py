@@ -405,7 +405,9 @@ class BeforeAuxModelCallEvent(HookEvent):
     that wants to observe auxiliary calls opts in by subscribing to this event.
 
     Note: Depending on the auxiliary feature, this event may fire outside an active
-    agent invocation (e.g. background memory extraction).
+    agent invocation (e.g. background memory extraction), and possibly on a different
+    event loop than the agent's (e.g. summarization triggered from a synchronous
+    caller).
 
     Attributes:
         source: The auxiliary feature making the call, e.g. ``"summarization"``,
@@ -416,7 +418,10 @@ class BeforeAuxModelCallEvent(HookEvent):
             when the call site has access to it.
         cancel: When set, cancels the auxiliary model call by raising
             :class:`~strands.types.exceptions.AuxModelCallCancelledException`. If a
-            string, used as the cancellation message.
+            string, used as the cancellation message. How cancellation degrades is up
+            to the auxiliary feature: summarization fails the context reduction,
+            routing classification declines (the router serves its default model), and
+            memory extraction skips the batch.
     """
 
     source: str = ""
@@ -446,7 +451,9 @@ class AfterAuxModelCallEvent(HookEvent):
             when the call site has access to it.
         stop_response: The model response data if the call succeeded and reported a
             stop event, None otherwise.
-        exception: Exception if the call failed, None if it succeeded.
+        exception: Exception if the call failed, None if it succeeded. This is a
+            ``BaseException`` because the event also fires when the call is cancelled
+            mid-stream (e.g. ``asyncio.CancelledError`` from a timeout).
     """
 
     @dataclass
@@ -466,7 +473,7 @@ class AfterAuxModelCallEvent(HookEvent):
     source: str = ""
     invocation_state: dict[str, Any] = field(default_factory=dict)
     stop_response: ModelStopResponse | None = None
-    exception: Exception | None = None
+    exception: BaseException | None = None
 
     @property
     def should_reverse_callbacks(self) -> bool:

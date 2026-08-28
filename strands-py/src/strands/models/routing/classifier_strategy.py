@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
@@ -99,7 +99,9 @@ async def _invoke_classifier(
         source="routing_classifier",
         agent=_resolve_owning_agent(context.invocation_state),
         messages=request_messages,
-        invocation_state=cast("dict[str, Any]", context.invocation_state),
+        # A copy: RoutingContext.invocation_state is documented read-only, so hook
+        # callbacks observe it without being able to write through to the live state.
+        invocation_state=dict(context.invocation_state),
     )
 
     output: object | None = None

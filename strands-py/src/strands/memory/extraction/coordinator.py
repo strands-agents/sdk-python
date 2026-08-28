@@ -20,7 +20,7 @@ from opentelemetry.trace import SpanContext
 from ...models.model import Model
 from ...telemetry.tracer import get_tracer
 from ...types.content import ContentBlock, Message
-from ...types.exceptions import AggregateMemoryError
+from ...types.exceptions import AggregateMemoryError, AuxModelCallCancelledException
 from ..types import AddMessagesContext, MemoryStore
 from .resolve_extraction_config import _ResolvedExtractionConfig
 from .types import Extractor, ExtractorContext, MemoryMessageFilter
@@ -69,7 +69,7 @@ class ExtractionCoordinator:
     for repeatedly failing stores.
     """
 
-    def __init__(self, bindings: list[_ExtractionBinding], default_model: Model, agent: Agent | None = None) -> None:
+    def __init__(self, bindings: list[_ExtractionBinding], default_model: Model, *, agent: Agent | None = None) -> None:
         """Initialize the coordinator.
 
         Args:
@@ -237,6 +237,12 @@ class ExtractionCoordinator:
                 # leaves backoff state untouched.
                 self._consecutive_failures[id(store)] = 0
                 self._backoff_counters.pop(id(store), None)
+        except AuxModelCallCancelledException as cancel_error:
+            # A hook cancelled the extraction model call: skip the batch without failure
+            # accounting — the store is healthy. The mark rolls back so the batch retries
+            # when a hook allows it.
+            self._marks[id(store)] = mark
+            logger.debug("store=<%s>, reason=<%s> | memory extraction cancelled by hook", store.name, str(cancel_error))
         except Exception as error:  # noqa: BLE001 - saving must never break the agent loop.
             write_error = error
             self._on_save_failed(store, mark, error)

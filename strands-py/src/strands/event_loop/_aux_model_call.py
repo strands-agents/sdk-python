@@ -44,7 +44,10 @@ async def instrument_aux_model_call(
         events: The auxiliary call's event stream (e.g. from ``process_stream``,
             ``stream_messages``, or ``Model.structured_output``). Streams without a
             ``"stop"`` event are passed through; hooks still fire, but no usage is
-            recorded and ``stop_response`` is None.
+            recorded and ``stop_response`` is None. Note: only providers whose
+            ``structured_output`` forwards stream events (e.g. Bedrock, Anthropic) emit
+            the ``"stop"`` event on structured-output calls; for others the classifier's
+            usage is not recorded today.
         source: The auxiliary feature making the call, e.g. ``"summarization"``.
         agent: The agent this call is made on behalf of, or None.
         messages: The messages sent to the model, exposed on the Before event.
@@ -81,12 +84,29 @@ async def instrument_aux_model_call(
         raise AuxModelCallCancelledException(cancel_message)
 
     stop: Any = None
+    stop_response: AfterAuxModelCallEvent.ModelStopResponse | None = None
+    # BaseException, not Exception: the After event must also fire when the stream is
+    # cancelled or the generator is closed (e.g. the routing classifier's asyncio.wait_for
+    # timeout), or paired setup/teardown hooks would leak on every timeout.
     try:
         async for event in events:
             if isinstance(event, Mapping) and event.get("stop") is not None:
                 stop = event["stop"]
             yield event
-    except Exception as error:
+
+        # Shape-check: in-tree streams always yield (stop_reason, message, usage, metrics),
+        # but a third-party ``structured_output`` may emit anything under "stop".
+        if isinstance(stop, tuple) and len(stop) == 4:
+            stop_reason, message, usage, _metrics = stop
+            agent.event_loop_metrics.update_usage(usage, source=source)
+            stop_response = AfterAuxModelCallEvent.ModelStopResponse(
+                message=message,
+                stop_reason=stop_reason,
+                usage=usage,
+            )
+        else:
+            logger.debug("source=<%s> | auxiliary model call reported no usable stop event, skipping usage", source)
+    except BaseException as error:
         after_error_event = AfterAuxModelCallEvent(
             agent=agent,
             source=source,
@@ -95,18 +115,6 @@ async def instrument_aux_model_call(
         )
         await agent.hooks.invoke_callbacks_async(after_error_event)
         raise
-
-    stop_response: AfterAuxModelCallEvent.ModelStopResponse | None = None
-    if stop is not None:
-        stop_reason, message, usage, _metrics = stop
-        agent.event_loop_metrics.update_usage(usage, source=source)
-        stop_response = AfterAuxModelCallEvent.ModelStopResponse(
-            message=message,
-            stop_reason=stop_reason,
-            usage=usage,
-        )
-    else:
-        logger.debug("source=<%s> | auxiliary model call stream reported no stop event, skipping usage", source)
 
     after_event = AfterAuxModelCallEvent(
         agent=agent,

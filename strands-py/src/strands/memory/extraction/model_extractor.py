@@ -65,6 +65,8 @@ class ModelExtractor:
         Raises:
             ValueError: If no model is configured and no default is available.
             RuntimeError: If the model returns no response.
+            AuxModelCallCancelledException: If a ``BeforeAuxModelCallEvent`` hook
+                cancelled the extraction call.
         """
         model = self._model or (context.default_model if context else None)
         if model is None:

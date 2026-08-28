@@ -16,6 +16,7 @@ from strands.agent.conversation_manager.compression.pin_message import partition
 from strands.hooks import AfterAuxModelCallEvent, BeforeAuxModelCallEvent
 from strands.types.content import Message
 from strands.types.exceptions import AuxModelCallCancelledException, ContextWindowOverflowException
+from tests.fixtures.mock_hook_provider import MockHookProvider
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 
@@ -206,15 +207,13 @@ class TestGenerateSummary:
     async def test_fires_aux_hooks_and_records_usage_when_agent_provided(self):
         model = Mock()
         model.stream = Mock(side_effect=lambda *a, **kw: _mock_model_stream_with_usage("Summary"))
-        agent = Agent(model=MockedModelProvider([]))
-        received = []
-        agent.hooks.add_callback(BeforeAuxModelCallEvent, received.append)
-        agent.hooks.add_callback(AfterAuxModelCallEvent, received.append)
+        hook_provider = MockHookProvider([BeforeAuxModelCallEvent, AfterAuxModelCallEvent])
+        agent = Agent(model=MockedModelProvider([]), hooks=[hook_provider])
 
         result = await generate_summary([text_msg("user", "hello")], model, agent=agent)
 
         assert result["role"] == "user"
-        before_event, after_event = received
+        before_event, after_event = hook_provider.events_received
         assert before_event.source == "summarization"
         assert after_event.source == "summarization"
         assert after_event.stop_response.usage == {"inputTokens": 12, "outputTokens": 4, "totalTokens": 16}
