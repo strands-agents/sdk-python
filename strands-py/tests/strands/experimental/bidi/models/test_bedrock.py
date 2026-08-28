@@ -276,7 +276,7 @@ async def test_connection_config_declared(nova_model):
 @pytest.mark.asyncio
 async def test_connection_config_overrides_merge_over_defaults(model_id, boto_session):
     """provider_config['connection'] tunes individual fields without dropping the defaults."""
-    model = BidiNovaSonicModel(
+    model = BedrockNovaSonicModel(
         model_id=model_id,
         client_config={"boto_session": boto_session},
         provider_config={"connection": {"auto_reconnect": False}},
@@ -341,7 +341,7 @@ async def test_reconnect_twice_does_not_raise(nova_model):
 async def test_proactive_reconnect_end_to_end_through_agent(model_id, boto_session, mock_client, mock_stream):
     """End-to-end: BidiAgent + real Nova model proactively reconnects before the deadline.
 
-    Drives the full chain against the real BidiNovaSonicModel (mocked Bedrock transport):
+    Drives the full chain against the real BedrockNovaSonicModel (mocked Bedrock transport):
     the loop reads Nova's connection_config, arms the proactive timer, emits a warning,
     and reconnects through Nova's own reconnect() before the session deadline, replaying
     history via Nova's initialization path. No live AWS calls are made.
@@ -360,7 +360,7 @@ async def test_proactive_reconnect_end_to_end_through_agent(model_id, boto_sessi
     output.receive = AsyncMock(side_effect=blocking_receive)
     mock_stream.await_output = AsyncMock(return_value=(None, output))
 
-    model = BidiNovaSonicModel(model_id=model_id, client_config={"boto_session": boto_session})
+    model = BedrockNovaSonicModel(model_id=model_id, client_config={"boto_session": boto_session})
     # A small deadline; the injected clock below fires it without wall time.
     model.connection_config = {"restart_after_s": 1}
 
@@ -400,12 +400,12 @@ async def test_proactive_reconnect_end_to_end_through_agent(model_id, boto_sessi
 
 @pytest.mark.asyncio
 async def test_model_stop_after_start_failure(model_id, boto_session):
-    with patch("strands.experimental.bidi.models.nova_sonic.AsyncBedrockRuntimeClient") as mock_cls:
+    with patch("strands.experimental.bidi.models.bedrock.AsyncBedrockRuntimeClient") as mock_cls:
         mock_instance = AsyncMock()
         mock_instance.invoke_model_with_bidirectional_stream.side_effect = RuntimeError("connection failed")
         mock_cls.return_value = mock_instance
 
-        model = BidiNovaSonicModel(model_id=model_id, client_config={"boto_session": boto_session})
+        model = BedrockNovaSonicModel(model_id=model_id, client_config={"boto_session": boto_session})
 
         with pytest.raises(RuntimeError, match="connection failed"):
             await model.start()

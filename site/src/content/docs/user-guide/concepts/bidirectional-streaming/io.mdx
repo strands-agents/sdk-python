@@ -96,7 +96,7 @@ Out of the box, Strands provides `BidiAudioIO` to help connect your microphone a
 :::note[Installation Required]
 `BidiAudioIO` requires the `bidi-pyaudio` extra and the PortAudio system library:
 ```bash
-pip install "strands-agents[bidi,bidi-pyaudio]"
+pip install "strands-agents[bidi-bedrock,bidi-pyaudio]"
 ```
 :::
 
@@ -148,9 +148,9 @@ This creates a voice-enabled agent that captures audio from your microphone, str
 Strands also provides `BidiTextIO` for terminal-based text input and output using [prompt-toolkit](https://pypi.org/project/prompt-toolkit/).
 
 :::note[Installation Required]
-`BidiTextIO` is included with the `bidi` extra:
+`BidiTextIO` is included with the `bidi-bedrock` extra:
 ```bash
-pip install "strands-agents[bidi]"
+pip install "strands-agents[bidi-bedrock]"
 ```
 :::
 
