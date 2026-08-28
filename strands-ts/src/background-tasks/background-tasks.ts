@@ -61,12 +61,22 @@ export class BackgroundTasks implements Plugin {
     this._manageTool = tool({
       name: MANAGE_TOOL_NAME,
       description:
-        'Inspect or cancel a background task. Completed results are delivered automatically; do not poll with this tool.',
+        'List, inspect, or cancel background tasks. Completed results are delivered automatically; do not poll with this tool.',
       inputSchema: z.object({
-        mode: z.enum(['get', 'cancel']).describe('Whether to inspect or cancel the background task.'),
-        taskId: z.string().min(1).describe('The background task ID returned when the task was dispatched.'),
+        mode: z.enum(['list', 'get', 'cancel']).describe('Whether to list, inspect, or cancel background tasks.'),
+        taskId: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('The background task ID returned when the task was dispatched. Required for get and cancel.'),
       }),
       callback: async ({ mode, taskId }) => {
+        if (mode === 'list') {
+          return {
+            tasks: [...this._tasks.values()].map(({ taskId, toolName, status }) => ({ taskId, toolName, status })),
+          }
+        }
+        if (!taskId) throw new TypeError(`Task ID is required for mode '${mode}'`)
         const task = this._tasks.get(taskId)
         if (!task) throw new BackgroundTaskNotFoundError(taskId)
         if (mode === 'get') return task
@@ -178,7 +188,20 @@ export class BackgroundTasks implements Plugin {
       return new ToolResultBlock({
         toolUseId: toolUse.toolUseId,
         status: 'success',
-        content: [new TextBlock(`Background task dispatched.\n\nTask ID: ${task.taskId}`)],
+        content: [
+          new TextBlock(
+            [
+              'Background task dispatched.',
+              '',
+              `Task ID: ${task.taskId}`,
+              `Tool: ${task.toolName}`,
+              `Status: ${task.status}`,
+              '',
+              'The task is running in the background. Continue without waiting or polling.',
+              'The final result will be delivered automatically when the task completes.',
+            ].join('\n')
+          ),
+        ],
       })
     } catch (error) {
       logger.warn(`error=<${error}> | background task admission failed`)
@@ -401,7 +424,7 @@ function resolvePolicy(config: BackgroundTasksConfig): ReadonlyMap<string, 'neve
 
   for (const [mode, selectors] of assignments) {
     for (const selector of selectors) {
-      const name = selector === '*' ? selector : selector.name
+      const name = typeof selector === 'string' ? selector : selector.name
       const existing = policy.get(name)
       if (existing && existing !== mode) {
         throw new TypeError(`Tool '${name}' cannot be configured as both '${existing}' and '${mode}'`)
