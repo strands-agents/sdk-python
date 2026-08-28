@@ -28,11 +28,11 @@ agent("load the bracket into the fixture")
 
 That `Robot("ur10e")` call gives you a running [MuJoCo](https://mujoco.org/) simulation with a [Universal Robots UR10e](https://www.universal-robots.com/products/ur-series/) arm in it, no GPU and no hardware required. The agent can control that arm, and in this case it works out how to pick up the bracket and seat it in the fixture. When you are ready for the real arm, you change one argument to `mode="real"` and the same agent code drives the physical servos. A robot in Strands is a [Strands Agent tool](https://strandsagents.com/latest/documentation/docs/user-guide/concepts/tools/), so the agent reads the robot's camera and joint state and decides what to do next in natural language, the same way it would call any other tool.
 
-That is one robot. The more interesting question, and the one we hear most often from people building physical AI, is what happens when you have several. A cell of arms on a bench. A mix of a humanoid, a camera, and a sensor package. A microscope that needs to hand a sample to a liquid handler. Once you have more than one device, the interesting work is in how they find each other and coordinate once they have. This post is about that layer in [Strands Robots](https://strands-labs.github.io/robots/): how agents read from and act on many devices at once, over the network, in simulation or the real world. It is also about a new way to do it, the [Model Hardware Standard](https://www.modelhardwarestandard.com/) (MHS), a new standard co-developed by Anthropic and HHMI Janelia Research Campus, now in a limited research preview. Strands Robots and AWS are participating in that preview, and we are building native MHS support into Strands Robots for other preview participants to test.
+That is one robot. The more interesting question, and the one we hear most often from people building physical AI, is what happens when you have several. Two arms sharing an assembly cell, one holding a part while the other drives the screws. A mobile robot ferrying totes between a pick station and a packing line. A microscope handing a sample to a liquid handler for the next step of an assay. Once you have more than one device, the interesting work is in how they find each other and coordinate once they have. This post is about that layer in [Strands Robots](https://strands-labs.github.io/robots/): how agents read from and act on many devices at once, over the network, in simulation or the real world. It is also about a new way to do it, the [Model Hardware Standard](https://www.modelhardwarestandard.com/) (MHS), a new standard co-developed by Anthropic and HHMI Janelia Research Campus, now in a limited research preview. Strands Robots and AWS are participating in that preview, and we are building native MHS support into Strands Robots for other preview participants to test.
 
 ## From one robot to a network of them
 
-An agent that controls a single robot is a closed loop: sense, reason, act. An agent that coordinates several needs two more things. It needs to discover what is out there, and it needs a way to read state from and send commands to the other devices. Strands Robots handles both through a mesh network that lets robots and agents talk to one another, including robots running in simulation, so a mix of simulated and real machines can sit on the same mesh.
+An agent that controls a single robot is a closed loop of sense, reason, and act. An agent that coordinates several needs two more things. It needs to discover what is out there, and it needs a way to read state from and send commands to the other devices. Strands Robots handles both through a mesh network that lets robots and agents talk to one another, including robots running in simulation, so a mix of simulated and real machines can sit on the same mesh.
 
 The mesh is off by default. You opt in per robot, either with an argument or an environment variable, and from that point the robot announces itself and starts sharing presence, state, and camera streams with the other peers on the network.
 
@@ -64,7 +64,7 @@ The mesh is a transport abstraction, and you select the transport that matches w
 
 [**AWS IoT Core**](https://aws.amazon.com/iot-core/) takes over when the robots are not on the same network, or when you want to run the fleet from the cloud. Strands Robots provisions each robot as an IoT thing with its own certificate and mirrors presence through device shadows, so a cloud agent that joins later still sees the fleet, and the mesh API you used on Zenoh works unchanged.
 
-You point the mesh at a different backend and everything above it stays the same:
+You point the mesh at a different backend, and your agent and its tools stay the same:
 
 ```python
 import os
@@ -96,9 +96,9 @@ os.environ["STRANDS_MESH_BACKEND"] = "mhs"
 robot = Robot("ur10e", mesh=True)
 ```
 
-In that pre-release build, a robot or simulation you drive with a Strands agent can present itself on an MHS network, so read and write, discovery, and shared state run through the same mesh abstraction you use for Zenoh and IoT, and your agent code stays the same. The `Robot()` you prototype with in simulation carries over to an MHS network of real instruments, keeping the sim-to-real parity that Strands Robots is built around. AWS is one of the participants in the research preview.
+In that pre-release build, a robot or simulation you drive with a Strands agent can present itself on an MHS network, so read and write, discovery, and shared state run through the same mesh abstraction you use for Zenoh and IoT, and your agent code stays the same. The `Robot()` you prototype with in simulation carries over to an MHS network of real instruments, keeping the sim-to-real parity that Strands Robots is built around.
 
-MHS is a limited research preview, with access by application, while Anthropic and HHMI Janelia validate the safety design for AI agents operating physical equipment. Safety is built into the standard: devices declare their bounds, interlocks, and emergency stops, and agents inherit and operate within them by default. Preview participants can test the MHS support we are building into Strands Robots and put their own robots and devices on an MHS network. If that is something you want to try, you can apply below.
+MHS is a limited research preview, with access by application, while Anthropic and HHMI Janelia validate the safety design for AI agents operating physical equipment. Safety is built into the standard itself. Devices declare their bounds, interlocks, and emergency stops, and agents inherit and operate within them by default. Preview participants can test the MHS support we are building into Strands Robots and put their own robots and devices on an MHS network. If that is something you want to try, you can apply [here](https://www.modelhardwarestandard.com/).
 
 ## Getting started
 
