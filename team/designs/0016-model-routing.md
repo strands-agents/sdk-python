@@ -53,10 +53,9 @@ Two strategies ship in v1:
 | Fallback | availability/reliability | reactive | router-owned ordered candidates; retry the selected model, then advance. Reuses `ModelRetryStrategy` |
 | Model-driven | quality/accuracy | proactive | a small decision model classifies the request and names a candidate |
 
-The remaining objectives are covered by candidate selection or deferred for a missing signal, not left unaddressed:
+The remaining objectives are covered by candidate selection, classifier evidence, or the strategy protocol, not left unaddressed:
 - **Compliance/residency** is expressed by which models a caller lists (for example, only models in an approved region), so it needs no dedicated strategy.
-- **Capacity** is a proactive context-fit strategy over `count_tokens` and `context_window_limit`, local with no extra model call, deferred to a fast-follow (P1).
-- **Cost** is a proactive strategy blocked on per-model pricing, which the SDK does not carry yet (P1).
+- **Capacity, cost, and other requirements** are expressed as classifier evidence: candidates carry limits, pricing, and capabilities in `metadata`, and the routing policy weighs them against the request. Callers with a local heuristic implement the `RoutingStrategy` protocol directly, with no judge call.
 - **Latency** needs runtime latency measurement or shared state, which is closer to the gateway load-balancing case the SDK delegates (P1).
 
 Proactive selection and fallback compose without requiring every strategy to implement failure handling. A strategy chooses the initial candidate. After that candidate's retries are exhausted, `ModelRouter` tries each untried candidate in declaration order.
@@ -197,8 +196,7 @@ Agent(model: Model | str | ModelRouter = ...)
 
 - **P0, router core and fallback.** Add immutable, reusable `ModelRouter` and `RoutingCandidate` configuration; normalize candidate inputs; widen `model=`; recognize the router as a plugin during agent initialization; add `model` to `InvokeModelContext`; cache selection in invocation state; resolve nested routers; and make the terminal call the context model. Register routing before model-dependent invoke middleware, provide router-owned ordered fallback after `ModelRetryStrategy`, reset retry state when advancing, and reject stateful candidates during construction.
 - **P0, model-driven strategy.** Add decision-model selection over candidate evidence. Run the judge once per invocation, fall back to the first candidate when the judge fails or returns an invalid result, and record the outcome on the existing model-invoke span.
-- **P1, context-fit strategy.** Add local context-window selection over `count_tokens` and `context_window_limit`: choose the smallest known context window that fits the candidate's token count, falling back to the largest known window when none fit.
-- **P1, cost-aware routing.** Add a pricing source of truth, then rank context-fit survivors by price.
+- **P1, cost-aware routing.** Add a pricing source of truth, then rank capable candidates by price.
 - **P1, cache-affinity (sticky) routing.** When a request carries prompt-cache points, keep it on the model that wrote the cache so a cheaper route does not discard a cache hit. This is a session-scoped selection stored in agent state and matches LiteLLM's prompt-cache routing pre-call check.
 - **P1, embedding and semantic routing, and quality cascades.** Add learned or embedding selection without a decision-model call, and result-aware escalation once the SDK exposes a suitable quality signal.
 
