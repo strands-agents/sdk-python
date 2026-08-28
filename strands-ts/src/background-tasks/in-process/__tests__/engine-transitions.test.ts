@@ -8,12 +8,12 @@ import {
   expectTask,
   getStateValue,
 } from './engine-test-helpers.js'
-import type { TaskExecutionOutcome } from '../types.js'
+import type { InProcessTaskExecutionOutcome } from '../types.js'
 
 describe('InProcessTaskEngine', () => {
   describe('waiting and transitions', () => {
     it('cancels idle observation without cancelling work', async () => {
-      const finish = deferred<TaskExecutionOutcome>()
+      const finish = deferred<InProcessTaskExecutionOutcome>()
       const engine = createEngine(async () => finish.promise)
       const task = engine.submit(createAdmission('work'))
       const idleController = new AbortController()
@@ -55,7 +55,7 @@ describe('InProcessTaskEngine', () => {
     })
 
     it('cancels running work and removes it before execution settles', async () => {
-      const finish = deferred<TaskExecutionOutcome>()
+      const finish = deferred<InProcessTaskExecutionOutcome>()
       let executionSignal: AbortSignal | undefined
       const engine = createEngine(async ({ cancelSignal }) => {
         executionSignal = cancelSignal
@@ -75,7 +75,7 @@ describe('InProcessTaskEngine', () => {
     })
 
     it('cancels queued work without executing it', async () => {
-      const finish = deferred<TaskExecutionOutcome>()
+      const finish = deferred<InProcessTaskExecutionOutcome>()
       const executions: string[] = []
       const engine = createEngine(
         async ({ toolName }) => {
@@ -96,7 +96,7 @@ describe('InProcessTaskEngine', () => {
     })
 
     it('rejects invalid execution configuration', () => {
-      const complete = async (): Promise<TaskExecutionOutcome> => ({
+      const complete = async (): Promise<InProcessTaskExecutionOutcome> => ({
         status: 'completed',
         result: createResult('done'),
       })

@@ -8,6 +8,7 @@ OpenAI caches prompt prefixes automatically server-side and routes reads on a ca
 import warnings
 from typing import Any
 
+from ._validation import warn_on_cache_config_not_supported
 from .model import CacheConfig
 
 # OpenAI's prompt_cache_retention accepts only these literals. ttl maps through only on an exact
@@ -47,9 +48,4 @@ def apply_cache_config(request: dict[str, Any], cache_config: CacheConfig | None
                 stacklevel=4,
             )
 
-    if cache_config.strategy != "auto" or cache_config.system_prompt_ttl is not True:
-        warnings.warn(
-            "openai caches prompt prefixes automatically server-side; cache_config.strategy and "
-            "system_prompt_ttl have no effect and will be ignored",
-            stacklevel=4,
-        )
+    warn_on_cache_config_not_supported(cache_config, "OpenAI", supported={"cache_key", "ttl"})

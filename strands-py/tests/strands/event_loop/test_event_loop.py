@@ -161,6 +161,7 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock.tool_executor = tool_executor
     mock._interrupt_state = _InterruptState()
     mock._cancel_signal = threading.Event()
+    mock._observe_cancellation = mock._cancel_signal.is_set
     mock._model_state = {}
     mock._system_prompt_content = None
     mock._middleware_registry = strands._middleware.MiddlewareRegistry()
@@ -410,6 +411,7 @@ async def test_event_loop_cycle_tool_result(
         system_prompt_content=unittest.mock.ANY,
         invocation_state=unittest.mock.ANY,
         model_state=unittest.mock.ANY,
+        cancel_signal=unittest.mock.ANY,
     )
 
 
@@ -926,6 +928,7 @@ async def test_request_state_initialization(alist):
     # not setting this to False results in endless recursion
     mock_agent._interrupt_state.activated = False
     mock_agent._cancel_signal = threading.Event()
+    mock_agent._observe_cancellation = mock_agent._cancel_signal.is_set
     mock_agent._system_prompt_content = None
     mock_agent.system_prompt = None
     mock_agent._model_state = {}
@@ -2156,6 +2159,38 @@ class TestEstimateInputTokens:
         # baseline (100+30) + delta (50) = 180
         assert result == 180
         agent.model.count_tokens.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_baseline_counts_disjoint_cache_tokens(self):
+        """Baseline includes cache reads on disjoint providers (#3546).
+
+        Without counting the cache read, a large cached prompt reads as a handful of tokens and
+        proactive compaction never fires. Here inputTokens + outputTokens != totalTokens, so the
+        cache read is additional to inputTokens and must be included in the baseline.
+        """
+        agent = unittest.mock.AsyncMock()
+        agent.messages = [
+            {"role": "user", "content": [{"text": "Hi"}]},
+            {
+                "role": "assistant",
+                "content": [{"text": "Hello"}],
+                "metadata": {
+                    "usage": {
+                        "inputTokens": 10,
+                        "outputTokens": 4,
+                        "totalTokens": 5862,
+                        "cacheReadInputTokens": 5848,
+                    }
+                },
+            },
+        ]
+        agent.system_prompt = "You are helpful"
+
+        result = await strands.event_loop.event_loop._estimate_input_tokens(agent)
+
+        # total prompt (10 + 5848 cache read) + output (4) = 5862, not 14
+        assert result == 5862
+        agent.model.count_tokens.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_error_fallback_returns_none_at_call_site(self):

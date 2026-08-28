@@ -44,6 +44,10 @@
       "types": "./dist/src/models/vercel.d.ts",
       "default": "./dist/src/models/vercel.js"
     },
+    "./models/routing": {
+      "types": "./dist/src/models/routing/index.d.ts",
+      "default": "./dist/src/models/routing/index.js"
+    },
     "./multiagent": {
       "types": "./dist/src/multiagent/index.d.ts",
       "default": "./dist/src/multiagent/index.js"

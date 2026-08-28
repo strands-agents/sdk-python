@@ -144,9 +144,7 @@ def bedrock_masking_guardrail(boto_session):
 
 @pytest.mark.parametrize("streaming", [True, False])
 @pytest.mark.parametrize("guardrail_trace", ["enabled", "enabled_full"])
-def test_guardrail_input_masking_preserves_content(
-    boto_session, bedrock_masking_guardrail, guardrail_trace, streaming
-):
+def test_guardrail_input_masking_preserves_content(boto_session, bedrock_masking_guardrail, guardrail_trace, streaming):
     """Bedrock reports stop_reason='guardrail_intervened' for masking, but the user message must
     be preserved — Bedrock has already substituted the sensitive spans server-side. The SDK must
     not replace the whole message with the redaction placeholder as it does for BLOCKED content.
