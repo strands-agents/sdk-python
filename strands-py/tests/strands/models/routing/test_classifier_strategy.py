@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from strands import Agent
+from strands.hooks import AfterAuxModelCallEvent, BeforeAuxModelCallEvent
 from strands.models import ClassifierStrategy, ModelRouter, RoutingAttempt, RoutingCandidate
 from strands.models.routing.classifier_strategy import (
     _CLASSIFICATION_OMISSION_MARKER,
@@ -56,13 +57,13 @@ class _ConfigGuardModel(MockedModelProvider):
         raise AssertionError("candidate configuration must not be read")
 
 
-def _context(router: ModelRouter, messages=None, attempts=()) -> RoutingContext:
+def _context(router: ModelRouter, messages=None, attempts=(), invocation_state=None) -> RoutingContext:
     return RoutingContext(
         messages=messages or [{"role": "user", "content": [{"text": "Plan a safe migration"}]}],
         system_prompt="Be precise",
         tool_specs=[],
         candidates=router.candidates,
-        invocation_state={},
+        invocation_state=invocation_state if invocation_state is not None else {},
         attempts=attempts,
     )
 
@@ -85,6 +86,72 @@ def _classification_context(system_prompt: str) -> dict[str, Any]:
         "\n</untrusted_classification_context>", 1
     )[0]
     return json.loads(serialized_context)
+
+
+class _StopEventClassifierModel(_ClassifierModel):
+    """A classifier model that also yields the ``stop`` event Bedrock passes through."""
+
+    async def structured_output(self, output_model, prompt, system_prompt=None, **kwargs: Any):
+        async for event in super().structured_output(output_model, prompt, system_prompt, **kwargs):
+            yield event
+        yield {
+            "stop": (
+                "tool_use",
+                {"role": "assistant", "content": []},
+                {"inputTokens": 30, "outputTokens": 3, "totalTokens": 33},
+                {"latencyMs": 2},
+            )
+        }
+
+
+@pytest.mark.asyncio
+async def test_select_fires_aux_hooks_and_records_usage_on_owning_agent():
+    classifier = _StopEventClassifierModel(selected_index=1)
+    strategy = ClassifierStrategy(classifier)
+    router = ModelRouter(models=[_candidate("simple"), _candidate("complex")], strategy=strategy)
+    agent = Agent(model=MockedModelProvider([]))
+    received = []
+    agent.hooks.add_callback(BeforeAuxModelCallEvent, received.append)
+    agent.hooks.add_callback(AfterAuxModelCallEvent, received.append)
+
+    tru_candidate = await strategy.select(_context(router, invocation_state={"agent": agent}))
+
+    assert tru_candidate is router.candidates[1]
+    before_event, after_event = received
+    assert before_event.source == "routing_classifier"
+    assert after_event.source == "routing_classifier"
+    assert after_event.stop_response.usage == {"inputTokens": 30, "outputTokens": 3, "totalTokens": 33}
+    assert agent.event_loop_metrics.accumulated_usage_by_source["routing_classifier"]["totalTokens"] == 33
+
+
+@pytest.mark.asyncio
+async def test_select_without_agent_in_invocation_state_still_classifies():
+    classifier = _ClassifierModel(selected_index=1)
+    strategy = ClassifierStrategy(classifier)
+    router = ModelRouter(models=[_candidate("simple"), _candidate("complex")], strategy=strategy)
+
+    tru_candidate = await strategy.select(_context(router, invocation_state={"agent": "not-an-agent"}))
+
+    assert tru_candidate is router.candidates[1]
+
+
+@pytest.mark.asyncio
+async def test_select_declines_when_hook_cancels_classification(caplog):
+    classifier = _ClassifierModel(selected_index=1)
+    strategy = ClassifierStrategy(classifier)
+    router = ModelRouter(models=[_candidate("simple"), _candidate("complex")], strategy=strategy)
+    agent = Agent(model=MockedModelProvider([]))
+
+    def cancel(event: BeforeAuxModelCallEvent) -> None:
+        event.cancel = True
+
+    agent.hooks.add_callback(BeforeAuxModelCallEvent, cancel)
+
+    with caplog.at_level(logging.WARNING):
+        tru_candidate = await strategy.select(_context(router, invocation_state={"agent": agent}))
+
+    assert tru_candidate is None
+    assert "classification declined" in caplog.text
 
 
 @pytest.mark.asyncio

@@ -80,6 +80,7 @@ class ModelExtractor:
         }
 
         # Lazy import to avoid a circular import with ``event_loop.streaming``.
+        from ...event_loop._aux_model_call import instrument_aux_model_call
         from ...event_loop.streaming import stream_messages
 
         tracer = get_tracer()
@@ -90,7 +91,13 @@ class ModelExtractor:
         stop: Any = None
         try:
             with trace_api.use_span(span, end_on_exit=False):
-                async for event in stream_messages(model, self._system_prompt, [prompt], tool_specs=[]):
+                events = instrument_aux_model_call(
+                    stream_messages(model, self._system_prompt, [prompt], tool_specs=[]),
+                    source="memory_extraction",
+                    agent=context.agent if context else None,
+                    messages=[prompt],
+                )
+                async for event in events:
                     # The terminal ``ModelStopReason`` event carries
                     # ``{"stop": (stop_reason, message, usage, metrics)}``.
                     candidate = event.get("stop")

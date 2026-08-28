@@ -19,9 +19,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from strands import Agent
+from strands.hooks import AfterAuxModelCallEvent, BeforeAuxModelCallEvent
 from strands.memory.extraction.model_extractor import ModelExtractor
 from strands.memory.extraction.types import ExtractionResult, ExtractorContext
 from strands.types.content import Message
+from strands.types.exceptions import AuxModelCallCancelledException
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 

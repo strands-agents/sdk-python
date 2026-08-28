@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 from ..types.agent import AgentInput
 from ..types.content import ContentBlock, Message, Messages
+from ..types.event_loop import Usage
 from ..types.interrupt import _Interruptible
 from ..types.streaming import StopReason
 from ..types.tools import AgentTool, ToolResult, ToolUse
@@ -386,6 +387,86 @@ class AfterModelCallEvent(HookEvent):
 
     def _can_write(self, name: str) -> bool:
         return name == "retry"
+
+    @property
+    def should_reverse_callbacks(self) -> bool:
+        """True to invoke callbacks in reverse order."""
+        return True
+
+
+@dataclass
+class BeforeAuxModelCallEvent(HookEvent):
+    """Event triggered before an SDK-internal (non-main-loop) model call.
+
+    Auxiliary model calls are calls the SDK makes on the user's behalf outside the
+    agent's main event loop — summarizing conversation history, classifying a request
+    to route between models, or extracting memories. They do not fire
+    :class:`BeforeModelCallEvent`, which keeps meaning "the agent's turn"; a consumer
+    that wants to observe auxiliary calls opts in by subscribing to this event.
+
+    Note: Depending on the auxiliary feature, this event may fire outside an active
+    agent invocation (e.g. background memory extraction).
+
+    Attributes:
+        source: The auxiliary feature making the call, e.g. ``"summarization"``,
+            ``"routing_classifier"``, or ``"memory_extraction"``. Open-ended so future
+            auxiliary features can add values.
+        messages: The messages sent to the model, when the call site exposes them.
+        invocation_state: State and configuration passed through the agent invocation,
+            when the call site has access to it.
+        cancel: When set, cancels the auxiliary model call by raising
+            :class:`~strands.types.exceptions.AuxModelCallCancelledException`. If a
+            string, used as the cancellation message.
+    """
+
+    source: str = ""
+    messages: Messages | None = None
+    invocation_state: dict[str, Any] = field(default_factory=dict)
+    cancel: bool | str = False
+
+    def _can_write(self, name: str) -> bool:
+        return name == "cancel"
+
+
+@dataclass
+class AfterAuxModelCallEvent(HookEvent):
+    """Event triggered after an SDK-internal (non-main-loop) model call completes.
+
+    Fired after every :class:`BeforeAuxModelCallEvent` whose call was not cancelled,
+    whether the call succeeded or raised. See :class:`BeforeAuxModelCallEvent` for
+    what counts as an auxiliary model call.
+
+    Note: This event uses reverse callback ordering, meaning callbacks registered
+    later will be invoked first during cleanup.
+
+    Attributes:
+        source: The auxiliary feature that made the call. See
+            :attr:`BeforeAuxModelCallEvent.source`.
+        invocation_state: State and configuration passed through the agent invocation,
+            when the call site has access to it.
+        stop_response: The model response data if the call succeeded and reported a
+            stop event, None otherwise.
+        exception: Exception if the call failed, None if it succeeded.
+    """
+
+    @dataclass
+    class ModelStopResponse:
+        """Model response data from a successful auxiliary call.
+
+        Attributes:
+            message: The generated message from the model.
+            stop_reason: The reason the model stopped generating.
+            usage: Token usage reported for the call.
+        """
+
+        message: Message
+        stop_reason: StopReason
+        usage: Usage
+
+    source: str = ""
+    invocation_state: dict[str, Any] = field(default_factory=dict)
+    stop_response: ModelStopResponse | None = None
+    exception: Exception | None = None
 
     @property
     def should_reverse_callbacks(self) -> bool:

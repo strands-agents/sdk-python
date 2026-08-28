@@ -6,14 +6,18 @@ import asyncio
 import json
 import logging
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel, Field
 
+from ...event_loop._aux_model_call import instrument_aux_model_call
 from ...types.content import Message, Messages, SystemPrompt
 from ..model import Model
 from .router import RoutingCandidate
 from .strategy import RoutingContext
+
+if TYPE_CHECKING:
+    from ...agent.agent import Agent
 
 logger = logging.getLogger(__name__)
 
@@ -82,12 +86,20 @@ async def _invoke_classifier(
     model: Model,
     request: str,
     system_prompt: str,
+    context: RoutingContext,
 ) -> _ClassifierSelection:
     """Invoke a model directly and return its structured classification."""
-    events = model.structured_output(
-        _ClassifierSelection,
-        [{"role": "user", "content": [{"text": request}]}],
-        system_prompt=system_prompt,
+    request_messages: Messages = [{"role": "user", "content": [{"text": request}]}]
+    events = instrument_aux_model_call(
+        model.structured_output(
+            _ClassifierSelection,
+            request_messages,
+            system_prompt=system_prompt,
+        ),
+        source="routing_classifier",
+        agent=_resolve_owning_agent(context.invocation_state),
+        messages=request_messages,
+        invocation_state=cast("dict[str, Any]", context.invocation_state),
     )
 
     output: object | None = None
@@ -97,6 +109,15 @@ async def _invoke_classifier(
     if not isinstance(output, _ClassifierSelection):
         raise ValueError("classifier returned an invalid structured result")
     return output
+
+
+def _resolve_owning_agent(invocation_state: Mapping[str, Any]) -> "Agent | None":
+    """Return the agent this invocation runs for, when the invocation state carries one."""
+    # Lazy import to avoid a circular import: ``agent`` imports the models package.
+    from ...agent.agent import Agent
+
+    candidate = invocation_state.get("agent")
+    return candidate if isinstance(candidate, Agent) else None
 
 
 class ClassifierStrategy:
@@ -199,6 +220,7 @@ class ClassifierStrategy:
                 self._system_prompt,
                 self._max_agent_instructions_chars,
             ),
+            context=context,
         )
         if output.selected_candidate_index >= len(context.candidates):
             raise ValueError("classifier selected an unknown candidate")

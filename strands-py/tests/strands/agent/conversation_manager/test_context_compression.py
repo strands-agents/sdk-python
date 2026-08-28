@@ -4,6 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from strands import Agent
 from strands.agent.conversation_manager.compression.context_compression import (
     DEFAULT_SUMMARIZATION_PROMPT,
     adjust_split_point_for_tool_pairs,
@@ -12,8 +13,10 @@ from strands.agent.conversation_manager.compression.context_compression import (
     matches_message_type,
 )
 from strands.agent.conversation_manager.compression.pin_message import partition_pinned, pin_message
+from strands.hooks import AfterAuxModelCallEvent, BeforeAuxModelCallEvent
 from strands.types.content import Message
-from strands.types.exceptions import ContextWindowOverflowException
+from strands.types.exceptions import AuxModelCallCancelledException, ContextWindowOverflowException
+from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 
 def text_msg(role: str, text: str) -> Message:
@@ -43,6 +46,12 @@ async def _mock_model_stream_error(error):
     """Async generator that raises, simulating a model failure during streaming."""
     raise error
     yield  # pragma: no cover - makes this a generator
+
+
+async def _mock_model_stream_with_usage(response_text):
+    async for event in _mock_model_stream(response_text):
+        yield event
+    yield {"metadata": {"usage": {"inputTokens": 12, "outputTokens": 4, "totalTokens": 16}, "metrics": {"latencyMs": 1}}}
 
 
 def mock_model(summary_text="Summary of conversation"):
@@ -192,6 +201,35 @@ class TestGenerateSummary:
         original = [text_msg("user", "hello"), text_msg("assistant", "hi")]
         await generate_summary(original, model)
         assert len(original) == 2
+
+    async def test_fires_aux_hooks_and_records_usage_when_agent_provided(self):
+        model = Mock()
+        model.stream = Mock(side_effect=lambda *a, **kw: _mock_model_stream_with_usage("Summary"))
+        agent = Agent(model=MockedModelProvider([]))
+        received = []
+        agent.hooks.add_callback(BeforeAuxModelCallEvent, received.append)
+        agent.hooks.add_callback(AfterAuxModelCallEvent, received.append)
+
+        result = await generate_summary([text_msg("user", "hello")], model, agent=agent)
+
+        assert result["role"] == "user"
+        before_event, after_event = received
+        assert before_event.source == "summarization"
+        assert after_event.source == "summarization"
+        assert after_event.stop_response.usage == {"inputTokens": 12, "outputTokens": 4, "totalTokens": 16}
+        assert agent.event_loop_metrics.accumulated_usage_by_source["summarization"]["totalTokens"] == 16
+
+    async def test_cancel_hook_aborts_summarization(self):
+        model = mock_model("Summary")
+        agent = Agent(model=MockedModelProvider([]))
+
+        def cancel(event: BeforeAuxModelCallEvent) -> None:
+            event.cancel = "summarization blocked"
+
+        agent.hooks.add_callback(BeforeAuxModelCallEvent, cancel)
+
+        with pytest.raises(AuxModelCallCancelledException, match="summarization blocked"):
+            await generate_summary([text_msg("user", "hello")], model, agent=agent)
 
     async def test_propagates_model_errors(self):
         model = Mock()

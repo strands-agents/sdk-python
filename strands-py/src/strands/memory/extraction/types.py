@@ -50,9 +50,13 @@ class ExtractorContext:
     Attributes:
         default_model: The agent's model, supplied so an extractor can default to
             it.
+        agent: The agent the extraction runs on behalf of, supplied so a model-backed
+            extractor can fire hooks and attribute token usage. None when no owning
+            agent is reachable.
     """
 
     default_model: Model | None = None
+    agent: "Agent | None" = None
 
 
 class Extractor(Protocol):
