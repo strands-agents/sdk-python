@@ -1,8 +1,11 @@
 """IO channel implementations for bidirectional streaming."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .text import BidiTextIO
+
+if TYPE_CHECKING:
+    from .audio import AudioProcessorConfig, BidiAudioIO, BidiAudioIOConfig
 
 __all__ = ["AudioProcessorConfig", "BidiAudioIO", "BidiAudioIOConfig", "BidiTextIO"]
 

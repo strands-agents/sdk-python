@@ -1,6 +1,6 @@
 """Bidirectional streaming package."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 # Main components - Primary user interface
 # Re-export standard agent events for tool handling
@@ -40,6 +40,9 @@ from .types.events import (
 
 # Reconnect configuration (declared by providers, tunable via provider_config)
 from .types.model import BidiConnectionConfig
+
+if TYPE_CHECKING:
+    from .io.audio import AudioProcessorConfig, BidiAudioIO, BidiAudioIOConfig
 
 __all__ = [
     # Main interface
