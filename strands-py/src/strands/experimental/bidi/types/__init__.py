@@ -7,6 +7,7 @@ from .events import (
     BidiConnectionCloseEvent,
     BidiConnectionRestartEvent,
     BidiConnectionStartEvent,
+    BidiConnectionWarningEvent,
     BidiErrorEvent,
     BidiImageInputEvent,
     BidiInputEvent,
@@ -20,6 +21,7 @@ from .events import (
     ModalityUsage,
 )
 from .io import BidiInput, BidiOutput
+from .model import BidiConnectionConfig
 
 __all__ = [
     "BidiInput",
@@ -33,6 +35,7 @@ __all__ = [
     # Output Events
     "BidiConnectionStartEvent",
     "BidiConnectionRestartEvent",
+    "BidiConnectionWarningEvent",
     "BidiConnectionCloseEvent",
     "BidiResponseStartEvent",
     "BidiResponseCompleteEvent",
@@ -43,4 +46,6 @@ __all__ = [
     "ModalityUsage",
     "BidiErrorEvent",
     "BidiOutputEvent",
+    # Reconnect configuration
+    "BidiConnectionConfig",
 ]

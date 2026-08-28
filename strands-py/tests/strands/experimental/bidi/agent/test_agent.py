@@ -23,6 +23,8 @@ class MockBidiModel:
 
     def __init__(self, config=None, model_id="mock-model"):
         self.config = config or {"audio": {"input_rate": 16000, "output_rate": 24000, "channels": 1}}
+        self.connection_config = {}
+        self.usage_is_cumulative = False
         self.model_id = model_id
         self._connection_id = None
         self._started = False
@@ -38,6 +40,10 @@ class MockBidiModel:
         if self._started:
             self._started = False
             self._connection_id = None
+
+    async def reconnect(self, system_prompt=None, tools=None, messages=None, **restart_kwargs):
+        await self.stop()
+        await self.start(system_prompt, tools, messages, **restart_kwargs)
 
     async def send(self, content):
         if not self._started:
