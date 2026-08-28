@@ -42,7 +42,7 @@ from .types.events import (
 from .types.model import BidiConnectionConfig
 
 if TYPE_CHECKING:
-    from .io.audio import AudioProcessorConfig, BidiAudioIO, BidiAudioIOConfig
+    from .io.audio import BidiAudioIO, BidiAudioIOConfig, BidiAudioProcessorConfig
 
 __all__ = [
     # Main interface
@@ -75,7 +75,7 @@ __all__ = [
     # Model interface
     "BidiModel",
     # IO channels and configuration
-    "AudioProcessorConfig",
+    "BidiAudioProcessorConfig",
     "BidiAudioIOConfig",
     "BidiAudioIO",
     "BidiTextIO",
@@ -89,10 +89,10 @@ def __getattr__(name: str) -> Any:
 
     This defers the import of optional dependencies until actually needed.
     """
-    if name == "AudioProcessorConfig":
-        from .io.audio import AudioProcessorConfig
+    if name == "BidiAudioProcessorConfig":
+        from .io.audio import BidiAudioProcessorConfig
 
-        return AudioProcessorConfig
+        return BidiAudioProcessorConfig
     if name == "BidiAudioIOConfig":
         from .io.audio import BidiAudioIOConfig
 

@@ -16,7 +16,7 @@ from pywebrtc_audio import AudioProcessor
 logger = logging.getLogger(__name__)
 
 
-class _AudioProcessor:
+class _BidiAudioProcessor:
     """Coordinate WebRTC microphone processing with playback reference audio.
 
     Buffers played audio for echo cancellation and processes microphone audio with aligned playback frames.

@@ -7,8 +7,8 @@ import numpy as np
 import pytest
 import pytest_asyncio
 
-from strands.experimental.bidi._audio import _AudioProcessor
-from strands.experimental.bidi.io.audio import AudioProcessorConfig, BidiAudioIO, _BidiAudioBuffer
+from strands.experimental.bidi._audio import _BidiAudioProcessor
+from strands.experimental.bidi.io.audio import BidiAudioIO, BidiAudioProcessorConfig, _BidiAudioBuffer
 from strands.experimental.bidi.types.events import BidiAudioInputEvent, BidiAudioStreamEvent, BidiInterruptionEvent
 
 
@@ -30,7 +30,7 @@ def _create_processor(
     far_buffer_size=100,
 ):
     """Create and start an audio processor."""
-    processor = _AudioProcessor(
+    processor = _BidiAudioProcessor(
         echo_cancellation=echo_cancellation,
         stream_delay_ms=stream_delay_ms,
         far_buffer_size=far_buffer_size if echo_cancellation else None,
@@ -275,17 +275,17 @@ def test_bidi_audio_io_output_configs(pyaudio_module, py_audio, audio_output):
 # ===========================================================================
 
 # ---------------------------------------------------------------------------
-# AudioProcessorConfig defaults and validation
+# BidiAudioProcessorConfig defaults and validation
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("audio_processor", [True, AudioProcessorConfig()], ids=["boolean", "config"])
+@pytest.mark.parametrize("audio_processor", [True, BidiAudioProcessorConfig()], ids=["boolean", "config"])
 def test_audio_processor_uses_defaults(audio_processor):
     audio_io = BidiAudioIO(audio_processor=audio_processor)
 
-    assert audio_io._config["audio_processor"] == AudioProcessorConfig(echo_cancellation=True, stream_delay_ms=0)
+    assert audio_io._config["audio_processor"] == BidiAudioProcessorConfig(echo_cancellation=True, stream_delay_ms=0)
     if isinstance(audio_processor, dict):
-        assert audio_processor == AudioProcessorConfig()
+        assert audio_processor == BidiAudioProcessorConfig()
         assert audio_io._config["audio_processor"] is not audio_processor
     assert audio_io._config["audio_processor"] is audio_io._audio_processor_config
     assert audio_io._audio_processor is not None
@@ -293,28 +293,28 @@ def test_audio_processor_uses_defaults(audio_processor):
 
 def test_config_rejects_negative_delay():
     with pytest.raises(ValueError, match="stream_delay_ms"):
-        BidiAudioIO(audio_processor=AudioProcessorConfig(stream_delay_ms=-5))
+        BidiAudioIO(audio_processor=BidiAudioProcessorConfig(stream_delay_ms=-5))
 
 
 def test_config_rejects_excessive_delay():
     with pytest.raises(ValueError, match="stream_delay_ms"):
-        BidiAudioIO(audio_processor=AudioProcessorConfig(stream_delay_ms=5000))
+        BidiAudioIO(audio_processor=BidiAudioProcessorConfig(stream_delay_ms=5000))
 
 
 def test_config_allows_disabling_echo_cancellation():
     # Headset case: noise suppression / AGC without echo cancellation.
-    config = AudioProcessorConfig(echo_cancellation=False)
+    config = BidiAudioProcessorConfig(echo_cancellation=False)
     audio_io = BidiAudioIO(audio_processor=config)
 
-    assert config == AudioProcessorConfig(echo_cancellation=False)
-    assert audio_io._config["audio_processor"] == AudioProcessorConfig(echo_cancellation=False, stream_delay_ms=0)
+    assert config == BidiAudioProcessorConfig(echo_cancellation=False)
+    assert audio_io._config["audio_processor"] == BidiAudioProcessorConfig(echo_cancellation=False, stream_delay_ms=0)
     assert audio_io._audio_processor is not None
     assert audio_io._audio_processor._far_buffer is None
 
 
 def test_config_rejects_stream_delay_when_echo_cancellation_is_off():
     with pytest.raises(ValueError, match="requires echo cancellation"):
-        BidiAudioIO(audio_processor=AudioProcessorConfig(echo_cancellation=False, stream_delay_ms=10))
+        BidiAudioIO(audio_processor=BidiAudioProcessorConfig(echo_cancellation=False, stream_delay_ms=10))
 
 
 # ---------------------------------------------------------------------------
@@ -378,13 +378,13 @@ def test_no_audio_processor_when_processing_disabled(config):
 
 
 def test_audio_processor_shared_between_input_and_output():
-    audio_processor_config = AudioProcessorConfig(stream_delay_ms=20)
+    audio_processor_config = BidiAudioProcessorConfig(stream_delay_ms=20)
     audio_io = BidiAudioIO(audio_processor=audio_processor_config)
     input_ = audio_io.input()
     output = audio_io.output()
 
-    assert audio_processor_config == AudioProcessorConfig(stream_delay_ms=20)
-    assert audio_io._config["audio_processor"] == AudioProcessorConfig(echo_cancellation=True, stream_delay_ms=20)
+    assert audio_processor_config == BidiAudioProcessorConfig(stream_delay_ms=20)
+    assert audio_io._config["audio_processor"] == BidiAudioProcessorConfig(echo_cancellation=True, stream_delay_ms=20)
     assert audio_io._config["audio_processor"] is not audio_processor_config
     assert audio_io._config["audio_processor"] is audio_io._audio_processor_config
     assert input_._audio_processor is audio_io._audio_processor
@@ -410,7 +410,7 @@ def test_audio_module_import_error_includes_install_instruction():
                     r".*pip install 'strands-agents\[bidi-aec\]'"
                 ),
             ):
-                BidiAudioIO(audio_processor=AudioProcessorConfig())
+                BidiAudioIO(audio_processor=BidiAudioProcessorConfig())
     finally:
         sys.modules[module_name] = module
 
@@ -418,17 +418,17 @@ def test_audio_module_import_error_includes_install_instruction():
 def test_audio_config_is_keyword_only():
     # BidiAudioIO takes only keyword configuration.
     with pytest.raises(TypeError):
-        BidiAudioIO(AudioProcessorConfig())  # type: ignore[misc]
+        BidiAudioIO(BidiAudioProcessorConfig())  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------
-# _AudioProcessor startup — sample rate gate and native processor construction
+# _BidiAudioProcessor startup — sample rate gate and native processor construction
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(("rate", "expected"), [(16000, 160), (24000, 240), (48000, 480)])
 def test_processor_calculates_frames_per_buffer(rate, expected):
-    assert _AudioProcessor.frames_per_buffer(rate) == expected
+    assert _BidiAudioProcessor.frames_per_buffer(rate) == expected
 
 
 def test_processor_construction_builds_audio_processor_with_config():
@@ -460,7 +460,7 @@ def test_processor_construction_rejects_unsupported_rates(rate):
 
 
 # ---------------------------------------------------------------------------
-# _AudioProcessor far data behaviour
+# _BidiAudioProcessor far data behaviour
 # ---------------------------------------------------------------------------
 
 
@@ -574,7 +574,7 @@ def test_resample_upsample_length():
 async def test_input_aligns_buffer_to_10ms_when_echo_cancellation_on(py_audio, aec_agent):
     processor_patch, _, _ = _fake_audio_processor()
     with processor_patch:
-        audio_io = BidiAudioIO(audio_processor=AudioProcessorConfig())
+        audio_io = BidiAudioIO(audio_processor=BidiAudioProcessorConfig())
         input_ = audio_io.input()
         await input_.start(aec_agent)
 
@@ -598,7 +598,7 @@ async def test_input_keeps_configured_buffer_when_echo_cancellation_off(py_audio
     processor_patch, _, _ = _fake_audio_processor()
     with processor_patch:
         audio_io = BidiAudioIO(
-            audio_processor=AudioProcessorConfig(echo_cancellation=False),
+            audio_processor=BidiAudioProcessorConfig(echo_cancellation=False),
             input_frames_per_buffer=1024,
         )
         input_ = audio_io.input()
@@ -613,17 +613,17 @@ def test_mic_buffer_bounded_to_reference_horizon_when_ec_on():
     # using the configured input buffer size when it is below the processing cap.
     processor_patch, _, _ = _fake_audio_processor()
     with processor_patch:
-        audio_io = BidiAudioIO(audio_processor=AudioProcessorConfig(), input_buffer_size=2)
+        audio_io = BidiAudioIO(audio_processor=BidiAudioProcessorConfig(), input_buffer_size=2)
         input_ = audio_io.input()
 
-    assert audio_io._config["audio_processor"] == AudioProcessorConfig(echo_cancellation=True, stream_delay_ms=0)
+    assert audio_io._config["audio_processor"] == BidiAudioProcessorConfig(echo_cancellation=True, stream_delay_ms=0)
     assert audio_io._config["input_buffer_size"] == 2
     assert input_._buffer._size == 2
     assert audio_io._audio_processor._far_buffer_size == 2
 
 
 def test_mic_buffer_defaults_to_processing_limit():
-    audio_io = BidiAudioIO(audio_processor=AudioProcessorConfig(), input_buffer_size=None)
+    audio_io = BidiAudioIO(audio_processor=BidiAudioProcessorConfig(), input_buffer_size=None)
     input_ = audio_io.input()
 
     assert audio_io._config["input_buffer_size"] == 100
@@ -634,7 +634,7 @@ def test_mic_buffer_defaults_to_processing_limit():
 @pytest.mark.parametrize("input_buffer_size", [-1, 0, 101, 9999])
 def test_mic_buffer_rejects_invalid_size_when_ec_on(input_buffer_size):
     with pytest.raises(ValueError, match="input_buffer_size"):
-        BidiAudioIO(audio_processor=AudioProcessorConfig(), input_buffer_size=input_buffer_size)
+        BidiAudioIO(audio_processor=BidiAudioProcessorConfig(), input_buffer_size=input_buffer_size)
 
 
 def test_mic_buffer_uses_configured_size_when_ec_off(pyaudio_module):
@@ -642,7 +642,7 @@ def test_mic_buffer_uses_configured_size_when_ec_off(pyaudio_module):
     # With echo cancellation off there is no reference to align to, so the user's sizing is respected.
     processor_patch, _, _ = _fake_audio_processor()
     with processor_patch:
-        audio_io = BidiAudioIO(audio_processor=AudioProcessorConfig(echo_cancellation=False), input_buffer_size=7)
+        audio_io = BidiAudioIO(audio_processor=BidiAudioProcessorConfig(echo_cancellation=False), input_buffer_size=7)
         input_ = audio_io.input()
 
     assert input_._buffer._size == 7
@@ -658,7 +658,7 @@ def test_mic_buffer_uses_configured_size_when_ec_off(pyaudio_module):
 )
 def test_frames_per_buffer_rejected_when_ec_on(config):
     with pytest.raises(ValueError, match="calculated automatically"):
-        BidiAudioIO(audio_processor=AudioProcessorConfig(), **config)
+        BidiAudioIO(audio_processor=BidiAudioProcessorConfig(), **config)
 
 
 @pytest.mark.asyncio
@@ -668,7 +668,7 @@ async def test_output_aligns_buffer_to_10ms_at_output_rate(py_audio, agent_mixed
     # give 160 = 6.67ms@24k and produce short, zero-padded reference frames).
     processor_patch, _, _ = _fake_audio_processor()
     with processor_patch:
-        audio_io = BidiAudioIO(audio_processor=AudioProcessorConfig())
+        audio_io = BidiAudioIO(audio_processor=BidiAudioProcessorConfig())
         output = audio_io.output()
         await output.start(agent_mixed_rates)
 
@@ -680,7 +680,7 @@ async def test_output_aligns_buffer_to_10ms_at_output_rate(py_audio, agent_mixed
 async def test_output_aligns_buffer_to_10ms_matched_rates(py_audio, aec_agent):
     processor_patch, _, _ = _fake_audio_processor()
     with processor_patch:
-        audio_io = BidiAudioIO(audio_processor=AudioProcessorConfig())
+        audio_io = BidiAudioIO(audio_processor=BidiAudioProcessorConfig())
         output = audio_io.output()
         await output.start(aec_agent)
 
@@ -701,7 +701,10 @@ async def test_output_keeps_configured_buffer_when_processing_off(py_audio, aec_
 
 @pytest.mark.asyncio
 async def test_output_keeps_configured_buffer_when_echo_cancellation_off(py_audio, aec_agent):
-    audio_io = BidiAudioIO(audio_processor=AudioProcessorConfig(echo_cancellation=False), output_frames_per_buffer=2048)
+    audio_io = BidiAudioIO(
+        audio_processor=BidiAudioProcessorConfig(echo_cancellation=False),
+        output_frames_per_buffer=2048,
+    )
     output = audio_io.output()
     await output.start(aec_agent)
 
@@ -712,7 +715,7 @@ async def test_output_keeps_configured_buffer_when_echo_cancellation_off(py_audi
 
 @pytest.mark.asyncio
 async def test_input_start_replaces_far_buffer(py_audio, aec_agent):
-    audio_io = BidiAudioIO(audio_processor=AudioProcessorConfig())
+    audio_io = BidiAudioIO(audio_processor=BidiAudioProcessorConfig())
     input_ = audio_io.input()
 
     await input_.start(aec_agent)
@@ -738,7 +741,7 @@ async def test_mixed_rate_reference_matches_mic_frame_length(py_audio, agent_mix
     processor.process.return_value = np.zeros(160, dtype=np.int16)
     processor_patch, _, _ = _fake_audio_processor(processor)
     with processor_patch:
-        audio_io = BidiAudioIO(audio_processor=AudioProcessorConfig())
+        audio_io = BidiAudioIO(audio_processor=BidiAudioProcessorConfig())
         input_ = audio_io.input()
         output = audio_io.output()
         await input_.start(agent_mixed_rates)
@@ -776,7 +779,7 @@ async def test_output_records_reference_at_playback(py_audio, aec_agent):
 
     processor_patch, _, _ = _fake_audio_processor()
     with processor_patch:
-        audio_io = BidiAudioIO(audio_processor=AudioProcessorConfig())
+        audio_io = BidiAudioIO(audio_processor=BidiAudioProcessorConfig())
         input_ = audio_io.input()
         output = audio_io.output()
         await input_.start(aec_agent)
@@ -810,7 +813,7 @@ async def test_output_clears_reference_on_interruption(py_audio, aec_agent):
 
     processor_patch, _, _ = _fake_audio_processor()
     with processor_patch:
-        audio_io = BidiAudioIO(audio_processor=AudioProcessorConfig())
+        audio_io = BidiAudioIO(audio_processor=BidiAudioProcessorConfig())
         input_ = audio_io.input()
         output = audio_io.output()
         await input_.start(aec_agent)
@@ -844,7 +847,7 @@ async def test_input_applies_audio_processing(py_audio, aec_agent):
     processor_patch, _, _ = _fake_audio_processor(processor)
 
     with processor_patch:
-        audio_io = BidiAudioIO(audio_processor=AudioProcessorConfig())
+        audio_io = BidiAudioIO(audio_processor=BidiAudioProcessorConfig())
         input_ = audio_io.input()
         await input_.start(aec_agent)
 

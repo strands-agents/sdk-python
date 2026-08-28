@@ -5,17 +5,17 @@ from typing import TYPE_CHECKING, Any
 from .text import BidiTextIO
 
 if TYPE_CHECKING:
-    from .audio import AudioProcessorConfig, BidiAudioIO, BidiAudioIOConfig
+    from .audio import BidiAudioIO, BidiAudioIOConfig, BidiAudioProcessorConfig
 
-__all__ = ["AudioProcessorConfig", "BidiAudioIO", "BidiAudioIOConfig", "BidiTextIO"]
+__all__ = ["BidiAudioProcessorConfig", "BidiAudioIO", "BidiAudioIOConfig", "BidiTextIO"]
 
 
 def __getattr__(name: str) -> Any:
     """Lazy load the audio IO implementation only when accessed."""
-    if name == "AudioProcessorConfig":
-        from .audio import AudioProcessorConfig
+    if name == "BidiAudioProcessorConfig":
+        from .audio import BidiAudioProcessorConfig
 
-        return AudioProcessorConfig
+        return BidiAudioProcessorConfig
     if name == "BidiAudioIO":
         from .audio import BidiAudioIO
 
