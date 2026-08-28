@@ -27,6 +27,8 @@ from strands.tools.mcp import MCPClient
 from strands.tools.mcp.mcp_types import MCPToolResult
 from strands.types.exceptions import MCPClientInitializationError
 
+from .conftest import make_mcp_error
+
 # Fixtures mock_transport and mock_session are imported from conftest.py
 
 
@@ -1406,7 +1408,6 @@ async def test_handle_error_message_with_percent_in_message():
 
 def test_call_tool_sync_elicitation_error(mock_transport, mock_session):
     """Test that call_tool_sync correctly handles elicitation required errors."""
-    from mcp.shared.exceptions import McpError
     from mcp.types import ElicitationRequiredErrorData, ElicitRequestURLParams
 
     elicitation_data = ElicitationRequiredErrorData(
@@ -1417,7 +1418,7 @@ def test_call_tool_sync_elicitation_error(mock_transport, mock_session):
         ]
     )
 
-    error = McpError(error=MagicMock(code=-32042, data=elicitation_data.model_dump()))
+    error = make_mcp_error(code=-32042, data=elicitation_data.model_dump())
     mock_session.call_tool.side_effect = error
 
     with MCPClient(mock_transport["transport_callable"]) as client:
@@ -1434,7 +1435,6 @@ def test_call_tool_sync_elicitation_error(mock_transport, mock_session):
 
 def test_call_tool_sync_elicitation_error_multiple_urls(mock_transport, mock_session):
     """Test that call_tool_sync correctly handles elicitation errors with multiple elicitations."""
-    from mcp.shared.exceptions import McpError
     from mcp.types import ElicitationRequiredErrorData, ElicitRequestURLParams
 
     elicitation_data = ElicitationRequiredErrorData(
@@ -1448,7 +1448,7 @@ def test_call_tool_sync_elicitation_error_multiple_urls(mock_transport, mock_ses
         ]
     )
 
-    error = McpError(error=MagicMock(code=-32042, data=elicitation_data.model_dump()))
+    error = make_mcp_error(code=-32042, data=elicitation_data.model_dump())
     mock_session.call_tool.side_effect = error
 
     with MCPClient(mock_transport["transport_callable"]) as client:
@@ -1468,13 +1468,12 @@ def test_call_tool_sync_elicitation_error_multiple_urls(mock_transport, mock_ses
 
 def test_call_tool_sync_elicitation_error_no_urls(mock_transport, mock_session):
     """Test that -32042 error with empty URL still returns generic elicitation result."""
-    from mcp.shared.exceptions import McpError
     from mcp.types import ElicitationRequiredErrorData, ElicitRequestURLParams
 
     elicitation_data = ElicitationRequiredErrorData(
         elicitations=[ElicitRequestURLParams(url="", message="No URL provided", elicitationId="elicit-1")]
     )
-    error = McpError(error=MagicMock(code=-32042, data=elicitation_data.model_dump()))
+    error = make_mcp_error(code=-32042, data=elicitation_data.model_dump())
     mock_session.call_tool.side_effect = error
 
     with MCPClient(mock_transport["transport_callable"]) as client:
@@ -1486,10 +1485,8 @@ def test_call_tool_sync_elicitation_error_no_urls(mock_transport, mock_session):
 
 
 def test_call_tool_sync_other_mcp_error_code(mock_transport, mock_session):
-    """Test that non-32042 McpError falls through to generic error."""
-    from mcp.shared.exceptions import McpError
-
-    error = McpError(error=MagicMock(code=-32600, message="Invalid request"))
+    """Test that non-32042 MCPError falls through to generic error."""
+    error = make_mcp_error(code=-32600, message="Invalid request")
     mock_session.call_tool.side_effect = error
 
     with MCPClient(mock_transport["transport_callable"]) as client:
@@ -1500,9 +1497,7 @@ def test_call_tool_sync_other_mcp_error_code(mock_transport, mock_session):
 
 def test_call_tool_sync_elicitation_error_malformed_data(mock_transport, mock_session):
     """Test that -32042 with unparseable data falls through to generic error."""
-    from mcp.shared.exceptions import McpError
-
-    error = McpError(error=MagicMock(code=-32042, data={"garbage": True}))
+    error = make_mcp_error(code=-32042, data={"garbage": True})
     mock_session.call_tool.side_effect = error
 
     with MCPClient(mock_transport["transport_callable"]) as client:
@@ -1514,7 +1509,6 @@ def test_call_tool_sync_elicitation_error_malformed_data(mock_transport, mock_se
 @pytest.mark.asyncio
 async def test_call_tool_async_elicitation_error(mock_transport, mock_session):
     """Test that call_tool_async correctly handles elicitation required errors."""
-    from mcp.shared.exceptions import McpError
     from mcp.types import ElicitationRequiredErrorData, ElicitRequestURLParams
 
     elicitation_data = ElicitationRequiredErrorData(
@@ -1525,7 +1519,7 @@ async def test_call_tool_async_elicitation_error(mock_transport, mock_session):
         ]
     )
 
-    error = McpError(error=MagicMock(code=-32042, data=elicitation_data.model_dump()))
+    error = make_mcp_error(code=-32042, data=elicitation_data.model_dump())
 
     with MCPClient(mock_transport["transport_callable"]) as client:
         with (
