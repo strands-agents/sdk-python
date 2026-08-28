@@ -209,6 +209,23 @@ describe('Agent tracer integration', () => {
       expect(tracer.endAgentLoopSpan).toHaveBeenCalledWith({ mock: 'loopSpan' })
     })
 
+    it('ends the loop span once when cancel() and break close the public stream mid-cycle', async () => {
+      const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Done' })
+      const agent = new Agent({ model, printer: false })
+      const tracer = getLatestTracer()
+
+      for await (const event of agent.stream('Hi')) {
+        if (event.type === 'modelStreamUpdateEvent') {
+          agent.cancel()
+          break
+        }
+      }
+
+      expect(tracer.startAgentLoopSpan).toHaveBeenCalledTimes(1)
+      expect(tracer.endAgentLoopSpan).toHaveBeenCalledTimes(1)
+      expect(tracer.endAgentLoopSpan).toHaveBeenCalledWith({ mock: 'loopSpan' })
+    })
+
     it('starts and ends loop span for each cycle', async () => {
       const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Done' })
       const agent = new Agent({ model })
