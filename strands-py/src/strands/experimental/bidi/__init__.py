@@ -24,6 +24,7 @@ from .types.events import (
     BidiConnectionCloseEvent,
     BidiConnectionRestartEvent,
     BidiConnectionStartEvent,
+    BidiConnectionWarningEvent,
     BidiErrorEvent,
     BidiImageInputEvent,
     BidiInputEvent,
@@ -37,6 +38,9 @@ from .types.events import (
     ModalityUsage,
 )
 
+# Reconnect configuration (declared by providers, tunable via provider_config)
+from .types.model import BidiConnectionConfig
+
 __all__ = [
     # Main interface
     "BidiAgent",
@@ -48,6 +52,7 @@ __all__ = [
     # Output Event types
     "BidiConnectionStartEvent",
     "BidiConnectionRestartEvent",
+    "BidiConnectionWarningEvent",
     "BidiConnectionCloseEvent",
     "BidiResponseStartEvent",
     "BidiResponseCompleteEvent",
@@ -58,6 +63,8 @@ __all__ = [
     "ModalityUsage",
     "BidiErrorEvent",
     "BidiOutputEvent",
+    # Reconnect configuration
+    "BidiConnectionConfig",
     # Tool Event types (reused from standard agent)
     "ToolUseStreamEvent",
     "ToolResultEvent",
