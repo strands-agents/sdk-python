@@ -80,13 +80,10 @@ def _fake_urlopen(body: bytes, content_type: str = "text/html", charset: str = "
     return outer
 
 
-def test__fetch_once_returns_decoded_body_with_status_and_content_type(monkeypatch):
+def test__fetch_once_returns_content_type_and_body(monkeypatch):
     monkeypatch.setattr(web_fetch_module, "urlopen", lambda *a, **kw: _fake_urlopen(b"hello", "text/plain"))
-    tru_status, tru_content_type, tru_raw = web_fetch_module._fetch_once(
-        "https://example.com/", timeout=5.0, max_bytes=1024
-    )
-    exp_status, exp_content_type, exp_raw = 200, "text/plain", "hello"
-    assert (tru_status, tru_content_type, tru_raw) == (exp_status, exp_content_type, exp_raw)
+    tru_content_type, tru_raw = web_fetch_module._fetch_once("https://example.com/", timeout=5.0, max_bytes=1024)
+    assert (tru_content_type, tru_raw) == ("text/plain", "hello")
 
 
 def test__fetch_once_rejects_body_over_cap(monkeypatch):
@@ -103,38 +100,30 @@ class TestWebFetchToolCall:
     @pytest.mark.asyncio
     async def test_html_response_returns_markdown(self, monkeypatch):
         def stub(url, timeout, max_bytes):
-            return 200, "text/html; charset=utf-8", "<html><head><title>T</title></head><body><h1>Hi</h1></body></html>"
+            return "text/html; charset=utf-8", "<html><head><title>T</title></head><body><h1>Hi</h1></body></html>"
 
         monkeypatch.setattr(web_fetch_module, "_fetch_once", stub)
         tru_result = await web_fetch(url="https://example.com/")
-        assert tru_result["status"] == 200
-        assert tru_result["content_type"] == "text/html; charset=utf-8"
-        assert "# T" in tru_result["markdown"]
-        assert "# Hi" in tru_result["markdown"]
+        assert "# T" in tru_result
+        assert "# Hi" in tru_result
 
     @pytest.mark.asyncio
     async def test_non_html_response_returns_body(self, monkeypatch):
         def stub(url, timeout, max_bytes):
-            return 200, "text/plain", "plain text response"
+            return "text/plain", "plain text response"
 
         monkeypatch.setattr(web_fetch_module, "_fetch_once", stub)
         tru_result = await web_fetch(url="https://example.com/robots.txt")
-        exp_result = {
-            "status": 200,
-            "content_type": "text/plain",
-            "markdown": "plain text response",
-        }
-        assert tru_result == exp_result
+        assert tru_result == "plain text response"
 
     @pytest.mark.asyncio
     async def test_xml_content_type_is_converted_to_markdown(self, monkeypatch):
         def stub(url, timeout, max_bytes):
-            return 200, "application/xhtml+xml", "<html><body><p>xhtml</p></body></html>"
+            return "application/xhtml+xml", "<html><body><p>xhtml</p></body></html>"
 
         monkeypatch.setattr(web_fetch_module, "_fetch_once", stub)
         tru_result = await web_fetch(url="https://example.com/page.xhtml")
-        assert tru_result["status"] == 200
-        assert "xhtml" in tru_result["markdown"]
+        assert "xhtml" in tru_result
 
     @pytest.mark.asyncio
     async def test_rejects_non_http_scheme(self):
@@ -168,12 +157,12 @@ class TestWebFetchToolCall:
         # When html_to_markdown returns "" (extraction failed), the tool falls
         # back to raw text so the model receives content rather than nothing.
         def stub(url, timeout, max_bytes):
-            return 200, "text/html", "<p>raw content</p>"
+            return "text/html", "<p>raw content</p>"
 
         monkeypatch.setattr(web_fetch_module, "_fetch_once", stub)
         monkeypatch.setattr(extract_module, "BeautifulSoup", _raising_beautiful_soup)
         tru_result = await web_fetch(url="https://example.com/")
-        assert tru_result["markdown"] == "<p>raw content</p>"
+        assert tru_result == "<p>raw content</p>"
 
 
 class TestHtmlToMarkdown:

@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import logging
 import unicodedata
+from typing import cast
 from urllib.parse import urlparse
 
 try:
-    from bs4 import BeautifulSoup, Tag
-    from markdownify import MarkdownConverter
+    from bs4 import BeautifulSoup, Tag  # type: ignore[import-not-found]
+    from markdownify import MarkdownConverter  # type: ignore[import-not-found]
 except ImportError as e:
     raise ImportError(
         "web_fetch requires the 'web-fetch' extra (markdownify, beautifulsoup4). "
@@ -22,24 +23,26 @@ except ImportError as e:
 
 logger = logging.getLogger(__name__)
 
-_DROPPED_ELEMENTS = frozenset([
-    "script",
-    "style",
-    "noscript",
-    "template",
-    "svg",
-    "canvas",
-    "iframe",
-    "object",
-    "embed",
-    "video",
-    "audio",
-    "form",
-    "input",
-    "button",
-    "select",
-    "textarea",
-])
+_DROPPED_ELEMENTS = frozenset(
+    [
+        "script",
+        "style",
+        "noscript",
+        "template",
+        "svg",
+        "canvas",
+        "iframe",
+        "object",
+        "embed",
+        "video",
+        "audio",
+        "form",
+        "input",
+        "button",
+        "select",
+        "textarea",
+    ]
+)
 
 
 def _url_scheme(url: str) -> str:
@@ -88,7 +91,7 @@ def html_to_markdown(html: str) -> str:
         if soup.head is not None:
             soup.head.decompose()
         _sanitize_tree(soup)
-        markdown = MarkdownConverter(heading_style="ATX", bullets="-").convert_soup(soup).strip()
+        markdown = cast(str, MarkdownConverter(heading_style="ATX", bullets="-").convert_soup(soup)).strip()
         if title:
             markdown = f"# {title}\n\n{markdown}"
     except Exception:

@@ -16,7 +16,7 @@ from urllib.request import Request, urlopen
 
 from ...tools.decorator import tool
 from ._extract import html_to_markdown
-from .types import WEB_FETCH_DESCRIPTION, WebFetchOutput
+from .types import WEB_FETCH_DESCRIPTION
 
 if TYPE_CHECKING:
     from ...tools.decorator import DecoratedFunctionTool
@@ -31,8 +31,8 @@ _DEFAULT_TIMEOUT = 30
 _DEFAULT_MAX_BYTES = 5 * 1024 * 1024  # 5 MiB
 
 
-def _fetch_once(url: str, timeout: float, max_bytes: int) -> tuple[int, str, str]:
-    """Perform one HTTP(S) request, returning ``(status, content_type, body_text)``.
+def _fetch_once(url: str, timeout: float, max_bytes: int) -> tuple[str, str]:
+    """Perform one HTTP(S) request, returning ``(content_type, body_text)``.
 
     Raises:
         ValueError: When the URL scheme is not http(s) or the response body exceeds ``max_bytes``.
@@ -56,8 +56,7 @@ def _fetch_once(url: str, timeout: float, max_bytes: int) -> tuple[int, str, str
         except LookupError:
             raw = body.decode("utf-8", errors="replace")
         content_type = response.headers.get("Content-Type", "")
-        status: int = response.status
-    return status, content_type, raw
+    return content_type, raw
 
 
 def make_web_fetch(
@@ -85,7 +84,7 @@ def make_web_fetch(
         raise ValueError(f"timeout must be positive, got {timeout}")
 
     @tool(name=name, description=description)
-    async def web_fetch_tool(url: str) -> WebFetchOutput:
+    async def web_fetch_tool(url: str) -> str:
         """Fetches an HTTP(S) URL and returns readable markdown.
 
         Only ``http://`` and ``https://`` URLs are accepted. Response body size
@@ -96,7 +95,7 @@ def make_web_fetch(
             url: The URL to fetch. Must be ``http://`` or ``https://``.
         """
         try:
-            status, content_type, raw = await asyncio.wait_for(
+            content_type, raw = await asyncio.wait_for(
                 asyncio.to_thread(_fetch_once, url, float(timeout), max_bytes),
                 timeout=float(timeout),
             )
@@ -107,14 +106,10 @@ def make_web_fetch(
 
         is_markup = "html" in content_type.lower() or "xml" in content_type.lower()
         markdown = html_to_markdown(raw) if is_markup else raw
-        # Extraction failed, so fall back to the raw text so the model receives the content.
+        # Extraction failed; fall back to raw text so the model receives the content.
         if not markdown and is_markup:
             markdown = raw
-        return {
-            "status": status,
-            "content_type": content_type,
-            "markdown": markdown,
-        }
+        return markdown
 
     return web_fetch_tool
 
