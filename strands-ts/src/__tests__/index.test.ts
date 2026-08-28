@@ -34,6 +34,12 @@ describe('index', () => {
       expect(SDK).not.toHaveProperty('ToolExecutor')
     })
 
+    it('exports model routing values', () => {
+      expect(SDK.FallbackStrategy).toBeDefined()
+      expect(SDK.ModelRouter).toBeDefined()
+      expect(SDK.RoutingCandidate).toBeDefined()
+    })
+
     it('exports all required types', () => {
       // This test ensures all type exports compile correctly
       // If any exports are missing, TypeScript will error

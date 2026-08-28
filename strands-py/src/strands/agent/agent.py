@@ -9,9 +9,11 @@ The Agent interface supports two complementary interaction patterns:
 2. Method-style for direct tool access: `agent.tool.tool_name(param1="value")`
 """
 
+import asyncio
 import copy
 import logging
 import threading
+import uuid
 import warnings
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
 from dataclasses import dataclass
@@ -104,6 +106,26 @@ from .conversation_manager import (
 from .state import AgentState
 
 logger = logging.getLogger(__name__)
+
+# How often the watcher mirrors a caller-owned cancel signal onto the agent's internal one.
+_CANCEL_POLL_INTERVAL = 0.05
+
+
+async def _link_cancel_signal(external: threading.Event, internal: threading.Event) -> None:
+    """Mirror a caller-owned cancellation event onto the agent's internal event.
+
+    Args:
+        external: Caller-owned event. Never set or cleared here.
+        internal: The agent's event, which every cancellation checkpoint reads.
+    """
+    # threading.Event has no async notification hook. Poll on this loop rather than
+    # running Event.wait() in an executor: cancelling that await cannot stop a worker
+    # already blocked in Event.wait(), so completed invocations could strand worker threads.
+    while not external.is_set():
+        await asyncio.sleep(_CANCEL_POLL_INTERVAL)
+
+    internal.set()
+
 
 # TypeVar for generic structured output
 T = TypeVar("T", bound=BaseModel)
@@ -390,6 +412,8 @@ class Agent(AgentBase):
 
         # Create internal cancel signal for graceful cancellation using threading.Event
         self._cancel_signal = threading.Event()
+        # Caller-owned external cancel signal for the current invocation, if any.
+        self._external_cancel_signal: threading.Event | None = None
 
         self.tool_registry = ToolRegistry()
 
@@ -494,7 +518,10 @@ class Agent(AgentBase):
         # Initialize session management functionality
         self._session_manager = session_manager
         if self._session_manager:
+            self._session_id: str = getattr(self._session_manager, "session_id", None) or uuid.uuid4().hex[:8]
             self.hooks.add_hook(self._session_manager)
+        else:
+            self._session_id = uuid.uuid4().hex[:8]
 
         # Allow conversation_managers to subscribe to hooks
         self.hooks.add_hook(self.conversation_manager)
@@ -646,6 +673,10 @@ class Agent(AgentBase):
 
         The agent will return a result with stop_reason="cancelled".
 
+        For cancellation driven from outside the agent (a client disconnect, a request
+        lifecycle, a timeout), pass a ``cancel_signal`` into the invocation instead. The agent
+        observes both, so either cancels independently.
+
         Example:
             ```python
             agent = Agent(model=model)
@@ -666,6 +697,20 @@ class Agent(AgentBase):
         self._cancel_signal.set()
 
     @property
+    def cancel_signal(self) -> threading.Event:
+        """The cancellation signal for the current invocation.
+
+        Set by :meth:`cancel` and by a ``cancel_signal`` passed into the invocation. SDK-built tool
+        contexts receive this same event as ``tool_context.cancel_signal``, and hooks can check
+        ``event.agent.cancel_signal.is_set()``. Cleared when an invocation completes, so the agent
+        stays reusable.
+
+        Treat as read-only: call :meth:`cancel` to trigger cancellation. Setting or clearing this
+        event directly is unsupported.
+        """
+        return self._cancel_signal
+
+    @property
     def sandbox(self) -> Sandbox:
         """Execution environment for running commands, code, and file operations.
 
@@ -679,6 +724,16 @@ class Agent(AgentBase):
     def storage(self) -> Storage | None:
         """Default storage backend for agent subsystems."""
         return self._storage
+
+    @property
+    def session_id(self) -> str:
+        """Identifier for the current conversation session.
+
+        When a session manager is attached, returns its persistent, caller-supplied
+        session ID. Otherwise, returns a random 8-character hex string generated at
+        construction time (unique per agent instance but not persisted across restarts).
+        """
+        return self._session_id
 
     @property
     def system_prompt(self) -> str | None:
@@ -763,6 +818,7 @@ class Agent(AgentBase):
         structured_output_prompt: str | None = None,
         idempotency_token: Any = None,
         limits: Limits | None = None,
+        cancel_signal: threading.Event | None = None,
         **kwargs: Any,
     ) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
@@ -793,6 +849,16 @@ class Agent(AgentBase):
                 ``stop_reason`` (e.g. ``"limit_turns"``); no exception is raised. Token
                 caps are soft — a single oversized model response can overshoot the budget
                 by one turn, since checks run at turn boundaries, not within a model call.
+            cancel_signal: Caller-owned event that cancels this invocation. Use it when cancellation is
+                driven from outside the agent — a client disconnect, a request lifecycle, a timeout. The
+                agent observes both this event and ``cancel()``, so either cancels independently, and it
+                never sets or clears the caller's event. An event that is already set cancels the
+                invocation at its first checkpoint; that checkpoint sits inside model streaming, so
+                the user turn is still recorded and one model request may be issued, then aborted.
+                Clear the event before reusing it for another invocation. On cancellation the
+                result carries ``stop_reason="cancelled"``. A duplicate call waiting on an
+                ``idempotency_token`` does not observe this event; only the primary invocation
+                does.
             **kwargs: Additional parameters to pass through the event loop.[Deprecating]
 
         Returns:
@@ -819,6 +885,7 @@ class Agent(AgentBase):
                 structured_output_prompt=structured_output_prompt,
                 idempotency_token=idempotency_token,
                 limits=limits,
+                cancel_signal=cancel_signal,
                 **kwargs,
             )
         )
@@ -845,6 +912,7 @@ class Agent(AgentBase):
         structured_output_prompt: str | None = None,
         idempotency_token: Any = None,
         limits: Limits | None = None,
+        cancel_signal: threading.Event | None = None,
         **kwargs: Any,
     ) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
@@ -875,6 +943,16 @@ class Agent(AgentBase):
                 ``stop_reason`` (e.g. ``"limit_turns"``); no exception is raised. Token
                 caps are soft — a single oversized model response can overshoot the budget
                 by one turn, since checks run at turn boundaries, not within a model call.
+            cancel_signal: Caller-owned event that cancels this invocation. Use it when cancellation is
+                driven from outside the agent — a client disconnect, a request lifecycle, a timeout. The
+                agent observes both this event and ``cancel()``, so either cancels independently, and it
+                never sets or clears the caller's event. An event that is already set cancels the
+                invocation at its first checkpoint; that checkpoint sits inside model streaming, so
+                the user turn is still recorded and one model request may be issued, then aborted.
+                Clear the event before reusing it for another invocation. On cancellation the
+                result carries ``stop_reason="cancelled"``. A duplicate call waiting on an
+                ``idempotency_token`` does not observe this event; only the primary invocation
+                does.
             **kwargs: Additional parameters to pass through the event loop.[Deprecating]
 
         Returns:
@@ -899,6 +977,7 @@ class Agent(AgentBase):
             structured_output_prompt=structured_output_prompt,
             idempotency_token=idempotency_token,
             limits=limits,
+            cancel_signal=cancel_signal,
             **kwargs,
         )
         async for event in events:
@@ -1134,6 +1213,39 @@ class Agent(AgentBase):
         if hasattr(self, "tool_registry"):
             self.tool_registry.cleanup()
 
+    def _observe_cancellation(self) -> bool:
+        """Report whether the current invocation is cancelled.
+
+        Mirrors a linked external signal synchronously before reading, so a cancellation
+        checkpoint never misses an external cancel that landed between watcher polls.
+        """
+        external = self._external_cancel_signal
+        if external is not None and external.is_set():
+            self._cancel_signal.set()
+        return self._cancel_signal.is_set()
+
+    def _start_cancel_watcher(self, cancel_signal: threading.Event | None) -> "asyncio.Task[None] | None":
+        """Mirror a caller-owned cancellation event onto the internal one for this invocation.
+
+        A signal that is already set is applied synchronously: the watcher task does not run until
+        the loop yields, and the first cancellation checkpoint sits inside the model stream.
+
+        Args:
+            cancel_signal: Caller-owned event, or None when the caller supplied none.
+
+        Returns:
+            The watcher task to tear down when the invocation ends, or None when there is
+            nothing to watch.
+        """
+        if cancel_signal is None:
+            return None
+
+        if cancel_signal.is_set():
+            self._cancel_signal.set()
+            return None
+
+        return asyncio.create_task(_link_cancel_signal(cancel_signal, self._cancel_signal))
+
     async def stream_async(
         self,
         prompt: AgentInput = None,
@@ -1143,6 +1255,7 @@ class Agent(AgentBase):
         structured_output_prompt: str | None = None,
         idempotency_token: Any = None,
         limits: Limits | None = None,
+        cancel_signal: threading.Event | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
@@ -1173,6 +1286,16 @@ class Agent(AgentBase):
                 ``stop_reason`` (e.g. ``"limit_turns"``); no exception is raised. Token
                 caps are soft — a single oversized model response can overshoot the budget
                 by one turn, since checks run at turn boundaries, not within a model call.
+            cancel_signal: Caller-owned event that cancels this invocation. Use it when cancellation is
+                driven from outside the agent — a client disconnect, a request lifecycle, a timeout. The
+                agent observes both this event and ``cancel()``, so either cancels independently, and it
+                never sets or clears the caller's event. An event that is already set cancels the
+                invocation at its first checkpoint; that checkpoint sits inside model streaming, so
+                the user turn is still recorded and one model request may be issued, then aborted.
+                Clear the event before reusing it for another invocation. On cancellation the
+                result carries ``stop_reason="cancelled"``. A duplicate call waiting on an
+                ``idempotency_token`` does not observe this event; only the primary invocation
+                does.
             **kwargs: Additional parameters to pass to the event loop.[Deprecating]
 
         Yields:
@@ -1226,8 +1349,12 @@ class Agent(AgentBase):
             raise exc
 
         result: AgentResult | None = None
+        cancel_watcher: asyncio.Task[None] | None = None
 
         try:
+            self._external_cancel_signal = cancel_signal
+            cancel_watcher = self._start_cancel_watcher(cancel_signal)
+
             self._interrupt_state.resume(prompt)
 
             self.event_loop_metrics.reset_usage_metrics()
@@ -1295,6 +1422,12 @@ class Agent(AgentBase):
                     raise
 
         finally:
+            if cancel_watcher is not None:
+                # cancel() is enough: a cancelled task never resumes into internal.set(). Awaiting
+                # here would let a second cancellation skip the cleanup below and wedge the agent.
+                cancel_watcher.cancel()
+            self._external_cancel_signal = None
+
             # Clear cancel signal to allow agent reuse after cancellation
             self._cancel_signal.clear()
 

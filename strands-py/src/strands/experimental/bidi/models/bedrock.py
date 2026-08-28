@@ -30,8 +30,8 @@ from collections.abc import AsyncGenerator
 from typing import Any, cast
 
 import boto3
-from aws_sdk_bedrock_runtime.client import BedrockRuntimeClient, InvokeModelWithBidirectionalStreamOperationInput
-from aws_sdk_bedrock_runtime.config import Config, HTTPAuthSchemeResolver, SigV4AuthScheme
+from aws_sdk_bedrock_runtime.client import AsyncBedrockRuntimeClient, InvokeModelWithBidirectionalStreamOperationInput
+from aws_sdk_bedrock_runtime.config import AsyncBedrockRuntimeConfig, HTTPAuthSchemeResolver, SigV4AuthScheme
 from aws_sdk_bedrock_runtime.models import (
     BidirectionalInputPayloadPart,
     InvokeModelWithBidirectionalStreamInputChunk,
@@ -41,6 +41,7 @@ from aws_sdk_bedrock_runtime.models import (
 from smithy_aws_core.identity.static import StaticCredentialsResolver
 from smithy_core.aio.eventstream import DuplexEventStream
 from smithy_core.shapes import ShapeID
+from smithy_http.aio.crt import AWSCRTHTTPClient
 
 from ....models._validation import validate_region
 from ....types._events import ToolResultEvent, ToolUseStreamEvent
@@ -62,7 +63,7 @@ from ..types.events import (
     BidiTranscriptStreamEvent,
     BidiUsageEvent,
 )
-from ..types.model import AudioConfig
+from ..types.model import AudioConfig, BidiConnectionConfig
 from .model import BidiModel, BidiModelTimeoutError
 
 logger = logging.getLogger(__name__)
@@ -136,6 +137,9 @@ class BedrockNovaSonicModel(BidiModel):
                 - inference: Model inference settings (max_tokens, temperature, top_p)
                 - turn_detection: Turn detection configuration (v2 only feature)
                   - endpointingSensitivity: "HIGH" | "MEDIUM" | "LOW" (optional)
+                - connection: Reconnect overrides merged over the provider defaults
+                  (e.g. restart_after_s, auto_reconnect); see
+                  BidiConnectionConfig.
             client_config: AWS authentication (boto_session OR region, not both)
             **kwargs: Reserved for future parameters.
 
@@ -147,8 +151,21 @@ class BedrockNovaSonicModel(BidiModel):
         # Store model ID
         self.model_id = model_id
 
-        # Validate turn_detection configuration
+        # Nova caps a connection at ~8 min; reconnect at 7 min, leaving headroom below the cap.
+        # It also reports cumulative usage totals.
+        self.connection_config: BidiConnectionConfig = {"restart_after_s": 420}
+        self.usage_is_cumulative = True
+
         provider_config = provider_config or {}
+
+        # Merge any caller-supplied connection overrides over the provider defaults, so
+        # reconnect behavior can be tuned (or opted out via auto_reconnect) through
+        # provider_config without replacing the whole config.
+        self.connection_config = cast(
+            BidiConnectionConfig, {**self.connection_config, **provider_config.get("connection", {})}
+        )
+
+        # Validate turn_detection configuration
         if "turn_detection" in provider_config and provider_config["turn_detection"]:
             if model_id == NOVA_SONIC_V1_MODEL_ID:
                 raise ValueError(
@@ -261,7 +278,7 @@ class BedrockNovaSonicModel(BidiModel):
         # Use static resolver with credentials configured as properties
         resolver = StaticCredentialsResolver()
 
-        config = Config(
+        config = await AsyncBedrockRuntimeConfig.resolve(
             endpoint_uri=f"https://bedrock-runtime.{self.region}.amazonaws.com",
             region=self.region,
             aws_credentials_identity_resolver=resolver,
@@ -271,10 +288,11 @@ class BedrockNovaSonicModel(BidiModel):
             aws_access_key_id=credentials.access_key,
             aws_secret_access_key=credentials.secret_key,
             aws_session_token=credentials.token,
+            transport=AWSCRTHTTPClient(),
             user_agent_extra=_STRANDS_USER_AGENT_EXTRA,
         )
 
-        self._client = BedrockRuntimeClient(config=config)
+        self._client = AsyncBedrockRuntimeClient(config=config)
         logger.debug("region=<%s> | nova sonic client initialized", self.region)
 
         self._stream = await self._client.invoke_model_with_bidirectional_stream(
@@ -558,7 +576,7 @@ class BedrockNovaSonicModel(BidiModel):
         logger.debug("nova connection cleanup starting")
 
         async def stop_events() -> None:
-            if not self._connection_id:
+            if not self._connection_id or not hasattr(self, "_stream"):
                 return
 
             await self._end_audio_input()
@@ -569,14 +587,46 @@ class BedrockNovaSonicModel(BidiModel):
             if not hasattr(self, "_stream"):
                 return
 
-            await self._stream.close()
+            try:
+                await self._stream.close()
+            finally:
+                del self._stream
+
+        async def stop_client() -> None:
+            if not hasattr(self, "_client"):
+                return
+
+            try:
+                await self._client.close()
+            finally:
+                del self._client
 
         async def stop_connection() -> None:
             self._connection_id = None
 
-        await stop_all(stop_events, stop_stream, stop_connection)
+        await stop_all(stop_events, stop_stream, stop_client, stop_connection)
 
         logger.debug("nova connection closed")
+
+    async def reconnect(
+        self,
+        system_prompt: str | None = None,
+        tools: list[ToolSpec] | None = None,
+        messages: Messages | None = None,
+        **restart_kwargs: Any,
+    ) -> None:
+        """Reconnect by closing the connection and starting a new one, replaying messages.
+
+        Args:
+            system_prompt: System instructions for the new connection.
+            tools: Tool specifications for the new connection.
+            messages: Conversation history to replay into the new connection.
+            **restart_kwargs: Reserved for provider-specific restart options.
+        """
+        logger.debug("nova reconnect starting")
+        await self.stop()
+        await self.start(system_prompt, tools, messages, **restart_kwargs)
+        logger.debug("connection_id=<%s> | nova reconnect complete", self._connection_id)
 
     def _convert_nova_event(self, nova_event: dict[str, Any]) -> BidiOutputEvent | None:
         """Convert Nova Sonic events to TypedEvent format."""
@@ -587,20 +637,12 @@ class BedrockNovaSonicModel(BidiModel):
             logger.debug("completion_id=<%s> | nova completion started", self._current_completion_id)
             return None
 
-        # Handle completion end
+        # completionEnd brackets the whole prompt/session, not a turn (its completionId is
+        # constant across turns). Per-turn boundaries come from contentEnd stopReason below,
+        # so only clear completion tracking here.
         if "completionEnd" in nova_event:
-            completion_data = nova_event["completionEnd"]
-            completion_id = completion_data.get("completionId", self._current_completion_id)
-            stop_reason = completion_data.get("stopReason", "END_TURN")
-
-            event = BidiResponseCompleteEvent(
-                response_id=completion_id or str(uuid.uuid4()),  # Fallback to UUID if missing
-                stop_reason="interrupted" if stop_reason == "INTERRUPTED" else "complete",
-            )
-
-            # Clear completion tracking
             self._current_completion_id = None
-            return event
+            return None
 
         # Handle audio output
         if "audioOutput" in nova_event:
@@ -679,7 +721,19 @@ class BedrockNovaSonicModel(BidiModel):
             )
 
         if "contentEnd" in nova_event:
+            content_end = nova_event["contentEnd"]
+            stop_reason = content_end.get("stopReason")
+            # Nova ends a turn after its FINAL assistant text block (which follows the audio).
+            # Both that text block and the preceding audio block carry END_TURN, so gate on
+            # the FINAL text to emit exactly one per-turn complete, after that text is in
+            # history. INTERRUPTED (barge-in) ends the turn regardless of block.
+            is_final_text = content_end.get("type") == "TEXT" and self._generation_stage == "FINAL"
             self._generation_stage = None
+            if stop_reason == "INTERRUPTED" or (stop_reason == "END_TURN" and is_final_text):
+                return BidiResponseCompleteEvent(
+                    response_id=self._current_completion_id or str(uuid.uuid4()),
+                    stop_reason="interrupted" if stop_reason == "INTERRUPTED" else "complete",
+                )
 
         # Ignore all other events
         return None
