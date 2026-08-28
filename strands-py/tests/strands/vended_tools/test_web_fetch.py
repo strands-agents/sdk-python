@@ -209,6 +209,95 @@ class TestWebFetchToolCall:
             await tool(url="https://example.com/", tool_context=ctx)
 
 
+class TestSummarizer:
+    """Summarizer agent is called when model + prompt are both provided."""
+
+    def _page_client(self, body: str = "<p>page content</p>") -> httpx.AsyncClient:
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, headers={"content-type": "text/html"}, text=body)
+
+        return _client(handler)
+
+    @pytest.mark.asyncio
+    async def test_prompt_without_model_and_no_agent_raises(self):
+        # No factory model and no host agent — prompt has nowhere to go.
+        tool = make_web_fetch(client=self._page_client())
+        with pytest.raises(ValueError, match="prompt requires a model"):
+            await tool(url="https://example.com/", prompt="What is this about?")
+
+    @pytest.mark.asyncio
+    async def test_prompt_uses_host_agent_model_when_no_factory_model(self, monkeypatch):
+        # When no factory model is set, the host agent's model is used.
+        host_model = SimpleNamespace()
+        received_model: list = []
+
+        class _FakeAgent:
+            def __init__(self, model=None, **kwargs):
+                received_model.append(model)
+
+            async def invoke_async(self, prompt: str) -> str:
+                return "host answer"
+
+        import strands.agent.agent as agent_module
+
+        monkeypatch.setattr(agent_module, "Agent", _FakeAgent)
+        from strands.types.tools import ToolContext, ToolUse
+
+        tool_use = ToolUse(toolUseId="wf_2", name="web_fetch", input={})
+        host_agent = SimpleNamespace(_cancel_signal=None, model=host_model)
+        ctx = ToolContext(tool_use=tool_use, agent=host_agent, invocation_state={})
+
+        tool = make_web_fetch(client=self._page_client())
+        tru_result = await tool(url="https://example.com/", prompt="Summarize", tool_context=ctx)
+        assert tru_result == "host answer"
+        assert received_model[0] is host_model
+
+    @pytest.mark.asyncio
+    async def test_empty_prompt_with_model_returns_markdown(self, monkeypatch):
+        # Empty prompt skips the summarizer even when a model is configured.
+        fake_model = SimpleNamespace()
+        invoked: list[bool] = []
+
+        class _FakeAgent:
+            def __init__(self, **kwargs):
+                pass
+
+            async def invoke_async(self, prompt: str) -> str:
+                invoked.append(True)
+                return "summary"
+
+        import strands.agent.agent as agent_module
+
+        monkeypatch.setattr(agent_module, "Agent", _FakeAgent)
+        tool = make_web_fetch(client=self._page_client(), model=fake_model)
+        tru_result = await tool(url="https://example.com/", prompt="")
+        assert not invoked
+        assert "page content" in tru_result
+
+    @pytest.mark.asyncio
+    async def test_prompt_with_model_invokes_summarizer(self, monkeypatch):
+        fake_model = SimpleNamespace()
+        received_prompt: list[str] = []
+
+        class _FakeAgent:
+            def __init__(self, **kwargs):
+                pass
+
+            async def invoke_async(self, prompt: str) -> str:
+                received_prompt.append(prompt)
+                return "the answer"
+
+        import strands.agent.agent as agent_module
+
+        monkeypatch.setattr(agent_module, "Agent", _FakeAgent)
+        tool = make_web_fetch(client=self._page_client(), model=fake_model)
+        tru_result = await tool(url="https://example.com/", prompt="What is this about?")
+        assert tru_result == "the answer"
+        assert len(received_prompt) == 1
+        assert "What is this about?" in received_prompt[0]
+        assert "page content" in received_prompt[0]
+
+
 class TestParseCharset:
     """_parse_charset extracts charset from Content-Type values, defaulting to utf-8."""
 

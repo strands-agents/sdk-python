@@ -327,7 +327,14 @@ result = agent("Summarize the changes in ./CHANGELOG.md")
 
 ### Web Fetch
 
-Fetches an HTTP(S) URL and returns its readable content as markdown suitable for a model to read. Scripts, styles, and other non-content noise are stripped from the extracted markdown. Distinct from the HTTP Request tool, which returns raw response bodies for API calls.
+Fetches an HTTP(S) URL and returns its content as markdown. HTML pages are
+converted to markdown with scripts, styles, and noise stripped. Distinct from
+the HTTP Request tool, which returns raw response bodies for API calls.
+
+When the model passes a `prompt` alongside the URL, the page is processed by a
+summarizer sub-agent that answers the prompt, so only the answer — not the full
+page — enters the main agent's context. The agent's own model is used by
+default.
 
 _Supported in: Python (all platforms)._
 
@@ -340,7 +347,10 @@ pip install 'strands-agents[web-fetch]'
 :::
 
 :::note[Security posture]
-`web_fetch` accepts only `http://` and `https://` URLs and caps response bodies at 5 MiB by default. Egress control belongs at the layer that encapsulates the agent — a sandbox, microVM, or network policy — where it can be enforced consistently across all tools, including `shell`.
+`web_fetch` accepts only `http://` and `https://` URLs and caps response bodies
+at 5 MiB by default. Egress control belongs at the layer that encapsulates the
+agent — a sandbox, microVM, or network policy — where it can be enforced
+consistently across all tools, including `shell`.
 :::
 
 **Example:**
@@ -354,6 +364,23 @@ from strands.vended_tools import web_fetch
 
 agent = Agent(tools=[web_fetch])
 agent("Summarize https://example.com/blog/post")
+```
+
+Custom configuration — custom HTTP client, response size cap, and a dedicated
+summarizer model:
+
+```python
+import httpx
+from strands import Agent
+from strands.models import BedrockModel
+from strands.vended_tools import make_web_fetch
+
+tool = make_web_fetch(
+    client=httpx.AsyncClient(timeout=10.0),
+    max_bytes=1 * 1024 * 1024,
+    model=BedrockModel(model_id="us.amazon.nova-micro-v1:0"),
+)
+agent = Agent(tools=[tool])
 ```
 
 </Tab>

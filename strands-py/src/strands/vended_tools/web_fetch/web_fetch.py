@@ -7,6 +7,11 @@ markdown. It is not a general-purpose scraper.
 The tool delegates all networking to the ``httpx.AsyncClient`` instance
 provided by the operator, giving full control over transport configuration,
 caching, proxies, redirects, and connection pooling.
+
+When ``prompt`` is non-empty, a summarizer agent answers the prompt over the
+fetched content so the full page never reaches the main agent's context.
+The model used is, in order: the ``model`` passed to :func:`make_web_fetch`,
+then the host agent's model, then a ``ValueError`` if neither is available.
 """
 
 from __future__ import annotations
@@ -23,6 +28,7 @@ from ._extract import html_to_markdown
 from .types import WEB_FETCH_DESCRIPTION
 
 if TYPE_CHECKING:
+    from ...models.model import Model
     from ...tools.decorator import DecoratedFunctionTool
 
 _HEADERS = {
@@ -30,8 +36,14 @@ _HEADERS = {
     "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
 }
 
-
 _DEFAULT_MAX_BYTES = 5 * 1024 * 1024  # 5 MiB
+
+_SUMMARIZER_PROMPT = (
+    "You answer a request about a single fetched web page. Use only the provided "
+    "content; if it does not contain the answer, say so plainly. Be concise and "
+    "factual, and preserve concrete details (names, numbers, quotes, links) "
+    "relevant to the request."
+)
 
 
 def make_web_fetch(
@@ -40,6 +52,7 @@ def make_web_fetch(
     description: str = WEB_FETCH_DESCRIPTION,
     max_bytes: int = _DEFAULT_MAX_BYTES,
     client: httpx.AsyncClient | None = None,
+    model: Model | None = None,
 ) -> DecoratedFunctionTool:
     """Create a web fetch tool.
 
@@ -53,20 +66,26 @@ def make_web_fetch(
             provided, the tool uses it directly and will not close it.
             When ``None``, a new client is created per request with httpx
             defaults.
+        model: Optional model for the summarizer. Resolution order when
+            ``prompt`` is non-empty: this model, then the host agent's model,
+            then ``ValueError`` if neither is available.
 
     Returns:
-        A decorated tool that fetches a URL and returns the extracted markdown.
+        A decorated tool that fetches a URL and returns extracted markdown, or
+        a model-generated answer when ``model`` and ``prompt`` are both provided.
     """
     if max_bytes <= 0:
         raise ValueError(f"max_bytes must be positive, got {max_bytes}")
     external_client = client
+    summarizer_model = model
 
     @tool(name=name, description=description, context=True)
     async def web_fetch_tool(
         url: str,
+        prompt: str = "",
         tool_context: ToolContext | None = None,
     ) -> str:
-        """Fetches an HTTP(S) URL and returns readable markdown.
+        """Fetches an HTTP(S) URL and returns readable content.
 
         Only ``http://`` and ``https://`` URLs are accepted. Raises
         ``TimeoutError`` if the request does not complete within the
@@ -74,6 +93,10 @@ def make_web_fetch(
 
         Args:
             url: The URL to fetch. Must be ``http://`` or ``https://``.
+            prompt: What to extract or answer about the fetched content. When
+                non-empty, a summarizer agent answers using the factory model
+                or the host agent's model. Leave empty to receive the full
+                page content as markdown.
             tool_context: Framework-injected. Not model-visible. Carries the
                 agent so the tool can read its cancel signal.
         """
@@ -91,10 +114,32 @@ def make_web_fetch(
             raise ValueError(f"Failed to fetch {url}: {exc}") from exc
 
         is_markup = "html" in content_type.lower() or "xml" in content_type.lower()
-        markdown = html_to_markdown(raw) if is_markup else raw
-        if not markdown and is_markup:
-            markdown = raw
-        return markdown
+        content = html_to_markdown(raw) if is_markup else raw
+        if not content and is_markup:
+            content = raw
+
+        if prompt.strip():
+            from ...agent.agent import Agent  # local import to avoid circular dependency
+
+            agent_obj = getattr(tool_context, "agent", None) if tool_context else None
+            effective_model = summarizer_model or getattr(agent_obj, "model", None)
+            if effective_model is None:
+                raise ValueError(
+                    "web_fetch: prompt requires a model. Pass model= to make_web_fetch "
+                    "or call the tool from an agent."
+                )
+            # Fresh agent per call — no history from one fetch bleeds into the next.
+            summarizer = Agent(
+                model=effective_model,
+                system_prompt=_SUMMARIZER_PROMPT,
+                callback_handler=None,
+            )
+            result = await summarizer.invoke_async(
+                f"Fetched URL: {url}\n\nRequest: {prompt}\n\n--- Content ---\n{content}"
+            )
+            return str(result)
+
+        return content
 
     return web_fetch_tool
 
