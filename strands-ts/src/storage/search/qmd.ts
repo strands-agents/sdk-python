@@ -19,19 +19,23 @@ export interface QmdSearchStrategyConfig {
  * BM25 scoring for relevance ranking. Accounts for term frequency, inverse
  * document frequency, and document length normalization.
  *
- * Works with {@link LocalFileStorage} — reads `baseDir` from the storage instance
- * to know where files live on disk.
+ * Works only with {@link LocalFileStorage} — reads `baseDir` from the storage
+ * instance to know where files live on disk. Throws if passed a storage backend
+ * without a `baseDir` property.
  *
  * Requires `@tobilu/qmd` as a peer dependency.
  *
  * @example
  * ```typescript
  * import { QmdSearchStrategy } from '@strands-agents/sdk/storage/search/qmd'
+ * import { LocalFileStorage } from '@strands-agents/sdk/storage'
  *
- * // Pass to a memory store or storage that accepts a search strategy:
- * const store = new FileMemoryStore({ search: new QmdSearchStrategy() })
+ * const storage = new LocalFileStorage('./memory/')
+ * const store = new FileMemoryStore({
+ *   storage,
+ *   search: new QmdSearchStrategy(),
+ * })
  *
- * // Consumer just calls storage.search():
  * const results = await store.search('authentication flow')
  * ```
  */
