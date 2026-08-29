@@ -235,8 +235,8 @@ class TestWebFetchToolCall:
             await tool(url="https://example.com/", tool_context=ctx)
 
 
-class TestSummarizer:
-    """Summarizer agent is called when model + prompt are both provided."""
+class TestAnalyst:
+    """Analyst agent is called when model + prompt are both provided."""
 
     def _page_client(self, body: str = "<p>page content</p>") -> httpx.AsyncClient:
         def handler(_request: httpx.Request) -> httpx.Response:
@@ -248,7 +248,7 @@ class TestSummarizer:
     async def test_prompt_without_model_and_no_agent_raises(self):
         # No factory model and no host agent — prompt has nowhere to go.
         tool = make_web_fetch(client=self._page_client())
-        with pytest.raises(ValueError, match="prompt requires a model"):
+        with pytest.raises(WebFetchError, match="prompt requires a model"):
             await tool(url="https://example.com/", prompt="What is this about?")
 
     @pytest.mark.asyncio
@@ -261,8 +261,8 @@ class TestSummarizer:
             def __init__(self, model=None, **kwargs):
                 received_model.append(model)
 
-            async def invoke_async(self, prompt: str) -> str:
-                return "host answer"
+            async def stream_async(self, prompt: str):
+                yield {"result": "host answer"}
 
         import strands.agent.agent as agent_module
 
@@ -280,7 +280,7 @@ class TestSummarizer:
 
     @pytest.mark.asyncio
     async def test_empty_prompt_with_model_returns_markdown(self, monkeypatch):
-        # Empty prompt skips the summarizer even when a model is configured.
+        # Empty prompt skips the analyst even when a model is configured.
         fake_model = SimpleNamespace()
         invoked: list[bool] = []
 
@@ -288,9 +288,9 @@ class TestSummarizer:
             def __init__(self, **kwargs):
                 pass
 
-            async def invoke_async(self, prompt: str) -> str:
+            async def stream_async(self, prompt: str):
                 invoked.append(True)
-                return "summary"
+                yield {"result": "answer"}
 
         import strands.agent.agent as agent_module
 
@@ -301,7 +301,7 @@ class TestSummarizer:
         assert "page content" in tru_result
 
     @pytest.mark.asyncio
-    async def test_prompt_with_model_invokes_summarizer(self, monkeypatch):
+    async def test_prompt_with_model_invokes_analyst(self, monkeypatch):
         fake_model = SimpleNamespace()
         received_prompt: list[str] = []
 
@@ -309,9 +309,12 @@ class TestSummarizer:
             def __init__(self, **kwargs):
                 pass
 
-            async def invoke_async(self, prompt: str) -> str:
+            async def stream_async(self, prompt: str):
                 received_prompt.append(prompt)
-                return "the answer"
+                yield {"result": "the answer"}
+
+            def cancel(self) -> None:
+                pass
 
         import strands.agent.agent as agent_module
 

@@ -8,10 +8,10 @@ The tool delegates all networking to the ``httpx.AsyncClient`` instance
 provided by the operator, giving full control over transport configuration,
 caching, proxies, redirects, and connection pooling.
 
-When ``prompt`` is non-empty, a summarizer agent answers the prompt over the
+When ``prompt`` is non-empty, an analyst agent answers the prompt over the
 fetched content so the full page never reaches the main agent's context.
 The model used is, in order: the ``model`` passed to :func:`make_web_fetch`,
-then the host agent's model, then a ``ValueError`` if neither is available.
+then the host agent's model, then a ``WebFetchError`` if neither is available.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ _HEADERS = {
 
 _DEFAULT_MAX_BYTES = 5 * 1024 * 1024  # 5 MiB
 
-_SUMMARIZER_PROMPT = (
+_ANALYST_PROMPT = (
     "You answer a request about a single fetched web page. Use only the provided "
     "content; if it does not contain the answer, say so plainly. Be concise and "
     "factual, and preserve concrete details (names, numbers, quotes, links) "
@@ -71,9 +71,9 @@ def make_web_fetch(
             provided, the tool uses it directly and will not close it.
             When ``None``, a new client is created per request with
             ``follow_redirects=True`` and httpx's default timeout (5s).
-        model: Optional model for the summarizer. Resolution order when
+        model: Optional model for the analyst. Resolution order when
             ``prompt`` is non-empty: this model, then the host agent's model,
-            then ``ValueError`` if neither is available.
+            then ``WebFetchError`` if neither is available.
 
     Returns:
         A decorated tool that fetches a URL and returns extracted markdown, or
@@ -82,7 +82,7 @@ def make_web_fetch(
     if max_bytes <= 0:
         raise ValueError(f"max_bytes must be positive, got {max_bytes}")
     external_client = client
-    summarizer_model = model
+    analyst_model = model
 
     @tool(name=name, description=description, context=True)
     async def web_fetch_tool(
@@ -93,12 +93,12 @@ def make_web_fetch(
         """Fetches an HTTP(S) URL and returns readable content.
 
         Only ``http://`` and ``https://`` URLs are accepted. Raises
-        ``TimeoutError`` if the request exceeds the client's timeout.
+        ``WebFetchError`` if the request exceeds the client's timeout.
 
         Args:
             url: The URL to fetch. Must be ``http://`` or ``https://``.
             prompt: What to extract or answer about the fetched content. When
-                non-empty, a summarizer agent answers using the factory model
+                non-empty, an analyst agent answers using the factory model
                 or the host agent's model. Leave empty to receive the full
                 page content as markdown.
             tool_context: Framework-injected. Not model-visible. Carries the
@@ -124,20 +124,32 @@ def make_web_fetch(
         if prompt.strip():
             from ...agent.agent import Agent  # local import to avoid circular dependency
 
-            effective_model = summarizer_model or host_model
+            effective_model = analyst_model or host_model
             if effective_model is None:
-                raise ValueError(
+                raise WebFetchError(
                     "web_fetch: prompt requires a model. Pass model= to make_web_fetch or call the tool from an agent."
                 )
             # Fresh agent per call — no history from one fetch bleeds into the next.
-            summarizer = Agent(
+            analyst = Agent(
                 model=effective_model,
-                system_prompt=_SUMMARIZER_PROMPT,
+                system_prompt=_ANALYST_PROMPT,
                 callback_handler=None,
             )
-            result = await summarizer.invoke_async(
-                f"Fetched URL: {url}\n\nRequest: {prompt}\n\n--- Content ---\n{content}"
-            )
+
+            invoke_prompt = f"URL: {url}\n\nRequest: {prompt}\n\n--- Content ---\n{content}"
+            # Always set by stream_async via AgentResultEvent; None is unreachable in practice
+            result = None
+            try:
+                async for event in analyst.stream_async(invoke_prompt):
+                    if "result" in event:
+                        result = event["result"]
+                    if cancel_signal is not None and cancel_signal.is_set():
+                        analyst.cancel()
+                        raise asyncio.CancelledError("Request cancelled")
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                raise WebFetchError(f"Web fetch analyst failed for {url}: {exc}") from exc
             return str(result)
 
         return content
@@ -165,7 +177,8 @@ async def _fetch_once(
         asyncio.CancelledError: When the agent cancel signal is set.
         httpx.TimeoutException: When the request times out.
         httpx.RequestError: On any transport-level failure.
-        ValueError: When the response body exceeds ``max_bytes``.
+        ValueError: When the response body exceeds ``max_bytes`` or the
+            status code is >= 400.
     """
     _check_cancelled(cancel_signal)
 
