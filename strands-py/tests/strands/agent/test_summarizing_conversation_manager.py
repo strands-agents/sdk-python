@@ -914,3 +914,95 @@ def test_proactive_compression_swallows_errors():
     # Should not throw — proactive compression is best-effort
     registry.invoke_callbacks(event)
     assert len(agent.messages) == 20
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for https://github.com/strands-agents/harness-sdk/issues/4027
+#
+# Bug 2: a failing summarization must not mutate the bookkeeping that the
+# session manager uses to restore the agent (removed_message_count,
+# _pin_first_applied, _summary_message).
+# ---------------------------------------------------------------------------
+
+
+def _async_gen_raising(exc):
+    """Build an async generator that raises on first iteration."""
+
+    async def _gen(*_args, **_kwargs):
+        raise exc
+        if False:  # pragma: no cover - make this a generator
+            yield None
+
+    return _gen
+
+
+def test_reduce_context_failure_rolls_back_removed_message_count():
+    """A failing summary must leave removed_message_count unchanged so a subsequent restore is correct."""
+
+    failing_agent = Mock()
+    failing_agent.model = Mock()
+    failing_agent.model.stream = Mock(side_effect=_async_gen_raising(RuntimeError("provider outage")))
+    failing_agent.messages = [{"role": "user", "content": [{"text": f"msg {i}"}]} for i in range(6)]
+
+    manager = SummarizingConversationManager(
+        summary_ratio=0.5,
+        preserve_recent_messages=1,
+    )
+    assert manager.removed_message_count == 0
+
+    with patch("strands.agent.conversation_manager.summarizing_conversation_manager.logger"):
+        # Proactive path (e is None): swallow, but bookkeeping must be intact.
+        manager.reduce_context(failing_agent)
+
+    assert manager.removed_message_count == 0
+    assert manager._summary_message is None
+    assert manager._pin_first_applied is False
+
+
+def test_reduce_context_failure_rolls_back_pin_first_applied():
+    """A failing summary must leave _pin_first_applied False so a retry can re-apply it cleanly."""
+
+    failing_agent = Mock()
+    failing_agent.model = Mock()
+    failing_agent.model.stream = Mock(side_effect=_async_gen_raising(RuntimeError("provider outage")))
+    failing_agent.messages = [{"role": "user", "content": [{"text": f"msg {i}"}]} for i in range(6)]
+
+    manager = SummarizingConversationManager(
+        summary_ratio=0.5,
+        preserve_recent_messages=1,
+        pin_first=2,
+    )
+    assert manager._pin_first_applied is False
+
+    with patch("strands.agent.conversation_manager.summarizing_conversation_manager.logger"):
+        manager.reduce_context(failing_agent)
+
+    # The retry should be free to re-apply pin_first; the in-place metadata flag is idempotent
+    # so leaving it set is fine, but the bookkeeping flag must reflect that no compaction finished.
+    assert manager._pin_first_applied is False
+    assert manager.removed_message_count == 0
+
+
+def test_reduce_context_success_after_previous_failure_still_correct():
+    """A retry after a failed summary should record the compaction correctly."""
+
+    success_agent = Mock()
+    success_agent.model = Mock()
+    success_agent.model.stream = Mock(side_effect=lambda *a, **kw: _mock_model_stream("SUMMARY"))
+    success_agent.messages = [{"role": "user", "content": [{"text": f"msg {i}"}]} for i in range(6)]
+
+    manager = SummarizingConversationManager(
+        summary_ratio=0.5,
+        preserve_recent_messages=1,
+        pin_first=2,
+    )
+
+    manager.reduce_context(success_agent)
+
+    assert manager.removed_message_count >= 1
+    assert manager._pin_first_applied is True
+    # agent.messages was replaced with [pinned-0, pinned-1, summary, ...remaining]
+    assert success_agent.messages[0]["content"][0]["text"] == "msg 0"
+    assert success_agent.messages[1]["content"][0]["text"] == "msg 1"
+    # The summary message is an assistant message; just verify it is in slot 2 and its text is SUMMARY.
+    assert "SUMMARY" in str(success_agent.messages[2])

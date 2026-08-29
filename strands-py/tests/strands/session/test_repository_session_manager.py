@@ -1198,3 +1198,110 @@ def test_initialize_multi_agent_calls_read_for_existing_session(mock_repository)
     # read_multi_agent should be called for existing session
     assert len(read_multi_agent_calls) == 1
     assert read_multi_agent_calls[0] == ("existing-session", "test-multi-agent")
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for https://github.com/strands-agents/harness-sdk/issues/4027
+#
+# ``SummarizingConversationManager(pin_first=N)`` must:
+#   * keep the first N messages at the head of the restored transcript, and
+#   * not skip those pinned messages via ``list_messages(offset=removed_message_count)``.
+# Both ``FileSessionManager`` and ``S3SessionManager`` go through
+# ``RepositorySessionManager.initialize`` (the file-backed path is exercised here).
+# ---------------------------------------------------------------------------
+
+
+def _populate_messages(repo, agent_id, texts):
+    """Create SessionMessages with sequential message_ids starting at 0."""
+    for i, text in enumerate(texts):
+        msg = SessionMessage(
+            message={"role": "user", "content": [ContentBlock(text=text)]},
+            message_id=i,
+        )
+        repo.create_message("test-session", agent_id, msg)
+
+
+def test_initialize_restores_pinned_messages_after_summary_with_pin_first(existing_session_manager):
+    """After a compaction with pin_first, restoring the agent must reattach the pinned head.
+
+    Without the fix, ``list_messages(offset=removed_message_count)`` skips the first
+    message — which happens to be a pinned head — so the resumed agent loses both
+    the pinned messages and has the offset-skim duplicate them with the summary.
+    """
+    conversation_manager = SummarizingConversationManager(pin_first=3)
+    conversation_manager.removed_message_count = 1
+    conversation_manager._summary_message = {"role": "user", "content": [{"text": "summary of msg-3"}]}
+    conversation_manager._pin_first_applied = True
+
+    session_agent = SessionAgent(
+        agent_id="pinned-agent",
+        state={},
+        conversation_manager_state=conversation_manager.get_state(),
+    )
+    existing_session_manager.session_repository.create_agent("test-session", session_agent)
+
+    # 5 originally-stored messages, ids 0..4. msg-3 was the one summarized.
+    _populate_messages(
+        existing_session_manager.session_repository,
+        "pinned-agent",
+        ["pinned-0", "pinned-1", "pinned-2", "msg-3-summarized", "msg-4"],
+    )
+
+    agent = Agent(agent_id="pinned-agent", conversation_manager=SummarizingConversationManager(pin_first=3))
+    existing_session_manager.initialize(agent)
+
+    # Live transcript after compaction was: [pinned-0, pinned-1, pinned-2, summary, msg-4].
+    # Restore must reproduce exactly that, in order.
+    texts = [m["content"][0]["text"] for m in agent.messages]
+    assert texts == ["pinned-0", "pinned-1", "pinned-2", "summary of msg-3", "msg-4"]
+
+
+def test_initialize_restores_summary_without_pin_first(existing_session_manager):
+    """Without pin_first, the existing behaviour of offset=removed_message_count is preserved."""
+    conversation_manager = SummarizingConversationManager()
+    conversation_manager.removed_message_count = 1
+    conversation_manager._summary_message = {"role": "user", "content": [{"text": "summary"}]}
+
+    session_agent = SessionAgent(
+        agent_id="no-pin-agent",
+        state={},
+        conversation_manager_state=conversation_manager.get_state(),
+    )
+    existing_session_manager.session_repository.create_agent("test-session", session_agent)
+
+    _populate_messages(
+        existing_session_manager.session_repository,
+        "no-pin-agent",
+        ["a", "b", "c"],
+    )
+
+    agent = Agent(agent_id="no-pin-agent", conversation_manager=SummarizingConversationManager())
+    existing_session_manager.initialize(agent)
+
+    texts = [m["content"][0]["text"] for m in agent.messages]
+    assert texts == ["summary", "b", "c"]
+
+
+def test_initialize_pinned_messages_no_summary_yet(existing_session_manager):
+    """When pin_first is set but summarization hasn't run, restore must still produce the live transcript."""
+    conversation_manager = SummarizingConversationManager(pin_first=2)
+    # _pin_first_applied is False here because no compaction has happened yet.
+
+    session_agent = SessionAgent(
+        agent_id="fresh-pin-agent",
+        state={},
+        conversation_manager_state=conversation_manager.get_state(),
+    )
+    existing_session_manager.session_repository.create_agent("test-session", session_agent)
+
+    _populate_messages(
+        existing_session_manager.session_repository,
+        "fresh-pin-agent",
+        ["keep-0", "keep-1", "keep-2"],
+    )
+
+    agent = Agent(agent_id="fresh-pin-agent", conversation_manager=SummarizingConversationManager(pin_first=2))
+    existing_session_manager.initialize(agent)
+
+    texts = [m["content"][0]["text"] for m in agent.messages]
+    assert texts == ["keep-0", "keep-1", "keep-2"]

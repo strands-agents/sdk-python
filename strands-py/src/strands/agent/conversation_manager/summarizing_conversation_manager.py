@@ -93,11 +93,19 @@ class SummarizingConversationManager(ConversationManager):
         """
         super().restore_from_session(state)
         self._summary_message = state.get("summary_message")
+        # ``_pin_first_applied`` must round-trip through the persisted state so the session manager
+        # knows on restore how many leading messages are still pinned and live in the transcript.
+        # See https://github.com/strands-agents/harness-sdk/issues/4027.
+        self._pin_first_applied = state.get("pin_first_applied", False)
         return [self._summary_message] if self._summary_message else None
 
     def get_state(self) -> dict[str, Any]:
         """Returns a dictionary representation of the state for the Summarizing Conversation Manager."""
-        return {"summary_message": self._summary_message, **super().get_state()}
+        return {
+            "summary_message": self._summary_message,
+            "pin_first_applied": self._pin_first_applied,
+            **super().get_state(),
+        }
 
     def apply_management(self, agent: "Agent", **kwargs: Any) -> None:
         """Apply management strategy to conversation history.
@@ -171,32 +179,47 @@ class SummarizingConversationManager(ConversationManager):
         if messages_to_summarize_count <= 0:
             raise ContextWindowOverflowException("Cannot summarize: insufficient messages for summarization")
 
-        # Pin first N messages permanently (only on first reduction)
-        if self.pin_first and not self._pin_first_applied:
-            apply_pin_first(agent.messages, self.pin_first)
-            self._pin_first_applied = True
+        # Snapshot bookkeeping so a failed summary generation does not corrupt the offsets the
+        # session manager uses on restore. See https://github.com/strands-agents/harness-sdk/issues/4027.
+        original_pin_first_applied = self._pin_first_applied
+        original_removed_message_count = self.removed_message_count
+        original_summary_message = self._summary_message
 
-        # Partition [0, messages_to_summarize_count) into pinned (preserve) and non-pinned (summarize)
-        protected_to_preserve, to_summarize = partition_pinned(agent.messages, 0, messages_to_summarize_count)
+        try:
+            # Pin first N messages permanently (only on first reduction)
+            if self.pin_first and not self._pin_first_applied:
+                apply_pin_first(agent.messages, self.pin_first)
+                self._pin_first_applied = True
 
-        if not to_summarize:
-            raise ContextWindowOverflowException("Cannot summarize: all messages in summarize range are pinned")
+            # Partition [0, messages_to_summarize_count) into pinned (preserve) and non-pinned (summarize)
+            protected_to_preserve, to_summarize = partition_pinned(agent.messages, 0, messages_to_summarize_count)
 
-        remaining_messages = agent.messages[messages_to_summarize_count:]
+            if not to_summarize:
+                raise ContextWindowOverflowException("Cannot summarize: all messages in summarize range are pinned")
 
-        # Keep track of the number of messages that have been summarized thus far.
-        self.removed_message_count += len(to_summarize)
-        # If there is a summary message, don't count it in the removed_message_count.
-        if self._summary_message:
-            self.removed_message_count -= 1
+            remaining_messages = agent.messages[messages_to_summarize_count:]
 
-        # Generate summary
-        self._summary_message = self._generate_summary(to_summarize, agent)
-        # Assign tracking id to the summary message since it bypasses the append method.
-        _ensure_tracking_id(self._summary_message)
+            # Keep track of the number of messages that have been summarized thus far.
+            self.removed_message_count += len(to_summarize)
+            # If there is a summary message, don't count it in the removed_message_count.
+            if self._summary_message:
+                self.removed_message_count -= 1
 
-        # Replace summarized range with protected messages + summary + remaining
-        agent.messages[:] = protected_to_preserve + [self._summary_message] + remaining_messages
+            # Generate summary
+            self._summary_message = self._generate_summary(to_summarize, agent)
+            # Assign tracking id to the summary message since it bypasses the append method.
+            _ensure_tracking_id(self._summary_message)
+
+            # Replace summarized range with protected messages + summary + remaining
+            agent.messages[:] = protected_to_preserve + [self._summary_message] + remaining_messages
+        except Exception:
+            # Roll back bookkeeping so the next compaction attempt sees the pre-attempt state.
+            # The in-place ``apply_pin_first`` mutation is idempotent (re-applying sets the same flag),
+            # so leaving the ``metadata.custom.pinned`` markers in place is safe and avoids a second pass.
+            self._pin_first_applied = original_pin_first_applied
+            self.removed_message_count = original_removed_message_count
+            self._summary_message = original_summary_message
+            raise
 
     def _generate_summary(self, messages: list[Message], agent: "Agent") -> Message:
         """Generate a summary of the provided messages.
