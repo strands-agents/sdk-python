@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 
 try:
     from bs4 import BeautifulSoup, Tag
+    from bs4.exceptions import ParserRejectedMarkup
     from markdownify import MarkdownConverter
 except ImportError as e:
     raise ImportError(
@@ -81,8 +82,8 @@ def _sanitize_tree(soup: BeautifulSoup) -> None:
 def html_to_markdown(html: str) -> str:
     """Convert HTML to markdown suitable for a model to read.
 
-    The page title is prepended when present. Returns an empty string rather
-    than failing on a parser error.
+    The page title is prepended when present. Returns the original HTML
+    rather than failing on a parser error.
     """
     try:
         soup = BeautifulSoup(html, "html.parser")
@@ -90,10 +91,10 @@ def html_to_markdown(html: str) -> str:
         if soup.head is not None:
             soup.head.decompose()
         _sanitize_tree(soup)
-        markdown = MarkdownConverter(heading_style="ATX", bullets="-").convert_soup(soup).strip()
+        markdown = str(MarkdownConverter(heading_style="ATX", bullets="-").convert_soup(soup)).strip()
         if title:
             markdown = f"# {title}\n\n{markdown}"
-    except Exception:
-        logger.debug("html_to_markdown conversion raised; returning empty output", exc_info=True)
-        return ""
+    except (ValueError, RecursionError, ParserRejectedMarkup):
+        logger.warning("html_to_markdown failed; returning raw html", exc_info=True)
+        return html
     return markdown

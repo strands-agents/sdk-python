@@ -27,6 +27,11 @@ from ...types.tools import ToolContext
 from ._extract import html_to_markdown
 from .types import WEB_FETCH_DESCRIPTION
 
+
+class WebFetchError(ValueError):
+    """Raised when a web fetch request fails."""
+
+
 if TYPE_CHECKING:
     from ...models.model import Model
     from ...tools.decorator import DecoratedFunctionTool
@@ -100,6 +105,7 @@ def make_web_fetch(
                 agent so the tool can read its cancel signal.
         """
         cancel_signal = _extract_cancel_signal(tool_context)
+        host_model = getattr(tool_context.agent, "model", None) if tool_context else None
         try:
             content_type, raw = await _fetch_once(
                 url=url,
@@ -108,20 +114,17 @@ def make_web_fetch(
                 cancel_signal=cancel_signal,
             )
         except httpx.TimeoutException as error:
-            raise TimeoutError(f"web_fetch timed out fetching {url!r}") from error
+            raise WebFetchError(f"Fetch timed out: {url!r}") from error
         except (httpx.RequestError, ValueError) as exc:
-            raise ValueError(f"Failed to fetch {url}: {exc}") from exc
+            raise WebFetchError(f"Fetch failed: {exc}") from exc
 
         is_markup = "html" in content_type.lower() or "xml" in content_type.lower()
         content = html_to_markdown(raw) if is_markup else raw
-        if not content and is_markup:
-            content = raw
 
         if prompt.strip():
             from ...agent.agent import Agent  # local import to avoid circular dependency
 
-            agent_obj = getattr(tool_context, "agent", None) if tool_context else None
-            effective_model = summarizer_model or getattr(agent_obj, "model", None)
+            effective_model = summarizer_model or host_model
             if effective_model is None:
                 raise ValueError(
                     "web_fetch: prompt requires a model. Pass model= to make_web_fetch or call the tool from an agent."

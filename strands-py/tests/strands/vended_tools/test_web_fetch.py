@@ -17,8 +17,12 @@ web_fetch_module = importlib.import_module("strands.vended_tools.web_fetch.web_f
 
 from bs4 import BeautifulSoup  # noqa: E402
 
+from strands.vended_tools.web_fetch import (  # noqa: E402
+    WebFetchError,  # noqa: E402
+    make_web_fetch,
+    web_fetch,
+)
 from strands.vended_tools.web_fetch import _extract as extract_module  # noqa: E402
-from strands.vended_tools.web_fetch import make_web_fetch, web_fetch  # noqa: E402
 from strands.vended_tools.web_fetch._extract import _tag_attribute, html_to_markdown  # noqa: E402
 from strands.vended_tools.web_fetch.types import WEB_FETCH_DESCRIPTION  # noqa: E402
 
@@ -33,7 +37,7 @@ def _client(handler) -> httpx.AsyncClient:
 
 
 def _raising_beautiful_soup(*args, **kwargs):
-    raise RuntimeError("boom")
+    raise ValueError("mock extraction failure")
 
 
 class TestToolMetadata:
@@ -111,7 +115,7 @@ class TestWebFetchToolCall:
 
     @pytest.mark.asyncio
     async def test_rejects_non_http_scheme(self):
-        with pytest.raises(ValueError, match="Failed to fetch"):
+        with pytest.raises(WebFetchError, match="Fetch failed"):
             await web_fetch(url="file:///etc/passwd")
 
     @pytest.mark.asyncio
@@ -120,7 +124,7 @@ class TestWebFetchToolCall:
             raise httpx.ConnectError("connection refused")
 
         tool = make_web_fetch(client=_client(handler))
-        with pytest.raises(ValueError, match="Failed to fetch"):
+        with pytest.raises(WebFetchError, match="Fetch failed"):
             await tool(url="https://example.com/")
 
     @pytest.mark.asyncio
@@ -131,7 +135,7 @@ class TestWebFetchToolCall:
             return httpx.Response(200, headers={"content-type": "text/plain"}, content=big)
 
         tool = make_web_fetch(client=_client(handler), max_bytes=50)
-        with pytest.raises(ValueError, match="exceeded"):
+        with pytest.raises(WebFetchError, match="exceeded"):
             await tool(url="https://example.com/")
 
     @pytest.mark.asyncio
@@ -140,7 +144,7 @@ class TestWebFetchToolCall:
             return httpx.Response(404, text="Not Found")
 
         tool = make_web_fetch(client=_client(handler))
-        with pytest.raises(ValueError, match="HTTP 404"):
+        with pytest.raises(WebFetchError, match="HTTP 404"):
             await tool(url="https://example.com/missing")
 
     @pytest.mark.asyncio
@@ -159,12 +163,12 @@ class TestWebFetchToolCall:
         assert tru_result == "moved"
 
     @pytest.mark.asyncio
-    async def test_timeout_is_wrapped_as_timeout_error(self):
+    async def test_timeout_is_wrapped_as_web_fetch_error(self):
         async def handler(_request: httpx.Request) -> httpx.Response:
             raise httpx.TimeoutException("timed out")
 
         tool = make_web_fetch(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-        with pytest.raises(TimeoutError):
+        with pytest.raises(WebFetchError, match="timed out"):
             await tool(url="https://example.com/")
 
     @pytest.mark.asyncio
@@ -416,9 +420,9 @@ class TestHtmlToMarkdown:
         assert "def f():" in md
         assert "return 1" in md
 
-    def test_returns_empty_string_on_parser_exception(self, monkeypatch):
+    def test_returns_input_on_parser_exception(self, monkeypatch):
         monkeypatch.setattr(extract_module, "BeautifulSoup", _raising_beautiful_soup)
-        assert html_to_markdown("<p>anything</p>") == ""
+        assert html_to_markdown("<p>anything</p>") == "<p>anything</p>"
 
 
 def test__tag_attribute_joins_list_values():

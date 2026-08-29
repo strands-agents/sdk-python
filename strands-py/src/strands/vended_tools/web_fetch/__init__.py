@@ -12,9 +12,10 @@ Example Usage:
     ```
 """
 
-from .web_fetch import make_web_fetch, web_fetch
+from .web_fetch import WebFetchError, make_web_fetch, web_fetch
 
 __all__ = [
+    "WebFetchError",
     "make_web_fetch",
     "web_fetch",
 ]
