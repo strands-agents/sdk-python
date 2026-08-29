@@ -310,6 +310,7 @@ describe('Agent tracer integration', () => {
 
       await expect(agent.invoke('Hi')).rejects.toThrow()
 
+      expect(tracer.endModelInvokeSpan).toHaveBeenCalledTimes(1)
       expect(tracer.endModelInvokeSpan).toHaveBeenCalledWith(
         { mock: 'modelSpan' },
         expect.objectContaining({ error: expect.any(Error) })
