@@ -186,7 +186,17 @@ class TestFetchDocErrors:
 
     def test_fetch_failure_returns_error(self, mock_cache):
         mock_cache.ensure_page.return_value = None
+        mock_cache.get_failure_reason.return_value = None
 
         tru_result = fetch_doc(uri="https://strandsagents.com/missing.md")
 
         assert tru_result["error"] == "fetch failed"
+
+    def test_fetch_failure_reports_known_cause(self, mock_cache):
+        """A remembered fetch failure names its cause instead of "fetch failed" (#3328)."""
+        mock_cache.ensure_page.return_value = None
+        mock_cache.get_failure_reason.return_value = "HTTPError: HTTP Error 404: Not Found"
+
+        tru_result = fetch_doc(uri="https://strandsagents.com/missing.md")
+
+        assert tru_result["error"] == "fetch failed: HTTPError: HTTP Error 404: Not Found"

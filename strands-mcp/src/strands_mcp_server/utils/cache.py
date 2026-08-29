@@ -1,7 +1,8 @@
 import logging
 import os
 import threading
-from typing import Dict
+import time
+from typing import Dict, Tuple
 
 from ..config import doc_config
 from . import doc_fetcher, indexer, text_processor
@@ -12,6 +13,7 @@ logger = logging.getLogger(__name__)
 _INDEX: indexer.IndexSearch | None = None
 _URL_CACHE: Dict[str, doc_fetcher.Page | None] = {}  # url -> Page (None if not fetched yet)
 _URL_TITLES: Dict[str, str] = {}  # url -> curated title from llms.txt
+_FAILED_URLS: Dict[str, Tuple[float, str]] = {}  # url -> (monotonic time of failure, reason)
 _LINKS_LOADED = False
 _PREFETCH_STARTED = False
 
@@ -22,6 +24,7 @@ _CACHE_LOCK = threading.Lock()
 _PREFETCH_LOCK = threading.Lock()
 
 SNIPPET_HYDRATE_MAX = 5  # how many top results to hydrate with content
+FAILED_FETCH_TTL = 300.0  # seconds a failed fetch is remembered before it is retried
 
 # Environment variable to enable background prefetch (default: OFF)
 PREFETCH_ENV_VAR = "STRANDS_MCP_PREFETCH_ALL"
@@ -133,6 +136,30 @@ def ensure_ready() -> None:
         load_links_only()
 
 
+def get_failure_reason(url: str) -> str | None:
+    """Return why the most recent fetch of ``url`` failed, if still remembered.
+
+    Entries older than ``FAILED_FETCH_TTL`` are treated as expired and dropped,
+    which is what allows a transiently broken URL to be retried later.
+
+    Args:
+        url: The URL to look up
+
+    Returns:
+        A short "ExceptionType: message" string, or None if the URL has no
+        remembered failure.
+    """
+    with _CACHE_LOCK:
+        entry = _FAILED_URLS.get(url)
+        if entry is None:
+            return None
+        failed_at, reason = entry
+        if time.monotonic() - failed_at >= FAILED_FETCH_TTL:
+            del _FAILED_URLS[url]
+            return None
+        return reason
+
+
 def ensure_page(url: str) -> doc_fetcher.Page | None:
     """Ensure a page is cached, fetching it if necessary.
 
@@ -147,6 +174,13 @@ def ensure_page(url: str) -> doc_fetcher.Page | None:
         re-indexes it. Body terms therefore become searchable even after a
         transient indexing failure.
 
+        A failed *fetch* is remembered for ``FAILED_FETCH_TTL`` seconds and the
+        cause is logged. Within that window this returns None without another
+        network attempt, so one unreachable URL in a search result set costs a
+        single timeout rather than one per call. ``get_failure_reason`` exposes
+        the cause to callers. Indexing failures are deliberately not remembered,
+        so they retry on the very next call.
+
     Args:
         url: The URL of the page to ensure is cached
 
@@ -157,8 +191,21 @@ def ensure_page(url: str) -> doc_fetcher.Page | None:
     page = _URL_CACHE.get(url)
     if page is not None:
         return page
+    if get_failure_reason(url) is not None:
+        return None
+
+    # Only the network fetch is negatively cached. A failure after this point is
+    # an indexing failure, which must stay immediately retryable so body terms
+    # can still become searchable (see update_content's failure contract).
     try:
         raw = doc_fetcher.fetch_and_clean(url)
+    except Exception as exc:
+        logger.warning("Fetch failed for %s: %s: %s", url, type(exc).__name__, exc)
+        with _CACHE_LOCK:
+            _FAILED_URLS[url] = (time.monotonic(), f"{type(exc).__name__}: {exc}")
+        return None
+
+    try:
         display_title = text_processor.format_display_title(url, raw.title, _URL_TITLES)
         page = doc_fetcher.Page(url=url, title=display_title, content=raw.content)
 
@@ -180,6 +227,7 @@ def ensure_page(url: str) -> doc_fetcher.Page | None:
 
             # Only cache after indexing succeeds
             _URL_CACHE[url] = page
+            _FAILED_URLS.pop(url, None)
 
         return page
     except Exception:

@@ -127,7 +127,9 @@ def fetch_doc(uri: str = "", section: str = "") -> Dict[str, Any]:
         - error: Error description
         - url: Requested URL
 
-        Errors are returned for unsupported URLs and failed page fetches. For
+        Errors are returned for unsupported URLs and failed page fetches. A
+        failed fetch reports its cause (e.g. "fetch failed: HTTPError: 404") when
+        one is known. For
         sectioned documents, unknown section IDs also return an error; `section`
         is ignored when the full document is returned automatically.
 
@@ -143,7 +145,8 @@ def fetch_doc(uri: str = "", section: str = "") -> Dict[str, Any]:
 
     page = cache.ensure_page(uri)
     if page is None:
-        return {"error": "fetch failed", "url": uri}
+        reason = cache.get_failure_reason(uri)
+        return {"error": f"fetch failed: {reason}" if reason else "fetch failed", "url": uri}
 
     # Small doc: return full content directly
     if len(page.content.encode("utf-8")) <= text_processor.SMALL_DOC_THRESHOLD:

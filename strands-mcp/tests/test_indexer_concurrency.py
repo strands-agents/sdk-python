@@ -411,6 +411,7 @@ class TestBlocker2CacheBeforeIndexing:
         cache._URL_TITLES = {}
         cache._LINKS_LOADED = False
         cache._PREFETCH_STARTED = False
+        cache._FAILED_URLS = {}
         yield
         cache._INDEX = None
         cache._URL_CACHE = {}
@@ -504,18 +505,23 @@ class TestBlocker2CacheBeforeIndexing:
             mock_raw.content = "flakyterm content here"
             return mock_raw
 
+        now = [1000.0]
         with patch("strands_mcp_server.utils.cache.doc_fetcher.fetch_and_clean", side_effect=flaky_fetch):
             with patch("strands_mcp_server.utils.cache.text_processor.format_display_title", return_value="Flaky Doc"):
-                # First call: fetch fails
-                page1 = cache.ensure_page(url)
-                assert page1 is None
+                with patch("strands_mcp_server.utils.cache.time.monotonic", side_effect=lambda: now[0]):
+                    # First call: fetch fails
+                    page1 = cache.ensure_page(url)
+                    assert page1 is None
 
-                # Cache should still be None so retry is possible
-                assert cache._URL_CACHE.get(url) is None, "Failed fetch should not populate cache"
+                    # Cache should still be None so retry is possible
+                    assert cache._URL_CACHE.get(url) is None, "Failed fetch should not populate cache"
 
-                # Second call: fetch succeeds
-                page2 = cache.ensure_page(url)
-                assert page2 is not None
+                    # The failure is negatively cached (#3328), so step past its TTL
+                    now[0] += cache.FAILED_FETCH_TTL
+
+                    # Second call: fetch succeeds
+                    page2 = cache.ensure_page(url)
+                    assert page2 is not None
 
         # Term should be searchable
         results = cache._INDEX.search("flakyterm")
@@ -534,6 +540,7 @@ class TestUpdateContentAtomicity:
         cache._URL_TITLES = {}
         cache._LINKS_LOADED = False
         cache._PREFETCH_STARTED = False
+        cache._FAILED_URLS = {}
         yield
         cache._INDEX = None
         cache._URL_CACHE = {}
