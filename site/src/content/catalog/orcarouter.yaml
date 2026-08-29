@@ -1,7 +1,6 @@
 name: OrcaRouter
 description: OrcaRouter's adaptive routing across many models behind one API key, accessed through the Strands Agents OpenAI-compatibility layer.
 integrationType: model-provider
-maintainedBy: strands
 languages:
   python: {}
   typescript: {}
