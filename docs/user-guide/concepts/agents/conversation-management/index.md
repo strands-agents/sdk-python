@@ -1,4 +1,4 @@
-In the Strands Agents SDK, context refers to the information provided to the agent for understanding and reasoning. This includes:
+In the Strands Agents SDK (`strands-agents` on PyPI, `@strands-agents/sdk` on npm), context refers to the information provided to the agent for understanding and reasoning. This includes:
 
 -   User messages
 -   Agent responses

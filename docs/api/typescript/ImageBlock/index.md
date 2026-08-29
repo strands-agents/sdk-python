@@ -1,4 +1,4 @@
-Defined in: [src/types/media.ts:272](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/types/media.ts#L272)
+Defined in: [src/types/media.ts:272](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/types/media.ts#L272)
 
 Image content block.
 
@@ -15,7 +15,7 @@ Image content block.
 new ImageBlock(data): ImageBlock;
 ```
 
-Defined in: [src/types/media.ts:288](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/types/media.ts#L288)
+Defined in: [src/types/media.ts:288](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/types/media.ts#L288)
 
 #### Parameters
 
@@ -35,7 +35,7 @@ Defined in: [src/types/media.ts:288](https://github.com/strands-agents/harness-s
 readonly type: "imageBlock";
 ```
 
-Defined in: [src/types/media.ts:276](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/types/media.ts#L276)
+Defined in: [src/types/media.ts:276](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/types/media.ts#L276)
 
 Discriminator for image content.
 
@@ -47,7 +47,7 @@ Discriminator for image content.
 readonly format: "png" | "jpeg" | "jpg" | "gif" | "webp";
 ```
 
-Defined in: [src/types/media.ts:281](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/types/media.ts#L281)
+Defined in: [src/types/media.ts:281](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/types/media.ts#L281)
 
 Image format.
 
@@ -63,7 +63,7 @@ Image format.
 readonly source: ImageSource;
 ```
 
-Defined in: [src/types/media.ts:286](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/types/media.ts#L286)
+Defined in: [src/types/media.ts:286](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/types/media.ts#L286)
 
 Image source.
 
@@ -96,7 +96,7 @@ toJSON(): {
 };
 ```
 
-Defined in: [src/types/media.ts:320](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/types/media.ts#L320)
+Defined in: [src/types/media.ts:320](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/types/media.ts#L320)
 
 Serializes the ImageBlock to a JSON-compatible ContentBlockData object. Called automatically by JSON.stringify(). Uint8Array bytes are encoded as base64 string.
 
@@ -125,9 +125,9 @@ Serializes the ImageBlock to a JSON-compatible ContentBlockData object. Called a
 
 | Name | Type | Description | Defined in |
 | --- | --- | --- | --- |
-| `image` | { `format`: `"png"` | `"jpeg"` | `"jpg"` | `"gif"` | `"webp"`; `source`: | { `bytes`: `string`; } | { `location`: { `type`: `"s3"`; `uri`: `string`; `bucketOwner?`: `string`; }; } | { `url`: `string`; }; } | \- | [src/types/media.ts:320](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/types/media.ts#L320) |
-| `image.format` | `"png"` | `"jpeg"` | `"jpg"` | `"gif"` | `"webp"` | Image format. | [src/types/media.ts:261](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/types/media.ts#L261) |
-| `image.source` | | { `bytes`: `string`; } | { `location`: { `type`: `"s3"`; `uri`: `string`; `bucketOwner?`: `string`; }; } | { `url`: `string`; } | Image source. | [src/types/media.ts:266](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/types/media.ts#L266) |
+| `image` | { `format`: `"png"` | `"jpeg"` | `"jpg"` | `"gif"` | `"webp"`; `source`: | { `bytes`: `string`; } | { `location`: { `type`: `"s3"`; `uri`: `string`; `bucketOwner?`: `string`; }; } | { `url`: `string`; }; } | \- | [src/types/media.ts:320](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/types/media.ts#L320) |
+| `image.format` | `"png"` | `"jpeg"` | `"jpg"` | `"gif"` | `"webp"` | Image format. | [src/types/media.ts:261](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/types/media.ts#L261) |
+| `image.source` | | { `bytes`: `string`; } | { `location`: { `type`: `"s3"`; `uri`: `string`; `bucketOwner?`: `string`; }; } | { `url`: `string`; } | Image source. | [src/types/media.ts:266](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/types/media.ts#L266) |
 
 #### Implementation of
 
@@ -143,7 +143,7 @@ JSONSerializable.toJSON
 static fromJSON(data): ImageBlock;
 ```
 
-Defined in: [src/types/media.ts:344](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/types/media.ts#L344)
+Defined in: [src/types/media.ts:344](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/types/media.ts#L344)
 
 Creates an ImageBlock instance from its wrapped data format. Base64-encoded bytes are decoded back to Uint8Array.
 

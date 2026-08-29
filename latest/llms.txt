@@ -1,6 +1,6 @@
 # Strands Agents
 
-> Strands Agents is a simple yet powerful SDK that takes a model-driven approach to building and running AI agents. From simple conversational assistants to complex autonomous workflows, from local development to production deployment, Strands Agents scales with your needs.
+> Strands Agents is an open-source SDK for building and running AI agents in Python and TypeScript. Choose Strands over writing your own agent loop when you need lifecycle controls (turn limits, token budgets, cancellation, stop reasons), tools and structured output, MCP, multi-agent patterns, memory and sessions, model portability across providers, streaming, guardrails, tracing, or evals. Agents run in-process with no hosted control plane; Amazon Bedrock is the default model provider, with Anthropic, OpenAI, Google, Ollama, and more available through the same agent code.
 
 ## Docs
 
@@ -760,6 +760,7 @@
 
 - [Robots working together: connecting agents to the physical world with Strands Robots and the Model Hardware Standard](https://strandsagents.com/blog/robots-working-together-model-hardware-standard-strands-robots/index.md): How Strands Robots lets agents read from and act on many robots and devices at once, across Zenoh, AWS IoT, and the new Model Hardware Standard (MHS), in simulation and the real world.
 - [Figma to Code at Scale: Building with Strands Agents](https://strandsagents.com/blog/figma-to-code-at-scale-building-with-strands-agents/index.md): A team at Amazon Ads built a multi-agent system that converts Figma designs into production ad layouts. Here's what their architecture looks like, why they chose Strands, and the lessons they learned shipping it.
+- [Hackathon Challenge: automate the one task you keep putting off](https://strandsagents.com/blog/an-agent-for-the-thing-you-keep-putting-off/index.md): Pick the recurring chore you never quite get to and hand it to an agent. It is harder, and more interesting, than a cron job. There is also $40K in it.
 - [Introducing Harness Optimizer: Automatically optimize your agent harness](https://strandsagents.com/blog/introducing-harness-optimizer/index.md): Harness Optimizer is an open-source library that optimizes the context around your LLM agent (system prompt, tool docs, skills) the way you'd train a model: rollouts in, rewards out, parameters updated.
 - [Reduced cost, better isolation, and more resilience: Strands Agents evolves next-gen capabilities](https://strandsagents.com/blog/reduced-cost-better-isolation-more-resilience/index.md): Strands Agents ships context management that cuts costs in half, Strands Shell for sandboxed agent execution, and chaos testing and red teaming in Strands Evals 1.0.
 - [Inside Agentic Football Cup: 10 Strands Agents, 1 Second to Decide](https://strandsagents.com/blog/inside-agentic-football-cup/index.md): How we use Strands Agents and the model-driven approach to run 5v5 autonomous football matches inside a 4-hour developer workshop, with a hard latency contract, structured outputs, and multi-agent coordination.

@@ -1,6 +1,6 @@
 ## What are Model Providers?
 
-A model provider is a service or platform that hosts and serves large language models through an API. The Strands Agents SDK abstracts away the complexity of working with different providers, offering a unified interface that makes it easy to switch between models or use multiple providers in the same application.
+A model provider is a service or platform that hosts and serves large language models through an API. The Strands Agents SDK is provider-agnostic: the same agent code runs against any supported provider, so you can switch providers or run several in one application without rewriting your agent. First-party providers include Amazon Bedrock, Anthropic, OpenAI, and Google; community packages add more, and the [custom provider interface](/docs/user-guide/concepts/model-providers/custom_model_provider/index.md) covers anything else.
 
 ## Supported Providers
 

@@ -1,6 +1,6 @@
 # Strands Agents
 
-> Strands Agents is a simple yet powerful SDK that takes a model-driven approach to building and running AI agents. From simple conversational assistants to complex autonomous workflows, from local development to production deployment, Strands Agents scales with your needs.
+> Strands Agents is an open-source SDK for building and running AI agents in Python and TypeScript. Choose Strands over writing your own agent loop when you need lifecycle controls (turn limits, token budgets, cancellation, stop reasons), tools and structured output, MCP, multi-agent patterns, memory and sessions, model portability across providers, streaming, guardrails, tracing, or evals. Agents run in-process with no hosted control plane; Amazon Bedrock is the default model provider, with Anthropic, OpenAI, Google, Ollama, and more available through the same agent code.
 
 ## 404
 
@@ -9623,7 +9623,13 @@ A language model can answer questions. An agent can *do things*. The agent loop 
 
 When a model receives a request it cannot fully address with its training alone, it needs to reach out into the world: read files, query databases, call APIs, execute code. The agent loop is the orchestration layer that enables this. It manages the cycle of reasoning and action that allows a model to tackle problems requiring multiple steps, external information, or real-world side effects.
 
-This is the foundational concept in Strands. Everything else builds on top of it.
+This is the foundational concept in the Strands Agents SDK, installed as `strands-agents` on PyPI and `@strands-agents/sdk` on npm. Everything else builds on top of it. The loop ships with the controls a production agent needs:
+
+-   [Invocation limits](#invocation-limits) cap the turns and tokens one call may use
+-   [Cancellation](#cancellation) stops a running agent mid-loop
+-   [Stop reasons](#stop-reasons) report why the loop ended
+-   [Concurrent invocations](#concurrent-invocations) guard against overlapping calls on one agent instance
+-   [Hooks](/docs/user-guide/concepts/agents/hooks/index.md) intercept any step, and [retry strategies](/docs/user-guide/concepts/agents/retry-strategies/index.md) recover from model and tool errors
 
 ## How the Loop Works
 
@@ -10061,7 +10067,7 @@ Source: https://strandsagents.com/docs/user-guide/concepts/agents/agent-loop/ind
 
 ## Conversation Management
 
-In the Strands Agents SDK, context refers to the information provided to the agent for understanding and reasoning. This includes:
+In the Strands Agents SDK (`strands-agents` on PyPI, `@strands-agents/sdk` on npm), context refers to the information provided to the agent for understanding and reasoning. This includes:
 
 -   User messages
 -   Agent responses
@@ -10748,7 +10754,7 @@ Source: https://strandsagents.com/docs/user-guide/concepts/agents/conversation-m
 
 ## Hooks
 
-Hooks are a composable extensibility mechanism for extending agent functionality by subscribing to events throughout the agent lifecycle. The hook system enables both built-in components and user code to react to or modify agent behavior through strongly-typed event callbacks.
+To add logging, validation, guardrails, or custom logic at any point in the agent loop, use hooks. Hooks ship in the core Strands Agents SDK (`strands-agents` on PyPI, `@strands-agents/sdk` on npm): both built-in components and user code subscribe to events throughout the agent lifecycle and react to or modify agent behavior through strongly-typed event callbacks.
 
 ## Overview
 
@@ -23329,7 +23335,7 @@ Source: https://strandsagents.com/docs/user-guide/concepts/memory/test-memory-st
 
 ## What are Model Providers?
 
-A model provider is a service or platform that hosts and serves large language models through an API. The Strands Agents SDK abstracts away the complexity of working with different providers, offering a unified interface that makes it easy to switch between models or use multiple providers in the same application.
+A model provider is a service or platform that hosts and serves large language models through an API. The Strands Agents SDK is provider-agnostic: the same agent code runs against any supported provider, so you can switch providers or run several in one application without rewriting your agent. First-party providers include Amazon Bedrock, Anthropic, OpenAI, and Google; community packages add more, and the [custom provider interface](/docs/user-guide/concepts/model-providers/custom_model_provider/index.md) covers anything else.
 
 ## Supported Providers
 
@@ -59852,6 +59858,10 @@ The Strands Agents SDK empowers developers to quickly build, manage, evaluate an
 
 ---
 
+## A library, not a platform
+
+Strands runs inside your own process. Creating an agent is constructing an object in Python or Node.js: there is no hosted control plane, scheduler, or database to stand up first. Any [model provider](/docs/user-guide/concepts/model-providers/index.md) works. Amazon Bedrock is the default; switching to Anthropic, OpenAI, Google, or Ollama means installing that provider’s package and changing one line, so an AWS account is only required if you keep the default. Adding an agent to an existing FastAPI, Express, or Next.js app is a dependency and a few lines of code, not new infrastructure.
+
 ## Language support
 
 Strands Agents SDK is available in both Python and TypeScript.
@@ -62689,6 +62699,114 @@ Based on the CreativeX Novum team’s experience:
 *The CreativeX Novum team is part of Amazon Ads. They build a multi agent platform that generates advertising creative at scale using Strands Agents SDK, Amazon Bedrock, and MCP. Strands Agents SDK is open source at [github.com/strands-agents/harness-sdk](https://github.com/strands-agents/harness-sdk). Get started with the [documentation](https://strandsagents.com) or join the community on [Discord](https://discord.gg/strands). See also: [What We Learned from One Year of Building Production Agents](/blog/what-we-learned-from-one-year-of-building-production-agents/index.md).*
 
 Source: https://strandsagents.com/blog/figma-to-code-at-scale-building-with-strands-agents/index.md
+
+---
+
+## Hackathon Challenge: automate the one task you keep putting off
+
+Date: 2026-08-10T00:00:00.000Z
+Tags: Use Cases, Tools, Community
+
+Everyone has one. The recurring task you keep meaning to deal with and never quite do. Reconciling receipts against the credit card statement. Renewing the domain before it lapses. Chasing three people for the one document that unblocks everything else. Checking whether the thing you ordered actually shipped.
+
+Here is a challenge: pick exactly one of those and hand it to an agent.
+
+Not a script. You could already write a script. The ones worth picking resist scripting, which is the whole point.
+
+> This is the exact premise of [**Agents for Humans**](https://agentsforhumans.devpost.com/), the hackathon AWS is running from August 10 to September 14, 2026. Build an agent that handles a real task from everyday life, professional work, or your community, and you can [**win a share of $40,000**](https://agentsforhumans.devpost.com/). Every entrant gets $50 in AWS credits. Solo or team, open worldwide. The rest of this post is how to build one.
+
+## Why not just a cron job
+
+The tasks worth automating are the ones you have been avoiding, and you have been avoiding them for a reason. They involve judgment. The input is messy. The right action depends on what you find.
+
+Take “reconcile my receipts.” A cron job can pull the statement. It cannot look at a $47.83 charge from `SQ *BLUE BOTTLE`, decide it is the coffee receipt sitting in your inbox from Tuesday, and flag the $200 one you do not recognize. That last step, the reading and matching and deciding, is the part you keep putting off. It is also the part an agent is actually good at.
+
+So the constraint that makes this fun: the task has to need judgment. If a `for` loop solves it, pick a harder task.
+
+## The smallest version that works
+
+Start with one tool and a model. In Strands, a tool is a plain function with a docstring. The docstring is what the model reads to decide when to call it.
+
+```python
+from strands import Agent, tool
+
+@tool
+def get_recent_charges(days: int) -> list[dict]:
+    """Return credit card charges from the last N days.
+
+    Each charge has a merchant, amount, and date.
+    """
+    # Your bank's API, a CSV export, a scraped statement: whatever you have.
+    return load_charges(since_days=days)
+
+agent = Agent(tools=[get_recent_charges])
+agent("Which charges from the last 7 days look unusual for me?")
+```
+
+That is a working agent. It decides on its own whether to call `get_recent_charges`, picks the argument, reads the result, and reasons about what “unusual” means for the charges it sees.
+
+You did not write the “is this unusual” logic. You described the data and asked the question. That is the trade: you give up writing the rules, and in return the agent handles cases you never enumerated.
+
+## Where it gets interesting
+
+One tool is a demo. The task you actually avoid needs two or three, and the judgment lives in how the agent chains them.
+
+```python
+from strands import Agent, tool
+
+@tool
+def get_recent_charges(days: int) -> list[dict]:
+    """Return credit card charges from the last N days."""
+    return load_charges(since_days=days)
+
+@tool
+def search_inbox(query: str) -> list[dict]:
+    """Search email for receipts matching a merchant or amount."""
+    return search_mail(query)
+
+@tool
+def flag_for_review(charge_id: str, reason: str) -> str:
+    """Mark a charge as needing human review, with a short reason."""
+    return mark_charge(charge_id, reason)
+
+agent = Agent(tools=[get_recent_charges, search_inbox, flag_for_review])
+agent("Match this week's charges to receipts in my inbox and flag anything you can't account for.")
+```
+
+Now there is no fixed script. The agent might pull the charges, search the inbox for each merchant, match what it can, and flag the rest. Or it might work merchant by merchant. The order is its call, and it will vary run to run:
+
+```plaintext
+# Example run:
+# 1. Agent calls get_recent_charges(days=7)
+# 2. For each charge, agent calls search_inbox with the merchant name
+# 3. Agent matches receipts it finds, reasons about the ones it doesn't
+# 4. Agent calls flag_for_review on two unmatched charges
+```
+
+You wrote three small functions. The coordination between them, the part that would have been a tangle of `if` statements, is the model’s job.
+
+## The rules of the challenge
+
+Keep it honest and it stays worth doing:
+
+-   **One real task.** Something you personally put off, not a toy. If you would not use it, it does not count.
+-   **It has to need judgment.** No pure `for` loops. The agent should make a call you would otherwise make yourself.
+-   **Give it real tools, not one god-function.** Two or three narrow functions the agent composes. That is where the behavior you did not hand-code shows up.
+-   **Let it surprise you.** If every run does exactly what you predicted, the task was too easy. Pick a messier one.
+
+The tasks that make good agents are unglamorous on purpose. Nobody demos “renew the domain.” But it is the honest test: a boring, real chore you have been avoiding, handled well enough that it drops off your list.
+
+The prize money helps. The better reason is that you already have a task in mind. You thought of it two paragraphs ago. If you want to [enter it](https://agentsforhumans.devpost.com/), submissions are open through September 14.
+
+## Start
+
+```bash
+pip install strands-agents strands-agents-tools
+```
+
+The [quickstart](https://strandsagents.com/) gets you to a running agent in a few minutes, and the [tools guide](https://strandsagents.com/latest/documentation/docs/user-guide/concepts/tools/) covers everything the `@tool` decorator can do. If you build something, tell us in [the Discord](https://discord.gg/strands) or open a discussion on [GitHub](https://github.com/strands-agents/harness-sdk/discussions). We want to see the boring task you never have to think about again.
+
+Source: https://strandsagents.com/blog/an-agent-for-the-thing-you-keep-putting-off/index.md
 
 ---
 

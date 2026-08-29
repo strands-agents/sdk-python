@@ -1,4 +1,4 @@
-Defined in: [src/memory/memory-manager.ts:87](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/memory/memory-manager.ts#L87)
+Defined in: [src/memory/memory-manager.ts:87](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/memory/memory-manager.ts#L87)
 
 Provides cross-session memory retrieval and storage for agents.
 
@@ -33,7 +33,7 @@ await memoryManager.search('user preferences')
 new MemoryManager(config): MemoryManager;
 ```
 
-Defined in: [src/memory/memory-manager.ts:110](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/memory/memory-manager.ts#L110)
+Defined in: [src/memory/memory-manager.ts:110](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/memory/memory-manager.ts#L110)
 
 #### Parameters
 
@@ -53,7 +53,7 @@ Defined in: [src/memory/memory-manager.ts:110](https://github.com/strands-agents
 readonly name: "strands:memory-manager" = 'strands:memory-manager';
 ```
 
-Defined in: [src/memory/memory-manager.ts:88](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/memory/memory-manager.ts#L88)
+Defined in: [src/memory/memory-manager.ts:88](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/memory/memory-manager.ts#L88)
 
 A stable string identifier for the plugin. Used for logging, duplicate detection, and plugin management.
 
@@ -71,7 +71,7 @@ For strands-vended plugins, names should be prefixed with `strands:`.
 initAgent(agent): Promise<void>;
 ```
 
-Defined in: [src/memory/memory-manager.ts:220](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/memory/memory-manager.ts#L220)
+Defined in: [src/memory/memory-manager.ts:220](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/memory/memory-manager.ts#L220)
 
 Initializes the plugin with the agent.
 
@@ -102,7 +102,7 @@ Wires up two independent behaviors:
 flush(): Promise<void>;
 ```
 
-Defined in: [src/memory/memory-manager.ts:346](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/memory/memory-manager.ts#L346)
+Defined in: [src/memory/memory-manager.ts:346](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/memory/memory-manager.ts#L346)
 
 Saves every store’s remaining messages and waits for all saves to finish. No-op when no store has extraction configured.
 
@@ -122,7 +122,7 @@ Do not call this after every turn alongside a periodic trigger: it forces a save
 getTools(): Tool[];
 ```
 
-Defined in: [src/memory/memory-manager.ts:415](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/memory/memory-manager.ts#L415)
+Defined in: [src/memory/memory-manager.ts:415](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/memory/memory-manager.ts#L415)
 
 Returns tools registered by this plugin.
 
@@ -146,7 +146,7 @@ Array of tools to register with the agent
 search(query, options?): Promise<MemoryEntry[]>;
 ```
 
-Defined in: [src/memory/memory-manager.ts:451](https://github.com/strands-agents/harness-sdk/blob/1941a726750c1659f10e010a1ea62106d31a24e3/strands-ts/src/memory/memory-manager.ts#L451)
+Defined in: [src/memory/memory-manager.ts:451](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/memory/memory-manager.ts#L451)
 
 Search stores for entries matching the query. If `stores` is provided, only searches to those named stores.
 
