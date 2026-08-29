@@ -2081,12 +2081,12 @@ async def test_execute_multiple_interrupt_responses_all_delivered(
 
 
 @pytest.mark.asyncio
-async def test_execute_interrupt_response_coerces_whole_floats_to_int(
+async def test_execute_interrupt_response_numeric_values_arrive_as_float(
     mock_strands_agent, mock_request_context, mock_event_queue
 ):
-    """Whole-number floats introduced by the protobuf Value round trip are restored to int.
+    """Protobuf Value has no integer type — all numbers round-trip as float.
 
-    A non-whole float (1.5) is left untouched.
+    This is a v1 wire-format limitation. Integers sent by a peer (e.g. 3) arrive as 3.0.
     """
     _park_interrupt(mock_strands_agent, "int-1")
 
@@ -2106,9 +2106,13 @@ async def test_execute_interrupt_response_coerces_whole_floats_to_int(
     await executor.execute(mock_request_context, mock_event_queue)
 
     tru_input = mock_strands_agent.stream_async.call_args[0][0]
-    exp_response = {"count": 3, "ratio": 1.5, "values": [1, 2, 3], "ok": True}
-    assert tru_input == [{"interruptResponse": {"interruptId": "int-1", "response": exp_response}}]
-    assert all(isinstance(v, int) for v in tru_input[0]["interruptResponse"]["response"]["values"])
+    tru_response = tru_input[0]["interruptResponse"]["response"]
+    assert tru_response["count"] == 3.0
+    assert isinstance(tru_response["count"], float)
+    assert tru_response["ratio"] == 1.5
+    assert tru_response["values"] == [1.0, 2.0, 3.0]
+    assert all(isinstance(v, float) for v in tru_response["values"])
+    assert tru_response["ok"] is True
 
 
 @pytest.mark.asyncio

@@ -241,6 +241,20 @@ class A2AServer:
         """
         self._agent_skills = skills
 
+    _V0_3_BUILD_KEYS = frozenset({"routes", "rpc_url", "agent_card_url", "extended_agent_card_url"})
+
+    def _validate_app_kwargs(self, app_kwargs: dict[str, Any] | None) -> None:
+        """Reject v0.3 ``build()`` keys that are now managed internally."""
+        if not app_kwargs:
+            return
+        invalid = self._V0_3_BUILD_KEYS & app_kwargs.keys()
+        if invalid:
+            raise ValueError(
+                f"app_kwargs contains keys no longer accepted: {sorted(invalid)}. "
+                f"Use 'http_url' for path mounting (replaces rpc_url), "
+                f"the 'agent_card_url' setter, or add custom routes to the returned app."
+            )
+
     def to_starlette_app(self, *, app_kwargs: dict[str, Any] | None = None) -> Starlette:
         """Create a Starlette application for serving this agent via HTTP.
 
@@ -255,7 +269,13 @@ class A2AServer:
 
         Returns:
             Starlette: A Starlette application configured to serve this agent.
+
+        Raises:
+            ValueError: If ``app_kwargs`` contains keys that were valid in v0.3's ``build()``
+                but are now managed internally (``routes``, ``rpc_url``, ``agent_card_url``,
+                ``extended_agent_card_url``).
         """
+        self._validate_app_kwargs(app_kwargs)
         routes = create_agent_card_routes(self.public_agent_card)
         routes.extend(create_jsonrpc_routes(self.request_handler, rpc_url="/", enable_v0_3_compat=True))
         a2a_app = Starlette(routes=routes, **(app_kwargs or {}))
@@ -283,7 +303,13 @@ class A2AServer:
 
         Returns:
             FastAPI: A FastAPI application configured to serve this agent.
+
+        Raises:
+            ValueError: If ``app_kwargs`` contains keys that were valid in v0.3's ``build()``
+                but are now managed internally (``routes``, ``rpc_url``, ``agent_card_url``,
+                ``extended_agent_card_url``).
         """
+        self._validate_app_kwargs(app_kwargs)
         a2a_app = FastAPI(**(app_kwargs or {}))
         add_a2a_routes_to_fastapi(
             a2a_app,

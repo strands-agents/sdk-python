@@ -81,22 +81,6 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
-def _coerce_whole_floats(value: Any) -> Any:
-    """Recursively convert whole-number floats back to int.
-
-    A protobuf ``Value`` (used for A2A data Parts) has no integer type, so
-    ``MessageToDict`` renders every JSON number as a Python float — an int a peer sent
-    would otherwise round-trip as e.g. ``1.0`` into user hook code resuming an interrupt.
-    """
-    if isinstance(value, float) and value.is_integer():
-        return int(value)
-    if isinstance(value, dict):
-        return {key: _coerce_whole_floats(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_coerce_whole_floats(item) for item in value]
-    return value
-
-
 @dataclass
 class _StreamState:
     """Per-invocation A2A-compliant streaming state."""
@@ -675,9 +659,10 @@ class StrandsA2AExecutor(AgentExecutor):
 
         Note:
             A2A data parts use protobuf ``Value``, which has no integer type — all numbers are
-            doubles. Whole-number floats (e.g. ``3.0``) are coerced back to ``int`` via
-            ``_coerce_whole_floats`` so that ``response`` values round-trip integers faithfully.
-            A genuine ``1.0`` float sent by a peer will arrive as ``1``.
+            IEEE 754 doubles. ``MessageToDict`` renders every number as a Python ``float``, so an
+            integer a peer sent (e.g. ``3``) arrives as ``3.0``. This is a v1 wire-format
+            limitation, not a Strands bug. Downstream code resuming an interrupt should handle
+            numeric ``response`` values as floats.
 
         Args:
             parts: List of A2A Part objects from the inbound message.
@@ -695,7 +680,7 @@ class StrandsA2AExecutor(AgentExecutor):
         unrelated_parts = 0
 
         for part in parts:
-            data = _coerce_whole_floats(MessageToDict(part.data)) if part.HasField("data") else None
+            data = MessageToDict(part.data) if part.HasField("data") else None
             if not isinstance(data, dict) or INTERRUPT_RESPONSE_KEY not in data:
                 unrelated_parts += 1
                 continue
@@ -831,7 +816,7 @@ class StrandsA2AExecutor(AgentExecutor):
                 elif part.HasField("data"):
                     # Handle a data Part - convert structured data to JSON text
                     try:
-                        data_text = json.dumps(_coerce_whole_floats(MessageToDict(part.data)), indent=2)
+                        data_text = json.dumps(MessageToDict(part.data), indent=2)
                         content_blocks.append(ContentBlock(text=f"[Structured Data]\n{data_text}"))
                     except Exception:
                         logger.exception("Failed to serialize data part")
