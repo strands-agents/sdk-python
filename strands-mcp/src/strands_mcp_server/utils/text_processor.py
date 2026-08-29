@@ -132,6 +132,30 @@ def _truncate(text: str, max_chars: int) -> str:
     return text[: max_chars - 1].rstrip() + "\u2026"
 
 
+def truncate_utf8(text: str, max_bytes: int) -> str:
+    """Clip text to at most max_bytes of UTF-8 without splitting a character.
+
+    Prefers the last line break in the clipped region so the tail is not a
+    half-written line, but only when that keeps more than half the budget.
+
+    Args:
+        text: Text to clip
+        max_bytes: Maximum size of the result when UTF-8 encoded
+
+    Returns:
+        The original text when it already fits, otherwise a clipped copy.
+    """
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+
+    clipped = encoded[:max_bytes].decode("utf-8", errors="ignore")
+    boundary = clipped.rfind("\n")
+    if boundary > max_bytes // 2:
+        clipped = clipped[:boundary]
+    return clipped
+
+
 def make_snippet(page: Page | None, display_title: str, max_chars: int = 300) -> str:
     """Create a contextual snippet from page content.
 

@@ -123,6 +123,14 @@ def fetch_doc(uri: str = "", section: str = "") -> Dict[str, Any]:
         - document_small: true
         - content: Full document content (returned automatically)
 
+        For documents with no parseable sections that exceed ~8KB:
+        - url, title: Document metadata
+        - reason: "no_sections"
+        - truncated: true
+        - returned_bytes, total_bytes: Size of the returned slice and of the
+          whole document, so the caller can tell how much was withheld
+        - content: Leading slice of the document, capped at ~8KB
+
         On error:
         - error: Error description
         - url: Requested URL
@@ -157,14 +165,23 @@ def fetch_doc(uri: str = "", section: str = "") -> Dict[str, Any]:
 
     sections = text_processor.parse_sections(page.content)
 
-    # No parseable sections: treat as small doc regardless of size
+    # No parseable sections: there is nothing to build a TOC from, so return the
+    # content directly - but keep the size gate, or a large structureless page
+    # (any HTML page, since _html_to_text strips markdown structure) would dump
+    # its full body into the model context.
+    # Reaching here means the size gate above already passed, so the document is
+    # always larger than SMALL_DOC_THRESHOLD.
     if not sections:
+        total_bytes = len(page.content.encode("utf-8"))
+        content = text_processor.truncate_utf8(page.content, text_processor.SMALL_DOC_THRESHOLD)
         return {
             "url": uri,
             "title": page.title,
-            "document_small": True,
             "reason": "no_sections",
-            "content": page.content,
+            "truncated": True,
+            "returned_bytes": len(content.encode("utf-8")),
+            "total_bytes": total_bytes,
+            "content": content,
         }
 
     # Section mode: extract specific section

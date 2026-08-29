@@ -7,6 +7,7 @@ from strands_mcp_server.utils.text_processor import (
     extract_section,
     make_section_summary,
     parse_sections,
+    truncate_utf8,
 )
 
 
@@ -246,3 +247,38 @@ class TestExtractPreamble:
         tru_preamble = extract_preamble(content)
 
         assert "Some intro without title" in tru_preamble
+
+
+class TestTruncateUtf8:
+    """Tests for the byte-budget clipper behind the no_sections cap (#3327)."""
+
+    def test_short_text_returned_unchanged(self):
+        assert truncate_utf8("hello", 100) == "hello"
+
+    def test_exact_fit_returned_unchanged(self):
+        text = "a" * 50
+        assert truncate_utf8(text, 50) == text
+
+    def test_result_never_exceeds_budget(self):
+        text = "line of text\n" * 500
+        clipped = truncate_utf8(text, 200)
+        assert len(clipped.encode("utf-8")) <= 200
+        assert text.startswith(clipped)
+
+    def test_multibyte_characters_are_not_split(self):
+        text = "é" * 500  # 2 bytes each
+        clipped = truncate_utf8(text, 101)
+        assert len(clipped.encode("utf-8")) <= 101
+        assert clipped == "é" * 50  # decodes cleanly, no replacement char
+        assert "�" not in clipped
+
+    def test_prefers_line_boundary(self):
+        text = "aaaa\n" * 100
+        clipped = truncate_utf8(text, 22)
+        assert clipped == "aaaa\naaaa\naaaa\naaaa"
+
+    def test_keeps_budget_when_line_boundary_is_too_early(self):
+        text = "a\n" + "b" * 500
+        clipped = truncate_utf8(text, 100)
+        assert len(clipped.encode("utf-8")) == 100
+        assert clipped.startswith("a\nbbb")

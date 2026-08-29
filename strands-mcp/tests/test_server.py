@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from strands_mcp_server.server import fetch_doc, search_docs
+from strands_mcp_server.utils import text_processor
 from strands_mcp_server.utils.doc_fetcher import Page
 from strands_mcp_server.utils.indexer import Doc
 
@@ -111,7 +112,8 @@ class TestFetchDocTocMode:
         assert "preamble" in tru_result
         assert "Experimental hook events" in tru_result["preamble"]
 
-    def test_no_h2_headers_returns_full_content(self, mock_cache, no_h2_doc):
+    def test_no_h2_headers_large_doc_is_capped(self, mock_cache, no_h2_doc):
+        """A structureless doc over the threshold is capped, not dumped whole (#3327)."""
         mock_cache.ensure_page.return_value = Page(
             url="https://strandsagents.com/no-h2.md",
             title="No H2 Doc",
@@ -120,11 +122,14 @@ class TestFetchDocTocMode:
 
         tru_result = fetch_doc(uri="https://strandsagents.com/no-h2.md")
 
-        # No ## sections means fallback to full content
-        assert tru_result["document_small"] is True
         assert tru_result["reason"] == "no_sections"
-        assert "content" in tru_result
+        assert tru_result["truncated"] is True
+        assert "document_small" not in tru_result
         assert "sections" not in tru_result
+        assert tru_result["returned_bytes"] <= text_processor.SMALL_DOC_THRESHOLD
+        assert tru_result["total_bytes"] == len(no_h2_doc.encode("utf-8"))
+        assert tru_result["total_bytes"] > tru_result["returned_bytes"]
+        assert no_h2_doc.startswith(tru_result["content"])
 
     @pytest.mark.parametrize("kwargs", [{}, {"uri": ""}], ids=["no-args", "empty-uri"])
     def test_omitted_uri_returns_url_catalog(self, mock_cache, kwargs):
