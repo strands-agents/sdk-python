@@ -416,6 +416,46 @@ def test_extract_task_state_from_artifact_update_returns_none():
     assert state is None
 
 
+def test_task_with_no_artifacts_falls_back_to_status_message():
+    """A Task whose answer lives in task.status.message (no artifacts) still produces content.
+
+    Third-party A2A servers may reply with a completed Task carrying text only in
+    task.status.message — the spec does not require artifacts.
+    """
+    task = Task(
+        id="t1",
+        context_id="c1",
+        status=TaskStatus(
+            state=TaskState.TASK_STATE_COMPLETED,
+            message=A2AMessage(message_id=uuid4().hex, role=Role.ROLE_AGENT, parts=[Part(text="the answer")]),
+        ),
+    )
+
+    result = convert_responses_to_agent_result([StreamResponse(task=task)])
+
+    assert result.stop_reason == "end_turn"
+    assert any(block.get("text") == "the answer" for block in result.message["content"])
+
+
+def test_task_with_artifacts_ignores_status_message():
+    """When a Task has artifacts, task.status.message is not used (artifacts take precedence)."""
+    task = Task(
+        id="t1",
+        context_id="c1",
+        status=TaskStatus(
+            state=TaskState.TASK_STATE_COMPLETED,
+            message=A2AMessage(message_id=uuid4().hex, role=Role.ROLE_AGENT, parts=[Part(text="status text")]),
+        ),
+        artifacts=[Artifact(artifact_id="a1", parts=[Part(text="artifact text")])],
+    )
+
+    result = convert_responses_to_agent_result([StreamResponse(task=task)])
+
+    content_texts = [block["text"] for block in result.message["content"] if "text" in block]
+    assert "artifact text" in content_texts
+    assert "status text" not in content_texts
+
+
 def test_state_to_stop_reason_covers_all_lifecycle_states():
     """Verify _STATE_TO_STOP_REASON has mappings for all documented lifecycle states.
 

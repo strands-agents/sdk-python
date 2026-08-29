@@ -155,6 +155,8 @@ class _ResponseAccumulator:
             self.task_content = [
                 content for artifact in response.task.artifacts for content in _parts_to_content(artifact.parts)
             ]
+            if not self.task_content and response.task.HasField("status") and response.task.status.HasField("message"):
+                self.task_content = _parts_to_content(response.task.status.message.parts)
         elif response.HasField("message"):
             self.message_content = _parts_to_content(response.message.parts)
 
