@@ -205,10 +205,19 @@ class TestFetchDocErrors:
 
     def test_fetch_failure_returns_error(self, mock_cache):
         mock_cache.ensure_page.return_value = None
+        mock_cache.get_failure_reason.return_value = None
 
         tru_result = fetch_doc(uri="https://strandsagents.com/missing.md")
 
         assert tru_result["error"] == "fetch failed"
+
+    def test_fetch_failure_surfaces_reason(self, mock_cache):
+        mock_cache.ensure_page.return_value = None
+        mock_cache.get_failure_reason.return_value = "HTTPError: HTTP Error 404: Not Found"
+
+        tru_result = fetch_doc(uri="https://strandsagents.com/missing.md")
+
+        assert tru_result["error"] == "fetch failed: HTTPError: HTTP Error 404: Not Found"
 
 
 class FailedSentinel:
@@ -318,3 +327,31 @@ class TestSearchDocsTTLExpiry:
         result = search_docs("test query")
         assert fetched_urls == [url]
         assert result[0]["snippet"] == "Recovered content"
+
+
+class TestFetchDocFailureReason:
+    """End-to-end: a failed fetch records a reason that fetch_doc surfaces.
+
+    Regression guard for #3328's error-path ask: consuming models must be able
+    to tell a 404 from a DNS failure from a timeout instead of a bare
+    "fetch failed".
+    """
+
+    def test_failed_fetch_surfaces_reason_in_error(self, monkeypatch):
+        from strands_mcp_server.utils import cache as real_cache
+
+        url = "https://strandsagents.com/missing.md"
+        real_cache._URL_CACHE.clear()
+        monkeypatch.setattr(real_cache, "ensure_ready", lambda: None)
+
+        def boom(_url):
+            raise Exception("HTTP Error 404: Not Found")
+
+        monkeypatch.setattr(
+            "strands_mcp_server.utils.doc_fetcher.fetch_and_clean",
+            boom,
+        )
+
+        result = fetch_doc(uri=url)
+
+        assert result["error"] == "fetch failed: Exception: HTTP Error 404: Not Found"

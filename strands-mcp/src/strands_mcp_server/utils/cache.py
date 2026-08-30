@@ -24,12 +24,17 @@ class _FailedEntry:
     A page whose fetch failed is stored as a _FailedEntry instead of
     being re-fetched immediately. Once TTL expires, the entry is treated
     as stale and the next ensure_page call will retry the fetch.
+
+    ``reason`` carries the exception text recorded at failure time, surfaced
+    by fetch_doc as ``fetch failed: <reason>`` so a consuming model can tell
+    a 404 from a DNS failure from a timeout.
     """
 
-    __slots__ = ("_timestamp",)
+    __slots__ = ("_timestamp", "reason")
 
-    def __init__(self) -> None:
+    def __init__(self, reason: str | None = None) -> None:
         self._timestamp = time.monotonic()
+        self.reason = reason
 
     @property
     def expired(self) -> bool:
@@ -217,7 +222,7 @@ def ensure_page(url: str) -> doc_fetcher.Page | None:
             return cached
     try:
         raw = doc_fetcher.fetch_and_clean(url)
-    except Exception:
+    except Exception as exc:
         # Only FETCH failures are negatively cached: a failed fetch is treated as
         # a transient outage and short-circuited for the TTL. Indexing failures
         # below must NOT be cached here — they are left un-cached so the next call
@@ -229,7 +234,7 @@ def ensure_page(url: str) -> doc_fetcher.Page | None:
         logger.exception("Failed to fetch page: %s", url)
         with _CACHE_LOCK:
             if _URL_CACHE.get(url) is None:
-                _URL_CACHE[url] = _FailedEntry()
+                _URL_CACHE[url] = _FailedEntry(reason=f"{type(exc).__name__}: {exc}")
                 _evict_if_needed()
         return None
 
@@ -266,6 +271,17 @@ def ensure_page(url: str) -> doc_fetcher.Page | None:
         return None
 
     return page
+
+
+def get_failure_reason(url: str) -> str | None:
+    """Return the reason recorded for a negatively cached fetch failure.
+
+    Returns None when the URL is not negatively cached or has no recorded
+    reason, so callers can fall back to the bare ``fetch failed`` message.
+    """
+
+    entry = _URL_CACHE.get(url)
+    return getattr(entry, "reason", None)
 
 
 def needs_hydration(url: str) -> bool:

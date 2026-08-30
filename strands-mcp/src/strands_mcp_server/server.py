@@ -155,7 +155,8 @@ def fetch_doc(uri: str = "", section: str = "") -> Dict[str, Any]:
 
     page = cache.ensure_page(uri)
     if page is None:
-        return {"error": "fetch failed", "url": uri}
+        reason = cache.get_failure_reason(uri)
+        return {"error": f"fetch failed: {reason}" if reason else "fetch failed", "url": uri}
 
     # Small doc: return full content directly
     if len(page.content.encode("utf-8")) <= text_processor.SMALL_DOC_THRESHOLD:
