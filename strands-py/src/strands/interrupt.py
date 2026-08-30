@@ -203,6 +203,10 @@ class _InterruptState:
 
         Interrupt state can be serialized with the `to_dict` method. Legacy tool execution context
         is migrated into the typed pending state.
+
+        Raises:
+            SessionException: If a persisted interrupt or pending tool execution entry does not
+                match its current type, wrapping the originating ``TypeError``.
         """
         activated = data["activated"]
         context: dict[str, Any] = data["context"].copy()
@@ -227,13 +231,24 @@ class _InterruptState:
         else:
             pending_tool_execution = None
 
+        interrupts: dict[str, Interrupt] = {}
+        for interrupt_id, interrupt_data in data["interrupts"].items():
+            # Mirror to_dict's filter — don't revive a stale response as a standing approval.
+            if not activated and interrupt_id.startswith(_AGENT_STREAM_INTERRUPT_ID_PREFIX):
+                continue
+
+            try:
+                interrupts[interrupt_id] = Interrupt(**interrupt_data)
+            except TypeError as error:
+                # Avoid importing the types package while this module is still initializing.
+                from .types.exceptions import SessionException
+
+                raise SessionException(
+                    f"Failed to restore interrupt state: interrupt_id=<{interrupt_id}> | {error}"
+                ) from error
+
         return cls(
-            interrupts={
-                interrupt_id: Interrupt(**interrupt_data)
-                for interrupt_id, interrupt_data in data["interrupts"].items()
-                # Mirror to_dict's filter — don't revive a stale response as a standing approval.
-                if activated or not interrupt_id.startswith(_AGENT_STREAM_INTERRUPT_ID_PREFIX)
-            },
+            interrupts=interrupts,
             context=context,
             activated=activated,
             pending_tool_execution=pending_tool_execution,

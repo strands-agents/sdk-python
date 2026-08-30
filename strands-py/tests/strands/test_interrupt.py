@@ -197,6 +197,34 @@ def test_interrupt_state_from_dict_wraps_invalid_pending_tool_execution():
     assert isinstance(error_info.value.__cause__, TypeError)
 
 
+def test_interrupt_state_from_dict_wraps_unknown_interrupt_field():
+    data = {
+        "interrupts": {"i1": {"id": "i1", "name": "gate", "reason": None, "response": None, "future_field": 1}},
+        "context": {},
+        "activated": True,
+    }
+
+    with pytest.raises(SessionException, match="Failed to restore interrupt state") as error_info:
+        _InterruptState.from_dict(data)
+
+    assert "i1" in str(error_info.value)
+    assert isinstance(error_info.value.__cause__, TypeError)
+
+
+def test_interrupt_state_from_dict_wraps_missing_interrupt_field():
+    data = {
+        "interrupts": {"i1": {"id": "i1"}},
+        "context": {},
+        "activated": True,
+    }
+
+    with pytest.raises(SessionException, match="Failed to restore interrupt state") as error_info:
+        _InterruptState.from_dict(data)
+
+    assert "i1" in str(error_info.value)
+    assert isinstance(error_info.value.__cause__, TypeError)
+
+
 def test_interrupt_state_resume():
     interrupt_state = _InterruptState(
         interrupts={"test_id": Interrupt(id="test_id", name="test_name", reason="test reason")},
