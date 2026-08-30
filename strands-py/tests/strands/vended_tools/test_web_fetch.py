@@ -335,6 +335,42 @@ class TestAnalyst:
         assert "page content" in received_prompt[0]
 
 
+class TestStreamAgent:
+    """_stream_agent cancellation and error-wrapping paths."""
+
+    @pytest.mark.asyncio
+    async def test_mid_stream_cancel_raises_cancelled_error(self):
+        cancel = threading.Event()
+        cancelled: list[bool] = []
+
+        class _FakeAgent:
+            async def stream_async(self, prompt: str):
+                yield {"result": "first"}
+                cancel.set()
+                yield {"result": "second"}
+
+            def cancel(self) -> None:
+                cancelled.append(True)
+
+        with pytest.raises(asyncio.CancelledError):
+            await web_fetch_module._stream_agent(
+                _FakeAgent(), "prompt", cancel, "https://example.com/"
+            )
+        assert cancelled
+
+    @pytest.mark.asyncio
+    async def test_agent_exception_wrapped_as_web_fetch_error(self):
+        class _FakeAgent:
+            async def stream_async(self, prompt: str):
+                raise RuntimeError("model exploded")
+                yield  # make it an async generator
+
+        with pytest.raises(WebFetchError, match="analyst failed"):
+            await web_fetch_module._stream_agent(
+                _FakeAgent(), "prompt", None, "https://example.com/"
+            )
+
+
 class TestParseCharset:
     """_parse_charset extracts charset from Content-Type values, defaulting to utf-8."""
 
