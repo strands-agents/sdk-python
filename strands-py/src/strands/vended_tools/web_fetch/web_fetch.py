@@ -1,24 +1,19 @@
-"""Web fetch tool: fetch a URL and return clean markdown for a model to read.
+"""Web fetch tool: fetch a URL and return relevant content about it.
 
 Distinct from the http_request tool, which returns raw response bodies for API
-calls. This tool is intentionally narrow: HTTP(S) GET, decoded body, HTML to
-markdown. It is not a general-purpose scraper.
+calls. This tool is intentionally narrow; it performs an HTTP(S) GET, decodes the
+body, and extracts the relevant content.
 
 The tool delegates all networking to the ``httpx.AsyncClient`` instance
 provided by the operator, giving full control over transport configuration,
 caching, proxies, redirects, and connection pooling.
-
-When ``prompt`` is non-empty, an analyst agent answers the prompt over the
-fetched content so the full page never reaches the main agent's context.
-The model used is, in order: the ``model`` passed to :func:`make_web_fetch`,
-then the host agent's model, then a ``WebFetchError`` if neither is available.
 """
 
 from __future__ import annotations
 
 import asyncio
 import threading
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import httpx
 
@@ -72,12 +67,16 @@ def make_web_fetch(
             When ``None``, a new client is created per request with
             ``follow_redirects=True`` and httpx's default timeout (5s).
         model: Optional model for the analyst. Resolution order when
-            ``prompt`` is non-empty: this model, then the host agent's model,
+            ``mode='agentic'``: this model, then the host agent's model,
             then ``WebFetchError`` if neither is available.
 
     Returns:
-        A decorated tool that fetches a URL and returns extracted markdown, or
-        a model-generated answer when ``model`` and ``prompt`` are both provided.
+        A decorated tool that fetches a URL and extracts content according to
+        the requested mode:
+        - ``markdown``: HTML converted to clean markdown. Conversion is best-effort,
+          so content that cannot be converted is returned as-is.
+        - ``agentic``: answer to a ``prompt`` about the page content;
+          the full page never enters the main agent's context.
     """
     if max_bytes <= 0:
         raise ValueError(f"max_bytes must be positive, got {max_bytes}")
@@ -87,20 +86,23 @@ def make_web_fetch(
     @tool(name=name, description=description, context=True)
     async def web_fetch_tool(
         url: str,
+        mode: Literal["markdown", "agentic"] = "markdown",
         prompt: str = "",
         tool_context: ToolContext | None = None,
     ) -> str:
         """Fetches an HTTP(S) URL and returns readable content.
 
         Only ``http://`` and ``https://`` URLs are accepted. Raises
-        ``WebFetchError`` if the request exceeds the client's timeout.
+        ``WebFetchError`` if the request fails or the client's timeout is exceeded.
 
         Args:
             url: The URL to fetch. Must be ``http://`` or ``https://``.
-            prompt: What to extract or answer about the fetched content. When
-                non-empty, an analyst agent answers using the factory model
-                or the host agent's model. Leave empty to receive the full
-                page content as markdown.
+            mode: Extraction mode. ``markdown`` converts HTML to markdown and
+                returns it directly. ``agentic`` passes the raw content to an
+                analyst agent that answers ``prompt`` — the full page never
+                enters the main agent's context.
+            prompt: Required when ``mode='agentic'``. The question or
+                instruction about the page content.
             tool_context: Framework-injected. Not model-visible. Carries the
                 agent so the tool can read its cancel signal.
         """
@@ -118,41 +120,34 @@ def make_web_fetch(
         except (httpx.RequestError, ValueError) as exc:
             raise WebFetchError(f"Fetch failed: {exc}") from exc
 
-        is_markup = "html" in content_type.lower() or "xml" in content_type.lower()
-        content = html_to_markdown(raw) if is_markup else raw
+        if mode == "markdown":
+            is_markup = "html" in content_type.lower() or "xml" in content_type.lower()
+            return html_to_markdown(raw) if is_markup else raw
 
-        if prompt.strip():
+        elif mode == "agentic":
             from ...agent.agent import Agent  # local import to avoid circular dependency
+
+            if not prompt.strip():
+                raise WebFetchError("web_fetch: agentic mode requires a non-empty prompt.")
 
             effective_model = analyst_model or host_model
             if effective_model is None:
                 raise WebFetchError(
-                    "web_fetch: prompt requires a model. Pass model= to make_web_fetch or call the tool from an agent."
+                    "web_fetch: agentic mode requires a model. "
+                    "Pass model= to make_web_fetch or call the tool from an agent."
                 )
+
             # Fresh agent per call — no history from one fetch bleeds into the next.
             analyst = Agent(
                 model=effective_model,
                 system_prompt=_ANALYST_PROMPT,
                 callback_handler=None,
             )
+            invoke_prompt = f"URL: {url}\n\nRequest: {prompt}\n\n--- Content ---\n{raw}"
+            return await _stream_agent(analyst, invoke_prompt, cancel_signal, url)
 
-            invoke_prompt = f"URL: {url}\n\nRequest: {prompt}\n\n--- Content ---\n{content}"
-            # Always set by stream_async via AgentResultEvent; None is unreachable in practice
-            result = None
-            try:
-                async for event in analyst.stream_async(invoke_prompt):
-                    if "result" in event:
-                        result = event["result"]
-                    if cancel_signal is not None and cancel_signal.is_set():
-                        analyst.cancel()
-                        raise asyncio.CancelledError("Request cancelled")
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                raise WebFetchError(f"Web fetch analyst failed for {url}: {exc}") from exc
-            return str(result)
-
-        return content
+        else:
+            raise WebFetchError(f"web_fetch: unknown mode {mode!r}.")
 
     return web_fetch_tool
 
@@ -213,6 +208,37 @@ async def _fetch_once(
         raw = body.decode("utf-8", errors="replace")
 
     return content_type, raw
+
+
+async def _stream_agent(
+    agent: Any,
+    prompt: str,
+    cancel_signal: threading.Event | None,
+    url: str,
+) -> str:
+    """Stream an agent invocation and return its result as a string.
+
+    ``stream_async`` guarantees an ``AgentResultEvent`` before the stream ends,
+    so the return value is always a non-empty string. Cancellation is checked
+    between events.
+
+    Raises:
+        asyncio.CancelledError: When the cancel signal is set mid-stream.
+        WebFetchError: When the agent raises any other exception.
+    """
+    result = None
+    try:
+        async for event in agent.stream_async(prompt):
+            if "result" in event:
+                result = event["result"]
+            if cancel_signal is not None and cancel_signal.is_set():
+                agent.cancel()
+                raise asyncio.CancelledError("Request cancelled")
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        raise WebFetchError(f"Web fetch analyst failed for {url}: {exc}") from exc
+    return str(result)
 
 
 def _parse_charset(content_type: str) -> str:

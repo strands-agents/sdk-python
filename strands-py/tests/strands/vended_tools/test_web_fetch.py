@@ -246,10 +246,10 @@ class TestAnalyst:
 
     @pytest.mark.asyncio
     async def test_prompt_without_model_and_no_agent_raises(self):
-        # No factory model and no host agent — prompt has nowhere to go.
+        # No factory model and no host agent — agentic mode has nowhere to go.
         tool = make_web_fetch(client=self._page_client())
-        with pytest.raises(WebFetchError, match="prompt requires a model"):
-            await tool(url="https://example.com/", prompt="What is this about?")
+        with pytest.raises(WebFetchError, match="agentic mode requires a model"):
+            await tool(url="https://example.com/", mode="agentic", prompt="What is this about?")
 
     @pytest.mark.asyncio
     async def test_prompt_uses_host_agent_model_when_no_factory_model(self, monkeypatch):
@@ -274,13 +274,13 @@ class TestAnalyst:
         ctx = ToolContext(tool_use=tool_use, agent=host_agent, invocation_state={})
 
         tool = make_web_fetch(client=self._page_client())
-        tru_result = await tool(url="https://example.com/", prompt="Summarize", tool_context=ctx)
+        tru_result = await tool(url="https://example.com/", mode="agentic", prompt="Summarize", tool_context=ctx)
         assert tru_result == "host answer"
         assert received_model[0] is host_model
 
     @pytest.mark.asyncio
     async def test_empty_prompt_with_model_returns_markdown(self, monkeypatch):
-        # Empty prompt skips the analyst even when a model is configured.
+        # markdown mode skips the analyst regardless of model configuration.
         fake_model = SimpleNamespace()
         invoked: list[bool] = []
 
@@ -296,9 +296,16 @@ class TestAnalyst:
 
         monkeypatch.setattr(agent_module, "Agent", _FakeAgent)
         tool = make_web_fetch(client=self._page_client(), model=fake_model)
-        tru_result = await tool(url="https://example.com/", prompt="")
+        tru_result = await tool(url="https://example.com/", mode="markdown")
         assert not invoked
         assert "page content" in tru_result
+
+    @pytest.mark.parametrize("prompt", ["", "   "])
+    @pytest.mark.asyncio
+    async def test_agentic_mode_with_empty_prompt_raises(self, prompt):
+        tool = make_web_fetch(client=self._page_client(), model=SimpleNamespace())
+        with pytest.raises(WebFetchError, match="agentic mode requires a non-empty prompt"):
+            await tool(url="https://example.com/", mode="agentic", prompt=prompt)
 
     @pytest.mark.asyncio
     async def test_prompt_with_model_invokes_analyst(self, monkeypatch):
@@ -320,10 +327,11 @@ class TestAnalyst:
 
         monkeypatch.setattr(agent_module, "Agent", _FakeAgent)
         tool = make_web_fetch(client=self._page_client(), model=fake_model)
-        tru_result = await tool(url="https://example.com/", prompt="What is this about?")
+        tru_result = await tool(url="https://example.com/", mode="agentic", prompt="What is this about?")
         assert tru_result == "the answer"
         assert len(received_prompt) == 1
         assert "What is this about?" in received_prompt[0]
+        # agentic mode passes raw text, not markdown
         assert "page content" in received_prompt[0]
 
 

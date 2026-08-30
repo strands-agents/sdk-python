@@ -327,14 +327,17 @@ result = agent("Summarize the changes in ./CHANGELOG.md")
 
 ### Web Fetch
 
-Fetches an HTTP(S) URL and returns its content as markdown. HTML pages are
-converted to markdown with scripts, styles, and noise stripped. Distinct from
-the HTTP Request tool, which returns raw response bodies for API calls.
+Fetches an HTTP(S) URL and returns its content. Supports two modes: `markdown`
+returns the page as clean markdown with scripts, styles, and noise stripped;
+`agentic` passes the raw content to an analyst agent that answers a `prompt`
+so the full page never enters the main agent's context. Distinct from the HTTP
+Request tool, which returns raw response bodies for API calls.
 
-When the model passes a `prompt` alongside the URL, the page is processed by a
-summarizer sub-agent that answers the prompt, so only the answer — not the full
-page — enters the main agent's context. The agent's own model is used by
-default.
+The Python tool delegates all networking to an `httpx.AsyncClient`. Use the
+`make_web_fetch` factory to supply a pre-configured client with custom
+timeouts, redirects, proxies, caching, or other transport-level configuration.
+For `mode='agentic'`, the factory also accepts a `model` for the analyst; the
+agent's own model is used when none is supplied.
 
 _Supported in: Python (all platforms)._
 
