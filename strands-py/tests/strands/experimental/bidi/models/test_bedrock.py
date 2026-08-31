@@ -1003,6 +1003,31 @@ async def test_bidi_nova_sonic_model_receive_timeout_validation(nova_model, mock
 
 
 @pytest.mark.asyncio
+async def test_receive_ends_when_stream_closed(nova_model, mock_stream):
+    """A None from the event receiver marks end-of-stream; the receive loop must terminate.
+
+    Per the smithy EventReceiver contract, receive() returns None only at end-of-stream (e.g.
+    the connection closed on reconnect), and a closed receiver returns it without suspending.
+    Treating that as a transient empty event and continuing busy-loops the reader, starving the
+    event loop and hanging the reconnect swap. The generator must instead finish.
+    """
+    mock_output = AsyncMock()
+    mock_output.receive = AsyncMock(return_value=None)
+    mock_stream.await_output.return_value = (None, mock_output)
+
+    await nova_model.start()
+
+    async def collect():
+        return [event async for event in nova_model.receive()]
+
+    # Bounded so a regression (busy-loop) fails fast instead of hanging the suite.
+    events = await asyncio.wait_for(collect(), timeout=5.0)
+
+    # Only the initial connection-start event precedes the end-of-stream.
+    assert [type(event).__name__ for event in events] == ["BidiConnectionStartEvent"]
+
+
+@pytest.mark.asyncio
 async def test_error_handling(nova_model, mock_stream):
     """Test error handling in various scenarios."""
 
