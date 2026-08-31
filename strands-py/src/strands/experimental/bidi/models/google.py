@@ -1,4 +1,4 @@
-"""Gemini Live API bidirectional model provider using official Google GenAI SDK.
+"""Google Gemini Live model provider using the Gemini Live API and official Google GenAI SDK.
 
 Implements the BidiModel interface for Google's Gemini Live API using the
 official Google GenAI SDK for simplified and robust WebSocket communication.
@@ -53,8 +53,8 @@ GEMINI_OUTPUT_SAMPLE_RATE: AudioSampleRate = 24000
 GEMINI_CHANNELS: AudioChannel = 1
 
 
-class BidiGeminiLiveModel(BidiModel):
-    """Gemini Live API implementation using official Google GenAI SDK.
+class GoogleGeminiLiveModel(BidiModel):
+    """Google Gemini Live implementation using the official Google GenAI SDK.
 
     Combines model configuration and connection state in a single class.
     Provides a clean interface to Gemini Live API using the official SDK,
@@ -68,7 +68,7 @@ class BidiGeminiLiveModel(BidiModel):
         client_config: dict[str, Any] | None = None,
         **kwargs: Any,
     ):
-        """Initialize Gemini Live API bidirectional model.
+        """Initialize the Google Gemini Live bidirectional model.
 
         Args:
             model_id: Model identifier (default: gemini-2.5-flash-native-audio-preview-09-2025)
@@ -396,7 +396,7 @@ class BidiGeminiLiveModel(BidiModel):
         self,
         content: BidiInputEvent | ToolResultEvent,
     ) -> None:
-        """Unified send method for all content types. Sends the given inputs to Google Live API.
+        """Unified send method for all content types. Sends the given inputs to the Gemini Live API.
 
         Dispatches to appropriate internal handler based on content type.
 
