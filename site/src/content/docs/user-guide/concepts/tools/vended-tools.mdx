@@ -42,7 +42,7 @@ Each tool is imported from its own subpath under `@strands-agents/sdk/vended-too
 | [Bash](#bash) | Execute shell commands with persistent sessions | Python, TypeScript (Node.js, Unix/Linux/macOS) |
 | [Sleep](#sleep) | Pause execution for a bounded, cancellable duration | Python, TypeScript (Node.js, browsers) |
 | [Stop](#stop-experimental) | Gracefully end the agent loop when the task is complete | Python, TypeScript (Node.js, browsers) |
-| [Tool Registry](#tool-registry) | Let the agent list, add, re-bind, and remove tools on its own registry at runtime | Python |
+| [Tool Registry](#tool-registry) | Let the agent list, create, update, and delete tools on its own registry at runtime | Python |
 
 ### File Editor
 
@@ -330,8 +330,8 @@ result = agent("Summarize the changes in ./CHANGELOG.md")
 Gives the agent runtime CRUD access to its own tool registry, backed
 exclusively by already-connected MCP clients the developer pre-approved at
 construction time. The model can list every tool currently registered, register
-a new tool that binds to a specific remote tool on one of those clients, re-bind
-an existing entry, and remove entries this tool itself added.
+a new tool that binds to a specific remote tool on one of those clients, update
+an existing binding, and delete entries this tool itself added.
 Developer-registered tools are never mutable through the interface, and there
 is no filesystem or inline-code loading surface.
 
@@ -348,11 +348,13 @@ to a given agent.
 <Tab label="Python">
 
 ```python
+from mcp import StdioServerParameters, stdio_client
+
 from strands import Agent
 from strands.tools.mcp import MCPClient
 from strands.vended_tools import make_tool_registry
 
-weather = MCPClient(...)
+weather = MCPClient(lambda: stdio_client(StdioServerParameters(command="uvx", args=["mcp-weather"])))
 weather.start()
 
 registry_tool = make_tool_registry(mcp_clients={"weather": weather})
@@ -363,7 +365,6 @@ agent("List the tools you have, then add the forecast tool from weather.")
 </Tab>
 </Tabs>
 
-📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/tool-registry/README.md)
 
 ---
 

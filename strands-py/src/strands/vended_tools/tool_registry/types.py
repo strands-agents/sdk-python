@@ -46,7 +46,17 @@ class RegisteredTool(TypedDict):
 
 
 class ListResult(TypedDict):
-    """Result payload for the `list` operation."""
+    """Result payload for the `list` operation.
+
+    Attributes:
+        tools: All tools currently on the registry.
+        dynamic_count: Number of tools registered by this tool_registry instance.
+            Tools with ``registered_by_tool_registry=True`` in the ``tools`` list
+            can be updated or deleted via this tool.
+        dynamic_limit: Maximum number of tools this instance may register. When
+            ``dynamic_count == dynamic_limit``, delete an existing tool before
+            creating a new one.
+    """
 
     tools: list[RegisteredTool]
     dynamic_count: int
@@ -54,7 +64,14 @@ class ListResult(TypedDict):
 
 
 class MutationResult(TypedDict):
-    """Result payload for `create`, `update`, and `delete` operations."""
+    """Result payload for `create`, `update`, and `delete` operations.
+
+    Attributes:
+        operation: The operation that was performed.
+        name: The local tool name the operation acted on.
+        dynamic_count: Number of tools registered by this tool_registry instance
+            after the operation completes.
+    """
 
     operation: Literal["create", "update", "delete"]
     name: str

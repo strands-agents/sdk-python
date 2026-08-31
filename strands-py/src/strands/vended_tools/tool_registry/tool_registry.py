@@ -26,7 +26,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import weakref
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from ...tools.decorator import tool
 from ...tools.mcp import MCPAgentTool, MCPClient
@@ -158,7 +158,7 @@ def make_tool_registry(
 
     @tool(name=name, description=description, context="tool_context")
     async def tool_registry_tool(
-        operation: str,
+        operation: Literal["list", "create", "update", "delete"],
         tool_context: ToolContext,
         tool_name: str | None = None,
         source: str | None = None,
@@ -171,7 +171,9 @@ def make_tool_registry(
             operation: One of ``"list"``, ``"create"``, ``"update"``, ``"delete"``.
             tool_context: Injected by the framework. Not user-facing.
             tool_name: Local name for the tool on the agent's registry. Required for
-                ``create``, ``update``, and ``delete``. Must match :data:`.TOOL_NAME_PATTERN`.
+                ``create``, ``update``, and ``delete``. Must start with a letter or
+                underscore, contain only letters, digits, and underscores (hyphens are
+                not allowed), and be at most 64 characters.
             source: For ``create``/``update``, the alias of an MCP client
                 previously registered with this tool via ``mcp_clients``. The
                 set of valid aliases is fixed at tool construction time.

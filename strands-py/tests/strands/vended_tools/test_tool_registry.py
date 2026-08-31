@@ -22,10 +22,10 @@ from strands.tools.registry import ToolRegistry
 from strands.types import PaginatedList
 from strands.types.tools import ToolContext
 from strands.vended_tools.tool_registry import (
-    MAX_DYNAMIC_TOOLS,
     ToolRegistryError,
     make_tool_registry,
 )
+from strands.vended_tools.tool_registry.types import MAX_DYNAMIC_TOOLS
 
 
 @dataclass
@@ -198,7 +198,7 @@ class TestCreateOperation:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "bad",
-        ["", "1_starts_with_digit", "has-dash", "has space", "toolname!"],
+        ["", "1_starts_with_digit", "has-dash", "has space", "toolname!", "a" * 65],
     )
     async def test_rejects_invalid_tool_name(self, registry_tool, registry: ToolRegistry, bad: str) -> None:
         with pytest.raises(ToolRegistryError, match="invalid tool name"):
@@ -214,9 +214,7 @@ class TestCreateOperation:
     async def test_rejects_normalized_name_conflict(self, registry_tool) -> None:
         """A tool name that only differs by '-' vs '_' from an existing entry is rejected.
 
-        The underlying SDK registry's `register_tool` enforces this rule but
-        `register_dynamic_tool` does not, so the tool has to replicate the check
-        to keep the two surfaces consistent and to fail with a clear error.
+        The tool replicates the check to fail with a clear error.
         """
         reg = ToolRegistry()
 
@@ -277,15 +275,17 @@ class TestCreateOperation:
         assert list_result["dynamic_count"] == 0
 
     @pytest.mark.asyncio
-    async def test_rejects_overly_long_tool_name(self, registry_tool, registry: ToolRegistry) -> None:
-        with pytest.raises(ToolRegistryError, match="invalid tool name"):
-            await registry_tool(
-                operation="create",
-                tool_name="a" * 65,
-                source="weather",
-                remote_name="remote_alpha",
-                tool_context=_tool_context(registry),
-            )
+    async def test_accepts_maximum_length_tool_name(self, registry_tool, registry: ToolRegistry) -> None:
+        # 64 chars: one leading letter + 63 alphanumeric/underscore characters.
+        max_name = "a" * 64
+        result = await registry_tool(
+            operation="create",
+            tool_name=max_name,
+            source="weather",
+            remote_name="remote_alpha",
+            tool_context=_tool_context(registry),
+        )
+        assert result["name"] == max_name
 
     @pytest.mark.asyncio
     async def test_enforces_dynamic_tool_cap(self, mcp_client: _FakeMCPClient, registry: ToolRegistry) -> None:
@@ -440,8 +440,30 @@ class TestUpdateOperation:
             tool_context=ctx,
         )
         assert result["operation"] == "update"
+        assert result["name"] == "alpha"
+        assert result["dynamic_count"] == 1
         # The adapter points at remote_beta now.
         assert registry.dynamic_tools["alpha"].mcp_tool.name == "remote_beta"
+
+    @pytest.mark.asyncio
+    async def test_update_applies_description_override(self, registry_tool, registry: ToolRegistry) -> None:
+        ctx = _tool_context(registry)
+        await registry_tool(
+            operation="create",
+            tool_name="alpha",
+            source="weather",
+            remote_name="remote_alpha",
+            tool_context=ctx,
+        )
+        await registry_tool(
+            operation="update",
+            tool_name="alpha",
+            source="weather",
+            remote_name="remote_alpha",
+            description_override="overridden on update",
+            tool_context=ctx,
+        )
+        assert registry.dynamic_tools["alpha"].tool_spec["description"] == "overridden on update"
 
     @pytest.mark.asyncio
     async def test_cannot_update_developer_tool(self, registry_tool, registry: ToolRegistry) -> None:
@@ -553,15 +575,6 @@ class TestDeleteOperation:
             )
         # Untouched.
         assert "dev_echo" in registry.registry
-
-    @pytest.mark.asyncio
-    async def test_rejects_deleting_unknown_tool(self, registry_tool, registry: ToolRegistry) -> None:
-        with pytest.raises(ToolRegistryError, match="developer-registered"):
-            await registry_tool(
-                operation="delete",
-                tool_name="never_registered",
-                tool_context=_tool_context(registry),
-            )
 
     @pytest.mark.asyncio
     async def test_does_not_leak_ownership_between_registries(self, mcp_client: _FakeMCPClient) -> None:

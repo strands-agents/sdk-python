@@ -19,9 +19,6 @@ Example Usage:
 
 from .tool_registry import make_tool_registry
 from .types import (
-    MAX_DYNAMIC_TOOLS,
-    TOOL_NAME_PATTERN,
-    TOOL_REGISTRY_DESCRIPTION,
     ListResult,
     MutationResult,
     RegisteredTool,
@@ -29,9 +26,6 @@ from .types import (
 )
 
 __all__ = [
-    "MAX_DYNAMIC_TOOLS",
-    "TOOL_NAME_PATTERN",
-    "TOOL_REGISTRY_DESCRIPTION",
     "ListResult",
     "MutationResult",
     "RegisteredTool",

@@ -253,7 +253,9 @@ class ToolRegistry:
             )
 
         # Check for normalized name conflicts (- vs _)
-        self._check_normalized_name_conflict(tool.tool_name, self.registry)
+        self._check_normalized_name_conflict(
+            tool.tool_name, list(self.registry.keys()) + list(self.dynamic_tools.keys())
+        )
 
         # Register in main registry
         self.registry[tool.tool_name] = tool

@@ -112,6 +112,23 @@ def test_register_dynamic_tool_with_similar_name_as_static_tool_raises():
     )
 
 
+def test_register_tool_after_dynamic_tool_with_similar_name_raises():
+    dynamic_tool = PythonAgentTool(tool_name="my_tool", tool_spec=MagicMock(), tool_func=lambda: None)
+    dynamic_tool.mark_dynamic()
+    static_tool = PythonAgentTool(tool_name="my-tool", tool_spec=MagicMock(), tool_func=lambda: None)
+
+    tool_registry = ToolRegistry()
+    tool_registry.register_dynamic_tool(dynamic_tool)
+
+    with pytest.raises(ValueError) as err:
+        tool_registry.register_tool(static_tool)
+
+    assert (
+        str(err.value) == "Tool name 'my-tool' already exists as 'my_tool'. "
+        "Cannot add a duplicate tool which differs by a '-' or '_'"
+    )
+
+
 def test_get_all_tool_specs_returns_right_tool_specs():
     tool_1 = strands.tool(lambda a: a, name="tool_1")
     tool_2 = strands.tool(lambda b: b, name="tool_2")
