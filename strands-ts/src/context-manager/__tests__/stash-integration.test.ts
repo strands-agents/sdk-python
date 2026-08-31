@@ -175,7 +175,7 @@ describe('Offload strategies with stash', () => {
       expect(keys.length).toBe(1)
 
       const retrieved = await stash.retrieve(keys[0]!)
-      expect(retrieved!.contentType).toBe('application/json')
+      expect(retrieved).not.toBeNull()
       const data = retrieved!.data as { image: { format: string; source: { bytes: string } } }
       expect(data.image.format).toBe('png')
       expect(data.image.source.bytes).toBeDefined()

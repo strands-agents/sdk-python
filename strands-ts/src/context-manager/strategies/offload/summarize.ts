@@ -18,7 +18,6 @@ import {
   type SummarizeConfig,
 } from '../../methods/summarize.js'
 import { formatStashRefs } from '../../stash.js'
-import type { StashRef } from '../../stash.js'
 import {
   BaseOffloadStrategy,
   collectRemovableWithPair,
@@ -104,7 +103,7 @@ export class SummarizeStrategy extends BaseOffloadStrategy {
     tokens: number,
     message: Message,
     agent: LocalAgent,
-    stashRefs: StashRef[]
+    stashRefs: string[]
   ): Promise<ContentBlock | null> {
     const model = this._resolveModel(agent)
     if (!model) return null

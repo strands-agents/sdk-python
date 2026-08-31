@@ -10,7 +10,6 @@ import type { ContentBlock } from '../../../types/messages.js'
 import type { LocalAgent } from '../../../types/agent.js'
 import type { ContextStrategy } from '../../types.js'
 import { formatStashRefs } from '../../stash.js'
-import type { StashRef } from '../../stash.js'
 import { BaseOffloadStrategy } from './base.js'
 import type { OffloadConditions } from './base.js'
 
@@ -32,7 +31,7 @@ export class DropStrategy extends BaseOffloadStrategy {
     _tokens: number,
     message: Message,
     _agent: LocalAgent,
-    stashRefs: StashRef[]
+    stashRefs: string[]
   ): Promise<ContentBlock | null> {
     const marker = `${DROPPED_MARKER}${formatStashRefs(stashRefs)}`
 

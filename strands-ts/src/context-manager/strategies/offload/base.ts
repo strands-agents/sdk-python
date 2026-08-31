@@ -17,7 +17,7 @@ import {
 import type { ContentBlock } from '../../../types/messages.js'
 import type { LocalAgent } from '../../../types/agent.js'
 import type { ContextStrategy, ContextState } from '../../types.js'
-import type { Stash, StashRef } from '../../stash.js'
+import type { Stash } from '../../stash.js'
 import { RETRIEVAL_TOOL_NAME } from '../../retrieval-tool.js'
 
 /**
@@ -474,7 +474,7 @@ export abstract class BaseOffloadStrategy implements ContextStrategy {
     tokens: number,
     message: Message,
     agent: LocalAgent,
-    stashRefs: StashRef[]
+    stashRefs: string[]
   ): Promise<ContentBlock | null>
 }
 

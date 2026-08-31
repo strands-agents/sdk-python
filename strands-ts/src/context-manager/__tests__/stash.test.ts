@@ -13,7 +13,6 @@ describe('Stash', () => {
 
       const result = await stash.retrieve(ref)
       expect(result).not.toBeNull()
-      expect(result!.contentType).toBe('application/json')
       expect(result!.data).toEqual(data)
     })
 
@@ -24,7 +23,6 @@ describe('Stash', () => {
 
       const result = await stash.retrieve(ref)
       expect(result).not.toBeNull()
-      expect(result!.contentType).toBe('application/json')
       expect(result!.data).toEqual(data)
     })
 

@@ -11,7 +11,6 @@ import type { LocalAgent } from '../../../types/agent.js'
 import type { ContextStrategy, ContextState } from '../../types.js'
 import { truncateToolResultBlock, truncateTextBlock, type TruncateConfig } from '../../methods/truncate.js'
 import { formatStashRefs } from '../../stash.js'
-import type { StashRef } from '../../stash.js'
 import {
   BaseOffloadStrategy,
   spliceWithPairs,
@@ -88,7 +87,7 @@ export class TruncateStrategy extends BaseOffloadStrategy {
     tokens: number,
     message: Message,
     _agent: LocalAgent,
-    stashRefs: StashRef[]
+    stashRefs: string[]
   ): Promise<ContentBlock | null> {
     if (block instanceof ToolResultBlock) {
       logger.debug(`toolUseId=<${block.toolUseId}>, tokens=<${tokens}> | truncated tool result`)
@@ -109,7 +108,7 @@ export class TruncateStrategy extends BaseOffloadStrategy {
   }
 }
 
-function appendStashRefs(block: ToolResultBlock, stashRefs: StashRef[]): ToolResultBlock {
+function appendStashRefs(block: ToolResultBlock, stashRefs: string[]): ToolResultBlock {
   const refs = formatStashRefs(stashRefs)
   if (!refs) return block
 

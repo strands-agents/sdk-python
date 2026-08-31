@@ -9,27 +9,11 @@
  */
 
 import { resolveNamespace, type Storage } from '../storage/storage.js'
-import {
-  Message,
-  TextBlock,
-  ToolResultBlock,
-  ToolUseBlock,
-  CachePointBlock,
-  ReasoningBlock,
-} from '../types/messages.js'
+import { Message, ToolResultBlock, ToolUseBlock, CachePointBlock, ReasoningBlock } from '../types/messages.js'
 import type { ContentBlock, ToolResultContent } from '../types/messages.js'
-import { ImageBlock, VideoBlock, DocumentBlock, AudioBlock } from '../types/media.js'
 import { logger } from '../logging/logger.js'
 
 const STASH_PREFIX = 'context'
-
-/** A reference to stashed content. */
-export interface StashRef {
-  /** Storage key for retrieval. */
-  ref: string
-  /** MIME content type of the stored content. */
-  contentType: string
-}
 
 function encode(value: unknown): Uint8Array {
   return new TextEncoder().encode(JSON.stringify(value))
@@ -39,20 +23,11 @@ function decode(bytes: Uint8Array): unknown {
   return JSON.parse(new TextDecoder().decode(bytes))
 }
 
-function contentTypeOf(block: ContentBlock | ToolResultContent): string {
-  if (block instanceof TextBlock) return 'text/plain'
-  if (block instanceof ImageBlock) return `image/${block.format}`
-  if (block instanceof VideoBlock) return `video/${block.format}`
-  if (block instanceof DocumentBlock) return `application/${block.format}`
-  if (block instanceof AudioBlock) return `audio/${block.format}`
-  return 'application/json'
-}
-
 /** Format stash refs for display in placeholders. Returns '' when refs is empty. */
-export function formatStashRefs(refs: StashRef[]): string {
+export function formatStashRefs(refs: string[]): string {
   if (refs.length === 0) return ''
-  if (refs.length === 1) return ` ref: ${refs[0]!.ref} (${refs[0]!.contentType})`
-  return ` refs: ${refs.map((r) => `${r.ref} (${r.contentType})`).join(', ')}`
+  if (refs.length === 1) return ` ref: ${refs[0]!}`
+  return ` refs: ${refs.join(', ')}`
 }
 
 /**
@@ -63,7 +38,7 @@ export function formatStashRefs(refs: StashRef[]): string {
  */
 export class Stash {
   private readonly _storage: Storage
-  private readonly _refsByBlock = new WeakMap<ContentBlock | ToolResultContent, StashRef[]>()
+  private readonly _refsByBlock = new WeakMap<ContentBlock | ToolResultContent, string[]>()
 
   constructor(storage: Storage, sessionId: string, agentId: string) {
     this._storage = resolveNamespace(storage, `${STASH_PREFIX}/${sessionId}/scopes/agent/${agentId}`)
@@ -94,7 +69,7 @@ export class Stash {
    * @param block - The content block to look up
    * @returns Array of stash references
    */
-  getRefs(block: ContentBlock): StashRef[] {
+  getRefs(block: ContentBlock): string[] {
     return this._refsByBlock.get(block) ?? []
   }
 
@@ -114,7 +89,7 @@ export class Stash {
         if (skipToolUseIds?.has(block.toolUseId)) continue
         const refs = await this._storeToolResult(block).catch((error) => {
           logger.debug(`toolUseId=<${block.toolUseId}>, error=<${error}> | failed to stash tool result`)
-          return [] as StashRef[]
+          return [] as string[]
         })
         if (refs.length > 0) this._refsByBlock.set(block, refs)
       } else if (block instanceof ToolUseBlock || block instanceof CachePointBlock || block instanceof ReasoningBlock) {
@@ -122,7 +97,7 @@ export class Stash {
       } else {
         try {
           const ref = await this.store(message.trackingId, blockIndex, encode(block.toJSON()))
-          this._refsByBlock.set(block, [{ ref, contentType: contentTypeOf(block) }])
+          this._refsByBlock.set(block, [ref])
         } catch (error) {
           logger.debug(`trackingId=<${message.trackingId}>, error=<${error}> | failed to stash block`)
         }
@@ -136,10 +111,10 @@ export class Stash {
    * @param reference - Key returned by a previous store call
    * @returns The deserialized block data (from `toJSON()`), or null if not found
    */
-  async retrieve(reference: string): Promise<{ data: unknown; contentType: string } | null> {
+  async retrieve(reference: string): Promise<{ data: unknown } | null> {
     const bytes = await this._storage.read(reference)
     if (bytes === null) return null
-    return { data: decode(bytes), contentType: 'application/json' }
+    return { data: decode(bytes) }
   }
 
   /**
@@ -157,14 +132,14 @@ export class Stash {
     logger.debug(`reference=<${reference}> | stash entry deleted`)
   }
 
-  private async _storeToolResult(block: ToolResultBlock): Promise<StashRef[]> {
+  private async _storeToolResult(block: ToolResultBlock): Promise<string[]> {
     if (block.content.length === 0) return []
 
-    const refs: StashRef[] = []
+    const refs: string[] = []
     for (let blockIndex = 0; blockIndex < block.content.length; blockIndex++) {
       const item = block.content[blockIndex]!
       const ref = await this.store(block.toolUseId, blockIndex, encode(item.toJSON()))
-      refs.push({ ref, contentType: contentTypeOf(item) })
+      refs.push(ref)
     }
     return refs
   }
