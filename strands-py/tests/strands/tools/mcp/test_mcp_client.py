@@ -156,9 +156,11 @@ def test_call_tool_sync_without_error_flag(mock_transport, mock_session):
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
 
-        assert result["status"] == "success"
-        assert result["content"][0]["text"] == "Test message"
-        assert "isError" not in result
+        assert result == {
+            "status": "success",
+            "toolUseId": "test-123",
+            "content": [{"text": "Test message"}],
+        }
 
 
 def test_call_tool_sync_session_not_active():
@@ -1073,10 +1075,12 @@ def test_call_tool_sync_image_content(mock_transport, mock_session):
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.call_tool_sync(tool_use_id="img-1", name="get_image", arguments={})
 
-        assert result["status"] == "success"
-        assert len(result["content"]) == 1
-        assert result["content"][0]["image"]["format"] == "png"
-        assert result["content"][0]["image"]["source"]["bytes"] == png_data
+        assert result == {
+            "status": "success",
+            "toolUseId": "img-1",
+            "content": [{"image": {"format": "png", "source": {"bytes": png_data}}}],
+            "isError": False,
+        }
 
 
 def test_call_tool_sync_embedded_nested_text(mock_transport, mock_session):

@@ -117,6 +117,23 @@ def test_installed_line_call_tool_takes_the_arguments_mcp_client_passes():
     assert isinstance(_compat.read_timeout(timedelta(seconds=30)), expected_timeout_type)
 
 
+@requires_mcp_v2
+def test_installed_v2_line_exposes_the_input_required_names():
+    """Test that the names the 2.x `call_tool` branch imports exist on the installed line."""
+    from mcp import ClientSession
+    from mcp.client._input_required import run_input_required_driver
+    from mcp.client.session import ClientRequestContext
+    from mcp.types import InputRequiredResult
+
+    assert callable(run_input_required_driver)
+    assert callable(ClientSession.dispatch_input_request)
+    assert {"session", "request_id", "meta"} <= set(inspect.signature(ClientRequestContext).parameters)
+    assert "input_requests" in InputRequiredResult.model_fields
+    call_tool_parameters = inspect.signature(ClientSession.call_tool).parameters
+    for parameter_name in ("input_responses", "request_state", "allow_input_required"):
+        assert parameter_name in call_tool_parameters, parameter_name
+
+
 def test_next_cursor_v1_reads_the_camel_case_field(monkeypatch):
     """Test that the 1.x branch reads the result's `nextCursor` field."""
     monkeypatch.setattr(_compat, "MCP_V2", False)
@@ -252,6 +269,123 @@ def test_read_timeout_v2_converts_to_seconds(monkeypatch):
 def test_read_timeout_passes_none_through():
     """Test that an absent timeout stays absent on either line."""
     assert _compat.read_timeout(None) is None
+
+
+@pytest.mark.asyncio
+async def test_call_tool_v1_sends_a_single_request(monkeypatch):
+    """Test that the 1.x branch calls the session once, with the timeout as a `timedelta`."""
+    monkeypatch.setattr(_compat, "MCP_V2", False)
+    terminal_result = MagicMock()
+    session = MagicMock()
+    session.call_tool = AsyncMock(return_value=terminal_result)
+    progress_callback = MagicMock()
+    timeout = timedelta(seconds=30)
+
+    result = await _compat.call_tool(session, "echo", {"to_echo": "x"}, timeout, progress_callback, {"trace": "id"})
+
+    assert result is terminal_result
+    session.call_tool.assert_awaited_once_with(
+        "echo", {"to_echo": "x"}, timeout, progress_callback=progress_callback, meta={"trace": "id"}
+    )
+
+
+@requires_mcp_v2
+@pytest.mark.asyncio
+async def test_call_tool_v2_returns_a_terminal_result_without_retrying():
+    """Test that the 2.x branch opts into input-required results and returns a terminal result as-is."""
+    from mcp.types import CallToolResult, TextContent
+
+    terminal_result = CallToolResult(content=[TextContent(type="text", text="done")])
+    session = MagicMock()
+    session.call_tool = AsyncMock(return_value=terminal_result)
+
+    result = await _compat.call_tool(session, "echo", {"to_echo": "x"}, timedelta(seconds=30), None, None)
+
+    assert result is terminal_result
+    session.call_tool.assert_awaited_once()
+    assert session.call_tool.await_args.args[2] == 30.0
+    assert session.call_tool.await_args.kwargs["allow_input_required"] is True
+
+
+@requires_mcp_v2
+@pytest.mark.asyncio
+async def test_call_tool_v2_resolves_input_required_through_the_callback_table():
+    """Test that the 2.x branch resolves an `InputRequiredResult` and retries with the responses.
+
+    The embedded elicit request must reach `dispatch_input_request` (the same
+    callback table that serves 1.x server-initiated requests), and the retry
+    must carry the collected responses and the echoed `request_state`.
+    """
+    from mcp.types import (
+        CallToolResult,
+        ElicitRequest,
+        ElicitRequestFormParams,
+        ElicitResult,
+        InputRequiredResult,
+        TextContent,
+    )
+
+    elicit_request = ElicitRequest(
+        method="elicitation/create",
+        params=ElicitRequestFormParams(
+            mode="form",
+            message="need a value",
+            requested_schema={"type": "object", "properties": {"value": {"type": "string"}}},
+        ),
+    )
+    input_required = InputRequiredResult(input_requests={"q1": elicit_request}, request_state="state-1")
+    terminal_result = CallToolResult(content=[TextContent(type="text", text="done")])
+    elicit_result = ElicitResult(action="accept", content={"value": "x"})
+    session = MagicMock()
+    session.call_tool = AsyncMock(side_effect=[input_required, terminal_result])
+    session.dispatch_input_request = AsyncMock(return_value=elicit_result)
+
+    result = await _compat.call_tool(session, "ask", None, None, None, None)
+
+    assert result is terminal_result
+    dispatched_request = session.dispatch_input_request.await_args.args[1]
+    assert dispatched_request is elicit_request
+    retry_kwargs = session.call_tool.await_args_list[1].kwargs
+    assert retry_kwargs["input_responses"] == {"q1": elicit_result}
+    assert retry_kwargs["request_state"] == "state-1"
+
+
+@requires_mcp_v2
+@pytest.mark.asyncio
+async def test_call_tool_v2_retries_without_request_state_when_the_server_sent_none():
+    """Test that a retry carries no `request_state` when the `InputRequiredResult` had none.
+
+    The MRTR spec: "If the `InputRequiredResult` does not contain a
+    `requestState` field, the client MUST NOT include one in the retry."
+    """
+    from mcp.types import (
+        CallToolResult,
+        ElicitRequest,
+        ElicitRequestFormParams,
+        ElicitResult,
+        InputRequiredResult,
+        TextContent,
+    )
+
+    elicit_request = ElicitRequest(
+        method="elicitation/create",
+        params=ElicitRequestFormParams(
+            mode="form",
+            message="need a value",
+            requested_schema={"type": "object", "properties": {"value": {"type": "string"}}},
+        ),
+    )
+    input_required = InputRequiredResult(input_requests={"q1": elicit_request})
+    terminal_result = CallToolResult(content=[TextContent(type="text", text="done")])
+    session = MagicMock()
+    session.call_tool = AsyncMock(side_effect=[input_required, terminal_result])
+    session.dispatch_input_request = AsyncMock(return_value=ElicitResult(action="accept", content={"value": "x"}))
+
+    result = await _compat.call_tool(session, "ask", None, None, None, None)
+
+    assert result is terminal_result
+    retry_kwargs = session.call_tool.await_args_list[1].kwargs
+    assert retry_kwargs["request_state"] is None
 
 
 def test_mcp_error_resolves_to_installed_exception():

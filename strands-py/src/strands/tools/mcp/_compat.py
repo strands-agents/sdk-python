@@ -26,6 +26,7 @@ __all__ = [
     "MCP_V2",
     "GetSessionIdCallback",
     "MCPError",
+    "call_tool",
     "input_schema",
     "is_error",
     "mime_type",
@@ -58,6 +59,82 @@ except ImportError:
     from collections.abc import Callable
 
     GetSessionIdCallback = Callable[[], str | None]  # type: ignore[misc, assignment]
+
+
+async def call_tool(
+    session: ClientSession,
+    name: str,
+    arguments: dict[str, Any] | None,
+    read_timeout_seconds: timedelta | None,
+    progress_callback: Any,
+    meta: Any,
+) -> Any:
+    """Call a tool on an active session, on either `mcp` major line.
+
+    The 2026-07-28 spec (SEP-2322) replaced server-initiated requests with
+    multi round-trip requests: instead of sending `elicitation/create` back
+    to the client mid-call, the server returns an `InputRequiredResult`, and
+    the client resolves the embedded input requests and retries the call
+    carrying the responses and the echoed opaque `request_state`. The 2.x
+    branch resolves each embedded request through
+    `session.dispatch_input_request`, the same callback table that serves
+    1.x server-initiated requests, so an `elicitation_callback` passed to
+    `ClientSession` behaves the same on both lines.
+
+    The retry loop is `mcp.client._input_required.run_input_required_driver`,
+    which the 2.x line's own high-level client uses but does not re-export
+    from a public module, so the forced-2.x CI job is what catches a
+    relocation.
+
+    Args:
+        session: An active, negotiated `ClientSession`.
+        name: The tool name as the server knows it.
+        arguments: Arguments to pass to the tool.
+        read_timeout_seconds: Timeout for each request round, if any.
+        progress_callback: Callback for progress notifications, if any.
+        meta: Request metadata (`_meta`) to send with the call, if any.
+
+    Returns:
+        The terminal `CallToolResult`.
+
+    Raises:
+        MCPError: An embedded input request's callback declined it.
+        InputRequiredRoundsExceededError: The server kept returning
+            `InputRequiredResult` past the driver's round cap.
+    """
+    if not MCP_V2:
+        return await session.call_tool(
+            name, arguments, read_timeout_seconds, progress_callback=progress_callback, meta=meta
+        )
+
+    from mcp.client._input_required import run_input_required_driver  # type: ignore[import-not-found]
+    from mcp.client.session import ClientRequestContext  # type: ignore[attr-defined]
+    from mcp.types import InputRequiredResult  # type: ignore[attr-defined]
+
+    timeout = read_timeout(read_timeout_seconds)
+
+    async def retry(input_responses: Any, request_state: str | None) -> Any:
+        return await session.call_tool(  # type: ignore[call-arg]
+            name,
+            arguments,
+            timeout,  # type: ignore[arg-type]
+            progress_callback=progress_callback,
+            meta=meta,
+            input_responses=input_responses,
+            request_state=request_state,
+            allow_input_required=True,
+        )
+
+    async def dispatch(key: str, request: Any) -> Any:
+        context = ClientRequestContext(
+            session=session, request_id=key, meta=request.params.meta if request.params else None
+        )
+        return await session.dispatch_input_request(context, request)  # type: ignore[attr-defined]
+
+    result = await retry(None, None)
+    if not isinstance(result, InputRequiredResult):
+        return result
+    return await run_input_required_driver(result, dispatch=dispatch, retry=retry)
 
 
 def input_schema(tool: Any) -> dict[str, Any]:
@@ -140,7 +217,7 @@ def output_schema(tool: Any) -> dict[str, Any] | None:
     return schema
 
 
-def read_timeout(timeout: timedelta | None) -> Any:
+def read_timeout(timeout: timedelta | None) -> float | timedelta | None:
     """Convert a tool call read timeout to the form the installed `mcp` line takes.
 
     The session `call_tool` takes `read_timeout_seconds` as a `timedelta` on
