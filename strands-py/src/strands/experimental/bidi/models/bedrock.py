@@ -1,4 +1,4 @@
-"""Nova Sonic bidirectional model provider for real-time streaming conversations.
+"""Amazon Bedrock Nova Sonic provider for real-time streaming conversations.
 
 Implements the BidiModel interface for Amazon's Nova Sonic, handling the
 complex event sequencing and audio processing required by Nova Sonic's
@@ -12,14 +12,14 @@ Nova Sonic specifics:
 - 8-minute connection limits with proper cleanup sequences
 - Interruption detection through stopReason events
 
-Note, BidiNovaSonicModel is only supported for Python 3.12+
+Note, BedrockNovaSonicModel is only supported for Python 3.12+
 """
 
 import sys
 from typing import TYPE_CHECKING
 
 if not TYPE_CHECKING and sys.version_info < (3, 12):
-    raise ImportError("BidiNovaSonicModel is only supported for Python 3.12+")
+    raise ImportError("BedrockNovaSonicModel is only supported for Python 3.12+")
 
 import asyncio
 import base64
@@ -106,14 +106,14 @@ _MAX_HISTORY_TOTAL_BYTES = 200 * 1024  # 200KB total history
 _STRANDS_USER_AGENT_EXTRA = "strands-agents"
 
 
-class BidiNovaSonicModel(BidiModel):
-    """Nova Sonic implementation for bidirectional streaming.
+class BedrockNovaSonicModel(BidiModel):
+    """Amazon Bedrock Nova Sonic implementation for bidirectional streaming.
 
     Combines model configuration and connection state in a single class.
     Manages Nova Sonic's complex event sequencing, audio format conversion, and
     tool execution patterns while providing the standard BidiModel interface.
 
-    Note, BidiNovaSonicModel is only supported for Python 3.12+.
+    Note, BedrockNovaSonicModel is only supported for Python 3.12+.
 
     Attributes:
         _stream: open bedrock stream to nova sonic.

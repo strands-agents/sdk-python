@@ -1,8 +1,20 @@
 """Shared fixtures and helpers for MCP client tests."""
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from mcp.types import ErrorData
+
+from strands.tools.mcp import _compat
+from strands.tools.mcp._compat import MCPError
+
+
+def make_mcp_error(code: int, message: str = "", data: Any = None) -> Exception:
+    """Construct the installed line's MCP error: 2.x takes (code, message, data), 1.x takes ErrorData."""
+    if _compat.MCP_V2:
+        return MCPError(code, message, data=data)
+    return MCPError(error=ErrorData(code=code, message=message, data=data))
 
 
 @pytest.fixture
