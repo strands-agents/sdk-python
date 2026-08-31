@@ -96,7 +96,7 @@ async def _invoke_classifier(
         source="routing",
         agent=context._agent,
         messages=request_messages,
-        # A copy, so hooks can't write through to the read-only invocation_state.
+        # A shallow copy, so hooks can't add or remove keys in the read-only invocation_state.
         invocation_state=dict(context.invocation_state),
     )
 

@@ -5,34 +5,26 @@ Covers both auxiliary streaming shapes against real Bedrock models: summarizatio
 (``model.structured_output`` via ``ClassifierStrategy``).
 """
 
-import pytest
-
 from strands import Agent
 from strands.agent.conversation_manager import SummarizingConversationManager
 from strands.hooks import AfterAuxiliaryModelCallEvent, BeforeAuxiliaryModelCallEvent
 from strands.models import BedrockModel, ClassifierStrategy, ModelRouter, RoutingCandidate
-from strands.types.exceptions import ModelThrottledException
+from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from tests_integ.conftest import retry_on_flaky
 
 _HAIKU_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 
 
-@pytest.fixture
-def aux_events():
-    return []
+def _record_aux_events(agent):
+    """Capture the auxiliary hook events fired on the agent, in order.
 
-
-@pytest.fixture
-def aux_hooks(aux_events):
-    return [
-        (BeforeAuxiliaryModelCallEvent, aux_events.append),
-        (AfterAuxiliaryModelCallEvent, aux_events.append),
-    ]
-
-
-def _register(agent, aux_hooks):
-    for event_type, callback in aux_hooks:
-        agent.hooks.add_callback(event_type, callback)
+    Created inside the test body (not a fixture) so a ``retry_on_flaky`` re-run
+    starts with an empty recording.
+    """
+    events = []
+    agent.hooks.add_callback(BeforeAuxiliaryModelCallEvent, events.append)
+    agent.hooks.add_callback(AfterAuxiliaryModelCallEvent, events.append)
+    return events
 
 
 @retry_on_flaky(
@@ -40,7 +32,7 @@ def _register(agent, aux_hooks):
     max_attempts=2,
     retry_on=[ModelThrottledException],
 )
-def test_summarization_fires_hooks_and_records_usage(aux_events, aux_hooks):
+def test_summarization_fires_hooks_and_records_usage():
     """Summarization (the ``model.stream`` path) fires the hook pair and books usage."""
     agent = Agent(
         model=BedrockModel(model_id=_HAIKU_MODEL_ID, max_tokens=512, streaming=False),
@@ -48,7 +40,7 @@ def test_summarization_fires_hooks_and_records_usage(aux_events, aux_hooks):
         load_tools_from_directory=False,
         callback_handler=None,
     )
-    _register(agent, aux_hooks)
+    aux_events = _record_aux_events(agent)
     agent.messages = [
         {"role": "user", "content": [{"text": "My favorite color is teal and I live in Lisbon."}]},
         {"role": "assistant", "content": [{"text": "Noted: teal, Lisbon."}]},
@@ -56,7 +48,9 @@ def test_summarization_fires_hooks_and_records_usage(aux_events, aux_hooks):
         {"role": "assistant", "content": [{"text": "Got it: a dog named Pixel."}]},
     ]
 
-    agent.conversation_manager.reduce_context(agent)
+    # The reactive overflow path: unlike the proactive call it re-raises model errors,
+    # so a transient throttle reaches retry_on_flaky instead of being logged & swallowed.
+    agent.conversation_manager.reduce_context(agent, e=ContextWindowOverflowException("integ"))
 
     before, after = aux_events
     assert isinstance(before, BeforeAuxiliaryModelCallEvent)
@@ -70,18 +64,17 @@ def test_summarization_fires_hooks_and_records_usage(aux_events, aux_hooks):
     assert summarization_usage["totalTokens"] == after.stop_response.usage["totalTokens"]
 
 
-@retry_on_flaky(
-    "Bedrock capacity may be transiently unavailable",
-    max_attempts=2,
-    retry_on=[ModelThrottledException],
-)
-def test_routing_classifier_fires_hooks_and_records_usage(aux_events, aux_hooks):
+# Default retry-on-any: a throttled classifier is swallowed by ClassifierStrategy
+# (it declines selection), surfacing here as a failed assertion rather than a
+# raised ModelThrottledException — so a throttle filter would never match.
+@retry_on_flaky("Bedrock capacity may be transiently unavailable", max_attempts=2)
+def test_routing_classifier_fires_hooks_and_records_usage():
     """Routing classification (the ``model.structured_output`` path) fires the hook pair and books usage."""
-    candidate_model = BedrockModel(model_id=_HAIKU_MODEL_ID, max_tokens=256, streaming=False)
+    general_model = BedrockModel(model_id=_HAIKU_MODEL_ID, max_tokens=256, streaming=False)
     math_model = BedrockModel(model_id=_HAIKU_MODEL_ID, max_tokens=256, streaming=False)
     router = ModelRouter(
         models=[
-            RoutingCandidate(candidate_model, name="general model"),
+            RoutingCandidate(general_model, name="general model"),
             RoutingCandidate(
                 math_model,
                 name="math model",
@@ -98,13 +91,13 @@ def test_routing_classifier_fires_hooks_and_records_usage(aux_events, aux_hooks)
         load_tools_from_directory=False,
         callback_handler=None,
     )
-    _register(agent, aux_hooks)
+    aux_events = _record_aux_events(agent)
 
     agent("What is 2 + 2?")
 
-    routing_events = [event for event in aux_events if event.source == "routing"]
-    before, after = routing_events
+    before, after = aux_events
     assert isinstance(before, BeforeAuxiliaryModelCallEvent)
+    assert before.source == "routing"
     assert isinstance(after, AfterAuxiliaryModelCallEvent)
     assert after.exception is None
 
