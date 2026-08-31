@@ -956,11 +956,11 @@ def test_reduce_context_failure_rolls_back_removed_message_count():
 
     assert manager.removed_message_count == 0
     assert manager._summary_message is None
-    assert manager._pin_first_applied is False
+    assert manager.pinned_head_count == 0
 
 
-def test_reduce_context_failure_rolls_back_pin_first_applied():
-    """A failing summary must leave _pin_first_applied False so a retry can re-apply it cleanly."""
+def test_reduce_context_failure_rolls_back_pinned_head_count():
+    """A failing summary must leave pinned_head_count at 0 so a retry can re-apply it cleanly."""
 
     failing_agent = Mock()
     failing_agent.model = Mock()
@@ -972,24 +972,38 @@ def test_reduce_context_failure_rolls_back_pin_first_applied():
         preserve_recent_messages=1,
         pin_first=2,
     )
-    assert manager._pin_first_applied is False
+    assert manager.pinned_head_count == 0
 
     with patch("strands.agent.conversation_manager.summarizing_conversation_manager.logger"):
         manager.reduce_context(failing_agent)
 
     # The retry should be free to re-apply pin_first; the in-place metadata flag is idempotent
-    # so leaving it set is fine, but the bookkeeping flag must reflect that no compaction finished.
-    assert manager._pin_first_applied is False
+    # so leaving it set is fine, but the bookkeeping must reflect that no compaction finished.
+    assert manager.pinned_head_count == 0
     assert manager.removed_message_count == 0
 
 
-def test_reduce_context_success_after_previous_failure_still_correct():
-    """A retry after a failed summary should record the compaction correctly."""
+def test_reduce_context_retry_after_failure_records_correct_count():
+    """A retry after a failed summary should record the compaction correctly.
 
-    success_agent = Mock()
-    success_agent.model = Mock()
-    success_agent.model.stream = Mock(side_effect=lambda *a, **kw: _mock_model_stream("SUMMARY"))
-    success_agent.messages = [{"role": "user", "content": [{"text": f"msg {i}"}]} for i in range(6)]
+    This test induces a failure first, then succeeds on retry, verifying:
+    1. Failed attempt leaves bookkeeping unchanged
+    2. Successful retry records the exact transcript
+    3. removed_message_count tracks summarized messages correctly
+    """
+    # Set up an agent mock that will fail on first call, succeed on second
+    call_count = [0]
+
+    def stream_with_failure(*args, **kwargs):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return _mock_model_stream_error(RuntimeError("provider outage"))
+        return _mock_model_stream("SUMMARY")
+
+    retry_agent = Mock()
+    retry_agent.model = Mock()
+    retry_agent.model.stream = Mock(side_effect=stream_with_failure)
+    retry_agent.messages = [{"role": "user", "content": [{"text": f"msg {i}"}]} for i in range(6)]
 
     manager = SummarizingConversationManager(
         summary_ratio=0.5,
@@ -997,12 +1011,33 @@ def test_reduce_context_success_after_previous_failure_still_correct():
         pin_first=2,
     )
 
-    manager.reduce_context(success_agent)
+    # First call: proactive path (e=None), should swallow the error
+    with patch("strands.agent.conversation_manager.summarizing_conversation_manager.logger"):
+        manager.reduce_context(retry_agent)
 
-    assert manager.removed_message_count >= 1
-    assert manager._pin_first_applied is True
-    # agent.messages was replaced with [pinned-0, pinned-1, summary, ...remaining]
-    assert success_agent.messages[0]["content"][0]["text"] == "msg 0"
-    assert success_agent.messages[1]["content"][0]["text"] == "msg 1"
-    # The summary message is an assistant message; just verify it is in slot 2 and its text is SUMMARY.
-    assert "SUMMARY" in str(success_agent.messages[2])
+    # Bookkeeping must be unchanged after failure
+    assert manager.removed_message_count == 0
+    assert manager.pinned_head_count == 0
+    assert manager._summary_message is None
+
+    # Restore messages for retry (the failed attempt didn't modify them because of atomic design)
+    retry_agent.messages = [{"role": "user", "content": [{"text": f"msg {i}"}]} for i in range(6)]
+
+    # Second call: should succeed
+    manager.reduce_context(retry_agent)
+
+    # With summary_ratio=0.5 and 6 messages, preserve_recent_messages=1:
+    # messages_to_summarize = min(3, 5) = 3
+    # After partitioning: 2 pinned (0, 1), 1 to_summarize (2)
+    # removed_count = 1 (no prior summary, so not subtracted)
+    assert manager.removed_message_count == 1
+    assert manager.pinned_head_count == 2
+
+    # Verify the exact transcript: [msg 0, msg 1, SUMMARY, msg 3, msg 4, msg 5]
+    texts = [m["content"][0]["text"] for m in retry_agent.messages]
+    assert texts[0] == "msg 0"
+    assert texts[1] == "msg 1"
+    assert "SUMMARY" in str(retry_agent.messages[2])
+    assert texts[3] == "msg 3"
+    assert texts[4] == "msg 4"
+    assert texts[5] == "msg 5"
