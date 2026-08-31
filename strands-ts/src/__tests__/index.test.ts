@@ -35,6 +35,7 @@ describe('index', () => {
     })
 
     it('exports model routing values', () => {
+      expect(SDK.ClassifierStrategy).toBeDefined()
       expect(SDK.FallbackStrategy).toBeDefined()
       expect(SDK.ModelRouter).toBeDefined()
       expect(SDK.RoutingCandidate).toBeDefined()

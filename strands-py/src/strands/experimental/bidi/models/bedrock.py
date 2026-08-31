@@ -404,9 +404,13 @@ class BedrockNovaSonicModel(BidiModel):
             except ModelTimeoutException as error:
                 raise BidiModelTimeoutError(error.message) from error
 
-            if not event_data:
-                logger.debug("received empty event data, continuing")
-                continue
+            # Per the smithy EventReceiver contract, receive() returns None only at
+            # end-of-stream (e.g. the connection closed during reconnect). A closed receiver
+            # returns None without suspending, so continuing here busy-loops and starves the
+            # event loop; end the generator so the reader exits cleanly and the swap proceeds.
+            if event_data is None:
+                logger.debug("event stream closed by service | ending nova receive loop")
+                break
 
             # Decode and parse the event
             raw_bytes = event_data.value.bytes_.decode("utf-8")

@@ -193,9 +193,10 @@ export type { BaseModelConfig, CountTokensOptions, StreamOptions, CacheConfig } 
 export { Model } from './models/model.js'
 
 // Model routing
-export { FallbackStrategy, ModelRouter, RoutingCandidate } from './models/routing/index.js'
+export { ClassifierStrategy, FallbackStrategy, ModelRouter, RoutingCandidate } from './models/routing/index.js'
 export type {
   CandidateInput,
+  ClassifierStrategyOptions,
   ModelRouterOptions,
   RoutingAttempt,
   RoutingCandidateOptions,
