@@ -25,7 +25,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import fg from 'fast-glob'
-import yaml from 'js-yaml'
+import { load } from 'js-yaml'
 
 import { STATIC_SLUG_REDIRECTS } from './redirect'
 import { pathToDocsSlug } from './links'
@@ -43,7 +43,7 @@ function readFrontmatter(filePath: string): Record<string, unknown> {
   const source = fs.readFileSync(filePath, 'utf-8')
   const match = source.match(/^---\r?\n([\s\S]*?)\r?\n---/)
   if (!match) return {}
-  const parsed = yaml.load(match[1] ?? '')
+  const parsed = match[1] ? load(match[1]) : undefined
   return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : {}
 }
 

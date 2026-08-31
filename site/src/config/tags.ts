@@ -1,12 +1,12 @@
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import yaml from 'js-yaml'
+import { load } from 'js-yaml'
 import { z } from 'astro/zod'
 
 const TAGS_YML = fileURLToPath(new URL('./tags.yml', import.meta.url))
 
 function loadAllowedTags(): readonly string[] {
-  const raw = yaml.load(fs.readFileSync(TAGS_YML, 'utf-8'))
+  const raw = load(fs.readFileSync(TAGS_YML, 'utf-8'))
   if (!Array.isArray(raw) || !raw.every((t): t is string => typeof t === 'string')) {
     throw new Error(`[tags] ${TAGS_YML} must be a flat YAML list of strings`)
   }

@@ -3,14 +3,14 @@ import { getCollection } from 'astro:content'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import fg from 'fast-glob'
-import yaml from 'js-yaml'
+import { load } from 'js-yaml'
 import { loadSidebarFromConfig, type StarlightSidebarItem } from '../src/sidebar'
 import { pathToDocsSlug } from '../src/util/links'
 
 // Same first-fence frontmatter read as redirect.static.ts; only `slug` matters here.
 function frontmatterSlug(filePath: string): unknown {
   const match = readFileSync(filePath, 'utf-8').match(/^---\r?\n([\s\S]*?)\r?\n---/)
-  const parsed = match ? yaml.load(match[1] ?? '') : undefined
+  const parsed = match?.[1] ? load(match[1]) : undefined
   return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>).slug : undefined
 }
 

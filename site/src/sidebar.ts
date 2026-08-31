@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import yaml from 'js-yaml'
+import { load } from 'js-yaml'
 import { isNew, NEW_BADGE } from './util/new-badge'
 
 // A badge rendered next to a sidebar label. A bare string is shorthand for the default variant.
@@ -121,7 +121,7 @@ function convertConfigItem(item: NavConfigEntry, ctx: ConvertContext): Starlight
  */
 export function loadNavigationConfig(configPath: string): NavigationConfig {
   const content = fs.readFileSync(configPath, 'utf-8')
-  return yaml.load(content) as NavigationConfig
+  return load(content) as NavigationConfig
 }
 
 /**

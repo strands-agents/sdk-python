@@ -10,7 +10,7 @@
 
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import yaml from 'js-yaml'
+import { load } from 'js-yaml'
 
 export interface StatsEntry {
   id: string
@@ -135,7 +135,7 @@ export function loadEntries(catalogDir: string): StatsEntry[] {
     if (!f.endsWith('.yaml')) continue
     const id = f.replace(/\.yaml$/, '')
     try {
-      const data = yaml.load(readFileSync(path.join(catalogDir, f), 'utf-8')) as {
+      const data = load(readFileSync(path.join(catalogDir, f), 'utf-8')) as {
         github?: string
         // package is absent for guide-only language blocks (`python: {}`) —
         // those entries get no download stats for that language.
