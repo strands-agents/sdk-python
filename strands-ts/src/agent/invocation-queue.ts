@@ -58,7 +58,11 @@ export const IF_BUSY_BEHAVIORS = [...CONCURRENT_INVOCATION_MODES, 'interrupt'] a
  * - `'interrupt'`: cancel the running invocation via `agent.cancel()` and run this call
  *   next, ahead of any queued invocations. The interrupted caller receives its own
  *   result with `stopReason: 'cancelled'`; this call runs as a fresh invocation with a
- *   fresh cancellation signal.
+ *   fresh cancellation signal. When the running invocation has already completed its
+ *   final model pass and is only awaiting background work (e.g. background-task
+ *   settlement), it stops waiting and returns its completed result with
+ *   `stopReason: 'endTurn'` instead; undelivered background results are delivered
+ *   in a later invocation.
  */
 export type IfBusy = (typeof IF_BUSY_BEHAVIORS)[number]
 

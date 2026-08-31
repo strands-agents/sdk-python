@@ -225,4 +225,57 @@ describe('concurrentInvocationMode enqueue × backgroundTasks', () => {
     expect(messageIndex(agent, hasBackgroundDelivery)).toBeGreaterThan(-1)
     expect(persistedTasks(agent)).toBeUndefined()
   })
+
+  it('hands the turn to an ifBusy interrupt caller blocked behind background-task settlement', async () => {
+    const fast = createGate('fast_work')
+    const slow = createGate('slow_work')
+    const model = new MockMessageModel()
+      .addTurn([
+        { type: 'toolUseBlock', name: 'fast_work', toolUseId: 'fast-use', input: {} },
+        { type: 'toolUseBlock', name: 'slow_work', toolUseId: 'slow-use', input: {} },
+      ])
+      .addTurn({ type: 'textBlock', text: 'first done' })
+      .addTurn({ type: 'textBlock', text: 'urgent done' })
+      .addTurn({ type: 'textBlock', text: 'slow delivered' })
+    const agent = new Agent({
+      model,
+      tools: [fast.tool, slow.tool],
+      backgroundTasks: { always: [fast.tool, slow.tool] },
+      concurrentInvocationMode: 'enqueue',
+      printer: false,
+    })
+
+    // First invocation finishes its model passes, then blocks in the settlement
+    // wait: the fast task has settled (its delivery continuation is prepared)
+    // while the slow task keeps running.
+    const first = agent.invoke('first')
+    await fast.started
+    await slow.started
+    await until(() => agent.messages.some((message) => hasText(message.content, 'first done')), 'first final turn')
+    fast.release()
+    await until(() => (persistedTasks(agent) ?? []).some((task) => task.status === 'completed'), 'fast task settled')
+    expect(model.callCount).toBe(2)
+
+    // The interrupt must actually end the running invocation: the prepared delivery
+    // continuation must not resurrect it for further model passes (which would
+    // strand this caller behind the still-running slow task).
+    const urgent = agent.invoke('urgent', { ifBusy: 'interrupt' })
+    const firstResult = await first
+    expect(firstResult.stopReason).toBe('endTurn')
+    expect(resultText(firstResult)).toBe('first done')
+
+    // The interrupter runs next; the abandoned fast-task delivery lands inside
+    // ITS model pass instead of a resurrected pass of the cancelled invocation.
+    await until(() => model.callCount === 3, 'urgent model pass')
+    expect(agent.pendingInvocations).toHaveLength(0)
+    const deliveryIndex = messageIndex(agent, hasBackgroundDelivery)
+    const urgentInputIndex = messageIndex(agent, (content) => hasText(content, 'urgent'))
+    expect(deliveryIndex).toBeGreaterThan(urgentInputIndex)
+
+    // The interrupter still honors waitForCompletion for the outstanding slow task.
+    slow.release()
+    const urgentResult = await urgent
+    expect(resultText(urgentResult)).toBe('slow delivered')
+    expect(persistedTasks(agent)).toBeUndefined()
+  })
 })

@@ -1425,7 +1425,19 @@ export class Agent implements LocalAgent, InvokableAgent {
           )) !== undefined
         continuationEvent = hasContinuation ? afterInvocationEvent : undefined
 
-        if (hasContinuation || afterInvocationEvent.resume !== undefined) {
+        // A continuation must not swallow cancellation: each loop iteration installs a
+        // fresh AbortController, so continuing here would wipe an abort that arrived
+        // during AfterInvocation (e.g. while awaiting background-task settlement) and
+        // resurrect the cancelled invocation for more model passes — stranding an
+        // `ifBusy: 'interrupt'` caller behind the very invocation it cancelled. Instead,
+        // return the completed result; the prepared inputs are abandoned in the
+        // `finally` below, and contributors that retain their sources (like
+        // background-task delivery) re-deliver in a later invocation. `resume` is not
+        // gated: its passes surface interrupts before any model call and terminate
+        // promptly.
+        const cancelledAfterFinalPass = hasContinuation && this._abortSignal.aborted
+
+        if ((hasContinuation && !cancelledAfterFinalPass) || afterInvocationEvent.resume !== undefined) {
           currentArgs = afterInvocationEvent.resume ?? []
           continue
         }
