@@ -49,8 +49,10 @@ export class ContextManager implements Plugin {
       ]),
       new EmergencyTruncateStrategy(),
     ]
-    this._stashStorage = config?.stash === false ? false : (config?.stash?.storage ?? new InMemoryStorage())
-    this._enableRetrievalTool = config?.stash !== false && config?.stash?.retrievalTool !== false
+    const stashConfig = config?.stash
+    const stashObj = typeof stashConfig === 'object' ? stashConfig : undefined
+    this._stashStorage = stashConfig === false ? false : (stashObj?.storage ?? new InMemoryStorage())
+    this._enableRetrievalTool = stashConfig !== false && stashObj?.retrievalTool !== false
   }
 
   getTools(): Tool[] {
