@@ -307,26 +307,26 @@ describe("OpenAIModel (api: 'responses')", () => {
     })
 
     it('derives prompt_cache_key from the agent context session when cacheKey is unset', async () => {
-      const req = await runOnce({ cacheConfig: {} }, [mkUserMessage()], { agentContext: { sessionId: 's1' } })
+      const req = await runOnce({ cacheConfig: {} }, [mkUserMessage()], { agentInternalState: { sessionId: 's1' } })
       expect(req.prompt_cache_key).toBe('strands-s1')
     })
 
     it('lets a configured cacheKey win over the agent context session', async () => {
       const req = await runOnce({ cacheConfig: { cacheKey: 'tenant-42' } }, [mkUserMessage()], {
-        agentContext: { sessionId: 's1' },
+        agentInternalState: { sessionId: 's1' },
       })
       expect(req.prompt_cache_key).toBe('tenant-42')
     })
 
     it('treats an empty cacheKey as an opt-out even with an agent context session', async () => {
       const req = await runOnce({ cacheConfig: { cacheKey: '' } }, [mkUserMessage()], {
-        agentContext: { sessionId: 's1' },
+        agentInternalState: { sessionId: 's1' },
       })
       expect(req.prompt_cache_key).toBeUndefined()
     })
 
     it('omits prompt_cache_key when the agent context carries no session', async () => {
-      const req = await runOnce({ cacheConfig: {} }, [mkUserMessage()], { agentContext: {} })
+      const req = await runOnce({ cacheConfig: {} }, [mkUserMessage()], { agentInternalState: {} })
       expect(req.prompt_cache_key).toBeUndefined()
     })
 

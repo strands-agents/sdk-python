@@ -2410,7 +2410,7 @@ describe('normalizeToolUseNames', () => {
     })
   })
 
-  describe('agentContext', () => {
+  describe('agentInternalState', () => {
     class RecordingModel extends MockMessageModel {
       readonly receivedOptions: StreamOptions[] = []
 
@@ -2427,7 +2427,7 @@ describe('normalizeToolUseNames', () => {
 
       await agent.invoke('hi')
 
-      expect(model.receivedOptions[0]?.agentContext).toEqual({ sessionId: 'my-session' })
+      expect(model.receivedOptions[0]?.agentInternalState).toEqual({ sessionId: 'my-session' })
     })
 
     it('sends no agent context when no session manager is attached', async () => {
@@ -2436,7 +2436,7 @@ describe('normalizeToolUseNames', () => {
 
       await agent.invoke('hi')
 
-      expect(model.receivedOptions[0]?.agentContext).toBeUndefined()
+      expect(model.receivedOptions[0]?.agentInternalState).toBeUndefined()
     })
 
     it('routes each agent on its own session when one model is shared across sessions', async () => {
@@ -2456,7 +2456,7 @@ describe('normalizeToolUseNames', () => {
       await agentS1.invoke('hi')
       await agentS2.invoke('hi')
 
-      const sessionIds = model.receivedOptions.map((options) => options.agentContext?.sessionId)
+      const sessionIds = model.receivedOptions.map((options) => options.agentInternalState?.sessionId)
       expect(sessionIds).toEqual(['s1', 's2'])
     })
   })

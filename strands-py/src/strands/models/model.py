@@ -177,7 +177,7 @@ class CacheToolsConfig:
 
 
 @dataclass(frozen=True)
-class AgentContext:
+class AgentInternalState:
     """Read-only view of stable agent identity passed to a model on ``stream()``.
 
     Populated by the agent per request; a provider may consult it (e.g. to derive a prompt-cache
@@ -271,7 +271,7 @@ class Model(abc.ABC):
         system_prompt_content: list[SystemContentBlock] | None = None,
         invocation_state: dict[str, Any] | None = None,
         cancel_signal: threading.Event | None = None,
-        agent_context: AgentContext | None = None,
+        agent_internal_state: AgentInternalState | None = None,
         **kwargs: Any,
     ) -> AsyncIterable[StreamEvent]:
         """Stream conversation with the model.
@@ -292,7 +292,7 @@ class Model(abc.ABC):
             cancel_signal: Event a provider can observe to abort an in-flight request. Support is
                 provider-dependent; a provider that ignores it still cancels at the SDK's
                 between-chunk checkpoint.
-            agent_context: Stable identity of the invoking agent (e.g. its session id), supplied per
+            agent_internal_state: Stable identity of the invoking agent (e.g. its session id), supplied per
                 request. A provider may consult it to derive a prompt-cache routing key; None when the
                 model is streamed directly without an agent.
             **kwargs: Additional keyword arguments for future extensibility.

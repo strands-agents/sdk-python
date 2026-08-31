@@ -731,7 +731,7 @@ def _make_invoke_model_terminal(
                     model_state=model_state,
                     dynamic_trailing_blocks=ctx.dynamic_trailing_blocks,
                     cancel_signal=agent._cancel_signal,
-                    agent_context=agent._get_agent_context(),
+                    agent_internal_state=agent._get_agent_internal_state(),
                 ):
                     yield event
 

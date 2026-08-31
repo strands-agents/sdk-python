@@ -22,7 +22,7 @@ from ..types.exceptions import ContextWindowOverflowException
 from ..types.streaming import MetadataEvent, StreamEvent
 from ..types.tools import ToolChoice, ToolSpec, ToolUse
 from ._validation import validate_config_keys
-from .model import AgentContext, BaseModelConfig, CacheConfig
+from .model import AgentInternalState, BaseModelConfig, CacheConfig
 from .openai import OpenAIModel
 
 logger = logging.getLogger(__name__)
@@ -330,7 +330,7 @@ class LiteLLMModel(OpenAIModel):
         *,
         tool_choice: ToolChoice | None = None,
         system_prompt_content: list[SystemContentBlock] | None = None,
-        agent_context: AgentContext | None = None,
+        agent_internal_state: AgentInternalState | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the LiteLLM model.
@@ -341,7 +341,7 @@ class LiteLLMModel(OpenAIModel):
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
             system_prompt_content: System prompt content blocks to provide context to the model.
-            agent_context: Invoking agent's identity, used to derive a prompt-cache routing key.
+            agent_internal_state: Invoking agent's identity, used to derive a prompt-cache routing key.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
@@ -354,7 +354,7 @@ class LiteLLMModel(OpenAIModel):
             system_prompt,
             tool_choice,
             system_prompt_content=system_prompt_content,
-            agent_context=agent_context,
+            agent_internal_state=agent_internal_state,
         )
         logger.debug("request=<%s>", request)
 

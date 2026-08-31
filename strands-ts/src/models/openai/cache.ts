@@ -8,7 +8,7 @@
  * @internal
  */
 
-import type { AgentContext, CacheConfig } from '../model.js'
+import type { AgentInternalState, CacheConfig } from '../model.js'
 import { logger } from '../../logging/logger.js'
 import { warnOnce } from '../../logging/warn-once.js'
 
@@ -49,9 +49,12 @@ function hasPlacementConfig(cacheConfig: CacheConfig): boolean {
  *
  * @internal
  */
-function resolveCacheKey(cacheConfig: CacheConfig, agentContext: AgentContext | undefined): string | undefined {
+function resolveCacheKey(
+  cacheConfig: CacheConfig,
+  agentInternalState: AgentInternalState | undefined
+): string | undefined {
   if (cacheConfig.cacheKey !== undefined) return cacheConfig.cacheKey
-  if (agentContext?.sessionId !== undefined) return `strands-${agentContext.sessionId}`
+  if (agentInternalState?.sessionId !== undefined) return `strands-${agentInternalState.sessionId}`
   return undefined
 }
 
@@ -69,16 +72,16 @@ function resolveCacheKey(cacheConfig: CacheConfig, agentContext: AgentContext | 
  *
  * @param request - The request being assembled; mutated in place.
  * @param cacheConfig - The provider's configured cache settings, if any.
- * @param agentContext - The invoking agent's identity, used to derive a routing key when one is unset.
+ * @param agentInternalState - The invoking agent's identity, used to derive a routing key when one is unset.
  */
 export function applyCacheConfig(
   request: CacheableRequest,
   cacheConfig: CacheConfig | undefined,
-  agentContext?: AgentContext
+  agentInternalState?: AgentInternalState
 ): void {
   if (!cacheConfig) return
 
-  const cacheKey = resolveCacheKey(cacheConfig, agentContext)
+  const cacheKey = resolveCacheKey(cacheConfig, agentInternalState)
   if (cacheKey && request.prompt_cache_key === undefined) {
     request.prompt_cache_key = cacheKey
   }

@@ -9,7 +9,7 @@ import warnings
 from collections.abc import AsyncGenerator, AsyncIterable
 from typing import Any
 
-from ..models.model import AgentContext, Model
+from ..models.model import AgentInternalState, Model
 from ..tools import InvalidToolUseNameException
 from ..tools.tools import validate_tool_use_name
 from ..types._events import (
@@ -516,7 +516,7 @@ async def stream_messages(
     model_state: dict[str, Any] | None = None,
     dynamic_trailing_blocks: int = 0,
     cancel_signal: threading.Event | None = None,
-    agent_context: AgentContext | None = None,
+    agent_internal_state: AgentInternalState | None = None,
     **kwargs: Any,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Streams messages to the model and processes the response.
@@ -535,7 +535,7 @@ async def stream_messages(
             call, so a provider placing cache points keeps its own ahead of them.
         cancel_signal: Optional threading.Event to check for cancellation during streaming. Also
             forwarded to the model so a provider can abort an in-flight request.
-        agent_context: Stable identity of the invoking agent, forwarded to the model so a provider can
+        agent_internal_state: Stable identity of the invoking agent, forwarded to the model so a provider can
             derive a prompt-cache routing key.
         **kwargs: Additional keyword arguments for future extensibility.
 
@@ -559,7 +559,7 @@ async def stream_messages(
         invocation_state=invocation_state,
         model_state=model_state,
         cancel_signal=cancel_signal,
-        agent_context=agent_context,
+        agent_internal_state=agent_internal_state,
         # Omitted when zero, so an ordinary call's arguments are unchanged.
         **({"dynamic_trailing_blocks": dynamic_trailing_blocks} if dynamic_trailing_blocks else {}),
     )

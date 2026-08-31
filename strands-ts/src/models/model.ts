@@ -133,7 +133,7 @@ export interface CacheConfig {
  * routing key). Because it is rebuilt for every request, a single model instance shared across
  * agents sees each agent's own identity rather than a value baked in at construction.
  */
-export interface AgentContext {
+export interface AgentInternalState {
   /** The agent's persisted session id; present only when a session manager is attached. */
   sessionId?: string
 }
@@ -267,7 +267,7 @@ export interface StreamOptions {
    * Stable identity of the invoking agent (e.g. its session id), supplied per request. A provider
    * may consult it to derive a prompt-cache routing key; absent when the model is streamed directly.
    */
-  agentContext?: AgentContext
+  agentInternalState?: AgentInternalState
 }
 
 /**

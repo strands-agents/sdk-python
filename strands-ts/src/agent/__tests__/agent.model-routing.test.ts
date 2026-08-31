@@ -254,7 +254,7 @@ describe('Agent model routing', () => {
 
     await agent.invoke('hello')
 
-    expect(alternate.receivedOptions[0]?.agentContext).toEqual({ sessionId: 'routed' })
+    expect(alternate.receivedOptions[0]?.agentInternalState).toEqual({ sessionId: 'routed' })
     expect(primary.receivedOptions).toHaveLength(0)
   })
 })

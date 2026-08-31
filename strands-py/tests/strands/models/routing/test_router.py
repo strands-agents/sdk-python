@@ -217,15 +217,15 @@ async def test_custom_strategy_prefers_named_candidate():
     assert await router._select_model(_routing_context(router.candidates)) is smart
 
 
-class _RecordsAgentContext(MockedModelProvider):
-    """Records the agent_context forwarded to stream()."""
+class _RecordsAgentInternalState(MockedModelProvider):
+    """Records the agent_internal_state forwarded to stream()."""
 
     def __init__(self, agent_responses):
         super().__init__(agent_responses)
-        self.agent_context = None
+        self.agent_internal_state = None
 
     async def stream(self, *args, **kwargs):
-        self.agent_context = kwargs.get("agent_context")
+        self.agent_internal_state = kwargs.get("agent_internal_state")
         async for event in super().stream(*args, **kwargs):
             yield event
 
@@ -234,7 +234,7 @@ class _RecordsAgentContext(MockedModelProvider):
 async def test_routing_forwards_agent_context_to_the_selected_alternate():
     """A routed alternate receives the invoking agent's context, so session-based cache routing
     reaches every candidate rather than only the default model."""
-    alternate = _RecordsAgentContext([{"role": "assistant", "content": [{"text": "hi"}]}])
+    alternate = _RecordsAgentInternalState([{"role": "assistant", "content": [{"text": "hi"}]}])
     router = ModelRouter(
         models=[RoutingCandidate(_model(), name="default"), RoutingCandidate(alternate, name="alternate")],
         strategy=_PreferByName("alternate"),
@@ -244,7 +244,7 @@ async def test_routing_forwards_agent_context_to_the_selected_alternate():
 
     await agent.invoke_async("question")
 
-    assert alternate.agent_context.session_id == "routed"
+    assert alternate.agent_internal_state.session_id == "routed"
 
 
 @pytest.mark.asyncio

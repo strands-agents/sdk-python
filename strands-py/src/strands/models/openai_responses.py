@@ -64,7 +64,7 @@ from ._openai_bedrock import BedrockMantleConfig, resolve_bedrock_client_args  #
 from ._openai_cache import apply_cache_config  # noqa: E402
 from ._openai_errors import classify_openai_error  # noqa: E402
 from ._validation import validate_config_keys  # noqa: E402
-from .model import AgentContext, BaseModelConfig, CacheConfig, Model  # noqa: E402
+from .model import AgentInternalState, BaseModelConfig, CacheConfig, Model  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -299,7 +299,7 @@ class OpenAIResponsesModel(Model):
         *,
         tool_choice: ToolChoice | None = None,
         model_state: dict[str, Any] | None = None,
-        agent_context: AgentContext | None = None,
+        agent_internal_state: AgentInternalState | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the OpenAI Responses API model.
@@ -310,7 +310,7 @@ class OpenAIResponsesModel(Model):
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
             model_state: Runtime state for model providers (e.g., server-side response ids).
-            agent_context: Invoking agent's identity, used to derive a prompt-cache routing key.
+            agent_internal_state: Invoking agent's identity, used to derive a prompt-cache routing key.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
@@ -321,7 +321,9 @@ class OpenAIResponsesModel(Model):
             ModelThrottledException: If the request is throttled by OpenAI (rate limits).
         """
         logger.debug("formatting request for OpenAI Responses API")
-        request = self._format_request(messages, tool_specs, system_prompt, tool_choice, model_state, agent_context)
+        request = self._format_request(
+            messages, tool_specs, system_prompt, tool_choice, model_state, agent_internal_state
+        )
         logger.debug("formatted request=<%s>", request)
 
         logger.debug("invoking OpenAI Responses API model")
@@ -545,7 +547,7 @@ class OpenAIResponsesModel(Model):
         system_prompt: str | None = None,
         tool_choice: ToolChoice | None = None,
         model_state: dict[str, Any] | None = None,
-        agent_context: AgentContext | None = None,
+        agent_internal_state: AgentInternalState | None = None,
     ) -> dict[str, Any]:
         """Format an OpenAI Responses API compatible response streaming request.
 
@@ -555,7 +557,7 @@ class OpenAIResponsesModel(Model):
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
             model_state: Runtime state for model providers (e.g., server-side response ids).
-            agent_context: Invoking agent's identity, used to derive a prompt-cache routing key.
+            agent_internal_state: Invoking agent's identity, used to derive a prompt-cache routing key.
 
         Returns:
             An OpenAI Responses API compatible response streaming request.
@@ -600,7 +602,7 @@ class OpenAIResponsesModel(Model):
             ]
             request.update(self._format_request_tool_choice(tool_choice))
 
-        apply_cache_config(request, cast(CacheConfig | None, self.config.get("cache_config")), agent_context)
+        apply_cache_config(request, cast(CacheConfig | None, self.config.get("cache_config")), agent_internal_state)
 
         return request
 

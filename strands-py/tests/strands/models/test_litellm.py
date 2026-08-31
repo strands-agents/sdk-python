@@ -6,7 +6,7 @@ import pytest
 from litellm.exceptions import ContextWindowExceededError
 
 import strands
-from strands.models import AgentContext, CacheConfig
+from strands.models import AgentInternalState, CacheConfig
 from strands.models.litellm import LiteLLMModel
 from strands.types.exceptions import ContextWindowOverflowException
 
@@ -73,7 +73,7 @@ def test_cache_key_derived_from_agent_context_session(litellm_acompletion, model
     _ = litellm_acompletion
     model = LiteLLMModel(model_id=model_id, cache_config=CacheConfig())
 
-    request = model.format_request(messages, agent_context=AgentContext(session_id="s1"))
+    request = model.format_request(messages, agent_internal_state=AgentInternalState(session_id="s1"))
 
     assert request["prompt_cache_key"] == "strands-s1"
 

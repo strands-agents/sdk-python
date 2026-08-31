@@ -1276,7 +1276,7 @@ describe('OpenAIModel', () => {
 
       await collectIterator(
         provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })], {
-          agentContext: { sessionId: 's1' },
+          agentInternalState: { sessionId: 's1' },
         })
       )
 
@@ -1293,7 +1293,7 @@ describe('OpenAIModel', () => {
 
       await collectIterator(
         provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })], {
-          agentContext: { sessionId: 's1' },
+          agentInternalState: { sessionId: 's1' },
         })
       )
 
@@ -1310,7 +1310,7 @@ describe('OpenAIModel', () => {
 
       await collectIterator(
         provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })], {
-          agentContext: { sessionId: 's1' },
+          agentInternalState: { sessionId: 's1' },
         })
       )
 
@@ -1322,7 +1322,7 @@ describe('OpenAIModel', () => {
       const provider = new OpenAIModel({ api: 'chat', client: createMockClientWithCapture(captured), cacheConfig: {} })
 
       await collectIterator(
-        provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })], { agentContext: {} })
+        provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })], { agentInternalState: {} })
       )
 
       expect(captured.request.prompt_cache_key).toBeUndefined()
