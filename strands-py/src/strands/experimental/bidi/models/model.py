@@ -73,6 +73,7 @@ class BidiModel(Model, abc.ABC):
         raise NotImplementedError("regular streaming is not supported by bidirectional models")
 
     @abc.abstractmethod
+    # pragma: no cover
     async def start(
         self,
         system_prompt: str | None = None,
@@ -95,6 +96,7 @@ class BidiModel(Model, abc.ABC):
         pass
 
     @abc.abstractmethod
+    # pragma: no cover
     async def stop(self) -> None:
         """Close the streaming connection and release resources.
 
@@ -105,6 +107,7 @@ class BidiModel(Model, abc.ABC):
         pass
 
     @abc.abstractmethod
+    # pragma: no cover
     def receive(self) -> AsyncIterable[BidiOutputEvent]:
         """Receive streaming events from the model.
 
@@ -121,6 +124,7 @@ class BidiModel(Model, abc.ABC):
         pass
 
     @abc.abstractmethod
+    # pragma: no cover
     async def send(
         self,
         content: BidiInputEvent | ToolResultEvent,

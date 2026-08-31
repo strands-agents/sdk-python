@@ -146,6 +146,15 @@ def test_bidi_agent_init_with_unsupported_model():
 
 
 @pytest.mark.skipif(sys.version_info < (3, 12), reason="BedrockNovaSonicModel is only supported for Python 3.12+")
+def test_bidi_agent_init_with_default_model():
+    from strands.experimental.bidi.models.bedrock import BedrockNovaSonicModel
+
+    agent = BidiAgent(model=None)
+
+    assert isinstance(agent.model, BedrockNovaSonicModel)
+
+
+@pytest.mark.skipif(sys.version_info < (3, 12), reason="BedrockNovaSonicModel is only supported for Python 3.12+")
 def test_bidi_agent_init_with_model_id():
     from strands.experimental.bidi.models.bedrock import BedrockNovaSonicModel
 
