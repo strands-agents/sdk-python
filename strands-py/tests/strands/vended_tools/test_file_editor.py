@@ -281,6 +281,25 @@ class TestStrReplace:
             await editor(command="str_replace", path=file_path, tool_context=ctx, old_str="DUP", new_str="NEW")
 
     @pytest.mark.asyncio
+    async def test_multiple_occurrences_reports_the_lines(self, editor, ctx, tmp_path):
+        """The error names the lines the duplicates start on, so the caller can disambiguate."""
+        file_path = _write(tmp_path / "test.txt", "DUP Line 1\nLine 2\nDUP Line 3")
+        with pytest.raises(ValueError, match=r"in lines \[1, 3\]"):
+            await editor(command="str_replace", path=file_path, tool_context=ctx, old_str="DUP", new_str="NEW")
+
+    @pytest.mark.asyncio
+    async def test_multiple_occurrences_of_multiline_old_str_reports_the_lines(self, editor, ctx, tmp_path):
+        """A multi-line ``old_str`` reports its start lines rather than an empty list.
+
+        The occurrences used to be counted by testing ``old_str in line`` for each
+        line, which no single line of a multi-line ``old_str`` can satisfy, so the
+        message said ``in lines []`` and told the caller nothing.
+        """
+        file_path = _write(tmp_path / "test.txt", "A\nB\nX\nA\nB")
+        with pytest.raises(ValueError, match=r"in lines \[1, 4\]"):
+            await editor(command="str_replace", path=file_path, tool_context=ctx, old_str="A\nB", new_str="Z")
+
+    @pytest.mark.asyncio
     async def test_nonexistent_raises(self, editor, ctx, tmp_path):
         with pytest.raises(ValueError, match="does not exist"):
             await editor(
