@@ -421,7 +421,15 @@ class SageMakerAIModel(OpenAIModel):
                 reasoning_content_started = False
 
                 for content in _parse_event_stream(response["Body"]):
-                    choice = content["choices"][0]
+                    choices = content.get("choices")
+                    if not choices:
+                        if usage := content.get("usage"):
+                            yield self.format_chunk({"chunk_type": "metadata", "data": UsageMetadata(**usage)})
+                        continue
+                    if finish_reason:
+                        continue
+
+                    choice = choices[0]
                     logger.debug("choice=<%s>", json.dumps(choice, indent=2))
 
                     # Handle text content
@@ -460,12 +468,12 @@ class SageMakerAIModel(OpenAIModel):
                     for tool_call in generated_tool_calls:
                         tool_calls.setdefault(tool_call["index"], []).append(tool_call)
 
+                    usage = content.get("usage") or choice.get("usage")
+                    if usage:
+                        yield self.format_chunk({"chunk_type": "metadata", "data": UsageMetadata(**usage)})
+
                     if choice["finish_reason"] is not None:
                         finish_reason = choice["finish_reason"]
-                        break
-
-                    if choice.get("usage"):
-                        yield self.format_chunk({"chunk_type": "metadata", "data": UsageMetadata(**choice["usage"])})
 
                 # Close reasoning content if it was started
                 if reasoning_content_started:

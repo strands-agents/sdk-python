@@ -14,6 +14,7 @@ from strands.models.sagemaker import (
     SageMakerAIModel,
     ToolCall,
     UsageMetadata,
+    _parse_event_stream,
 )
 from strands.types.content import Messages
 from strands.types.tools import ToolSpec
@@ -103,6 +104,95 @@ def test_format_request_tool_message_preserves_non_ascii():
         "content": '{"city": "東京"}',
     }
     assert tru_result == exp_result
+
+
+def _payload_parts(*chunks: str) -> list[dict[str, dict[str, bytes]]]:
+    """Build the PayloadPart shape returned by SageMaker streaming responses."""
+    return [{"PayloadPart": {"Bytes": chunk.encode("utf-8")}} for chunk in chunks]
+
+
+class TestSageMakerEventStreamParser:
+    """Tests for SageMaker PayloadPart and SSE framing edge cases."""
+
+    def test_skips_malformed_sse_event_and_continues(self, caplog):
+        """A malformed data field is warned about without dropping later events."""
+        caplog.set_level(logging.WARNING, logger="strands.models.sagemaker")
+        body = _payload_parts('data: {malformed\ndata: {"value": "valid"}\n')
+
+        assert list(_parse_event_stream(body)) == [{"value": "valid"}]
+        assert [record.message for record in caplog.records] == ["line=<data: {malformed> | skipping malformed event"]
+
+    def test_buffers_multiline_bare_json_until_it_parses(self, caplog):
+        """A bare JSON document containing newlines is decoded as a whole."""
+        caplog.set_level(logging.WARNING, logger="strands.models.sagemaker")
+        event = {"value": "pretty"}
+        payload = json.dumps(event, indent=2)
+        split = len(payload) // 2
+        body = _payload_parts(payload[:split], payload[split:])
+
+        assert list(_parse_event_stream(body)) == [event]
+        assert not caplog.records
+
+    def test_skips_sse_control_fields_and_done(self, caplog):
+        """SSE control fields, comments, blank lines, and DONE carry no JSON event."""
+        caplog.set_level(logging.WARNING, logger="strands.models.sagemaker")
+        body = _payload_parts(
+            'event: message\nid: 42\nretry: 1000\n: keep-alive\n\ndata: {"value": "valid"}\n\ndata: [DONE]\n\n'
+        )
+
+        assert list(_parse_event_stream(body)) == [{"value": "valid"}]
+        assert not caplog.records
+
+    def test_warns_when_stream_ends_with_partial_event(self, caplog):
+        """An undecoded residual is reported rather than silently discarded."""
+        caplog.set_level(logging.WARNING, logger="strands.models.sagemaker")
+        body = _payload_parts('data: {"value":')
+
+        assert list(_parse_event_stream(body)) == []
+        assert [record.message for record in caplog.records] == [
+            'buffer=<data: {"value":> | stream ended with an undecoded partial event'
+        ]
+
+
+@pytest.mark.asyncio
+async def test_stream_emits_usage_only_chunk_after_finish(sagemaker_client, model, messages, alist):
+    """A trailing OpenAI-compatible usage chunk is emitted despite its empty choices list."""
+    usage = {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}
+    events = [
+        {"choices": [{"delta": {"content": "answer"}, "finish_reason": None}]},
+        {"choices": [{"delta": {}, "finish_reason": "stop"}]},
+        # Choice events after the finish reason remain ignored while the usage tail is consumed.
+        {"choices": [{"delta": {"content": "ignored"}, "finish_reason": None}]},
+        {"choices": []},
+        {"choices": [], "usage": usage},
+    ]
+    payload = "".join(f"data: {json.dumps(event)}\n\n" for event in events) + "data: [DONE]\n\n"
+    sagemaker_client.invoke_endpoint_with_response_stream.return_value = {"Body": _payload_parts(payload)}
+
+    response = await alist(model.stream(messages))
+
+    tru_text = "".join(
+        event["contentBlockDelta"]["delta"]["text"]
+        for event in response
+        if "contentBlockDelta" in event and "text" in event["contentBlockDelta"]["delta"]
+    )
+    metadata = [event["metadata"]["usage"] for event in response if "metadata" in event]
+    assert tru_text == "answer"
+    assert metadata == [{"inputTokens": 10, "outputTokens": 20, "totalTokens": 30}]
+    assert response[-1] == {"messageStop": {"stopReason": "end_turn"}}
+
+
+@pytest.mark.asyncio
+async def test_stream_preserves_choice_local_usage(sagemaker_client, model, messages, alist):
+    """Usage nested in a choice remains supported for custom SageMaker containers."""
+    usage = {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3}
+    event = {"choices": [{"delta": {}, "finish_reason": "stop", "usage": usage}]}
+    sagemaker_client.invoke_endpoint_with_response_stream.return_value = {"Body": _payload_parts(json.dumps(event))}
+
+    response = await alist(model.stream(messages))
+
+    metadata = next(item["metadata"]["usage"] for item in response if "metadata" in item)
+    assert metadata == {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}
 
 
 class TestSageMakerAIModel:
@@ -365,17 +455,15 @@ class TestSageMakerAIModel:
                                     {
                                         "delta": {
                                             "content": None,
-                                            "tool_calls": [
-                                                {
-                                                    "index": 0,
-                                                    "id": "tool123",
-                                                    "type": "function",
-                                                    "function": {
-                                                        "name": "get_weather",
-                                                        "arguments": '{"location": "Paris"}',
-                                                    },
-                                                }
-                                            ],
+                                            "tool_calls": {
+                                                "index": 0,
+                                                "id": "tool123",
+                                                "type": "function",
+                                                "function": {
+                                                    "name": "get_weather",
+                                                    "arguments": '{"location": "Paris"}',
+                                                },
+                                            },
                                         },
                                         "finish_reason": "tool_calls",
                                     }
@@ -756,6 +844,13 @@ class TestSageMakerReasoningContent:
                 {
                     "PayloadPart": {
                         "Bytes": json.dumps(
+                            {"choices": [{"delta": {"reasoning": " still thinking."}, "finish_reason": None}]}
+                        ).encode("utf-8")
+                    }
+                },
+                {
+                    "PayloadPart": {
+                        "Bytes": json.dumps(
                             {"choices": [{"delta": {"content": "Paris."}, "finish_reason": "stop"}]}
                         ).encode("utf-8")
                     }
@@ -769,8 +864,10 @@ class TestSageMakerReasoningContent:
         reasoning_deltas = [
             e for e in response if "contentBlockDelta" in e and "reasoningContent" in e["contentBlockDelta"]["delta"]
         ]
-        assert len(reasoning_deltas) == 1
-        assert reasoning_deltas[0]["contentBlockDelta"]["delta"]["reasoningContent"]["text"] == "Let me think..."
+        assert [event["contentBlockDelta"]["delta"]["reasoningContent"]["text"] for event in reasoning_deltas] == [
+            "Let me think...",
+            " still thinking.",
+        ]
 
     @pytest.mark.asyncio
     async def test_stream_reasoning_with_reasoning_content_field(self, sagemaker_client, model, messages):
