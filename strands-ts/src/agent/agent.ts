@@ -1634,6 +1634,24 @@ export class Agent implements LocalAgent, InvokableAgent {
           messages: this.messages,
         })
 
+        // Closes cycle telemetry exactly once, however the cycle exits: return,
+        // continue, throw, or the consumer closing the public iterator (which
+        // resumes the generator at the suspended yield and runs the finally).
+        // Called before building an AgentResult so its metrics include this cycle.
+        let cycleClosed = false
+        const closeCycle = (error?: Error): void => {
+          if (cycleClosed) {
+            return
+          }
+          cycleClosed = true
+          this._meter.endCycle(cycleStartTime)
+          if (error) {
+            this._tracer.endAgentLoopSpan(cycleSpan, { error })
+          } else {
+            this._tracer.endAgentLoopSpan(cycleSpan)
+          }
+        }
+
         try {
           // Normalize input and append user messages on first invocation only
           if (currentArgs !== undefined) {
@@ -1669,8 +1687,7 @@ export class Agent implements LocalAgent, InvokableAgent {
                 )
               }
 
-              this._meter.endCycle(cycleStartTime)
-              this._tracer.endAgentLoopSpan(cycleSpan)
+              closeCycle()
 
               // Schema set, model ignored the tool — drop the response and force the tool next cycle.
               // Appending the plain-text turn here would leave the conversation ending on an
@@ -1713,8 +1730,7 @@ export class Agent implements LocalAgent, InvokableAgent {
               yield this._appendMessage(modelResult.message, invocationState)
               yield this._appendMessage(toolResultMessage, invocationState)
 
-              this._meter.endCycle(cycleStartTime)
-              this._tracer.endAgentLoopSpan(cycleSpan)
+              closeCycle()
 
               result = new AgentResult({
                 stopReason: 'cancelled',
@@ -1736,8 +1752,7 @@ export class Agent implements LocalAgent, InvokableAgent {
               const priorResumePosition = resumePosition
               resumePosition = undefined
               if (priorResumePosition !== 'afterModel') {
-                this._meter.endCycle(cycleStartTime)
-                this._tracer.endAgentLoopSpan(cycleSpan)
+                closeCycle()
                 result = new AgentResult({
                   stopReason: 'checkpoint',
                   lastMessage: modelResult.message,
@@ -1756,11 +1771,12 @@ export class Agent implements LocalAgent, InvokableAgent {
           // Execute tools
           const toolsResult = yield* this.executeTools(assistantMessage, invocationState, completedToolResults)
 
-          // When the consumer breaks the stream (e.g. agent.cancel() + break),
-          // yield* returns undefined because the inner generator was closed.
+          // Reached when the consumer breaks the stream during tool execution.
+          // _streamCore's drain loop calls .return(), which runs the finally in
+          // executeTools and yields its AfterToolsEvent, and the drain's next()
+          // then completes the closed generator, so this yield* evaluates to
+          // undefined instead of unwinding.
           if (!toolsResult) {
-            this._meter.endCycle(cycleStartTime)
-            this._tracer.endAgentLoopSpan(cycleSpan)
             continue
           }
           const toolResultMessage = toolsResult.message
@@ -1768,8 +1784,6 @@ export class Agent implements LocalAgent, InvokableAgent {
           // Tools were skipped (not executed) — preserve pending state so the next resume
           // can run them.
           if (this.isCancelled && toolsResult.toolsSkipped && this._interruptState.pendingToolExecution) {
-            this._meter.endCycle(cycleStartTime)
-            this._tracer.endAgentLoopSpan(cycleSpan)
             continue
           }
 
@@ -1791,8 +1805,7 @@ export class Agent implements LocalAgent, InvokableAgent {
             this._interruptState.deactivate()
           }
 
-          this._meter.endCycle(cycleStartTime)
-          this._tracer.endAgentLoopSpan(cycleSpan)
+          closeCycle()
 
           // Hook requested halt with content: exit without calling the model again.
           const { afterToolsEvent } = toolsResult
@@ -1850,9 +1863,10 @@ export class Agent implements LocalAgent, InvokableAgent {
             return result
           }
         } catch (error) {
-          this._meter.endCycle(cycleStartTime)
-          this._tracer.endAgentLoopSpan(cycleSpan, { error: error as Error })
+          closeCycle(error as Error)
           throw error
+        } finally {
+          closeCycle()
         }
       }
     } catch (error) {

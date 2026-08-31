@@ -53,6 +53,7 @@ from ..hooks import (
     AfterInvocationEvent,
     AgentInitializedEvent,
     BeforeInvocationEvent,
+    BeforeModelCallEvent,
     HookCallback,
     HookOrder,
     HookProvider,
@@ -94,6 +95,7 @@ from ..types.content import (
 from ..types.exceptions import ConcurrencyException, ContextWindowOverflowException
 from ..types.tools import AgentTool
 from ..types.traces import AttributeValue
+from . import _continuation
 from ._agent_as_tool import _AgentAsTool
 from ._concurrency import _ConcurrencyController
 from .agent_result import AgentResult
@@ -1393,28 +1395,31 @@ class Agent(AgentBase):
                     # The result is the last EventLoopStopEvent, not the last event overall:
                     # AgentStreamStage middleware may yield trailing events after the stop event.
                     stop_event: EventLoopStopEvent | None = None
-                    async for event in events:
-                        event.prepare(invocation_state=merged_state)
+                    try:
+                        async for event in events:
+                            event.prepare(invocation_state=merged_state)
 
-                        if isinstance(event, EventLoopStopEvent):
-                            stop_event = event
+                            if isinstance(event, EventLoopStopEvent):
+                                stop_event = event
 
-                        if event.is_callback_event:
-                            as_dict = event.as_dict()
-                            callback_handler(**as_dict)
-                            yield as_dict
+                            if event.is_callback_event:
+                                as_dict = event.as_dict()
+                                callback_handler(**as_dict)
+                                yield as_dict
 
-                    if stop_event is None:
-                        raise RuntimeError(
-                            "Agent stream produced no result event. AgentStreamStage middleware must "
-                            "forward events from next() and must not drop the terminal stop event."
-                        )
+                        if stop_event is None:
+                            raise RuntimeError(
+                                "Agent stream produced no result event. AgentStreamStage middleware must "
+                                "forward events from next() and must not drop the terminal stop event."
+                            )
 
-                    result = AgentResult(*stop_event["stop"])
-                    callback_handler(result=result)
-                    yield AgentResultEvent(result=result).as_dict()
+                        result = AgentResult(*stop_event["stop"])
+                        callback_handler(result=result)
+                        yield AgentResultEvent(result=result).as_dict()
 
-                    self._end_agent_trace_span(response=result)
+                        self._end_agent_trace_span(response=result)
+                    finally:
+                        await events.aclose()
 
                 except Exception as e:
                     self._end_agent_trace_span(error=e)
@@ -1461,11 +1466,19 @@ class Agent(AgentBase):
             Events from the event loop cycle.
         """
         current_messages: Messages | None = messages
+        continuation_event: AfterInvocationEvent | None = None
 
         while current_messages is not None:
-            before_invocation_event, _interrupts = await self.hooks.invoke_callbacks_async(
-                BeforeInvocationEvent(agent=self, invocation_state=invocation_state, messages=current_messages)
-            )
+            try:
+                before_invocation_event, _interrupts = await self.hooks.invoke_callbacks_async(
+                    BeforeInvocationEvent(agent=self, invocation_state=invocation_state, messages=current_messages)
+                )
+            except BaseException:
+                await _continuation.abandon(
+                    continuation_event,
+                    RuntimeError("Agent stream closed before continuation input was incorporated into agent history"),
+                )
+                raise
 
             if before_invocation_event.cancel:
                 cancel_text = (
@@ -1478,8 +1491,18 @@ class Agent(AgentBase):
                 yield EventLoopStopEvent(
                     "end_turn", cancel_message, self.event_loop_metrics, invocation_state.get("request_state", {})
                 )
-                await self.hooks.invoke_callbacks_async(
-                    AfterInvocationEvent(agent=self, invocation_state=invocation_state)
+                await _continuation.abandon(
+                    continuation_event, RuntimeError("Continuation was not incorporated into agent history")
+                )
+                after_invocation_event = AfterInvocationEvent(agent=self, invocation_state=invocation_state)
+                try:
+                    await self.hooks.invoke_callbacks_async(after_invocation_event)
+                except BaseException as error:
+                    await _continuation.abandon(after_invocation_event, error)
+                    raise
+                await _continuation.abandon(
+                    after_invocation_event,
+                    RuntimeError("Agent stream closed before continuation input was incorporated into agent history"),
                 )
                 return
 
@@ -1488,6 +1511,7 @@ class Agent(AgentBase):
             )
 
             agent_result: AgentResult | None = None
+            caught_error: BaseException | None = None
             try:
                 yield InitEventLoopEvent()
 
@@ -1497,7 +1521,8 @@ class Agent(AgentBase):
                 for message in self.messages:
                     _ensure_tracking_id(message)
 
-                await self._append_messages(*current_messages)
+                if continuation_event is None:
+                    await self._append_messages(*current_messages)
 
                 structured_output_context = StructuredOutputContext(
                     structured_output_model or self._default_structured_output_model,
@@ -1518,7 +1543,12 @@ class Agent(AgentBase):
                     async for event in self._middleware_registry.invoke(
                         AgentStreamStage,
                         middleware_context,
-                        self._make_agent_stream_terminal(structured_output_context, limits, pass_progress),
+                        self._make_agent_stream_terminal(
+                            structured_output_context,
+                            limits,
+                            pass_progress,
+                            continuation_event,
+                        ),
                     ):
                         if isinstance(event, EventLoopStopEvent):
                             agent_result = AgentResult(*event["stop"])
@@ -1572,32 +1602,69 @@ class Agent(AgentBase):
                     )
                     agent_result = AgentResult(*stop_event["stop"])
                     yield stop_event
-
+            except BaseException as error:
+                caught_error = error
+                raise
             finally:
                 if not self._interrupt_state.activated:
                     self._interrupt_state.end_interrupt_cycle()
 
                 self.conversation_manager.apply_management(self)
-                after_invocation_event, _interrupts = await self.hooks.invoke_callbacks_async(
-                    AfterInvocationEvent(agent=self, invocation_state=invocation_state, result=agent_result)
+                await _continuation.abandon(
+                    continuation_event, RuntimeError("Continuation was not incorporated into agent history")
+                )
+                after_invocation_event = AfterInvocationEvent(
+                    agent=self, invocation_state=invocation_state, result=agent_result
+                )
+                continuation_event = after_invocation_event
+                try:
+                    await self.hooks.invoke_callbacks_async(after_invocation_event)
+                except BaseException as error:
+                    await _continuation.abandon(after_invocation_event, error)
+                    continuation_event = None
+                    raise
+                if caught_error is not None:
+                    await _continuation.abandon(after_invocation_event, caught_error)
+                    continuation_event = None
+
+            stop_reason = agent_result.stop_reason if agent_result is not None else None
+            if stop_reason not in (None, "end_turn", "stop_sequence", "interrupt"):
+                await _continuation.abandon(
+                    after_invocation_event,
+                    RuntimeError(f"Continuation abandoned after {stop_reason}"),
                 )
 
-            # Convert resume input to messages for next iteration, or None to stop
-            if after_invocation_event.resume is not None:
-                logger.debug("resume=<True> | hook requested agent resume with new input")
-                # If in interrupt state, process interrupt responses before continuing.
-                # This mirrors the _interrupt_state.resume() call in stream_async and will
-                # raise TypeError if the resume input is not valid interrupt responses.
-                self._interrupt_state.resume(after_invocation_event.resume)
-                current_messages = await self._convert_prompt_to_messages(after_invocation_event.resume)
-            else:
-                current_messages = None
+            try:
+                continuation_messages = await _continuation.prepare(
+                    after_invocation_event,
+                    self._convert_prompt_to_messages,
+                    stop_reason,
+                )
+                has_continuation = continuation_messages is not None
+                continuation_event = after_invocation_event if has_continuation else None
+
+                if has_continuation or after_invocation_event.resume is not None:
+                    current_messages = []
+                    if after_invocation_event.resume is not None:
+                        logger.debug("resume=<True> | hook requested agent resume with new input")
+                        # If in interrupt state, process interrupt responses before continuing.
+                        # This mirrors the _interrupt_state.resume() call in stream_async and will
+                        # raise TypeError if the resume input is not valid interrupt responses.
+                        self._interrupt_state.resume(after_invocation_event.resume)
+                        current_messages = await self._convert_prompt_to_messages(after_invocation_event.resume)
+                else:
+                    current_messages = None
+            except BaseException as error:
+                await _continuation.abandon(continuation_event, error)
+                continuation_event = None
+                raise
 
     def _make_agent_stream_terminal(
         self,
         structured_output_context: StructuredOutputContext,
         limits: Limits | None,
         pass_progress: _PassProgress,
+        continuation_event: AfterInvocationEvent | None,
     ) -> Callable[["AgentStreamContext"], AsyncGenerator[TypedEvent, None]]:
         """Build the terminal for the AgentStreamStage middleware chain.
 
@@ -1613,6 +1680,8 @@ class Agent(AgentBase):
             limits: Optional per-invocation budget caps.
             pass_progress: Records whether the event loop produced this pass's result, which
                 determines whether resuming the pass would call the model again.
+            continuation_event: Event owning input that must be appended only if the middleware
+                chain reaches the terminal.
 
         Returns:
             An async generator function yielding the pass's events, ending with an
@@ -1620,6 +1689,10 @@ class Agent(AgentBase):
         """
 
         async def terminal(ctx: "AgentStreamContext") -> AsyncGenerator[TypedEvent, None]:
+            if continuation_event is not None:
+                messages = _continuation.combine(continuation_event, ctx.messages)
+                await self._append_continuation_messages(messages, continuation_event)
+
             # Execute the event loop cycle with retry logic for context limits
             events = self._execute_event_loop_cycle(ctx.invocation_state, structured_output_context, limits)
             async for event in events:
@@ -1854,6 +1927,34 @@ class Agent(AgentBase):
         for message in messages:
             _ensure_tracking_id(message)
             self.messages.append(message)
+            await self.hooks.invoke_callbacks_async(MessageAddedEvent(agent=self, message=message))
+
+    async def _append_continuation_messages(
+        self,
+        messages: Messages,
+        continuation_event: AfterInvocationEvent | BeforeModelCallEvent,
+    ) -> None:
+        added_messages: Messages = []
+        for message in messages:
+            last_message = self.messages[-1] if self.messages else None
+            if last_message is None or last_message["role"] != message["role"]:
+                _ensure_tracking_id(message)
+                self.messages.append(message)
+                added_messages.append(message)
+                continue
+
+            appended_message = copy.copy(last_message)
+            appended_message["content"] = [*last_message["content"], *message["content"]]
+            _ensure_tracking_id(appended_message)
+            self.messages[-1] = appended_message
+
+            if added_messages and added_messages[-1] is last_message:
+                added_messages[-1] = appended_message
+            else:
+                added_messages.append(appended_message)
+
+        await _continuation.mark_appended(continuation_event)
+        for message in added_messages:
             await self.hooks.invoke_callbacks_async(MessageAddedEvent(agent=self, message=message))
 
     def take_snapshot(
