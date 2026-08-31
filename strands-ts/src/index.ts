@@ -21,6 +21,7 @@ export type {
   IfBusy,
   PendingInvocation,
 } from './agent/invocation-queue.js'
+export type { BackgroundTasksConfig } from './background-tasks/types.js'
 export type { AgentAsToolOptions } from './agent/agent-as-tool.js'
 export type { ToolCaller, ToolCallerProxy, ToolHandle, DirectToolCallOptions } from './agent/tool-caller.js'
 export type { InvocationState, InvokeArgs, InvokeOptions, LocalAgent } from './types/agent.js'
@@ -201,9 +202,10 @@ export type { BaseModelConfig, CountTokensOptions, StreamOptions, CacheConfig } 
 export { Model } from './models/model.js'
 
 // Model routing
-export { FallbackStrategy, ModelRouter, RoutingCandidate } from './models/routing/index.js'
+export { ClassifierStrategy, FallbackStrategy, ModelRouter, RoutingCandidate } from './models/routing/index.js'
 export type {
   CandidateInput,
+  ClassifierStrategyOptions,
   ModelRouterOptions,
   RoutingAttempt,
   RoutingCandidateOptions,

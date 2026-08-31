@@ -104,9 +104,9 @@ class BidiAgent:
         if isinstance(model, BidiModel):
             self.model = model
         else:
-            from ..models.nova_sonic import BidiNovaSonicModel
+            from ..models.bedrock import BedrockNovaSonicModel
 
-            self.model = BidiNovaSonicModel(model_id=model) if isinstance(model, str) else BidiNovaSonicModel()
+            self.model = BedrockNovaSonicModel(model_id=model) if isinstance(model, str) else BedrockNovaSonicModel()
 
         self.system_prompt = system_prompt
         self.messages = messages or []
@@ -351,7 +351,7 @@ class BidiAgent:
         Example:
             ```python
             # Using model defaults:
-            model = BidiNovaSonicModel()
+            model = BedrockNovaSonicModel()
             audio_io = BidiAudioIO()
             text_io = BidiTextIO()
             agent = BidiAgent(model=model, tools=[calculator])
@@ -362,7 +362,7 @@ class BidiAgent:
             )
 
             # Using custom audio config:
-            model = BidiNovaSonicModel(
+            model = BedrockNovaSonicModel(
                 provider_config={"audio": {"input_rate": 48000, "output_rate": 24000}}
             )
             audio_io = BidiAudioIO()

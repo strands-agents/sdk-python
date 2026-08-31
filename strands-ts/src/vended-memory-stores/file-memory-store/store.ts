@@ -11,6 +11,7 @@ import type { JSONValue } from '../../types/json.js'
 import type { MessageData } from '../../types/messages.js'
 import type { Storage } from '../../storage/storage.js'
 import type { Model } from '../../models/model.js'
+import type { SearchStrategy } from '../../storage/search/types.js'
 
 /**
  * Configuration for {@link FileMemoryStore}.
@@ -29,6 +30,12 @@ export interface FileMemoryStoreConfig extends MemoryStoreConfig {
    * {@link FileMemoryExtractionConfig}.
    */
   extraction?: boolean | FileMemoryExtractionConfig
+  /**
+   * Override the search strategy used by this memory store. When set, `search()` delegates to
+   * this strategy instead of the default keyword token-overlap scan. The underlying storage
+   * backend is unaffected — only this store's search behavior changes.
+   */
+  search?: SearchStrategy
 }
 
 /**
@@ -155,6 +162,7 @@ export class FileMemoryStore implements MemoryStore {
   readonly extraction?: boolean | ExtractionConfig
 
   private readonly _storage: Storage
+  private readonly _searchStrategy: SearchStrategy | undefined
   private readonly _writeLocks = new Map<string, Promise<string>>()
 
   constructor(config: FileMemoryStoreConfig) {
@@ -163,6 +171,7 @@ export class FileMemoryStore implements MemoryStore {
     if (config.description !== undefined) this.description = config.description
     if (config.maxSearchResults !== undefined) this.maxSearchResults = config.maxSearchResults
     this._storage = this._resolveStorage(config.storage ?? new LocalFileStorage())
+    this._searchStrategy = config.search
     const extraction = this._resolveExtraction(config)
     if (extraction !== undefined) this.extraction = extraction
   }
@@ -192,22 +201,26 @@ export class FileMemoryStore implements MemoryStore {
   async search(query: string, options?: SearchOptions): Promise<MemoryEntry[]> {
     const maxResults = options?.maxSearchResults ?? this.maxSearchResults ?? DEFAULT_MAX_SEARCH_RESULTS
 
-    if (this._storage.search) {
-      const results = await this._storage.search(query)
-      const entries: MemoryEntry[] = []
-      for (const result of results.slice(0, maxResults)) {
-        const bytes = await this._storage.read(result.key)
-        if (bytes) {
-          entries.push({
-            content: decoder.decode(bytes).trim(),
-            metadata: { path: result.key, score: result.score },
-          } as MemoryEntry)
-        }
-      }
-      return entries
+    if (this._searchStrategy) {
+      const results = await this._searchStrategy.search(this._storage, query)
+      return this._hydrateResults(results.slice(0, maxResults))
     }
 
     return this._keywordSearch(query, maxResults)
+  }
+
+  private async _hydrateResults(results: Array<{ key: string; score: number }>): Promise<MemoryEntry[]> {
+    const entries: MemoryEntry[] = []
+    for (const result of results) {
+      const bytes = await this._storage.read(result.key)
+      if (bytes) {
+        entries.push({
+          content: decoder.decode(bytes).trim(),
+          metadata: { path: result.key, score: result.score },
+        } as MemoryEntry)
+      }
+    }
+    return entries
   }
 
   private async _keywordSearch(query: string, maxResults: number): Promise<MemoryEntry[]> {
