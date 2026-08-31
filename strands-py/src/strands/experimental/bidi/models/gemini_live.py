@@ -37,12 +37,14 @@ from ..types.events import (
     BidiInputEvent,
     BidiInterruptionEvent,
     BidiOutputEvent,
+    BidiResponseCompleteEvent,
+    BidiResponseStartEvent,
     BidiTextInputEvent,
     BidiTranscriptStreamEvent,
     BidiUsageEvent,
     ModalityUsage,
 )
-from ..types.model import AudioConfig
+from ..types.model import AudioConfig, BidiConnectionConfig
 from .model import BidiModel, BidiModelTimeoutError
 
 logger = logging.getLogger(__name__)
@@ -80,6 +82,16 @@ class BidiGeminiLiveModel(BidiModel):
         # Store model ID
         self.model_id = model_id
 
+        # Gemini caps a single connection at ~10 min; reconnect before that, resuming the same
+        # session via its handle. The GoAway message remains the reactive backstop. Tunable via
+        # provider_config["connection"], e.g. to lower restart_after_s for tests.
+        default_connection: BidiConnectionConfig = {"restart_after_s": 540}
+        self.connection_config = cast(
+            BidiConnectionConfig, {**default_connection, **(provider_config or {}).get("connection", {})}
+        )
+        # Gemini reports per-response token deltas, not cumulative session totals.
+        self.usage_is_cumulative = False
+
         # Resolve client config with defaults
         self._client_config = self._resolve_client_config(client_config or {})
 
@@ -97,6 +109,11 @@ class BidiGeminiLiveModel(BidiModel):
         self._live_session_context_manager: Any = None
         self._live_session_handle: str | None = None
         self._connection_id: str | None = None
+
+        # Turn tracking: Gemini has no explicit response-start signal, so a model turn is inferred
+        # as open from its first output until turn_complete. Drives turn-boundary alignment.
+        self._response_open = False
+        self._response_id: str | None = None
 
     def _resolve_client_config(self, config: dict[str, Any]) -> dict[str, Any]:
         """Resolve client config.
@@ -119,6 +136,12 @@ class BidiGeminiLiveModel(BidiModel):
             "response_modalities": ["AUDIO"],
             "outputAudioTranscription": {},
             "inputAudioTranscription": {},
+            # Sliding-window context compression removes the ~15-min audio-only session cap, so a
+            # session resumed across proactive reconnects can continue indefinitely rather than
+            # dying at the cap (gemini_session.md). Override via provider_config["inference"].
+            "context_window_compression": genai_types.ContextWindowCompressionConfig(
+                sliding_window=genai_types.SlidingWindow()
+            ),
         }
 
         resolved = {
@@ -152,6 +175,9 @@ class BidiGeminiLiveModel(BidiModel):
             raise RuntimeError("model already started | call stop before starting again")
 
         self._connection_id = str(uuid.uuid4())
+        # A new connection begins with no response in flight.
+        self._response_open = False
+        self._response_id = None
 
         # Build live config — only enable initial-history mode when text content exists
         # (tool-only history is dropped by _send_message_history and would leave the server
@@ -205,9 +231,13 @@ class BidiGeminiLiveModel(BidiModel):
 
         yield BidiConnectionStartEvent(connection_id=self._connection_id, model=self.model_id)
 
+        # Bind to this connection's session so that after a reconnect swaps self._live_session,
+        # a still-draining reader keeps reading its own (closing) session rather than the new one.
+        session = self._live_session
+
         # Wrap in while loop to restart after turn_complete (SDK limitation workaround)
         while True:
-            async for message in self._live_session.receive():
+            async for message in session.receive():
                 for event in self._convert_gemini_live_event(message):
                     yield event
 
@@ -283,8 +313,51 @@ class BidiGeminiLiveModel(BidiModel):
         if message.usage_metadata:
             events.append(self._convert_usage_metadata(message.usage_metadata))
 
-        # setup_complete and generation_complete carry no content and are silently ignored
-        return events
+        return self._wrap_turn_events(message, events)
+
+    def _wrap_turn_events(self, message: LiveServerMessage, events: list[BidiOutputEvent]) -> list[BidiOutputEvent]:
+        """Bracket a turn's content with response start/complete events.
+
+        Gemini has no explicit response-start signal, so a model turn is inferred as open from its
+        first model output until ``turn_complete``. This surfaces the turn boundary the agent loop
+        needs to align a proactive reconnect (and to know when a swap cut a turn short).
+
+        Args:
+            message: The server message being converted.
+            events: Content events already derived from ``message``.
+
+        Returns:
+            The content events, prefixed with a response-start when a turn opens and suffixed with
+            a response-complete when it closes.
+        """
+        server_content = message.server_content
+        interrupted = bool(server_content and server_content.interrupted)
+        turn_complete = bool(server_content and server_content.turn_complete)
+        produced_model_output = any(
+            isinstance(event, (BidiAudioStreamEvent, ToolUseStreamEvent))
+            or (isinstance(event, BidiTranscriptStreamEvent) and event.role == "assistant")
+            for event in events
+        )
+
+        wrapped: list[BidiOutputEvent] = []
+        # An interruption ends a turn, it does not start one, so it never opens a response.
+        if produced_model_output and not self._response_open and not interrupted:
+            self._response_open = True
+            self._response_id = str(uuid.uuid4())
+            wrapped.append(BidiResponseStartEvent(response_id=self._response_id))
+
+        wrapped.extend(events)
+
+        if interrupted:
+            self._response_open = False
+        elif turn_complete and self._response_open:
+            wrapped.append(
+                BidiResponseCompleteEvent(response_id=self._response_id or str(uuid.uuid4()), stop_reason="complete")
+            )
+            self._response_open = False
+            self._response_id = None
+
+        return wrapped
 
     def _convert_server_content(self, server_content: LiveServerContent, has_audio: bool) -> list[BidiOutputEvent]:
         """Convert the server content of a Gemini Live message.
@@ -498,12 +571,46 @@ class BidiGeminiLiveModel(BidiModel):
             if not self._live_session_context_manager:
                 return
 
-            await self._live_session_context_manager.__aexit__(None, None, None)
+            try:
+                await self._live_session_context_manager.__aexit__(None, None, None)
+            finally:
+                # Clear so a second stop() (e.g. reconnect's routine teardown) does not
+                # re-exit an already-exited context manager.
+                self._live_session_context_manager = None
+                self._live_session = None
 
         async def stop_connection() -> None:
             self._connection_id = None
 
         await stop_all(stop_session, stop_connection)
+
+    async def reconnect(
+        self,
+        system_prompt: str | None = None,
+        tools: list[ToolSpec] | None = None,
+        messages: Messages | None = None,
+        **restart_kwargs: Any,
+    ) -> None:
+        """Reconnect by closing the connection and resuming the same session via its handle.
+
+        Resumes the Gemini session using the last resumption handle so server-side context
+        carries across the swap without replaying history. The handle is supplied by the reactive
+        (GoAway) path via ``restart_kwargs`` or read from the tracked handle on the proactive path.
+        When no handle is available yet, falls back to a fresh connection with history replay.
+
+        Args:
+            system_prompt: System instructions for the resumed connection.
+            tools: Tool specifications for the resumed connection.
+            messages: Conversation history, replayed only when resuming without a handle.
+            **restart_kwargs: Provider restart options; ``live_session_handle`` resumes the session.
+        """
+        handle = restart_kwargs.pop("live_session_handle", None) or self._live_session_handle
+        if handle is not None:
+            restart_kwargs["live_session_handle"] = handle
+        logger.debug("session_handle=<%s> | gemini reconnect starting", handle)
+        await self.stop()
+        await self.start(system_prompt, tools, messages, **restart_kwargs)
+        logger.debug("connection_id=<%s> | gemini reconnect complete", self._connection_id)
 
     def _build_live_config(
         self, system_prompt: str | None = None, tools: list[ToolSpec] | None = None, **kwargs: Any

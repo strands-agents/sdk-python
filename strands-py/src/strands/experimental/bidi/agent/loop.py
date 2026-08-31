@@ -670,13 +670,17 @@ class _BidiAgentLoop:
                     self._update_turn_state()
 
                 elif isinstance(event, BidiTranscriptStreamEvent):
+                    if event["role"] == "user":
+                        # Any user speech opens a turn that owes a model reply, so a proactive
+                        # reconnect holds for the reply (or force-swaps, flagging turn_interrupted)
+                        # instead of dropping a turn spoken near the deadline. Keyed on any user
+                        # transcript, not just the final one: providers differ in whether they flag
+                        # the final user transcript, and the reply is what clears this state.
+                        self._awaiting_response = True
+                        self._update_turn_state()
                     if event["is_final"]:
                         message: Message = {"role": event["role"], "content": [{"text": event["text"]}]}
                         await self._agent._append_messages(message)
-                        if event["role"] == "user":
-                            # A finished user turn owes a response; hold reconnect until it lands.
-                            self._awaiting_response = True
-                            self._update_turn_state()
 
                 elif isinstance(event, ToolUseStreamEvent):
                     tool_use = event["current_tool_use"]

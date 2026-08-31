@@ -7,6 +7,7 @@ Tests the unified BidiGeminiLiveModel interface including:
 - Event receiving and conversion
 """
 
+import asyncio
 import base64
 import json
 import unittest.mock
@@ -14,6 +15,7 @@ import unittest.mock
 import pytest
 from google.genai import types as genai_types
 
+from strands.experimental.bidi.agent import loop as loop_module
 from strands.experimental.bidi.models.gemini_live import BidiGeminiLiveModel
 from strands.experimental.bidi.models.model import BidiModelTimeoutError
 from strands.experimental.bidi.types.events import (
@@ -22,6 +24,8 @@ from strands.experimental.bidi.types.events import (
     BidiConnectionStartEvent,
     BidiImageInputEvent,
     BidiInterruptionEvent,
+    BidiResponseCompleteEvent,
+    BidiResponseStartEvent,
     BidiTextInputEvent,
     BidiTranscriptStreamEvent,
     BidiUsageEvent,
@@ -85,6 +89,8 @@ def server_content():
         content.input_transcription = None
         content.output_transcription = None
         content.model_turn = None
+        content.turn_complete = None
+        content.generation_complete = None
 
         for name, value in overrides.items():
             setattr(content, name, value)
@@ -265,6 +271,166 @@ async def test_connection_edge_cases(mock_genai_client, api_key, model_id):
     mock_live_session_cm.__aexit__.side_effect = Exception("Close failed")
     with pytest.raises(Exception, match=r"failed stop sequence"):
         await model4.stop()
+
+
+@pytest.mark.asyncio
+async def test_stop_is_idempotent(mock_genai_client, model):
+    """Calling stop() twice on a started model does not re-exit the context manager or raise."""
+    _, _, mock_live_session_cm = mock_genai_client
+
+    await model.start()
+    await model.stop()
+    assert mock_live_session_cm.__aexit__.call_count == 1
+
+    # Second stop must be a no-op: the context manager is cleared on first stop, so it is
+    # not re-exited and no error is raised (reconnect() relies on this).
+    await model.stop()
+    assert mock_live_session_cm.__aexit__.call_count == 1
+
+
+# Reconnect / Connection Config Tests
+
+
+def test_connection_config_declared(model):
+    """Gemini declares a proactive reconnect deadline and per-response (non-cumulative) usage."""
+    assert model.connection_config["restart_after_s"] == 540
+    assert model.usage_is_cumulative is False
+
+
+def test_context_window_compression_enabled_by_default(model):
+    """Sliding-window compression is on by default so a resumed session survives past the cap."""
+    compression = model.config["inference"]["context_window_compression"]
+    assert isinstance(compression, genai_types.ContextWindowCompressionConfig)
+    assert isinstance(compression.sliding_window, genai_types.SlidingWindow)
+    # It flows into the live connect config.
+    assert "context_window_compression" in model._build_live_config()
+
+
+def test_context_window_compression_overridable(mock_genai_client, model_id, api_key):
+    """A caller can override the compression default via provider_config['inference']."""
+    _ = mock_genai_client
+    model = BidiGeminiLiveModel(
+        model_id=model_id,
+        client_config={"api_key": api_key},
+        provider_config={"inference": {"context_window_compression": None}},
+    )
+    assert model.config["inference"]["context_window_compression"] is None
+
+
+def test_connection_config_override_via_provider_config(mock_genai_client, model_id, api_key):
+    """provider_config['connection'] tunes reconnect timing over the provider default."""
+    _ = mock_genai_client
+    model = BidiGeminiLiveModel(
+        model_id=model_id,
+        client_config={"api_key": api_key},
+        provider_config={"connection": {"restart_after_s": 30}},
+    )
+    assert model.connection_config["restart_after_s"] == 30
+
+
+@pytest.mark.asyncio
+async def test_reconnect_resumes_via_session_handle(mock_genai_client, model):
+    """reconnect() tears down the old connection and resumes the session via the tracked handle."""
+    mock_client, _, mock_live_session_cm = mock_genai_client
+    await model.start()
+    model._live_session_handle = "handle-abc"
+
+    await model.reconnect(system_prompt="hi")
+
+    assert mock_live_session_cm.__aexit__.called  # old connection torn down
+    assert model._connection_id is not None  # new connection established
+
+    # The resumed connection carries the tracked handle, and history is not replayed.
+    config = mock_client.aio.live.connect.call_args.kwargs["config"]
+    assert config["session_resumption"].handle == "handle-abc"
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_reconnect_prefers_explicit_handle_from_restart_kwargs(mock_genai_client, model):
+    """The reactive path's handle (passed via restart_kwargs) wins over the tracked one."""
+    mock_client, _, _ = mock_genai_client
+    await model.start()
+    model._live_session_handle = "tracked"
+
+    await model.reconnect(system_prompt="hi", live_session_handle="from-error")
+
+    config = mock_client.aio.live.connect.call_args.kwargs["config"]
+    assert config["session_resumption"].handle == "from-error"
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_proactive_reconnect_end_to_end_through_agent(mock_genai_client, model_id, api_key, monkeypatch):
+    """End-to-end: BidiAgent + real Gemini model proactively reconnects before the deadline.
+
+    Drives the full chain against the real BidiGeminiLiveModel (mocked genai transport): the loop
+    reads Gemini's connection_config, arms the proactive timer, emits a warning, and reconnects
+    through Gemini's own reconnect() before the deadline, resuming the session via its handle. No
+    live network calls are made.
+    """
+    from strands.experimental.bidi.agent.agent import BidiAgent
+    from strands.experimental.bidi.types.events import BidiConnectionWarningEvent
+
+    mock_client, mock_live_session, _ = mock_genai_client
+
+    # The session never emits on its own; receive() blocks so the model task idles while the
+    # proactive timer drives the reconnect.
+    never = asyncio.Event()
+
+    def blocking_receive():
+        async def _gen():
+            await never.wait()
+            yield  # pragma: no cover
+
+        return _gen()
+
+    mock_live_session.receive = unittest.mock.Mock(side_effect=blocking_receive)
+    # Reap the parked superseded reader promptly instead of waiting the full backstop.
+    monkeypatch.setattr(loop_module, "_READER_REAP_TIMEOUT_S", 0.05)
+
+    model = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
+    # A small deadline; the injected clock below fires it without wall time.
+    model.connection_config = {"restart_after_s": 1}
+    # A resumable handle captured before the swap; the reconnect must resume with it.
+    model._live_session_handle = "resume-handle"
+
+    agent = BidiAgent(model=model, system_prompt="You are helpful")
+
+    # Drive the timer without wall time: the first cycle's sleeps return immediately, the re-armed
+    # cycle after the swap parks, so exactly one proactive reconnect fires.
+    sleep_count = 0
+
+    async def fake_sleep(_seconds):
+        nonlocal sleep_count
+        sleep_count += 1
+        if sleep_count > 2:
+            await asyncio.Event().wait()
+        await asyncio.sleep(0)
+
+    agent._loop._reconnect_timer._sleep = fake_sleep
+
+    await agent.start()
+    first_connection_id = model._connection_id
+
+    warning_seen = False
+    async for event in agent.receive():
+        if isinstance(event, BidiConnectionWarningEvent):
+            warning_seen = True
+        # Once a reconnect has produced a new connection id, the proactive cycle completed.
+        if model._connection_id is not None and model._connection_id != first_connection_id:
+            break
+
+    assert warning_seen
+    assert model._connection_id != first_connection_id
+
+    # The reconnect resumed the session via the tracked handle rather than starting fresh.
+    resumed_config = mock_client.aio.live.connect.call_args.kwargs["config"]
+    assert resumed_config["session_resumption"].handle == "resume-handle"
+
+    await agent.stop()
 
 
 # History Seeding Tests
@@ -457,6 +623,9 @@ async def test_event_conversion(mock_genai_client, model, live_message, server_c
     """Test conversion of all Gemini Live event types to standard format."""
     _, _, _ = mock_genai_client
     await model.start()
+    # Simulate a response already in flight so these cases assert pure content conversion,
+    # not the response-start that a turn's first model output would otherwise prepend.
+    model._response_open = True
 
     # Test text output (converted to transcript via model_turn.parts)
     mock_model_turn = unittest.mock.Mock()
@@ -584,6 +753,7 @@ async def test_usage_metadata_emitted_alongside_audio(mock_genai_client, model, 
     """
     _, _, _ = mock_genai_client
     await model.start()
+    model._response_open = True  # mid-response, so no response-start is prepended
 
     message = live_message(data=b"audio_data", usage_metadata=usage_metadata())
 
@@ -703,6 +873,7 @@ async def test_audio_takes_precedence_over_model_turn_text(
     """Audio output suppresses model_turn text, avoiding a duplicate event for one response."""
     _, _, _ = mock_genai_client
     await model.start()
+    model._response_open = True  # mid-response, so no response-start is prepended
 
     mock_model_turn = unittest.mock.Mock()
     mock_model_turn.parts = [text_part("Hello from Gemini")]
@@ -724,6 +895,66 @@ async def test_empty_message_emits_nothing(mock_genai_client, model, live_messag
     assert model._convert_gemini_live_event(live_message()) == []
 
     await model.stop()
+
+
+# Turn-Boundary Tests
+
+
+@pytest.mark.asyncio
+async def test_first_model_output_opens_response(mock_genai_client, model, live_message):
+    """The first model output of a turn is bracketed by a response-start event."""
+    _, _, _ = mock_genai_client
+    await model.start()
+
+    events = model._convert_gemini_live_event(live_message(data=b"audio_data"))
+    assert [type(event) for event in events] == [BidiResponseStartEvent, BidiAudioStreamEvent]
+    assert model._response_open is True
+
+    # A later output in the same turn does not re-open the response.
+    more = model._convert_gemini_live_event(live_message(data=b"more_audio"))
+    assert [type(event) for event in more] == [BidiAudioStreamEvent]
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_turn_complete_closes_response(mock_genai_client, model, live_message, server_content):
+    """turn_complete closes an open response with a response-complete event."""
+    _, _, _ = mock_genai_client
+    await model.start()
+    model._response_open = True
+    model._response_id = "r1"
+
+    events = model._convert_gemini_live_event(live_message(server_content=server_content(turn_complete=True)))
+
+    assert [type(event) for event in events] == [BidiResponseCompleteEvent]
+    assert events[0].stop_reason == "complete"
+    assert model._response_open is False
+
+
+@pytest.mark.asyncio
+async def test_turn_complete_without_open_response_emits_nothing(
+    mock_genai_client, model, live_message, server_content
+):
+    """turn_complete with no response in flight does not emit a spurious complete event."""
+    _, _, _ = mock_genai_client
+    await model.start()
+
+    events = model._convert_gemini_live_event(live_message(server_content=server_content(turn_complete=True)))
+    assert events == []
+
+
+@pytest.mark.asyncio
+async def test_interruption_closes_response_without_complete(mock_genai_client, model, live_message, server_content):
+    """An interruption ends the turn without emitting a response-complete."""
+    _, _, _ = mock_genai_client
+    await model.start()
+    model._response_open = True
+
+    events = model._convert_gemini_live_event(live_message(server_content=server_content(interrupted=True)))
+
+    assert [type(event) for event in events] == [BidiInterruptionEvent]
+    assert model._response_open is False
 
 
 # Audio Configuration Tests
@@ -841,6 +1072,7 @@ async def test_custom_audio_rates_in_events(mock_genai_client, model_id, api_key
     provider_config = {"audio": {"output_rate": 48000, "channels": 2}}
     model = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key}, provider_config=provider_config)
     await model.start()
+    model._response_open = True  # mid-response, so no response-start is prepended
 
     # Test audio output event uses custom configuration
     mock_audio = live_message(data=b"audio_data")
@@ -865,6 +1097,7 @@ async def test_default_audio_rates_in_events(mock_genai_client, model_id, api_ke
     # Create model without custom audio configuration
     model = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
     await model.start()
+    model._response_open = True  # mid-response, so no response-start is prepended
 
     # Test audio output event uses defaults
     mock_audio = live_message(data=b"audio_data")
