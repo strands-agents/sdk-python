@@ -253,20 +253,7 @@ class ToolRegistry:
             )
 
         # Check for normalized name conflicts (- vs _)
-        if self.registry.get(tool.tool_name) is None:
-            normalized_name = tool.tool_name.replace("-", "_")
-
-            matching_tools = [
-                tool_name
-                for (tool_name, tool) in self.registry.items()
-                if tool_name.replace("-", "_") == normalized_name
-            ]
-
-            if matching_tools:
-                raise ValueError(
-                    f"Tool name '{tool.tool_name}' already exists as '{matching_tools[0]}'."
-                    " Cannot add a duplicate tool which differs by a '-' or '_'"
-                )
+        self._check_normalized_name_conflict(tool.tool_name, self.registry)
 
         # Register in main registry
         self.registry[tool.tool_name] = tool
@@ -565,10 +552,15 @@ class ToolRegistry:
             tool: The tool to register dynamically
 
         Raises:
-            ValueError: If a tool with this name already exists
+            ValueError: If a tool with this name already exists, or if a tool whose name
+                differs only by '-' vs '_' is already registered.
         """
         if tool.tool_name in self.registry or tool.tool_name in self.dynamic_tools:
             raise ValueError(f"Tool '{tool.tool_name}' already exists")
+
+        self._check_normalized_name_conflict(
+            tool.tool_name, list(self.registry.keys()) + list(self.dynamic_tools.keys())
+        )
 
         self.dynamic_tools[tool.tool_name] = tool
         logger.debug("Registered dynamic tool: %s", tool.tool_name)
@@ -690,6 +682,24 @@ class ToolRegistry:
                     logger.warning("tool_name=<%s> | failed to create function tool | %s", name, e)
 
         return tools
+
+    def _check_normalized_name_conflict(self, tool_name: str, search_names: Iterable[str]) -> None:
+        """Raise ValueError if any name in search_names differs from tool_name only by ``-`` vs ``_``.
+
+        Args:
+            tool_name: The candidate name being registered.
+            search_names: Existing names to check against.
+
+        Raises:
+            ValueError: If a normalized conflict is found.
+        """
+        normalized = tool_name.replace("-", "_")
+        for existing_name in search_names:
+            if existing_name != tool_name and existing_name.replace("-", "_") == normalized:
+                raise ValueError(
+                    f"Tool name '{tool_name}' already exists as '{existing_name}'."
+                    " Cannot add a duplicate tool which differs by a '-' or '_'"
+                )
 
     def cleanup(self, **kwargs: Any) -> None:
         """Synchronously clean up all tool providers in this registry."""

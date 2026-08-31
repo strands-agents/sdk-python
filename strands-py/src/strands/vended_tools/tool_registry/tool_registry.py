@@ -67,11 +67,8 @@ def _validate_tool_name(name: str) -> None:
 def _find_normalized_conflict(registry: ToolRegistry, name: str) -> str | None:
     """Return an existing registry name that collides with ``name``.
 
-    The SDK's normalized-name rule treats ``-`` and ``_`` as equivalent.
-    ``ToolRegistry.register_tool`` enforces this rule but
-    ``register_dynamic_tool`` does not, so we replicate the check here to keep
-    the tool_registry surface consistent with ``register_tool`` and to fail
-    with a clear ToolRegistryError rather than a bare ValueError from the SDK.
+    The SDK's normalized-name rule treats ``-`` and ``_`` as equivalent. We replicate the
+    check here to fail with a clear ToolRegistryError rather than a bare ValueError from the SDK.
     """
     normalized = name.replace("-", "_")
     for existing in list(registry.registry.keys()) + list(registry.dynamic_tools.keys()):
