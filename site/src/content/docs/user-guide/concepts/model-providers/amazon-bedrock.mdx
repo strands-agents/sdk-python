@@ -538,7 +538,7 @@ When `guardLatestUserMessage: true`, only the most recent user message is sent t
 
 #### Guarding specific content
 
-In addition to evaluating whole messages, you can mark individual pieces of content for guardrail evaluation by adding a `guardContent` block to a message's content. This lets you guard only selected parts of a turn — for example, untrusted text pulled from a retrieval source — rather than the entire conversation.
+In addition to evaluating whole messages, you can mark individual pieces of content for guardrail evaluation by adding a `guardContent` block to a message's content. This lets you guard only selected parts of a turn (for example, untrusted text pulled from a retrieval source) rather than the entire conversation.
 
 <Tabs>
 <Tab label="Python">
@@ -548,7 +548,7 @@ from strands import Agent
 from strands.models import BedrockModel
 
 bedrock_model = BedrockModel(
-    model_id="anthropic.claude-sonnet-4-20250514-v1:0",
+    model_id="global.anthropic.claude-sonnet-4-6",
     guardrail_id="your-guardrail-id",
     guardrail_version="DRAFT",
 )
