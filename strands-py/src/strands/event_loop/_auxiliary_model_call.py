@@ -43,7 +43,11 @@ async def instrument_auxiliary_model_call(
 
     Args:
         events: The auxiliary call's event stream (e.g. from ``process_stream``,
-            ``stream_messages``, or ``Model.structured_output``). Streams without a
+            ``stream_messages``, or ``Model.structured_output``). Pass the stream
+            *unstarted*: the hook-before-model-call guarantee holds because async
+            generator bodies run only on first iteration, which happens here after
+            the Before event — not because this helper defers anything itself.
+            Streams without a
             ``"stop"`` event are passed through; hooks still fire, but no usage is
             recorded and ``stop_response`` is None. Note: only providers whose
             ``structured_output`` forwards stream events (e.g. Bedrock, Anthropic) emit

@@ -94,9 +94,10 @@ async def test_fires_hook_pair_and_records_usage(agent, hook_provider):
 async def test_before_event_fires_before_stream_body_starts(agent):
     """The wrapped stream (the model call) must not start until after the Before event.
 
-    All in-tree streams are async generators, whose bodies run only on first iteration
-    (PEP 525) — so the model request goes out inside this wrapper's ``async for``, after
-    the Before hook, not when the call site creates the generator.
+    Every in-tree stream that reaches this helper is an async generator, whose body runs
+    only on first iteration (PEP 525) — so the model request goes out inside this
+    wrapper's ``async for``, after the Before hook, not when the call site creates the
+    generator.
     """
     order: list[str] = []
 
