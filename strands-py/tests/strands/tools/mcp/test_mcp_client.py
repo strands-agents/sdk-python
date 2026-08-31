@@ -6,8 +6,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from mcp import ListToolsResult
-from mcp.types import CallToolResult as MCPCallToolResult
 from mcp.types import (
+    Annotations,
+    BlobResourceContents,
     GetPromptResult,
     ListPromptsResult,
     ListResourcesResult,
@@ -20,6 +21,9 @@ from mcp.types import (
     ResourceTemplate,
     TextResourceContents,
 )
+from mcp.types import CallToolResult as MCPCallToolResult
+from mcp.types import EmbeddedResource as MCPEmbeddedResource
+from mcp.types import ImageContent as MCPImageContent
 from mcp.types import TextContent as MCPTextContent
 from mcp.types import Tool as MCPTool
 from pydantic import AnyUrl
@@ -1574,6 +1578,157 @@ def test_map_mcp_content_subclass_override(mock_transport, mock_session):
         result = client.call_tool_sync(tool_use_id="override-test", name="test_tool", arguments={})
 
     assert result["content"][0]["text"] == "[intercepted]"
+
+
+def test_map_text_content_preserves_annotations(mcp_client):
+    """Text content with annotations should preserve audience, priority, and lastModified."""
+    content = MCPTextContent(
+        type="text",
+        text="hello",
+        annotations=Annotations(audience=["assistant"], priority=0.8, lastModified="2026-06-01T00:00:00Z"),
+    )
+
+    result = mcp_client.map_mcp_content_to_tool_result_content(content)
+
+    assert result["text"] == "hello"
+    assert result["annotations"] == {
+        "audience": ["assistant"],
+        "priority": 0.8,
+        "lastModified": "2026-06-01T00:00:00Z",
+    }
+
+
+def test_map_text_content_without_annotations_unchanged(mcp_client):
+    """Text content without annotations should map exactly as before (backward-compat guard)."""
+    content = MCPTextContent(type="text", text="hello")
+
+    result = mcp_client.map_mcp_content_to_tool_result_content(content)
+
+    assert result == {"text": "hello"}
+    assert "annotations" not in result
+
+
+def test_map_image_content_preserves_annotations(mcp_client):
+    """Image content with annotations should preserve annotations alongside the image block."""
+    content = MCPImageContent(
+        type="image",
+        data=base64.b64encode(b"fake-image-bytes").decode(),
+        mimeType="image/png",
+        annotations=Annotations(audience=["user", "assistant"], priority=0.5),
+    )
+
+    result = mcp_client.map_mcp_content_to_tool_result_content(content)
+
+    assert result == {
+        "image": {"format": "png", "source": {"bytes": b"fake-image-bytes"}},
+        "annotations": {"audience": ["user", "assistant"], "priority": 0.5},
+    }
+
+
+def test_map_image_content_without_annotations_unchanged(mcp_client):
+    """Image content without annotations should not emit an annotations key."""
+    content = MCPImageContent(
+        type="image",
+        data=base64.b64encode(b"fake-image-bytes").decode(),
+        mimeType="image/png",
+    )
+
+    result = mcp_client.map_mcp_content_to_tool_result_content(content)
+
+    assert "annotations" not in result
+    assert result["image"]["format"] == "png"
+
+
+def test_map_content_preserves_partial_annotations(mcp_client):
+    """Only the annotation keys that are actually set should be emitted."""
+    content = MCPTextContent(
+        type="text",
+        text="partial",
+        annotations=Annotations(audience=["user"]),
+    )
+
+    result = mcp_client.map_mcp_content_to_tool_result_content(content)
+
+    assert result["annotations"] == {"audience": ["user"]}
+    assert "priority" not in result["annotations"]
+    assert "lastModified" not in result["annotations"]
+
+
+def test_map_embedded_text_resource_preserves_annotations(mcp_client):
+    """Embedded text-resource content should preserve annotations from the embedded resource."""
+    content = MCPEmbeddedResource(
+        type="resource",
+        resource=TextResourceContents(
+            uri="mcp://resource/embedded-annotated",
+            text="inner text",
+            mimeType="text/plain",
+        ),
+        annotations=Annotations(audience=["assistant"], priority=0.9),
+    )
+
+    result = mcp_client.map_mcp_content_to_tool_result_content(content)
+
+    assert result["text"] == "inner text"
+    assert result["annotations"] == {"audience": ["assistant"], "priority": 0.9}
+
+
+def test_map_embedded_blob_text_preserves_annotations(mcp_client):
+    """Embedded blob content decoded as text (e.g. application/json) should preserve annotations."""
+    payload = base64.b64encode(b'{"k":"v"}').decode()
+    content = MCPEmbeddedResource(
+        type="resource",
+        resource=BlobResourceContents(
+            uri="mcp://resource/embedded-blob-json",
+            blob=payload,
+            mimeType="application/json",
+        ),
+        annotations=Annotations(audience=["assistant"], priority=0.4),
+    )
+
+    result = mcp_client.map_mcp_content_to_tool_result_content(content)
+
+    assert result == {
+        "text": '{"k":"v"}',
+        "annotations": {"audience": ["assistant"], "priority": 0.4},
+    }
+
+
+def test_map_embedded_blob_image_preserves_annotations(mcp_client):
+    """Embedded blob content decoded as an image should preserve annotations."""
+    image_bytes = b"fake-image-bytes"
+    content = MCPEmbeddedResource(
+        type="resource",
+        resource=BlobResourceContents(
+            uri="mcp://resource/embedded-blob-image",
+            blob=base64.b64encode(image_bytes).decode(),
+            mimeType="image/png",
+        ),
+        annotations=Annotations(audience=["user"], priority=0.6),
+    )
+
+    result = mcp_client.map_mcp_content_to_tool_result_content(content)
+
+    assert result == {
+        "image": {"format": "png", "source": {"bytes": image_bytes}},
+        "annotations": {"audience": ["user"], "priority": 0.6},
+    }
+
+
+def test_map_embedded_dropped_resource_returns_none_with_annotations(mcp_client):
+    """A dropped embedded resource (non-textual blob) should still return None, even with annotations."""
+    content = MCPEmbeddedResource(
+        type="resource",
+        resource=BlobResourceContents(
+            uri="mcp://resource/embedded-binary",
+            blob=base64.b64encode(b"\x00\x01\x02\x03").decode(),
+            mimeType="application/octet-stream",
+        ),
+        annotations=Annotations(audience=["assistant"], priority=0.9),
+    )
+
+    result = mcp_client.map_mcp_content_to_tool_result_content(content)
+
+    assert result is None
 
 
 @pytest.mark.parametrize(
