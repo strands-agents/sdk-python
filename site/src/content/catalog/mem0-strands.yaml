@@ -6,4 +6,5 @@ languages:
     package: mem0-strands
 github: https://github.com/mem0ai/mem0/tree/main/integrations/mem0-strands
 docsUrl: https://docs.mem0.ai/integrations/strands
+maintainedBy: partner
 addedDate: 2026-08-27
