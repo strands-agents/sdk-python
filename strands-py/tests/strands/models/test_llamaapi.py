@@ -443,9 +443,10 @@ def test_config_validation_warns_on_unknown_keys(llamaapi_client, captured_warni
     """Test that unknown config keys emit a warning."""
     LlamaAPIModel(model_id="test-model", invalid_param="test")
 
-    assert len(captured_warnings) == 1
-    assert "Invalid configuration parameters" in str(captured_warnings[0].message)
-    assert "invalid_param" in str(captured_warnings[0].message)
+    user_warnings = [warning for warning in captured_warnings if issubclass(warning.category, UserWarning)]
+    assert len(user_warnings) == 1
+    assert "Invalid configuration parameters" in str(user_warnings[0].message)
+    assert "invalid_param" in str(user_warnings[0].message)
 
 
 def test_update_config_validation_warns_on_unknown_keys(model, captured_warnings):
