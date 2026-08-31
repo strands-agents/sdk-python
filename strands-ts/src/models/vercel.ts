@@ -8,12 +8,12 @@
  */
 import type {
   JSONObject,
-  JSONValue,
   LanguageModelV3,
   LanguageModelV3CallOptions,
   LanguageModelV3FilePart,
   LanguageModelV3FinishReason,
   LanguageModelV3FunctionTool,
+  LanguageModelV3Message,
   LanguageModelV3Prompt,
   LanguageModelV3ReasoningPart,
   LanguageModelV3StreamPart,
@@ -86,10 +86,15 @@ type LanguageModelCallSettings = Omit<LanguageModelV3CallOptions, 'prompt' | 'to
  */
 export interface VercelModelConfig extends BaseModelConfig, LanguageModelCallSettings {
   /**
-   * Caching config, routed by the underlying Vercel provider: Anthropic gets content-addressed
-   * cache points (`providerOptions.anthropic.cacheControl` on tools, system, and the last user
-   * message); OpenAI gets key-routed caching (`cacheKey`/retention `ttl` mapped onto
-   * `providerOptions.openai`). Other providers are unsupported and the config is ignored.
+   * Caching config, routed by the underlying Vercel provider:
+   * - **Anthropic** — content-addressed cache points (`providerOptions.anthropic.cacheControl`) on
+   *   tools, system, and the last user message.
+   * - **Bedrock** — content-addressed cache points (`providerOptions.bedrock.cachePoint`) on system
+   *   and the last user message. Tools ride the system/messages prefix because ai-sdk's Bedrock
+   *   adapter exposes no standalone tool cache point, so `toolsTTL` has no independent effect.
+   * - **OpenAI** — key-routed caching (`cacheKey`/retention `ttl` mapped onto `providerOptions.openai`).
+   *
+   * Other providers are unsupported and the config is ignored.
    */
   cacheConfig?: CacheConfig
 }
@@ -251,12 +256,31 @@ function applyVercelCacheConfig(
     case 'anthropic':
       applyAnthropicCache(callOptions, cacheConfig)
       break
+    case 'amazon-bedrock':
+      applyBedrockCache(callOptions, cacheConfig)
+      break
     case 'openai':
       applyOpenAICache(callOptions, cacheConfig)
       break
     default:
       warnOnce(logger, `provider=<${provider}> | cacheConfig is not supported for this vercel provider, ignoring`)
   }
+}
+
+/**
+ * Reports whether the configured cache strategy is one the content-addressed providers understand.
+ * `strategy` is a model-support toggle (`'auto'` caches only when the model is known to support it,
+ * `'anthropic'` skips that check), not a provider selector, so Anthropic and Bedrock share this gate.
+ *
+ * @internal
+ */
+function isCacheStrategySupported(cacheConfig: CacheConfig): boolean {
+  const strategy = cacheConfig.strategy ?? 'auto'
+  if (strategy !== 'auto' && strategy !== 'anthropic') {
+    warnOnce(logger, `strategy=<${strategy}> | unknown cache strategy, prompt caching disabled`)
+    return false
+  }
+  return true
 }
 
 /**
@@ -269,11 +293,7 @@ function applyVercelCacheConfig(
  * @internal
  */
 function applyAnthropicCache(callOptions: LanguageModelV3CallOptions, cacheConfig: CacheConfig): void {
-  const strategy = cacheConfig.strategy ?? 'auto'
-  if (strategy !== 'auto' && strategy !== 'anthropic') {
-    logger.warn(`strategy=<${strategy}> | unknown cache strategy, prompt caching disabled`)
-    return
-  }
+  if (!isCacheStrategySupported(cacheConfig)) return
 
   const tools = resolveCacheSection(cacheConfig.toolsTTL, cacheConfig.ttl)
   if (tools.enabled) cacheLastFunctionTool(callOptions.tools, tools.ttl)
@@ -285,7 +305,41 @@ function applyAnthropicCache(callOptions: LanguageModelV3CallOptions, cacheConfi
   }
 
   const messages = resolveCacheSection(cacheConfig.messagesTTL, cacheConfig.ttl)
-  if (messages.enabled) cacheLastUserMessage(callOptions.prompt, messages.ttl)
+  if (messages.enabled) {
+    cacheLastUserMessage(callOptions.prompt, (userMessage) => setAnthropicCacheControl(userMessage, messages.ttl))
+  }
+}
+
+/**
+ * Injects Bedrock `cachePoint` breakpoints on system and the last user message, mirroring
+ * `applyAnthropicCache` minus the tools breakpoint: ai-sdk's Bedrock adapter injects cache points
+ * only on system messages, user messages, and content parts — never on tool definitions — so tools
+ * are cached implicitly as part of the prefix before the system/messages breakpoints rather than by
+ * an independent `toolsTTL` marker.
+ *
+ * When the final turn is tool-results-only, `formatMessages` emits no trailing `{ role: 'user' }`
+ * message, so the conversation breakpoint lands on an earlier user turn — a cache-efficiency
+ * difference, not a correctness bug.
+ *
+ * @internal
+ */
+function applyBedrockCache(callOptions: LanguageModelV3CallOptions, cacheConfig: CacheConfig): void {
+  if (!isCacheStrategySupported(cacheConfig)) return
+
+  const systemPrompt = resolveCacheSection(cacheConfig.systemPromptTTL, cacheConfig.ttl)
+  if (systemPrompt.enabled) {
+    const system = callOptions.prompt.find((message) => message.role === 'system')
+    if (system) setBedrockCachePoint(system, systemPrompt.ttl)
+  }
+
+  const messages = resolveCacheSection(cacheConfig.messagesTTL, cacheConfig.ttl)
+  if (messages.enabled) {
+    cacheLastUserMessage(callOptions.prompt, (userMessage) => {
+      // Bedrock reads cache points only on user content parts, not the message, so mark the last part.
+      const lastPart = userMessage.content[userMessage.content.length - 1]
+      if (lastPart) setBedrockCachePoint(lastPart, messages.ttl)
+    })
+  }
 }
 
 /**
@@ -306,15 +360,21 @@ function cacheLastFunctionTool(tools: LanguageModelV3CallOptions['tools'], ttl?:
 }
 
 /**
- * Marks the last user message; ai-sdk applies message-level cacheControl to its last part.
+ * Locates the last user message and hands it to the provider-specific setter, which owns where the
+ * cache breakpoint lands: Anthropic honors a message-level breakpoint (ai-sdk applies it to the last
+ * part), whereas Bedrock reads only part-level provider options on user content, so its setter must
+ * mark the last content part.
  *
  * @internal
  */
-function cacheLastUserMessage(prompt: LanguageModelV3CallOptions['prompt'], ttl?: CacheTTL): void {
+function cacheLastUserMessage(
+  prompt: LanguageModelV3CallOptions['prompt'],
+  setCachePoint: (userMessage: Extract<LanguageModelV3Message, { role: 'user' }>) => void
+): void {
   for (let index = prompt.length - 1; index >= 0; index--) {
     const message = prompt[index]
     if (message?.role === 'user') {
-      setAnthropicCacheControl(message, ttl)
+      setCachePoint(message)
       return
     }
   }
@@ -322,24 +382,40 @@ function cacheLastUserMessage(prompt: LanguageModelV3CallOptions['prompt'], ttl?
 }
 
 /**
- * Sets `providerOptions.anthropic.cacheControl` on a tool or message, preserving other options.
+ * Merges cache-breakpoint options into `providerOptions[namespace]` on a tool, message, or content
+ * part, preserving any options already present. The provider-specific setters below own the option
+ * key and value shape; this owns the one merge both share.
  *
  * @internal
  */
-function setAnthropicCacheControl(target: { providerOptions?: SharedV3ProviderOptions }, ttl?: CacheTTL): void {
+function setCacheOption(
+  target: { providerOptions?: SharedV3ProviderOptions },
+  namespace: string,
+  option: JSONObject
+): void {
   target.providerOptions = {
     ...target.providerOptions,
-    anthropic: { ...target.providerOptions?.anthropic, cacheControl: anthropicCacheControl(ttl) },
+    [namespace]: { ...target.providerOptions?.[namespace], ...option },
   }
 }
 
 /**
- * Builds an Anthropic `cacheControl` value. A falsy `ttl` leaves the API default.
+ * Sets the Anthropic `cacheControl` breakpoint. A falsy `ttl` leaves the API default.
  *
  * @internal
  */
-function anthropicCacheControl(ttl?: CacheTTL): JSONValue {
-  return ttl ? { type: 'ephemeral', ttl } : { type: 'ephemeral' }
+function setAnthropicCacheControl(target: { providerOptions?: SharedV3ProviderOptions }, ttl?: CacheTTL): void {
+  setCacheOption(target, 'anthropic', { cacheControl: ttl ? { type: 'ephemeral', ttl } : { type: 'ephemeral' } })
+}
+
+/**
+ * Sets the Bedrock `cachePoint` breakpoint on a system message or user content part. A falsy `ttl`
+ * leaves the API default.
+ *
+ * @internal
+ */
+function setBedrockCachePoint(target: { providerOptions?: SharedV3ProviderOptions }, ttl?: CacheTTL): void {
+  setCacheOption(target, 'bedrock', { cachePoint: ttl ? { type: 'default', ttl } : { type: 'default' } })
 }
 
 /**
@@ -355,17 +431,17 @@ function anthropicCacheControl(ttl?: CacheTTL): JSONValue {
  */
 function applyOpenAICache(callOptions: LanguageModelV3CallOptions, cacheConfig: CacheConfig): void {
   const openai: JSONObject = { ...callOptions.providerOptions?.openai }
-  const resolved = resolveOpenAICache(cacheConfig)
+  const openaiCache = resolveOpenAICache(cacheConfig)
 
-  if (resolved.cacheKey !== undefined && openai.promptCacheKey === undefined) {
-    openai.promptCacheKey = resolved.cacheKey
+  if (openaiCache.cacheKey !== undefined && openai.promptCacheKey === undefined) {
+    openai.promptCacheKey = openaiCache.cacheKey
   }
 
   // Leave an explicit promptCacheRetention untouched; otherwise map a retention ttl or, if it names
   // no retention literal, warn that it was ignored.
   if (openai.promptCacheRetention === undefined) {
-    if (resolved.retention !== undefined) openai.promptCacheRetention = resolved.retention
-    else if (resolved.unsupportedTtl !== undefined) warnUnsupportedRetention(resolved.unsupportedTtl)
+    if (openaiCache.retention !== undefined) openai.promptCacheRetention = openaiCache.retention
+    else if (cacheConfig.ttl !== undefined) warnUnsupportedRetention(cacheConfig.ttl)
   }
 
   callOptions.providerOptions = { ...callOptions.providerOptions, openai }

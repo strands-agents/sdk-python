@@ -14,8 +14,8 @@ import { warnOnce } from '../../logging/warn-once.js'
 
 // OpenAI's prompt_cache_retention accepts only these literals. ttl maps through only on an exact
 // match — the SDK never guesses a conversion from an arbitrary duration string.
-type RetentionLiteral = 'in_memory' | '24h'
-const RETENTION_LITERALS: ReadonlySet<string> = new Set(['in_memory', '24h'])
+const RETENTION_LITERALS = ['in_memory', '24h'] as const
+type RetentionLiteral = (typeof RETENTION_LITERALS)[number]
 
 /**
  * The `CacheConfig`-derived fields both OpenAI request shapes share.
@@ -28,17 +28,14 @@ interface CacheableRequest {
 }
 
 /**
- * The OpenAI caching values derived from a `CacheConfig`, before any wire casing or container choice.
- *
- * `cacheKey`/`retention` are the values to write; `unsupportedTtl` carries a `ttl` that named no
- * retention literal, so a caller warns only when it would otherwise have written the retention slot.
+ * The OpenAI caching values to write, derived from a `CacheConfig`, before any wire casing or
+ * container choice.
  *
  * @internal
  */
 interface ResolvedOpenAICache {
   cacheKey?: string
   retention?: RetentionLiteral
-  unsupportedTtl?: string
 }
 
 /**
@@ -64,19 +61,18 @@ function hasPlacementConfig(cacheConfig: CacheConfig): boolean {
  * caller's target request/options — see {@link warnUnsupportedRetention}.
  *
  * @param cacheConfig - The provider's configured cache settings.
- * @returns The cache key, the retention literal, and any unsupported `ttl` for the caller to warn on.
+ * @returns The cache key and retention literal to write.
  * @internal
  */
 export function resolveOpenAICache(cacheConfig: CacheConfig): ResolvedOpenAICache {
-  const resolved: ResolvedOpenAICache = {}
+  const openaiCache: ResolvedOpenAICache = {}
 
   if (cacheConfig.cacheKey !== undefined) {
-    resolved.cacheKey = cacheConfig.cacheKey
+    openaiCache.cacheKey = cacheConfig.cacheKey
   }
 
-  if (cacheConfig.ttl !== undefined) {
-    if (RETENTION_LITERALS.has(cacheConfig.ttl)) resolved.retention = cacheConfig.ttl as RetentionLiteral
-    else resolved.unsupportedTtl = cacheConfig.ttl
+  if (cacheConfig.ttl !== undefined && (RETENTION_LITERALS as readonly string[]).includes(cacheConfig.ttl)) {
+    openaiCache.retention = cacheConfig.ttl as RetentionLiteral
   }
 
   if (hasPlacementConfig(cacheConfig)) {
@@ -86,7 +82,7 @@ export function resolveOpenAICache(cacheConfig: CacheConfig): ResolvedOpenAICach
     )
   }
 
-  return resolved
+  return openaiCache
 }
 
 /**
@@ -113,14 +109,14 @@ export function warnUnsupportedRetention(ttl: string): void {
  */
 export function applyCacheConfig(request: CacheableRequest, cacheConfig: CacheConfig | undefined): void {
   if (!cacheConfig) return
-  const resolved = resolveOpenAICache(cacheConfig)
+  const openaiCache = resolveOpenAICache(cacheConfig)
 
-  if (resolved.cacheKey !== undefined && request.prompt_cache_key === undefined) {
-    request.prompt_cache_key = resolved.cacheKey
+  if (openaiCache.cacheKey !== undefined && request.prompt_cache_key === undefined) {
+    request.prompt_cache_key = openaiCache.cacheKey
   }
 
   if (request.prompt_cache_retention === undefined) {
-    if (resolved.retention !== undefined) request.prompt_cache_retention = resolved.retention
-    else if (resolved.unsupportedTtl !== undefined) warnUnsupportedRetention(resolved.unsupportedTtl)
+    if (openaiCache.retention !== undefined) request.prompt_cache_retention = openaiCache.retention
+    else if (cacheConfig.ttl !== undefined) warnUnsupportedRetention(cacheConfig.ttl)
   }
 }

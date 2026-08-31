@@ -1061,16 +1061,17 @@ describe('VercelModel', () => {
         expect(messageCacheControl(callArgs())).toEqual({ type: 'ephemeral' })
       })
 
-      it('disables caching and warns on an unknown strategy', async () => {
-        const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
+      it('disables caching and warns once on an unknown strategy', async () => {
         const config = { cacheConfig: { strategy: 'bogus' as unknown as 'auto' } }
         const { collect, callArgs } = setupCaptureTest(minimalParts, config, 'anthropic.messages')
         await collect(userMessages, { toolSpecs })
 
         expect(toolCacheControl(callArgs())).toBeUndefined()
         expect(messageCacheControl(callArgs())).toBeUndefined()
-        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('unknown cache strategy'))
-        warnSpy.mockRestore()
+        expect(warnOnce).toHaveBeenCalledWith(
+          expect.objectContaining({ warn: expect.any(Function) }),
+          expect.stringContaining('unknown cache strategy')
+        )
       })
     })
 
@@ -1157,8 +1158,119 @@ describe('VercelModel', () => {
       })
     })
 
+    describe('bedrock underlying provider', () => {
+      /** cachePoint on the system message. */
+      const bedrockSystemCachePoint = (args: LanguageModelV3CallOptions): unknown => {
+        const system = args.prompt.find((message) => message.role === 'system')
+        return system?.providerOptions?.bedrock?.cachePoint
+      }
+
+      /** cachePoint on the last content part of the last user message. */
+      const bedrockMessageCachePoint = (args: LanguageModelV3CallOptions): unknown => {
+        const lastUser = [...args.prompt].reverse().find((message) => message.role === 'user')
+        if (lastUser?.role !== 'user') return undefined
+        const lastPart = lastUser.content[lastUser.content.length - 1]
+        return lastPart?.providerOptions?.bedrock?.cachePoint
+      }
+
+      /** cachePoint on any function tool. */
+      const bedrockToolCachePoint = (args: LanguageModelV3CallOptions): unknown => {
+        for (const tool of args.tools ?? []) {
+          if (tool.type === 'function' && tool.providerOptions?.bedrock?.cachePoint !== undefined) {
+            return tool.providerOptions.bedrock.cachePoint
+          }
+        }
+        return undefined
+      }
+
+      it('caches the system prompt and the last user message by default', async () => {
+        const { collect, callArgs } = setupCaptureTest(minimalParts, { cacheConfig: {} }, 'amazon-bedrock')
+        await collect(userMessages, { toolSpecs, systemPrompt: 'be helpful' })
+
+        const args = callArgs()
+        expect(bedrockSystemCachePoint(args)).toEqual({ type: 'default' })
+        expect(bedrockMessageCachePoint(args)).toEqual({ type: 'default' })
+      })
+
+      it('carries a shared ttl onto system and messages', async () => {
+        const { collect, callArgs } = setupCaptureTest(minimalParts, { cacheConfig: { ttl: '1h' } }, 'amazon-bedrock')
+        await collect(userMessages, { systemPrompt: 'be helpful' })
+
+        const args = callArgs()
+        expect(bedrockSystemCachePoint(args)).toEqual({ type: 'default', ttl: '1h' })
+        expect(bedrockMessageCachePoint(args)).toEqual({ type: 'default', ttl: '1h' })
+      })
+
+      it('never marks tool definitions, since bedrock caches them as part of the prefix', async () => {
+        const config = { cacheConfig: { toolsTTL: '1h' as const } }
+        const { collect, callArgs } = setupCaptureTest(minimalParts, config, 'amazon-bedrock')
+        await collect(userMessages, { toolSpecs })
+
+        expect(bedrockToolCachePoint(callArgs())).toBeUndefined()
+      })
+
+      it('disables a section set to false', async () => {
+        const config = { cacheConfig: { ttl: '1h', systemPromptTTL: false as const, messagesTTL: false as const } }
+        const { collect, callArgs } = setupCaptureTest(minimalParts, config, 'amazon-bedrock')
+        await collect(userMessages, { systemPrompt: 'be helpful' })
+
+        const args = callArgs()
+        expect(bedrockSystemCachePoint(args)).toBeUndefined()
+        expect(bedrockMessageCachePoint(args)).toBeUndefined()
+      })
+
+      it('leaves call-level provider options untouched', async () => {
+        const config = {
+          cacheConfig: { messagesTTL: '1h' as const },
+          providerOptions: { bedrock: { reasoningConfig: { type: 'enabled' } } },
+        }
+        const { collect, callArgs } = setupCaptureTest(minimalParts, config, 'amazon-bedrock')
+        await collect(userMessages)
+
+        const args = callArgs()
+        expect(args.providerOptions?.bedrock).toEqual({ reasoningConfig: { type: 'enabled' } })
+        expect(bedrockMessageCachePoint(args)).toEqual({ type: 'default', ttl: '1h' })
+      })
+
+      it('rides the conversation cache point onto an earlier user turn when the final turn is tool results only', async () => {
+        const toolResultsOnly = [
+          new Message({ role: 'user', content: [new TextBlock('durable prefix')] }),
+          new Message({
+            role: 'assistant',
+            content: [new ToolUseBlock({ name: 'calculator', toolUseId: 'tu1', input: {} })],
+          }),
+          new Message({
+            role: 'user',
+            content: [new ToolResultBlock({ toolUseId: 'tu1', status: 'success', content: [new TextBlock('42')] })],
+          }),
+        ]
+        const config = { cacheConfig: { messagesTTL: '1h' as const } }
+        const { collect, callArgs } = setupCaptureTest(minimalParts, config, 'amazon-bedrock')
+        await collect(toolResultsOnly)
+
+        const args = callArgs()
+        // The tool-results turn emits no user message, so the breakpoint rides the earlier user turn.
+        expect(args.prompt.filter((message) => message.role === 'user')).toHaveLength(1)
+        expect(bedrockMessageCachePoint(args)).toEqual({ type: 'default', ttl: '1h' })
+      })
+
+      it('disables caching and warns once on an unknown strategy', async () => {
+        const config = { cacheConfig: { strategy: 'bogus' as unknown as 'auto' } }
+        const { collect, callArgs } = setupCaptureTest(minimalParts, config, 'amazon-bedrock')
+        await collect(userMessages, { systemPrompt: 'be helpful' })
+
+        const args = callArgs()
+        expect(bedrockSystemCachePoint(args)).toBeUndefined()
+        expect(bedrockMessageCachePoint(args)).toBeUndefined()
+        expect(warnOnce).toHaveBeenCalledWith(
+          expect.objectContaining({ warn: expect.any(Function) }),
+          expect.stringContaining('unknown cache strategy')
+        )
+      })
+    })
+
     describe('unsupported underlying provider', () => {
-      it.each(['amazon-bedrock', 'google.generative-ai'])('warns once and adds no markers for %s', async (provider) => {
+      it.each(['google.generative-ai', 'mistral.chat'])('warns once and adds no markers for %s', async (provider) => {
         const config = { cacheConfig: { ttl: '1h', cacheKey: 'k' } }
         const { collect, callArgs } = setupCaptureTest(minimalParts, config, provider)
         await collect(userMessages, { toolSpecs })
