@@ -124,6 +124,8 @@ import {
   createTokenUsageMiddleware,
 } from '../context-manager/modes/agentic/agentic-context.js'
 import { ContextManager } from '../context-manager/context-manager.js'
+import { BackgroundTasks } from '../background-tasks/background-tasks.js'
+import type { BackgroundTasksConfig } from '../background-tasks/types.js'
 
 /**
  * Recursive type definition for nested tool arrays.
@@ -255,6 +257,8 @@ export type AgentConfig = {
    * Plugins to register with the agent.
    */
   plugins?: Plugin[]
+  /** Background tool execution configuration. */
+  backgroundTasks?: boolean | BackgroundTasksConfig
   /**
    * Retry strategy (or strategies) for failed model/tool calls.
    *
@@ -548,6 +552,7 @@ export class Agent implements LocalAgent, InvokableAgent {
   private readonly _checkpointing: boolean
   /** Direct tool caller — created via {@link ToolCaller.create} factory. */
   private readonly _toolCaller: ToolCallerProxy
+  private readonly _backgroundTasks: BackgroundTasks | undefined
 
   /**
    * Creates an instance of the Agent.
@@ -644,12 +649,37 @@ export class Agent implements LocalAgent, InvokableAgent {
     const hasAgentDelegation = (config?.plugins ?? []).some((p) => p.name === 'strands:agent-delegation')
 
     const contextManagerPlugin = config?.contextManager instanceof ContextManager ? config.contextManager : undefined
+    this._backgroundTasks = config?.backgroundTasks
+      ? new BackgroundTasks(
+          config.backgroundTasks === true ? {} : config.backgroundTasks,
+          (tool, context, middlewareInterrupt) =>
+            this._toolExecutor.executeBackground(
+              {
+                agent: this,
+                middlewareRegistry: this._middlewareRegistry,
+                // Isolate mutable local trace state from overlapping agent work. OTel spans
+                // still use the global provider; local traces are not added to AgentResult.traces.
+                tracer: new Tracer(config?.traceAttributes),
+                meter: this._meter,
+                cancelSignal: context.cancelSignal,
+                toolInterrupt: context.interrupt,
+                middlewareInterrupt,
+                toolGuard: (selectedTool) => this._backgroundTasks!.assertToolCanRun(selectedTool),
+              },
+              context.toolUse,
+              tool,
+              context.invocationState,
+              (event) => this._invokeCallbacks(event)
+            )
+        )
+      : undefined
 
     this._pluginRegistry = new PluginRegistry([
       ...(this._modelRouter ? [this._modelRouter] : []),
       this._conversationManager,
       ...retryStrategies,
       ...(config?.plugins ?? []),
+      ...(this._backgroundTasks ? [this._backgroundTasks] : []),
       ...(!hasAgentDelegation ? [new AgentDelegation()] : []),
       ...((config?.contextManager === 'auto' || config?.contextManager === 'agentic') && !hasOffloader
         ? [
@@ -1482,7 +1512,9 @@ export class Agent implements LocalAgent, InvokableAgent {
    * ```
    */
   public loadSnapshot(snapshot: Snapshot): void {
+    if (this._initialized) this._backgroundTasks?.assertCanLoadSnapshot()
     loadSnapshotInternal(this, snapshot)
+    if (this._initialized && 'state' in snapshot.data) this._backgroundTasks?._loadAppState()
   }
 
   /**
@@ -2440,6 +2472,10 @@ export class Agent implements LocalAgent, InvokableAgent {
             tracer: this._tracer,
             meter: this._meter,
             cancelSignal: this._abortSignal,
+            ...(this._backgroundTasks && {
+              backgroundTasks: this._backgroundTasks,
+              backgroundTaskPassId: assistantMessage.trackingId,
+            }),
           },
           {
             toolUseBlocks,
