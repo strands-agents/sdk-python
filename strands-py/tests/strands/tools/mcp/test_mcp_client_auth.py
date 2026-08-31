@@ -12,8 +12,8 @@ from strands.tools.mcp.mcp_client import _InMemoryTokenStorage
 
 @pytest.fixture
 def streamablehttp_transport():
-    """Patch streamablehttp_client as imported into mcp_client."""
-    with patch("strands.tools.mcp.mcp_client.streamablehttp_client") as http:
+    """Patch streamable_http_transport as imported into mcp_client."""
+    with patch("strands.tools.mcp.mcp_client.streamable_http_transport") as http:
         yield http
 
 

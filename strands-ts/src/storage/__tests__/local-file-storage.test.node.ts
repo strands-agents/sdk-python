@@ -132,4 +132,30 @@ describe('LocalFileStorage', () => {
       expect(keys).toEqual(['a', 'b', 'c'])
     })
   })
+
+  describe('namespace', () => {
+    it('returns a LocalFileStorage instance rooted at the subdirectory', async () => {
+      const namespaced = storage.namespace('sub/dir')
+
+      expect(namespaced).toBeInstanceOf(LocalFileStorage)
+      await namespaced.write('file.txt', new Uint8Array([1, 2, 3]))
+      expect(await namespaced.read('file.txt')).toEqual(new Uint8Array([1, 2, 3]))
+      expect(await namespaced.list('')).toEqual(['file.txt'])
+    })
+
+    it('isolates keys from the parent storage', async () => {
+      const namespaced = storage.namespace('isolated')
+      await storage.write('root.txt', new Uint8Array([1]))
+      await namespaced.write('child.txt', new Uint8Array([2]))
+
+      expect(await storage.list('')).toContain('root.txt')
+      expect(await storage.list('')).not.toContain('child.txt')
+      expect(await namespaced.list('')).toEqual(['child.txt'])
+    })
+
+    it('exposes baseDir pointing to the subdirectory', () => {
+      const namespaced = storage.namespace('nested')
+      expect(namespaced.baseDir).toBe(`${baseDir}/nested`)
+    })
+  })
 })

@@ -419,6 +419,72 @@ describe('Agent', () => {
 
         expect(agent.metrics.cycleCount).toBe(1)
       })
+
+      it('includes the completed cycle duration in the returned result metrics', async () => {
+        vi.useFakeTimers()
+        vi.setSystemTime(0)
+
+        try {
+          const model = new MockMessageModel().addTurn(
+            { type: 'toolUseBlock', name: 'slowTool', toolUseId: 'tool-1', input: {} },
+            { usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 } }
+          )
+
+          const tool = createMockTool(
+            'slowTool',
+            (context) =>
+              new ToolResultBlock({
+                toolUseId: context.toolUse.toolUseId,
+                status: 'success' as const,
+                content: [new TextBlock('Done')],
+              })
+          )
+
+          const agent = new Agent({ model, tools: [tool] })
+          agent.addHook(BeforeToolsEvent, () => {
+            vi.setSystemTime(60)
+          })
+          agent.addHook(AfterToolsEvent, (event: AfterToolsEvent) => {
+            event.endTurn = true
+          })
+
+          const result = await agent.invoke('Test')
+
+          expect(result.stopReason).toBe('endTurn')
+          expect(result.metrics).toMatchObject({
+            cycleCount: 1,
+            totalDuration: 60,
+            averageCycleTime: 60,
+            latestAgentInvocation: { cycles: [{ duration: 60 }] },
+          })
+        } finally {
+          vi.useRealTimers()
+        }
+      })
+
+      it('includes the cycle duration when the model ends the turn without tools', async () => {
+        vi.useFakeTimers()
+        vi.setSystemTime(0)
+
+        try {
+          const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Hello' })
+          const agent = new Agent({ model })
+          agent.addHook(BeforeModelCallEvent, () => {
+            vi.setSystemTime(60)
+          })
+
+          const result = await agent.invoke('Test')
+
+          expect(result.metrics).toMatchObject({
+            cycleCount: 1,
+            totalDuration: 60,
+            averageCycleTime: 60,
+            latestAgentInvocation: { cycles: [{ duration: 60 }] },
+          })
+        } finally {
+          vi.useRealTimers()
+        }
+      })
     })
 
     describe('metrics on errors', () => {

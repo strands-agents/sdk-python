@@ -12,6 +12,7 @@ from mcp.types import (
     ListPromptsResult,
     ListResourcesResult,
     ListResourceTemplatesResult,
+    PaginatedRequestParams,
     Prompt,
     PromptMessage,
     ReadResourceResult,
@@ -26,6 +27,8 @@ from pydantic import AnyUrl
 from strands.tools.mcp import MCPClient
 from strands.tools.mcp.mcp_types import MCPToolResult
 from strands.types.exceptions import MCPClientInitializationError
+
+from .conftest import make_mcp_error
 
 # Fixtures mock_transport and mock_session are imported from conftest.py
 
@@ -74,7 +77,7 @@ def test_list_tools_sync(mock_transport, mock_session):
     with MCPClient(mock_transport["transport_callable"]) as client:
         tools = client.list_tools_sync()
 
-        mock_session.list_tools.assert_called_once_with(cursor=None)
+        mock_session.list_tools.assert_called_once_with(params=None)
 
         assert len(tools) == 1
         assert tools[0].tool_name == "test_tool"
@@ -97,7 +100,7 @@ def test_list_tools_sync_with_pagination_token(mock_transport, mock_session):
     with MCPClient(mock_transport["transport_callable"]) as client:
         tools = client.list_tools_sync(pagination_token="current_page_token")
 
-        mock_session.list_tools.assert_called_once_with(cursor="current_page_token")
+        mock_session.list_tools.assert_called_once_with(params=PaginatedRequestParams(cursor="current_page_token"))
         assert len(tools) == 1
         assert tools[0].tool_name == "test_tool"
         assert tools.pagination_token == "next_page_token"
@@ -111,7 +114,7 @@ def test_list_tools_sync_without_pagination_token(mock_transport, mock_session):
     with MCPClient(mock_transport["transport_callable"]) as client:
         tools = client.list_tools_sync()
 
-        mock_session.list_tools.assert_called_once_with(cursor=None)
+        mock_session.list_tools.assert_called_once_with(params=None)
         assert len(tools) == 1
         assert tools[0].tool_name == "test_tool"
         assert tools.pagination_token is None
@@ -866,7 +869,7 @@ def test_list_prompts_sync(mock_transport, mock_session):
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.list_prompts_sync()
 
-        mock_session.list_prompts.assert_called_once_with(cursor=None)
+        mock_session.list_prompts.assert_called_once_with(params=None)
         assert len(result.prompts) == 1
         assert result.prompts[0].name == "test_prompt"
         assert result.nextCursor is None
@@ -880,7 +883,7 @@ def test_list_prompts_sync_with_pagination_token(mock_transport, mock_session):
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.list_prompts_sync(pagination_token="current_page_token")
 
-        mock_session.list_prompts.assert_called_once_with(cursor="current_page_token")
+        mock_session.list_prompts.assert_called_once_with(params=PaginatedRequestParams(cursor="current_page_token"))
         assert len(result.prompts) == 1
         assert result.prompts[0].name == "test_prompt"
         assert result.nextCursor == "next_page_token"
@@ -1259,7 +1262,7 @@ def test_list_resources_sync(mock_transport, mock_session):
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.list_resources_sync()
 
-        mock_session.list_resources.assert_called_once_with(cursor=None)
+        mock_session.list_resources.assert_called_once_with(params=None)
         assert len(result.resources) == 1
         assert result.resources[0].name == "test.txt"
         assert str(result.resources[0].uri) == "file://documents/test.txt"
@@ -1276,7 +1279,7 @@ def test_list_resources_sync_with_pagination_token(mock_transport, mock_session)
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.list_resources_sync(pagination_token="current_page")
 
-        mock_session.list_resources.assert_called_once_with(cursor="current_page")
+        mock_session.list_resources.assert_called_once_with(params=PaginatedRequestParams(cursor="current_page"))
         assert len(result.resources) == 1
         assert result.resources[0].name == "test.txt"
         assert result.nextCursor == "next_page"
@@ -1350,7 +1353,7 @@ def test_list_resource_templates_sync(mock_transport, mock_session):
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.list_resource_templates_sync()
 
-        mock_session.list_resource_templates.assert_called_once_with(cursor=None)
+        mock_session.list_resource_templates.assert_called_once_with(params=None)
         assert len(result.resourceTemplates) == 1
         assert result.resourceTemplates[0].name == "document_template"
         assert result.resourceTemplates[0].uriTemplate == "file://documents/{name}"
@@ -1372,7 +1375,9 @@ def test_list_resource_templates_sync_with_pagination_token(mock_transport, mock
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.list_resource_templates_sync(pagination_token="current_page")
 
-        mock_session.list_resource_templates.assert_called_once_with(cursor="current_page")
+        mock_session.list_resource_templates.assert_called_once_with(
+            params=PaginatedRequestParams(cursor="current_page")
+        )
         assert len(result.resourceTemplates) == 1
         assert result.resourceTemplates[0].name == "document_template"
         assert result.nextCursor == "next_page"
@@ -1406,7 +1411,6 @@ async def test_handle_error_message_with_percent_in_message():
 
 def test_call_tool_sync_elicitation_error(mock_transport, mock_session):
     """Test that call_tool_sync correctly handles elicitation required errors."""
-    from mcp.shared.exceptions import McpError
     from mcp.types import ElicitationRequiredErrorData, ElicitRequestURLParams
 
     elicitation_data = ElicitationRequiredErrorData(
@@ -1417,7 +1421,7 @@ def test_call_tool_sync_elicitation_error(mock_transport, mock_session):
         ]
     )
 
-    error = McpError(error=MagicMock(code=-32042, data=elicitation_data.model_dump()))
+    error = make_mcp_error(code=-32042, data=elicitation_data.model_dump())
     mock_session.call_tool.side_effect = error
 
     with MCPClient(mock_transport["transport_callable"]) as client:
@@ -1434,7 +1438,6 @@ def test_call_tool_sync_elicitation_error(mock_transport, mock_session):
 
 def test_call_tool_sync_elicitation_error_multiple_urls(mock_transport, mock_session):
     """Test that call_tool_sync correctly handles elicitation errors with multiple elicitations."""
-    from mcp.shared.exceptions import McpError
     from mcp.types import ElicitationRequiredErrorData, ElicitRequestURLParams
 
     elicitation_data = ElicitationRequiredErrorData(
@@ -1448,7 +1451,7 @@ def test_call_tool_sync_elicitation_error_multiple_urls(mock_transport, mock_ses
         ]
     )
 
-    error = McpError(error=MagicMock(code=-32042, data=elicitation_data.model_dump()))
+    error = make_mcp_error(code=-32042, data=elicitation_data.model_dump())
     mock_session.call_tool.side_effect = error
 
     with MCPClient(mock_transport["transport_callable"]) as client:
@@ -1468,13 +1471,12 @@ def test_call_tool_sync_elicitation_error_multiple_urls(mock_transport, mock_ses
 
 def test_call_tool_sync_elicitation_error_no_urls(mock_transport, mock_session):
     """Test that -32042 error with empty URL still returns generic elicitation result."""
-    from mcp.shared.exceptions import McpError
     from mcp.types import ElicitationRequiredErrorData, ElicitRequestURLParams
 
     elicitation_data = ElicitationRequiredErrorData(
         elicitations=[ElicitRequestURLParams(url="", message="No URL provided", elicitationId="elicit-1")]
     )
-    error = McpError(error=MagicMock(code=-32042, data=elicitation_data.model_dump()))
+    error = make_mcp_error(code=-32042, data=elicitation_data.model_dump())
     mock_session.call_tool.side_effect = error
 
     with MCPClient(mock_transport["transport_callable"]) as client:
@@ -1486,10 +1488,8 @@ def test_call_tool_sync_elicitation_error_no_urls(mock_transport, mock_session):
 
 
 def test_call_tool_sync_other_mcp_error_code(mock_transport, mock_session):
-    """Test that non-32042 McpError falls through to generic error."""
-    from mcp.shared.exceptions import McpError
-
-    error = McpError(error=MagicMock(code=-32600, message="Invalid request"))
+    """Test that non-32042 MCPError falls through to generic error."""
+    error = make_mcp_error(code=-32600, message="Invalid request")
     mock_session.call_tool.side_effect = error
 
     with MCPClient(mock_transport["transport_callable"]) as client:
@@ -1500,9 +1500,7 @@ def test_call_tool_sync_other_mcp_error_code(mock_transport, mock_session):
 
 def test_call_tool_sync_elicitation_error_malformed_data(mock_transport, mock_session):
     """Test that -32042 with unparseable data falls through to generic error."""
-    from mcp.shared.exceptions import McpError
-
-    error = McpError(error=MagicMock(code=-32042, data={"garbage": True}))
+    error = make_mcp_error(code=-32042, data={"garbage": True})
     mock_session.call_tool.side_effect = error
 
     with MCPClient(mock_transport["transport_callable"]) as client:
@@ -1514,7 +1512,6 @@ def test_call_tool_sync_elicitation_error_malformed_data(mock_transport, mock_se
 @pytest.mark.asyncio
 async def test_call_tool_async_elicitation_error(mock_transport, mock_session):
     """Test that call_tool_async correctly handles elicitation required errors."""
-    from mcp.shared.exceptions import McpError
     from mcp.types import ElicitationRequiredErrorData, ElicitRequestURLParams
 
     elicitation_data = ElicitationRequiredErrorData(
@@ -1525,7 +1522,7 @@ async def test_call_tool_async_elicitation_error(mock_transport, mock_session):
         ]
     )
 
-    error = McpError(error=MagicMock(code=-32042, data=elicitation_data.model_dump()))
+    error = make_mcp_error(code=-32042, data=elicitation_data.model_dump())
 
     with MCPClient(mock_transport["transport_callable"]) as client:
         with (

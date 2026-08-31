@@ -31,10 +31,10 @@ Bidirectional streaming uses a different event model than [standard streaming](.
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
 async def main():
-    model = BidiNovaSonicModel()
+    model = BedrockNovaSonicModel()
     
     async with BidiAgent(model=model) as agent:
         # Send input to model
@@ -421,10 +421,10 @@ async for event in agent.receive():
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
 async def main():
-    model = BidiNovaSonicModel()
+    model = BedrockNovaSonicModel()
     agent = BidiAgent(model=model)
     audio_io = BidiAudioIO()
     
@@ -458,10 +458,10 @@ asyncio.run(main())
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
 async def main():
-    model = BidiNovaSonicModel()
+    model = BedrockNovaSonicModel()
     
     async with BidiAgent(model=model) as agent:
         await agent.send("Tell me about Python")
@@ -494,11 +494,11 @@ asyncio.run(main())
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 from strands_tools import calculator
 
 async def main():
-    model = BidiNovaSonicModel()
+    model = BedrockNovaSonicModel()
     agent = BidiAgent(model=model, tools=[calculator])
     
     async with agent as agent:
@@ -527,10 +527,10 @@ asyncio.run(main())
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
 async def main():
-    model = BidiNovaSonicModel()
+    model = BedrockNovaSonicModel()
     
     async with BidiAgent(model=model) as agent:
         await agent.send("Tell me a long story about space exploration")
@@ -557,10 +557,10 @@ asyncio.run(main())
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
 async def main():
-    model = BidiNovaSonicModel()  # 8-minute timeout
+    model = BedrockNovaSonicModel()  # 8-minute timeout
     
     async with BidiAgent(model=model) as agent:
         # Continuous conversation that handles restarts

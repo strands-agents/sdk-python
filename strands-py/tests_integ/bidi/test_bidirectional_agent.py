@@ -1,6 +1,6 @@
 """Parameterized integration tests for bidirectional streaming.
 
-Tests fundamental functionality across multiple model providers (Nova Sonic, OpenAI, etc.)
+Tests fundamental functionality across multiple model providers (Bedrock, Google, and OpenAI),
 including multi-turn conversations, audio I/O, text transcription, and tool execution.
 
 This demonstrates the provider-agnostic design of the bidirectional streaming system.
@@ -14,8 +14,7 @@ import pytest
 
 from strands import tool
 from strands.experimental.bidi.agent.agent import BidiAgent
-from strands.experimental.bidi.models.gemini_live import BidiGeminiLiveModel
-from strands.experimental.bidi.models.openai_realtime import BidiOpenAIRealtimeModel
+from strands.experimental.bidi.models import GoogleGeminiLiveModel, OpenAIRealtimeModel
 
 from .context import BidirectionalTestContext
 from .hook_utils import HookEventCollector
@@ -23,11 +22,11 @@ from .hook_utils import HookEventCollector
 logger = logging.getLogger(__name__)
 
 
-def create_nova_sonic_model(**kwargs):
+def create_bedrock_nova_sonic_model(**kwargs):
     """Create a Nova Sonic model without importing its Python 3.12-only SDK during collection."""
-    from strands.experimental.bidi.models.nova_sonic import BidiNovaSonicModel
+    from strands.experimental.bidi.models import BedrockNovaSonicModel
 
-    return BidiNovaSonicModel(**kwargs)
+    return BedrockNovaSonicModel(**kwargs)
 
 
 # Simple calculator tool for testing
@@ -59,22 +58,22 @@ def calculator(operation: str, x: float, y: float) -> float:
 
 # Provider configurations
 PROVIDER_CONFIGS = {
-    "nova_sonic": {
-        "model_factory": create_nova_sonic_model,
+    "bedrock_nova_sonic": {
+        "model_factory": create_bedrock_nova_sonic_model,
         "model_kwargs": {"region": "us-east-1"},  # Uses v2 by default
         "silence_duration": 2.5,  # Nova Sonic needs 2+ seconds of silence
         "env_vars": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
         "skip_reason": "AWS credentials not available",
     },
-    "nova_sonic_v1": {
-        "model_factory": create_nova_sonic_model,
+    "bedrock_nova_sonic_v1": {
+        "model_factory": create_bedrock_nova_sonic_model,
         "model_kwargs": {"model_id": "amazon.nova-sonic-v1:0", "region": "us-east-1"},
         "silence_duration": 2.5,  # Nova Sonic v1 needs 2+ seconds of silence
         "env_vars": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
         "skip_reason": "AWS credentials not available",
     },
-    "openai": {
-        "model_factory": BidiOpenAIRealtimeModel,
+    "openai_realtime": {
+        "model_factory": OpenAIRealtimeModel,
         "model_kwargs": {
             "model": "gpt-4o-realtime-preview-2024-12-17",
             "session": {
@@ -96,12 +95,12 @@ PROVIDER_CONFIGS = {
         "env_vars": ["OPENAI_API_KEY"],
         "skip_reason": "OPENAI_API_KEY not available",
     },
-    "gemini_live": {
-        "model_factory": BidiGeminiLiveModel,
+    "google_gemini_live": {
+        "model_factory": GoogleGeminiLiveModel,
         "model_kwargs": {
             # Uses default model and config (audio output + transcription enabled)
         },
-        "silence_duration": 1.5,  # Gemini has good VAD, similar to OpenAI
+        "silence_duration": 1.5,  # Google Gemini Live has good VAD, similar to OpenAI
         "env_vars": ["GOOGLE_API_KEY"],
         "skip_reason": "GOOGLE_API_KEY not available",
     },
@@ -176,7 +175,7 @@ def agent_with_calculator(provider_config, hook_collector):
 async def test_bidirectional_agent(agent_with_calculator, audio_generator, provider_config, hook_collector):
     """Test multi-turn conversation with follow-up questions across providers.
 
-    This test runs against all configured providers (Nova Sonic, OpenAI, etc.)
+    This test runs against all configured providers (Bedrock, Google, and OpenAI)
     to validate provider-agnostic functionality.
 
     Validates:
