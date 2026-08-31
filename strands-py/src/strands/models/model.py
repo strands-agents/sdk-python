@@ -150,7 +150,11 @@ class CacheConfig:
             the same static system prefix hit the cache. A TTL string (e.g. "1h") sets this section's own
             duration and is honored as written; True derives the duration from ``ttl``; False disables it.
             A hand-placed system cache point is honored rather than doubled.
-        cache_key: Stable identity a provider can use to route its cache. Defaults to None.
+        cache_key: Stable identity a prompt-cache-routing provider (OpenAI, LiteLLM) uses as its cache key.
+            Left unset, it is derived per request as ``strands-<session_id>`` whenever the agent has a
+            session manager, so repeat runs of a session share a cache prefix with no key management. Set
+            it to pin your own key; set it to ``""`` to opt out of routing entirely. Because the derived
+            key is resolved per request, it is not reflected in ``get_config()``. Defaults to None.
     """
 
     strategy: Literal["auto", "anthropic"] = "auto"
@@ -170,6 +174,22 @@ class CacheToolsConfig:
 
     type: str = "default"
     ttl: str | None = None
+
+
+@dataclass(frozen=True)
+class AgentContext:
+    """Read-only view of stable agent identity passed to a model on ``stream()``.
+
+    Populated by the agent per request; a provider may consult it (e.g. to derive a prompt-cache
+    routing key). Because it is rebuilt for every request, a single model instance shared across
+    agents sees each agent's own identity rather than a value baked in at construction.
+
+    Attributes:
+        session_id: The agent's persisted session id, set only when a session manager is attached;
+            None for an ephemeral agent (whose id is random and not stable across runs).
+    """
+
+    session_id: str | None = None
 
 
 class Model(abc.ABC):
@@ -251,6 +271,7 @@ class Model(abc.ABC):
         system_prompt_content: list[SystemContentBlock] | None = None,
         invocation_state: dict[str, Any] | None = None,
         cancel_signal: threading.Event | None = None,
+        agent_context: AgentContext | None = None,
         **kwargs: Any,
     ) -> AsyncIterable[StreamEvent]:
         """Stream conversation with the model.
@@ -271,6 +292,9 @@ class Model(abc.ABC):
             cancel_signal: Event a provider can observe to abort an in-flight request. Support is
                 provider-dependent; a provider that ignores it still cancels at the SDK's
                 between-chunk checkpoint.
+            agent_context: Stable identity of the invoking agent (e.g. its session id), supplied per
+                request. A provider may consult it to derive a prompt-cache routing key; None when the
+                model is streamed directly without an agent.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:

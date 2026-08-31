@@ -8,7 +8,7 @@
  * @internal
  */
 
-import type { CacheConfig } from '../model.js'
+import type { AgentContext, CacheConfig } from '../model.js'
 import { logger } from '../../logging/logger.js'
 import { warnOnce } from '../../logging/warn-once.js'
 
@@ -42,6 +42,20 @@ function hasPlacementConfig(cacheConfig: CacheConfig): boolean {
 }
 
 /**
+ * Resolves the prompt-cache routing key: the configured value wins, else derive from the session.
+ *
+ * Returns the configured `cacheKey` whenever it is set (including `''`, an explicit opt-out);
+ * otherwise `strands-<sessionId>` when the agent carries a session id, else undefined.
+ *
+ * @internal
+ */
+function resolveCacheKey(cacheConfig: CacheConfig, agentContext: AgentContext | undefined): string | undefined {
+  if (cacheConfig.cacheKey !== undefined) return cacheConfig.cacheKey
+  if (agentContext?.sessionId !== undefined) return `strands-${agentContext.sessionId}`
+  return undefined
+}
+
+/**
  * Maps a `CacheConfig` onto an OpenAI request in place.
  *
  * An explicit value already present in `request` (carried in from the user's `params`) always wins;
@@ -49,14 +63,24 @@ function hasPlacementConfig(cacheConfig: CacheConfig): boolean {
  * ignored, and the placement fields (`strategy`, `toolsTTL`, `systemPromptTTL`, `messagesTTL`) have no
  * effect here.
  *
+ * The prompt-cache routing key resolves as: the configured `cacheKey` wins when set (including `''`
+ * as an explicit opt-out); otherwise it falls back to `strands-<sessionId>` when the agent carries a
+ * session id. A falsy result (`''` or undefined) emits no key.
+ *
  * @param request - The request being assembled; mutated in place.
  * @param cacheConfig - The provider's configured cache settings, if any.
+ * @param agentContext - The invoking agent's identity, used to derive a routing key when one is unset.
  */
-export function applyCacheConfig(request: CacheableRequest, cacheConfig: CacheConfig | undefined): void {
+export function applyCacheConfig(
+  request: CacheableRequest,
+  cacheConfig: CacheConfig | undefined,
+  agentContext?: AgentContext
+): void {
   if (!cacheConfig) return
 
-  if (cacheConfig.cacheKey !== undefined && request.prompt_cache_key === undefined) {
-    request.prompt_cache_key = cacheConfig.cacheKey
+  const cacheKey = resolveCacheKey(cacheConfig, agentContext)
+  if (cacheKey && request.prompt_cache_key === undefined) {
+    request.prompt_cache_key = cacheKey
   }
 
   if (cacheConfig.ttl !== undefined && request.prompt_cache_retention === undefined) {

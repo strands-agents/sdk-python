@@ -10,7 +10,7 @@ from openai.types.responses import Response, ResponseErrorEvent, ResponseFailedE
 from openai.types.responses.response_error import ResponseError
 
 import strands
-from strands.models import CacheConfig
+from strands.models import AgentContext, CacheConfig
 from strands.models.openai_responses import _MAX_MEDIA_SIZE_BYTES, OpenAIResponsesModel
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 
@@ -537,6 +537,42 @@ def test_cache_key_absent_when_unset(openai_client, model_id, messages):
     model = OpenAIResponsesModel(model_id=model_id, cache_config=CacheConfig())
 
     assert "prompt_cache_key" not in model._format_request(messages)
+
+
+def test_cache_key_derived_from_agent_context_session(openai_client, model_id, messages):
+    _ = openai_client
+    model = OpenAIResponsesModel(model_id=model_id, cache_config=CacheConfig())
+
+    request = model._format_request(messages, agent_context=AgentContext(session_id="s1"))
+
+    assert request["prompt_cache_key"] == "strands-s1"
+
+
+def test_configured_cache_key_wins_over_agent_context(openai_client, model_id, messages):
+    _ = openai_client
+    model = OpenAIResponsesModel(model_id=model_id, cache_config=CacheConfig(cache_key="tenant-42"))
+
+    request = model._format_request(messages, agent_context=AgentContext(session_id="s1"))
+
+    assert request["prompt_cache_key"] == "tenant-42"
+
+
+def test_empty_cache_key_opts_out_of_agent_context(openai_client, model_id, messages):
+    _ = openai_client
+    model = OpenAIResponsesModel(model_id=model_id, cache_config=CacheConfig(cache_key=""))
+
+    request = model._format_request(messages, agent_context=AgentContext(session_id="s1"))
+
+    assert "prompt_cache_key" not in request
+
+
+def test_agent_context_without_session_yields_no_cache_key(openai_client, model_id, messages):
+    _ = openai_client
+    model = OpenAIResponsesModel(model_id=model_id, cache_config=CacheConfig())
+
+    request = model._format_request(messages, agent_context=AgentContext(session_id=None))
+
+    assert "prompt_cache_key" not in request
 
 
 def test_explicit_prompt_cache_key_in_params_wins(openai_client, model_id, messages):
