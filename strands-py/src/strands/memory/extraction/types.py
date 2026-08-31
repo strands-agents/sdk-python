@@ -47,6 +47,9 @@ class ExtractionResult:
 class ExtractorContext:
     """Context passed to :meth:`Extractor.extract`.
 
+    The context is per-call input: extractors should read it inside ``extract`` rather
+    than store it, which keeps a single extractor instance shareable across agents.
+
     Attributes:
         default_model: The agent's model, supplied so an extractor can default to
             it.

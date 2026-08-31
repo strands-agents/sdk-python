@@ -36,15 +36,18 @@ class Metrics(TypedDict, total=False):
     timeToFirstByteMs: int
 
 
-AuxiliaryModelCallSource = Literal["summarization", "extraction", "routing"]
+AuxiliaryModelCallSource = Literal["summarization", "extraction", "routing"] | str
 """The auxiliary feature making an SDK-internal model call.
 
-May gain values in minor releases as new auxiliary features land; consumers should
-treat unknown values as opaque rather than exhaustive-match on them.
+Any string is accepted for forward compatibility: the SDK may add sources in minor
+releases, and custom components (e.g. a third-party ``Extractor``) may report their
+own. The ``Literal`` values are the well-known sources today, kept in the union for
+IDE completion; never exhaustive-match on them.
 """
 
 UsageSource = Literal["main"] | AuxiliaryModelCallSource
-"""Where a model call's token usage originated: the main event loop, or an auxiliary feature."""
+"""Where a model call's token usage originated: ``"main"`` for the main event loop, or an
+auxiliary source (see :data:`AuxiliaryModelCallSource`)."""
 
 
 StopReason = Literal[

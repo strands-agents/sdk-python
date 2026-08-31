@@ -91,6 +91,55 @@ async def test_fires_hook_pair_and_records_usage(agent, hook_provider):
 
 
 @pytest.mark.asyncio
+async def test_before_event_fires_before_stream_body_starts(agent):
+    """The wrapped stream (the model call) must not start until after the Before event.
+
+    All in-tree streams are async generators, whose bodies run only on first iteration
+    (PEP 525) — so the model request goes out inside this wrapper's ``async for``, after
+    the Before hook, not when the call site creates the generator.
+    """
+    order: list[str] = []
+
+    async def stream():
+        order.append("model_call")
+        yield {"stop": ("end_turn", STOP_MESSAGE, STOP_USAGE, STOP_METRICS)}
+
+    agent.hooks.add_callback(BeforeAuxiliaryModelCallEvent, lambda _: order.append("before_hook"))
+
+    events = instrument_auxiliary_model_call(stream(), source="summarization", agent=agent, messages=PROMPT_MESSAGES)
+    assert order == []  # creating the wrapper runs nothing
+
+    async for _ in events:
+        pass
+
+    assert order == ["before_hook", "model_call"]
+
+
+@pytest.mark.asyncio
+async def test_cancel_never_starts_stream_body(agent):
+    """A cancelling Before hook must prevent the model call entirely."""
+    started = False
+
+    async def stream():
+        nonlocal started
+        started = True
+        yield {"stop": ("end_turn", STOP_MESSAGE, STOP_USAGE, STOP_METRICS)}
+
+    def cancel(event: BeforeAuxiliaryModelCallEvent) -> None:
+        event.cancel = True
+
+    agent.hooks.add_callback(BeforeAuxiliaryModelCallEvent, cancel)
+
+    with pytest.raises(AuxiliaryModelCallCancelledException):
+        async for _ in instrument_auxiliary_model_call(
+            stream(), source="summarization", agent=agent, messages=PROMPT_MESSAGES
+        ):
+            pass
+
+    assert not started
+
+
+@pytest.mark.asyncio
 async def test_agent_none_passes_events_through_uninstrumented():
     tru_events = [
         event
