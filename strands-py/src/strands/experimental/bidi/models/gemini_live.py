@@ -17,6 +17,7 @@ import json
 import logging
 import uuid
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from typing import Any, cast
 
 from google import genai
@@ -53,6 +54,19 @@ logger = logging.getLogger(__name__)
 GEMINI_INPUT_SAMPLE_RATE: AudioSampleRate = 16000
 GEMINI_OUTPUT_SAMPLE_RATE: AudioSampleRate = 24000
 GEMINI_CHANNELS: AudioChannel = 1
+
+
+@dataclass
+class _TurnState:
+    """Per-reader tracking for Gemini's inferred turn bracketing.
+
+    A turn is open from the first model output until ``turn_complete``. Kept on the reader (created
+    in ``receive()``), not the model, so a superseded reader draining its closing session cannot
+    flip the replacing connection's turn state.
+    """
+
+    response_open: bool = False
+    response_id: str | None = None
 
 
 class BidiGeminiLiveModel(BidiModel):
@@ -109,11 +123,6 @@ class BidiGeminiLiveModel(BidiModel):
         self._live_session_context_manager: Any = None
         self._live_session_handle: str | None = None
         self._connection_id: str | None = None
-
-        # Turn tracking: Gemini has no explicit response-start signal, so a model turn is inferred
-        # as open from its first output until turn_complete. Drives turn-boundary alignment.
-        self._response_open = False
-        self._response_id: str | None = None
 
     def _resolve_client_config(self, config: dict[str, Any]) -> dict[str, Any]:
         """Resolve client config.
@@ -174,10 +183,13 @@ class BidiGeminiLiveModel(BidiModel):
         if self._connection_id:
             raise RuntimeError("model already started | call stop before starting again")
 
+        # A fresh start (no handle) drops any handle from a prior session; otherwise the next
+        # proactive reconnect would resume that conversation into this one. Resume paths pass the
+        # handle explicitly and keep it.
+        if "live_session_handle" not in kwargs:
+            self._live_session_handle = None
+
         self._connection_id = str(uuid.uuid4())
-        # A new connection begins with no response in flight.
-        self._response_open = False
-        self._response_id = None
 
         # Build live config — only enable initial-history mode when text content exists
         # (tool-only history is dropped by _send_message_history and would leave the server
@@ -231,17 +243,19 @@ class BidiGeminiLiveModel(BidiModel):
 
         yield BidiConnectionStartEvent(connection_id=self._connection_id, model=self.model_id)
 
-        # Bind to this connection's session so that after a reconnect swaps self._live_session,
-        # a still-draining reader keeps reading its own (closing) session rather than the new one.
+        # Bind session and turn state to this reader so that after a reconnect swaps
+        # self._live_session, a still-draining reader keeps its own closing session and turn state
+        # rather than mutating the connection that replaced it.
         session = self._live_session
+        turn_state = _TurnState()
 
         # Wrap in while loop to restart after turn_complete (SDK limitation workaround)
         while True:
             async for message in session.receive():
-                for event in self._convert_gemini_live_event(message):
+                for event in self._convert_gemini_live_event(message, turn_state):
                     yield event
 
-    def _convert_gemini_live_event(self, message: LiveServerMessage) -> list[BidiOutputEvent]:
+    def _convert_gemini_live_event(self, message: LiveServerMessage, turn_state: _TurnState) -> list[BidiOutputEvent]:
         """Convert Gemini Live API events to provider-agnostic format.
 
         Handles different types of content:
@@ -253,6 +267,10 @@ class BidiGeminiLiveModel(BidiModel):
 
         `usageMetadata` sits outside the `messageType` union, so it can accompany any other field and
         is collected independently of the content events.
+
+        Args:
+            message: The Gemini Live server message to convert.
+            turn_state: The calling reader's turn bracketing state.
 
         Returns:
             List of event dicts (empty list if no events to emit).
@@ -313,9 +331,11 @@ class BidiGeminiLiveModel(BidiModel):
         if message.usage_metadata:
             events.append(self._convert_usage_metadata(message.usage_metadata))
 
-        return self._wrap_turn_events(message, events)
+        return self._wrap_turn_events(message, events, turn_state)
 
-    def _wrap_turn_events(self, message: LiveServerMessage, events: list[BidiOutputEvent]) -> list[BidiOutputEvent]:
+    def _wrap_turn_events(
+        self, message: LiveServerMessage, events: list[BidiOutputEvent], turn_state: _TurnState
+    ) -> list[BidiOutputEvent]:
         """Bracket a turn's content with response start/complete events.
 
         Gemini has no explicit response-start signal, so a model turn is inferred as open from its
@@ -325,6 +345,7 @@ class BidiGeminiLiveModel(BidiModel):
         Args:
             message: The server message being converted.
             events: Content events already derived from ``message``.
+            turn_state: The calling reader's turn bracketing state, mutated as the turn opens/closes.
 
         Returns:
             The content events, prefixed with a response-start when a turn opens and suffixed with
@@ -341,21 +362,23 @@ class BidiGeminiLiveModel(BidiModel):
 
         wrapped: list[BidiOutputEvent] = []
         # An interruption ends a turn, it does not start one, so it never opens a response.
-        if produced_model_output and not self._response_open and not interrupted:
-            self._response_open = True
-            self._response_id = str(uuid.uuid4())
-            wrapped.append(BidiResponseStartEvent(response_id=self._response_id))
+        if produced_model_output and not turn_state.response_open and not interrupted:
+            turn_state.response_open = True
+            turn_state.response_id = str(uuid.uuid4())
+            wrapped.append(BidiResponseStartEvent(response_id=turn_state.response_id))
 
         wrapped.extend(events)
 
         if interrupted:
-            self._response_open = False
-        elif turn_complete and self._response_open:
+            turn_state.response_open = False
+        elif turn_complete and turn_state.response_open:
             wrapped.append(
-                BidiResponseCompleteEvent(response_id=self._response_id or str(uuid.uuid4()), stop_reason="complete")
+                BidiResponseCompleteEvent(
+                    response_id=turn_state.response_id or str(uuid.uuid4()), stop_reason="complete"
+                )
             )
-            self._response_open = False
-            self._response_id = None
+            turn_state.response_open = False
+            turn_state.response_id = None
 
         return wrapped
 
@@ -605,12 +628,54 @@ class BidiGeminiLiveModel(BidiModel):
             **restart_kwargs: Provider restart options; ``live_session_handle`` resumes the session.
         """
         handle = restart_kwargs.pop("live_session_handle", None) or self._live_session_handle
-        if handle is not None:
-            restart_kwargs["live_session_handle"] = handle
         logger.debug("session_handle=<%s> | gemini reconnect starting", handle)
         await self.stop()
+
+        if handle is not None and await self._try_resume(system_prompt, tools, handle, **restart_kwargs):
+            logger.debug("connection_id=<%s> | gemini reconnect complete via resume", self._connection_id)
+            return
+
+        # No handle, or the server refused it: start fresh and replay history so the conversation
+        # continues rather than going silent.
         await self.start(system_prompt, tools, messages, **restart_kwargs)
-        logger.debug("connection_id=<%s> | gemini reconnect complete", self._connection_id)
+        logger.debug("connection_id=<%s> | gemini reconnect complete via fresh session", self._connection_id)
+
+    async def _try_resume(
+        self, system_prompt: str | None, tools: list[ToolSpec] | None, handle: str, **restart_kwargs: Any
+    ) -> bool:
+        """Attempt to resume the session via ``handle``; report whether it succeeded.
+
+        On refusal the handle is dropped (it would fail every retry) and the half-started connection
+        torn down, leaving the model ready for a fresh start.
+
+        Args:
+            system_prompt: System instructions for the resumed connection.
+            tools: Tool specifications for the resumed connection.
+            handle: The session resumption handle to resume with.
+            **restart_kwargs: Additional provider restart options.
+
+        Returns:
+            ``True`` if the session resumed, ``False`` if the handle was refused.
+        """
+        try:
+            await self.start(system_prompt, tools, live_session_handle=handle, **restart_kwargs)
+            return True
+        except Exception as error:
+            logger.warning("error=<%s> | gemini resume failed | falling back to fresh session", error)
+            self._live_session_handle = None
+            await self._teardown_after_failed_resume()
+            return False
+
+    async def _teardown_after_failed_resume(self) -> None:
+        """Tear down the half-started connection so the caller can start fresh.
+
+        Best-effort: a failing ``__aexit__`` on the half-entered context manager must not mask the
+        resume failure or block the fresh-start fallback (stop() still clears the connection id).
+        """
+        try:
+            await self.stop()
+        except Exception as stop_error:
+            logger.debug("error=<%s> | teardown after failed resume", stop_error)
 
     def _build_live_config(
         self, system_prompt: str | None = None, tools: list[ToolSpec] | None = None, **kwargs: Any

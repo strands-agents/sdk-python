@@ -16,7 +16,7 @@ import pytest
 from google.genai import types as genai_types
 
 from strands.experimental.bidi.agent import loop as loop_module
-from strands.experimental.bidi.models.gemini_live import BidiGeminiLiveModel
+from strands.experimental.bidi.models.gemini_live import BidiGeminiLiveModel, _TurnState
 from strands.experimental.bidi.models.model import BidiModelTimeoutError
 from strands.experimental.bidi.types.events import (
     BidiAudioInputEvent,
@@ -363,6 +363,100 @@ async def test_reconnect_prefers_explicit_handle_from_restart_kwargs(mock_genai_
 
 
 @pytest.mark.asyncio
+async def test_fresh_start_clears_tracked_handle(mock_genai_client, model):
+    """A fresh start() (no handle) drops a handle tracked from a previous session.
+
+    Without this, a reused model instance would resume the previous conversation into a new one,
+    silently discarding the new conversation's context.
+    """
+    mock_client, _, _ = mock_genai_client
+    await model.start()
+    model._live_session_handle = "old-session"
+    await model.stop()
+
+    # A brand-new conversation: start with no handle.
+    await model.start()
+
+    assert model._live_session_handle is None
+    config = mock_client.aio.live.connect.call_args.kwargs["config"]
+    assert config["session_resumption"].handle is None
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_reconnect_without_handle_starts_fresh_and_replays_history(mock_genai_client, model, messages):
+    """With no tracked handle, reconnect() starts a fresh session and replays history."""
+    mock_client, mock_live_session, _ = mock_genai_client
+    await model.start()
+    assert model._live_session_handle is None
+
+    await model.reconnect(system_prompt="hi", messages=messages)
+
+    # Fresh session (no resumption handle), with history replayed via send_client_content.
+    config = mock_client.aio.live.connect.call_args.kwargs["config"]
+    assert config["session_resumption"].handle is None
+    mock_live_session.send_client_content.assert_called()
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_reconnect_falls_back_to_fresh_session_when_resume_rejected(mock_genai_client, model, messages):
+    """A rejected resume handle is dropped and the reconnect retries with a fresh session + replay.
+
+    Guards against the connection going permanently silent when the server refuses the handle:
+    the fallback the reconnect() docstring promises.
+    """
+    mock_client, mock_live_session, mock_live_session_cm = mock_genai_client
+    await model.start()
+    model._live_session_handle = "stale-handle"
+
+    # The resume attempt (handle present) fails; the fresh retry (no handle) succeeds.
+    async def aenter_rejects_resume(*_args, **_kwargs):
+        config = mock_client.aio.live.connect.call_args.kwargs["config"]
+        if config["session_resumption"].handle is not None:
+            raise RuntimeError("resume handle rejected")
+        return mock_live_session
+
+    mock_live_session_cm.__aenter__.side_effect = aenter_rejects_resume
+
+    await model.reconnect(system_prompt="hi", messages=messages)
+
+    # Handle dropped, a fresh session established, and history replayed.
+    assert model._live_session_handle is None
+    assert model._connection_id is not None
+    final_config = mock_client.aio.live.connect.call_args.kwargs["config"]
+    assert final_config["session_resumption"].handle is None
+    mock_live_session.send_client_content.assert_called()
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_turn_state_is_per_reader(mock_genai_client, model, live_message):
+    """Turn bracketing is isolated per reader, so a superseded reader draining its closing session
+    cannot corrupt the turn state of the connection that replaced it.
+    """
+    _, _, _ = mock_genai_client
+    await model.start()
+
+    old_reader = _TurnState()
+    new_reader = _TurnState()
+
+    # The superseded reader drains a model output from its closing session, opening its own turn.
+    model._convert_gemini_live_event(live_message(data=b"stale_audio"), old_reader)
+    assert old_reader.response_open is True
+
+    # The new reader's state is untouched, so its first output still opens a response.
+    events = model._convert_gemini_live_event(live_message(data=b"fresh_audio"), new_reader)
+    assert [type(event) for event in events] == [BidiResponseStartEvent, BidiAudioStreamEvent]
+    assert new_reader.response_open is True
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
 async def test_proactive_reconnect_end_to_end_through_agent(mock_genai_client, model_id, api_key, monkeypatch):
     """End-to-end: BidiAgent + real Gemini model proactively reconnects before the deadline.
 
@@ -394,8 +488,6 @@ async def test_proactive_reconnect_end_to_end_through_agent(mock_genai_client, m
     model = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
     # A small deadline; the injected clock below fires it without wall time.
     model.connection_config = {"restart_after_s": 1}
-    # A resumable handle captured before the swap; the reconnect must resume with it.
-    model._live_session_handle = "resume-handle"
 
     agent = BidiAgent(model=model, system_prompt="You are helpful")
 
@@ -414,6 +506,10 @@ async def test_proactive_reconnect_end_to_end_through_agent(mock_genai_client, m
 
     await agent.start()
     first_connection_id = model._connection_id
+    # A resumable handle captured mid-session (as a real session_resumption_update would set it);
+    # the proactive reconnect must resume with it. Set after start(), since a fresh start clears
+    # any pre-existing handle.
+    model._live_session_handle = "resume-handle"
 
     warning_seen = False
     async for event in agent.receive():
@@ -625,14 +721,14 @@ async def test_event_conversion(mock_genai_client, model, live_message, server_c
     await model.start()
     # Simulate a response already in flight so these cases assert pure content conversion,
     # not the response-start that a turn's first model output would otherwise prepend.
-    model._response_open = True
+    turn_state = _TurnState(response_open=True)
 
     # Test text output (converted to transcript via model_turn.parts)
     mock_model_turn = unittest.mock.Mock()
     mock_model_turn.parts = [text_part("Hello from Gemini")]
     mock_text = live_message(server_content=server_content(model_turn=mock_model_turn))
 
-    text_events = model._convert_gemini_live_event(mock_text)
+    text_events = model._convert_gemini_live_event(mock_text, turn_state)
     assert isinstance(text_events, list)
     assert len(text_events) == 1
     text_event = text_events[0]
@@ -649,7 +745,7 @@ async def test_event_conversion(mock_genai_client, model, live_message, server_c
     mock_model_turn_multi.parts = [text_part("Hello"), text_part("from Gemini")]
     mock_multi_text = live_message(server_content=server_content(model_turn=mock_model_turn_multi))
 
-    multi_text_events = model._convert_gemini_live_event(mock_multi_text)
+    multi_text_events = model._convert_gemini_live_event(mock_multi_text, turn_state)
     assert isinstance(multi_text_events, list)
     assert len(multi_text_events) == 1
     multi_text_event = multi_text_events[0]
@@ -659,7 +755,7 @@ async def test_event_conversion(mock_genai_client, model, live_message, server_c
     # Test audio output (base64 encoded)
     mock_audio = live_message(data=b"audio_data")
 
-    audio_events = model._convert_gemini_live_event(mock_audio)
+    audio_events = model._convert_gemini_live_event(mock_audio, turn_state)
     assert isinstance(audio_events, list)
     assert len(audio_events) == 1
     audio_event = audio_events[0]
@@ -681,7 +777,7 @@ async def test_event_conversion(mock_genai_client, model, live_message, server_c
 
     mock_tool = live_message(tool_call=mock_tool_call)
 
-    tool_events = model._convert_gemini_live_event(mock_tool)
+    tool_events = model._convert_gemini_live_event(mock_tool, turn_state)
     # Should return a list of ToolUseStreamEvent
     assert isinstance(tool_events, list)
     assert len(tool_events) == 1
@@ -710,7 +806,7 @@ async def test_event_conversion(mock_genai_client, model, live_message, server_c
 
     mock_tool_multi = live_message(tool_call=mock_tool_call_multi)
 
-    tool_events_multi = model._convert_gemini_live_event(mock_tool_multi)
+    tool_events_multi = model._convert_gemini_live_event(mock_tool_multi, turn_state)
     # Should return a list with two ToolUseStreamEvent
     assert isinstance(tool_events_multi, list)
     assert len(tool_events_multi) == 2
@@ -730,7 +826,7 @@ async def test_event_conversion(mock_genai_client, model, live_message, server_c
     # Test interruption
     mock_interrupt = live_message(server_content=server_content(interrupted=True))
 
-    interrupt_events = model._convert_gemini_live_event(mock_interrupt)
+    interrupt_events = model._convert_gemini_live_event(mock_interrupt, turn_state)
     assert isinstance(interrupt_events, list)
     assert len(interrupt_events) == 1
     interrupt_event = interrupt_events[0]
@@ -753,11 +849,11 @@ async def test_usage_metadata_emitted_alongside_audio(mock_genai_client, model, 
     """
     _, _, _ = mock_genai_client
     await model.start()
-    model._response_open = True  # mid-response, so no response-start is prepended
+    turn_state = _TurnState(response_open=True)  # mid-response, so no response-start is prepended
 
     message = live_message(data=b"audio_data", usage_metadata=usage_metadata())
 
-    events = model._convert_gemini_live_event(message)
+    events = model._convert_gemini_live_event(message, turn_state)
 
     assert [type(event) for event in events] == [BidiAudioStreamEvent, BidiUsageEvent]
     assert events[1] == BidiUsageEvent(
@@ -788,7 +884,7 @@ async def test_usage_metadata_emitted_alongside_session_resumption(
     mock_resumption_update.new_handle = "handle-1"
     message = live_message(session_resumption_update=mock_resumption_update, usage_metadata=usage_metadata())
 
-    events = model._convert_gemini_live_event(message)
+    events = model._convert_gemini_live_event(message, _TurnState())
 
     assert model._live_session_handle == "handle-1"
     assert events == [
@@ -826,7 +922,7 @@ async def test_usage_metadata_modality_details(mock_genai_client, model, live_me
         )
     )
 
-    events = model._convert_gemini_live_event(message)
+    events = model._convert_gemini_live_event(message, _TurnState())
 
     assert events == [
         BidiUsageEvent(
@@ -859,7 +955,7 @@ async def test_interruption_emitted_alongside_other_server_content(
 
     message = live_message(server_content=server_content(interrupted=True, output_transcription=mock_output_transcript))
 
-    events = model._convert_gemini_live_event(message)
+    events = model._convert_gemini_live_event(message, _TurnState())
 
     assert [type(event) for event in events] == [BidiInterruptionEvent, BidiTranscriptStreamEvent]
 
@@ -873,13 +969,13 @@ async def test_audio_takes_precedence_over_model_turn_text(
     """Audio output suppresses model_turn text, avoiding a duplicate event for one response."""
     _, _, _ = mock_genai_client
     await model.start()
-    model._response_open = True  # mid-response, so no response-start is prepended
+    turn_state = _TurnState(response_open=True)  # mid-response, so no response-start is prepended
 
     mock_model_turn = unittest.mock.Mock()
     mock_model_turn.parts = [text_part("Hello from Gemini")]
     message = live_message(data=b"audio_data", server_content=server_content(model_turn=mock_model_turn))
 
-    events = model._convert_gemini_live_event(message)
+    events = model._convert_gemini_live_event(message, turn_state)
 
     assert [type(event) for event in events] == [BidiAudioStreamEvent]
 
@@ -892,7 +988,7 @@ async def test_empty_message_emits_nothing(mock_genai_client, model, live_messag
     _, _, _ = mock_genai_client
     await model.start()
 
-    assert model._convert_gemini_live_event(live_message()) == []
+    assert model._convert_gemini_live_event(live_message(), _TurnState()) == []
 
     await model.stop()
 
@@ -905,13 +1001,14 @@ async def test_first_model_output_opens_response(mock_genai_client, model, live_
     """The first model output of a turn is bracketed by a response-start event."""
     _, _, _ = mock_genai_client
     await model.start()
+    turn_state = _TurnState()
 
-    events = model._convert_gemini_live_event(live_message(data=b"audio_data"))
+    events = model._convert_gemini_live_event(live_message(data=b"audio_data"), turn_state)
     assert [type(event) for event in events] == [BidiResponseStartEvent, BidiAudioStreamEvent]
-    assert model._response_open is True
+    assert turn_state.response_open is True
 
     # A later output in the same turn does not re-open the response.
-    more = model._convert_gemini_live_event(live_message(data=b"more_audio"))
+    more = model._convert_gemini_live_event(live_message(data=b"more_audio"), turn_state)
     assert [type(event) for event in more] == [BidiAudioStreamEvent]
 
     await model.stop()
@@ -922,14 +1019,15 @@ async def test_turn_complete_closes_response(mock_genai_client, model, live_mess
     """turn_complete closes an open response with a response-complete event."""
     _, _, _ = mock_genai_client
     await model.start()
-    model._response_open = True
-    model._response_id = "r1"
+    turn_state = _TurnState(response_open=True, response_id="r1")
 
-    events = model._convert_gemini_live_event(live_message(server_content=server_content(turn_complete=True)))
+    events = model._convert_gemini_live_event(
+        live_message(server_content=server_content(turn_complete=True)), turn_state
+    )
 
     assert [type(event) for event in events] == [BidiResponseCompleteEvent]
     assert events[0].stop_reason == "complete"
-    assert model._response_open is False
+    assert turn_state.response_open is False
 
 
 @pytest.mark.asyncio
@@ -940,7 +1038,9 @@ async def test_turn_complete_without_open_response_emits_nothing(
     _, _, _ = mock_genai_client
     await model.start()
 
-    events = model._convert_gemini_live_event(live_message(server_content=server_content(turn_complete=True)))
+    events = model._convert_gemini_live_event(
+        live_message(server_content=server_content(turn_complete=True)), _TurnState()
+    )
     assert events == []
 
 
@@ -949,12 +1049,12 @@ async def test_interruption_closes_response_without_complete(mock_genai_client, 
     """An interruption ends the turn without emitting a response-complete."""
     _, _, _ = mock_genai_client
     await model.start()
-    model._response_open = True
+    turn_state = _TurnState(response_open=True)
 
-    events = model._convert_gemini_live_event(live_message(server_content=server_content(interrupted=True)))
+    events = model._convert_gemini_live_event(live_message(server_content=server_content(interrupted=True)), turn_state)
 
     assert [type(event) for event in events] == [BidiInterruptionEvent]
-    assert model._response_open is False
+    assert turn_state.response_open is False
 
 
 # Audio Configuration Tests
@@ -1072,12 +1172,12 @@ async def test_custom_audio_rates_in_events(mock_genai_client, model_id, api_key
     provider_config = {"audio": {"output_rate": 48000, "channels": 2}}
     model = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key}, provider_config=provider_config)
     await model.start()
-    model._response_open = True  # mid-response, so no response-start is prepended
+    turn_state = _TurnState(response_open=True)  # mid-response, so no response-start is prepended
 
     # Test audio output event uses custom configuration
     mock_audio = live_message(data=b"audio_data")
 
-    audio_events = model._convert_gemini_live_event(mock_audio)
+    audio_events = model._convert_gemini_live_event(mock_audio, turn_state)
     assert len(audio_events) == 1
     audio_event = audio_events[0]
     assert isinstance(audio_event, BidiAudioStreamEvent)
@@ -1097,12 +1197,12 @@ async def test_default_audio_rates_in_events(mock_genai_client, model_id, api_ke
     # Create model without custom audio configuration
     model = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
     await model.start()
-    model._response_open = True  # mid-response, so no response-start is prepended
+    turn_state = _TurnState(response_open=True)  # mid-response, so no response-start is prepended
 
     # Test audio output event uses defaults
     mock_audio = live_message(data=b"audio_data")
 
-    audio_events = model._convert_gemini_live_event(mock_audio)
+    audio_events = model._convert_gemini_live_event(mock_audio, turn_state)
     assert len(audio_events) == 1
     audio_event = audio_events[0]
     assert isinstance(audio_event, BidiAudioStreamEvent)

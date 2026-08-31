@@ -667,6 +667,9 @@ class _BidiAgentLoop:
                         )
                         response_span = None
                     self._response_active = False
+                    # A completed reply satisfies the user turn: clear the latch so a lagging user
+                    # transcript arriving after completion does not re-open the turn.
+                    self._awaiting_response = False
                     self._update_turn_state()
 
                 elif isinstance(event, BidiTranscriptStreamEvent):
