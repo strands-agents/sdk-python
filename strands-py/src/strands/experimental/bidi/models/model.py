@@ -13,10 +13,12 @@ Features:
 - Support for audio, text, image, and tool result streaming
 """
 
+import abc
 import logging
 from collections.abc import AsyncIterable
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, NoReturn
 
+from ....models.model import Model
 from ....types._events import ToolResultEvent
 from ....types.content import Messages
 from ....types.tools import ToolSpec
@@ -29,9 +31,8 @@ from ..types.model import BidiConnectionConfig
 logger = logging.getLogger(__name__)
 
 
-@runtime_checkable
-class BidiModel(Protocol):
-    """Protocol for bidirectional streaming models.
+class BidiModel(Model, abc.ABC):
+    """Abstract base class for bidirectional streaming models.
 
     This interface defines the contract for models that support persistent streaming
     connections with real-time audio and text communication. Implementations handle
@@ -51,6 +52,27 @@ class BidiModel(Protocol):
     connection_config: BidiConnectionConfig
     usage_is_cumulative: bool
 
+    def update_config(self, **model_config: Any) -> None:
+        """Update the model configuration with the provided arguments.
+
+        Args:
+            **model_config: Configuration overrides.
+        """
+        self.config.update(model_config)
+
+    def get_config(self) -> dict[str, Any]:
+        """Return a copy of the model configuration."""
+        return self.config.copy()
+
+    def structured_output(self, *args: Any, **kwargs: Any) -> NoReturn:
+        """Raise because bidirectional models do not support structured output."""
+        raise NotImplementedError("structured output is not supported by bidirectional models")
+
+    def stream(self, *args: Any, **kwargs: Any) -> NoReturn:
+        """Raise because bidirectional models use their persistent streaming API."""
+        raise NotImplementedError("regular streaming is not supported by bidirectional models")
+
+    @abc.abstractmethod
     async def start(
         self,
         system_prompt: str | None = None,
@@ -70,8 +92,9 @@ class BidiModel(Protocol):
             messages: Initial conversation history to provide context.
             **kwargs: Provider-specific configuration options.
         """
-        ...
+        pass
 
+    @abc.abstractmethod
     async def stop(self) -> None:
         """Close the streaming connection and release resources.
 
@@ -79,8 +102,9 @@ class BidiModel(Protocol):
         resources such as network connections, buffers, or background tasks. After
         calling close(), the model instance cannot be used until start() is called again.
         """
-        ...
+        pass
 
+    @abc.abstractmethod
     def receive(self) -> AsyncIterable[BidiOutputEvent]:
         """Receive streaming events from the model.
 
@@ -94,8 +118,9 @@ class BidiModel(Protocol):
             BidiOutputEvent: Standardized event objects containing audio output,
                 transcripts, tool calls, or control signals.
         """
-        ...
+        pass
 
+    @abc.abstractmethod
     async def send(
         self,
         content: BidiInputEvent | ToolResultEvent,
@@ -122,7 +147,7 @@ class BidiModel(Protocol):
             await model.send(ToolResultEvent(tool_result))
             ```
         """
-        ...
+        pass
 
     async def reconnect(
         self,
@@ -141,8 +166,12 @@ class BidiModel(Protocol):
             tools: Tool specifications that the model can invoke during the conversation.
             messages: Conversation history to replay for providers that resume via replay.
             **restart_kwargs: Provider-specific restart options (e.g. from a timeout error).
+
+        Raises:
+            NotImplementedError: If the model does not implement reconnection.
         """
-        ...
+        # TODO: Make reconnect abstract after Google and OpenAI implement it.
+        raise NotImplementedError("reconnect is not implemented by this bidirectional model")
 
 
 class BidiModelTimeoutError(Exception):
