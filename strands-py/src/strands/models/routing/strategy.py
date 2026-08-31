@@ -61,11 +61,9 @@ class RoutingContext:
     candidates: Sequence[RoutingCandidate]
     invocation_state: Mapping[str, Any]
     attempts: Sequence[RoutingAttempt] = field(default_factory=tuple)
-    # SDK-internal: the agent this invocation runs for, set by the router's context builders so
-    # built-in strategies can attribute auxiliary hooks/metrics to the right agent. Not part of
-    # the strategy contract — in multi-agent runs ``invocation_state["agent"]`` may name a
-    # sibling, so this field is the only reliable owner handle.
-    _agent: Agent | None = None
+    # SDK-internal owner handle for hook/metrics attribution; not part of the strategy
+    # contract (invocation_state["agent"] may name a sibling in multi-agent runs).
+    _agent: Agent | None = field(default=None, repr=False, compare=False)
 
 
 @runtime_checkable
