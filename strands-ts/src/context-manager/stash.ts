@@ -10,7 +10,7 @@
 
 import { resolveNamespace, type Storage } from '../storage/storage.js'
 import { Message, ToolResultBlock, ToolUseBlock, CachePointBlock, ReasoningBlock } from '../types/messages.js'
-import type { ContentBlock, ToolResultContent } from '../types/messages.js'
+import type { ContentBlock } from '../types/messages.js'
 import { logger } from '../logging/logger.js'
 
 const STASH_PREFIX = 'context'
@@ -38,7 +38,6 @@ export function formatStashRefs(refs: string[]): string {
  */
 export class Stash {
   private readonly _storage: Storage
-  private readonly _refsByBlock = new WeakMap<ContentBlock | ToolResultContent, string[]>()
 
   constructor(storage: Storage, sessionId: string, agentId: string) {
     this._storage = resolveNamespace(storage, `${STASH_PREFIX}/${sessionId}/scopes/agent/${agentId}`)
@@ -48,7 +47,7 @@ export class Stash {
    * Store a serialized block and return a deterministic reference key.
    *
    * Keys are deterministic (`<id>_<blockIndex>`) so they can be recomputed
-   * after a process restart or snapshot restore without the WeakMap cache.
+   * via {@link refsFor} after a process restart or snapshot restore.
    *
    * @param id - Identifier component for the key (e.g. toolUseId)
    * @param blockIndex - Index of the block within the tool result
@@ -62,22 +61,27 @@ export class Stash {
   }
 
   /**
-   * Look up pre-computed refs for a content block.
-   * Returns refs populated by a prior {@link storeMessage} call, or empty if the block
-   * was never eagerly stashed (e.g. retrieval results that were excluded).
+   * Compute the deterministic reference keys for a content block.
    *
-   * @param block - The content block to look up
-   * @returns Array of stash references
+   * For a {@link ToolResultBlock}, returns one key per inner content item
+   * (`<toolUseId>_<i>`). For any other block, returns a single key
+   * (`<trackingId>_<blockIndex>`).
+   *
+   * @param block - The content block
+   * @param message - The message containing the block
+   * @param blockIndex - Index of the block within the message
+   * @returns Array of reference keys
    */
-  getRefs(block: ContentBlock): string[] {
-    return this._refsByBlock.get(block) ?? []
+  refsFor(block: ContentBlock, message: Message, blockIndex: number): string[] {
+    if (block instanceof ToolResultBlock) {
+      return Array.from({ length: block.content.length }, (_, index) => `${block.toolUseId}_${index}`)
+    }
+    return [`${message.trackingId}_${blockIndex}`]
   }
 
   /**
    * Eagerly stash all content from a message on arrival.
    * Called via MessageAddedEvent so content is persisted before any strategy runs.
-   * Refs are keyed by the block object itself (WeakMap), so they auto-GC when
-   * the block is replaced during offloading.
    *
    * @param message - The message whose content should be persisted
    * @param skipToolUseIds - ToolUseIds to skip (e.g. retrieval tool results)
@@ -87,17 +91,14 @@ export class Stash {
       const block = message.content[blockIndex]!
       if (block instanceof ToolResultBlock) {
         if (skipToolUseIds?.has(block.toolUseId)) continue
-        const refs = await this._storeToolResult(block).catch((error) => {
+        await this._storeToolResult(block).catch((error) => {
           logger.debug(`toolUseId=<${block.toolUseId}>, error=<${error}> | failed to stash tool result`)
-          return [] as string[]
         })
-        if (refs.length > 0) this._refsByBlock.set(block, refs)
       } else if (block instanceof ToolUseBlock || block instanceof CachePointBlock || block instanceof ReasoningBlock) {
         continue
       } else {
         try {
-          const ref = await this.store(message.trackingId, blockIndex, encode(block.toJSON()))
-          this._refsByBlock.set(block, [ref])
+          await this.store(message.trackingId, blockIndex, encode(block.toJSON()))
         } catch (error) {
           logger.debug(`trackingId=<${message.trackingId}>, error=<${error}> | failed to stash block`)
         }
@@ -132,15 +133,10 @@ export class Stash {
     logger.debug(`reference=<${reference}> | stash entry deleted`)
   }
 
-  private async _storeToolResult(block: ToolResultBlock): Promise<string[]> {
-    if (block.content.length === 0) return []
-
-    const refs: string[] = []
+  private async _storeToolResult(block: ToolResultBlock): Promise<void> {
     for (let blockIndex = 0; blockIndex < block.content.length; blockIndex++) {
       const item = block.content[blockIndex]!
-      const ref = await this.store(block.toolUseId, blockIndex, encode(item.toJSON()))
-      refs.push(ref)
+      await this.store(block.toolUseId, blockIndex, encode(item.toJSON()))
     }
-    return refs
   }
 }
