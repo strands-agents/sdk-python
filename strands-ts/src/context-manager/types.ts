@@ -79,9 +79,9 @@ export interface ContextManagerConfig {
    * L1 stash configuration. The stash persists offloaded content so the agent can
    * retrieve it on demand via the `retrieve_context` tool.
    *
-   * - Omit or `{}` → stash enabled with InMemoryStorage (default)
+   * - Omit or `true` → stash enabled with InMemoryStorage (default)
    * - `{ storage }` → stash enabled with the given backend
    * - `false` → stash disabled (no persistence, no retrieval tool)
    */
-  stash?: StashConfig | false
+  stash?: StashConfig | boolean
 }
