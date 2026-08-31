@@ -88,6 +88,49 @@ jobs:
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+  unit-test-mcp-v2:
+    name: MCP 2.x Compat
+    # The dependency pin is `mcp<2`, so the unit-test matrix only ever
+    # exercises the 1.x line and the 2.x branches of `_compat` run against
+    # mocks there. This job force-installs the 2.x line over the pin to verify
+    # against the real package that `import strands` succeeds and the compat
+    # layer resolves the 2.x names. Scoped to the compat tests; the full suite
+    # is not expected to pass on 2.x while the pin holds. Pinned to `2.0.*` so
+    # upstream 2.x releases cannot break unrelated PRs; bump deliberately.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: strands-py
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.10'
+
+      - name: Install package, then force mcp 2.x over the pin
+        run: |
+          pip install --no-cache-dir -e . \
+            "pytest>=9.0.0,<10.0.0" \
+            "pytest-asyncio>=1.0.0,<1.5.0" \
+            "pytest-timeout>=2.0.0,<3.0.0" \
+            "moto>=5.1.0,<6.0.0"
+          pip install --no-cache-dir "mcp==2.0.*"
+
+      - name: Verify import and version flag
+        run: python -c "import strands; from strands.tools.mcp import _compat; assert _compat.MCP_V2"
+
+      - name: Run compat tests
+        run: pytest tests/strands/tools/mcp/test__compat.py -vv
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

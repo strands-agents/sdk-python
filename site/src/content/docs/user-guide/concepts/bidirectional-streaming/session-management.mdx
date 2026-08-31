@@ -32,14 +32,14 @@ Create a `BidiAgent` with a session manager and use it:
 
 ```python
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 from strands.session.file_session_manager import FileSessionManager
 
 # Create a session manager with a unique session ID
 session_manager = FileSessionManager(session_id="user_123_voice_session")
 
 # Create the agent with session management
-model = BidiNovaSonicModel()
+model = BedrockNovaSonicModel()
 agent = BidiAgent(
     model=model,
     session_manager=session_manager
@@ -57,13 +57,13 @@ The conversation history is automatically persisted and will be restored on the 
 
 ## Provider-Specific Considerations
 
-### Nova Sonic
+### Bedrock Nova Sonic
 
 :::caution[Conversation History Limits]
 When restoring a session, Nova Sonic caps the conversation history sent at connection start to 50KB per message and 200KB total. Messages exceeding the per-message limit are truncated, and if the total exceeds 200KB, the oldest messages are dropped until it fits. Long-running or transcript-heavy sessions restored after this limit is hit will silently lose earlier context.
 :::
 
-### Gemini Live
+### Google Gemini Live
 
 :::caution[Limited Session Management Support]
 Gemini Live does not yet have full session management support due to message history recording limitations in the current implementation. For connection restarts, Gemini Live uses Google's [session handlers](https://ai.google.dev/gemini-api/docs/live-session) to maintain conversation continuity within a single session, but conversation history is not persisted across application restarts.

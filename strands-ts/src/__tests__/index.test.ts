@@ -48,9 +48,11 @@ describe('index', () => {
         contextError: typeof SDK.ContextWindowOverflowError
         // Model provider
         provider: typeof SDK.BedrockModel
+        backgroundTasksConfig: SDK.BackgroundTasksConfig
       } = {
         contextError: SDK.ContextWindowOverflowError,
         provider: SDK.BedrockModel,
+        backgroundTasksConfig: { waitForCompletion: false, maxConcurrency: 2, timeout: 5_000 },
       }
       expect(_typeCheck).toBeDefined()
     })
