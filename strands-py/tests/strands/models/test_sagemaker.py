@@ -1,6 +1,7 @@
 """Tests for the Amazon SageMaker model provider."""
 
 import json
+import logging
 import unittest.mock
 from typing import Any
 
@@ -339,6 +340,15 @@ class TestSageMakerAIModel:
         assert message_stop is not None
         assert message_stop["messageStop"]["stopReason"] == "end_turn"
 
+        # Every part must contribute to the reassembled text, not just the first one.
+        tru_text = "".join(
+            e["contentBlockDelta"]["delta"]["text"]
+            for e in response
+            if "contentBlockDelta" in e and "text" in e["contentBlockDelta"]["delta"]
+        )
+        exp_text = "Paris is the capital of France. It is known for the Eiffel Tower."
+        assert tru_text == exp_text
+
         sagemaker_client.invoke_endpoint_with_response_stream.assert_called_once()
 
     @pytest.mark.asyncio
@@ -453,13 +463,16 @@ class TestSageMakerAIModel:
         assert len(captured_warnings) == 0
 
     @pytest.mark.asyncio
-    async def test_stream_multiple_events_per_payload_part(self, sagemaker_client, model, messages, captured_warnings):
+    async def test_stream_multiple_events_per_payload_part(self, sagemaker_client, model, messages, alist, caplog):
         """Every SSE event is surfaced when a PayloadPart carries more than one event or splits one.
 
         SageMaker does not align PayloadParts to SSE event boundaries: a container such as vLLM or
         TGI may flush several ``data:`` events into one part or split a single event mid-JSON across
         parts. All content up to and including the terminating event must be yielded in order.
+
+        Regression test for #4035.
         """
+        caplog.set_level(logging.WARNING, logger="strands.models.sagemaker")
 
         def sse(content: str, finish_reason: str | None = None) -> str:
             event = {"choices": [{"delta": {"content": content}, "finish_reason": finish_reason}]}
@@ -469,28 +482,29 @@ class TestSageMakerAIModel:
         split = len(final_event) // 2
         mock_response = {
             "Body": [
-                # Two complete SSE events packed into a single PayloadPart.
-                {"PayloadPart": {"Bytes": (sse("Paris is ") + sse("the capital of France")).encode("utf-8")}},
-                # A third event split mid-JSON across two parts.
+                # Three complete SSE events packed into a single PayloadPart.
+                {"PayloadPart": {"Bytes": (sse("Paris ") + sse("is the ") + sse("capital of France")).encode("utf-8")}},
+                # A fourth event split mid-JSON across two parts.
                 {"PayloadPart": {"Bytes": final_event[:split].encode("utf-8")}},
                 {"PayloadPart": {"Bytes": final_event[split:].encode("utf-8")}},
             ]
         }
         sagemaker_client.invoke_endpoint_with_response_stream.return_value = mock_response
 
-        response = [chunk async for chunk in model.stream(messages)]
+        response = await alist(model.stream(messages))
 
-        text = "".join(
+        tru_text = "".join(
             event["contentBlockDelta"]["delta"]["text"]
             for event in response
             if "contentBlockDelta" in event and "text" in event["contentBlockDelta"]["delta"]
         )
+        exp_text = "Paris is the capital of France!"
         message_stop = next((event for event in response if "messageStop" in event), None)
 
-        assert text == "Paris is the capital of France!"
+        assert tru_text == exp_text
         assert message_stop is not None
         assert message_stop["messageStop"]["stopReason"] == "end_turn"
-        assert len(captured_warnings) == 0
+        assert not caplog.records
 
     @pytest.mark.asyncio
     async def test_tool_choice_not_supported_warns(self, sagemaker_client, model, messages, captured_warnings, alist):

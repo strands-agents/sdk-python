@@ -89,6 +89,83 @@ class ToolCall:
         self.function = FunctionCall(**kwargs.get("function", {"name": "", "arguments": ""}))
 
 
+def _strip_sse_framing(line: str) -> str | None:
+    """Return the JSON payload of one SSE line, or None if the line carries no event.
+
+    Strips an optional ``data:`` field prefix and skips blank lines, comment lines
+    (``:`` prefix), non-data SSE fields (``event:``, ``id:``, ``retry:``), and the
+    ``[DONE]`` sentinel.
+
+    Args:
+        line: A single line from the event stream, without its terminating newline.
+
+    Returns:
+        The payload to decode as JSON, or None if the line is not a data event.
+    """
+    line = line.strip()
+    if line.startswith("data:"):
+        line = line[len("data:") :].strip()
+    elif line.startswith(("event:", "id:", "retry:")):
+        return None
+    if not line or line.startswith(":") or line == "[DONE]":
+        return None
+    return line
+
+
+def _parse_event_stream(body: Iterable[Any]) -> Iterator[dict[str, Any]]:
+    """Yield decoded JSON events from a SageMaker response stream.
+
+    A ``PayloadPart`` is an arbitrary byte chunk that is not aligned to event
+    boundaries: a container such as vLLM or TGI may flush several ``data:`` SSE
+    events in one part, or split a single event across parts. Bytes are buffered;
+    each complete newline-delimited line is decoded as an independent event and any
+    trailing partial line is retained until the next part completes it. A malformed
+    ``data:``-framed line is dropped with a warning, while a bare line that does not
+    decode on its own defers to the whole-buffer decode, so a payload that is not
+    newline-framed (multi-line bare JSON) is decoded once the buffer parses whole.
+
+    Args:
+        body: The ``response["Body"]`` event stream of ``PayloadPart`` chunks.
+
+    Yields:
+        One decoded JSON object per event.
+    """
+    buffer = ""
+    for part in body:
+        buffer += part["PayloadPart"]["Bytes"].decode("utf-8")
+        logger.debug("buffer=<%s> | accumulated payload part", buffer)
+        while "\n" in buffer:
+            line, rest = buffer.split("\n", 1)
+            payload = _strip_sse_framing(line)
+            if payload is None:
+                buffer = rest
+                continue
+            try:
+                event = json.loads(payload)
+            except json.JSONDecodeError:
+                if not line.lstrip().startswith("data:"):
+                    # Not SSE-framed: likely one line of a bare JSON document that only
+                    # decodes as a whole. Stop line-splitting and let the whole-buffer
+                    # decode below retry once more bytes arrive.
+                    break
+                logger.warning("line=<%s> | skipping malformed event", line)
+                buffer = rest
+                continue
+            buffer = rest
+            yield event
+        payload = _strip_sse_framing(buffer)
+        if payload is None:
+            continue
+        try:
+            parsed = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+        buffer = ""
+        yield parsed
+    if _strip_sse_framing(buffer) is not None:
+        logger.warning("buffer=<%s> | stream ended with an undecoded partial event", buffer)
+
+
 class SageMakerAIModel(OpenAIModel):
     """Amazon SageMaker model provider implementation."""
 
@@ -298,66 +375,6 @@ class SageMakerAIModel(OpenAIModel):
 
         return request
 
-    @staticmethod
-    def _strip_sse_framing(line: str) -> str | None:
-        """Return the JSON payload of one SSE line, or None if the line carries no event.
-
-        Strips an optional ``data:`` field prefix and skips blank lines, comment
-        lines (``:`` prefix), and the ``[DONE]`` sentinel.
-
-        Args:
-            line: A single line from the event stream, without its terminating newline.
-
-        Returns:
-            The payload to decode as JSON, or None if the line is not a data event.
-        """
-        line = line.strip()
-        if line.startswith("data:"):
-            line = line[len("data:") :].strip()
-        if not line or line.startswith(":") or line == "[DONE]":
-            return None
-        return line
-
-    @staticmethod
-    def _parse_event_stream(body: Iterable[Any]) -> Iterator[dict[str, Any]]:
-        """Yield decoded JSON events from a SageMaker response stream.
-
-        A ``PayloadPart`` is an arbitrary byte chunk that is not aligned to event
-        boundaries: a container such as vLLM or TGI may flush several ``data:`` SSE
-        events in one part, or split a single event across parts. Bytes are buffered;
-        each complete newline-delimited line is decoded as an independent event and any
-        trailing partial line is retained until the next part completes it. Payloads
-        that are not newline-framed (bare JSON) are decoded once the buffer parses whole.
-
-        Args:
-            body: The ``response["Body"]`` event stream of ``PayloadPart`` chunks.
-
-        Yields:
-            One decoded JSON object per event.
-        """
-        buffer = ""
-        for part in body:
-            buffer += part["PayloadPart"]["Bytes"].decode("utf-8")
-            logger.debug("chunk=<%s> | received payload part", buffer)
-            while "\n" in buffer:
-                line, buffer = buffer.split("\n", 1)
-                payload = SageMakerAIModel._strip_sse_framing(line)
-                if payload is None:
-                    continue
-                try:
-                    yield json.loads(payload)
-                except json.JSONDecodeError:
-                    logger.warning("line=<%s> | skipping malformed event", line)
-            payload = SageMakerAIModel._strip_sse_framing(buffer)
-            if payload is None:
-                continue
-            try:
-                parsed = json.loads(payload)
-            except json.JSONDecodeError:
-                continue
-            buffer = ""
-            yield parsed
-
     @override
     async def stream(
         self,
@@ -403,9 +420,9 @@ class SageMakerAIModel(OpenAIModel):
                 text_content_started = False
                 reasoning_content_started = False
 
-                for content in self._parse_event_stream(response["Body"]):
+                for content in _parse_event_stream(response["Body"]):
                     choice = content["choices"][0]
-                    logger.info("choice=<%s>", json.dumps(choice, indent=2))
+                    logger.debug("choice=<%s>", json.dumps(choice, indent=2))
 
                     # Handle text content
                     if choice["delta"].get("content"):
