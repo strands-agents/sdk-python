@@ -8,15 +8,11 @@ networking to the client instance provided by the operator, giving full
 control over transport configuration, authentication, proxies, timeouts,
 redirects, and connection pooling.
 
-When redirects are enabled on the client, the tool follows them manually
-so that credential headers can be stripped on cross-host hops. Only
-standard transport headers (``accept``, ``user-agent``, etc.) survive a
-redirect to a different host; operator-configured credentials and
-model-supplied auth tokens are dropped.
+When redirects are enabled, the tool follows them manually and strips
+non-standard headers on cross-host hops to prevent credential leakage.
 
 The parent agent's cancel signal (``Agent._cancel_signal``) is propagated so
-an in-flight fetch aborts when the agent is cancelled. Cancellation is
-signalled with :class:`asyncio.CancelledError`.
+an in-flight fetch aborts when the agent is cancelled.
 """
 
 from __future__ import annotations
@@ -35,7 +31,6 @@ if TYPE_CHECKING:
     from ...tools.decorator import DecoratedFunctionTool
 
 _SAFE_REDIRECT_HEADERS: frozenset[str] = frozenset({"accept", "accept-encoding", "connection", "host", "user-agent"})
-"""Header names safe to forward on a cross-host redirect."""
 
 
 class HttpRequestError(RuntimeError):
@@ -159,13 +154,7 @@ async def _perform_request(
     client: httpx.AsyncClient | None,
     cancel_signal: threading.Event | None = None,
 ) -> HttpRequestOutput:
-    """Perform the HTTP request, following redirects with credential safety.
-
-    When the client has ``follow_redirects=True``, redirects are followed
-    manually so that credential headers can be stripped on cross-host hops.
-    The response body is streamed so the cancel signal can be checked between
-    chunks.
-    """
+    """Perform the HTTP request, stripping non-standard headers on cross-host redirects."""
     owns_client = client is None
 
     active_client: httpx.AsyncClient
