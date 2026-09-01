@@ -111,12 +111,13 @@ describe('cacheConfig portability across providers', () => {
     const tools = (captured.callOptions?.tools ?? [])
       .filter((tool) => tool.type === 'function')
       .filter((tool) => cacheControl(tool.providerOptions))
-    const messagePoints = (captured.callOptions?.prompt ?? []).filter(
-      (message) => message.role === 'user' && cacheControl(message.providerOptions)
-    )
+    // The breakpoint lands on a content part, not the message, so it can sit ahead of per-call blocks.
+    const messageParts = (captured.callOptions?.prompt ?? [])
+      .flatMap((message) => (message.role === 'user' ? message.content : []))
+      .filter((part) => cacheControl(part.providerOptions))
     return {
       tools: tools.map((tool) => cacheControl((tool as { providerOptions?: unknown }).providerOptions).ttl ?? null),
-      messages: messagePoints.map((message) => cacheControl(message.providerOptions).ttl ?? null),
+      messages: messageParts.map((part) => cacheControl(part.providerOptions).ttl ?? null),
     }
   }
 

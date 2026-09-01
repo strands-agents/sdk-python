@@ -33,7 +33,9 @@ interface CacheableRequest {
  * @internal
  */
 interface ResolvedOpenAICache {
+  /** Stable identity OpenAI routes cache reads on (wire `prompt_cache_key`). */
   cacheKey?: string
+  /** Retention literal to write, set only when the configured `ttl` names one. */
   retention?: RetentionLiteral
 }
 
@@ -79,12 +81,14 @@ export function resolveOpenAICache(cacheConfig: CacheConfig): ResolvedOpenAICach
 }
 
 /**
- * Warns once if a `ttl` is not an OpenAI retention literal.
+ * Warns once that a `ttl` is not an OpenAI retention literal and was ignored.
  *
+ * @param ttl - The unsupported ttl value; included in the message so `warnOnce`, which dedupes on the
+ * exact string, does not collapse distinct misconfigurations into a single warning.
  * @internal
  */
-export function warnUnsupportedRetention(): void {
-  warnOnce(logger, 'cacheConfig.ttl is not an openai retention value, ignoring')
+export function warnUnsupportedRetention(ttl: string): void {
+  warnOnce(logger, `ttl=<${ttl}> | cacheConfig.ttl is not an openai retention value, ignoring`)
 }
 
 /**
@@ -108,6 +112,6 @@ export function applyCacheConfig(request: CacheableRequest, cacheConfig: CacheCo
 
   if (request.prompt_cache_retention === undefined) {
     if (openaiCache.retention !== undefined) request.prompt_cache_retention = openaiCache.retention
-    else if (cacheConfig.ttl !== undefined) warnUnsupportedRetention()
+    else if (cacheConfig.ttl !== undefined) warnUnsupportedRetention(cacheConfig.ttl)
   }
 }

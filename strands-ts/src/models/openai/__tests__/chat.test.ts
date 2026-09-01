@@ -1299,7 +1299,7 @@ describe('OpenAIModel', () => {
       expect(captured.request.prompt_cache_retention).toBeUndefined()
       expect(warnOnce).toHaveBeenCalledWith(
         expect.objectContaining({ warn: expect.any(Function) }),
-        expect.stringContaining('not an openai retention value')
+        expect.stringContaining('ttl=<5m> | cacheConfig.ttl is not an openai retention value')
       )
     })
 
