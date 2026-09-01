@@ -110,18 +110,16 @@ class TestListOperation:
                     "name": "dev_echo",
                     "description": "developer-registered echo",
                     "input_schema": {
-                        "json": {
-                            "type": "object",
-                            "properties": {"text": {"description": "Parameter text", "type": "string"}},
-                            "required": ["text"],
-                        }
+                        "type": "object",
+                        "properties": {"text": {"description": "Parameter text", "type": "string"}},
+                        "required": ["text"],
                     },
                     "registered_by_tool_registry": False,
                 },
                 {
                     "name": "dev_ping",
                     "description": "developer-registered ping",
-                    "input_schema": {"json": {"type": "object", "properties": {}, "required": []}},
+                    "input_schema": {"type": "object", "properties": {}, "required": []},
                     "registered_by_tool_registry": False,
                 },
             ],
@@ -269,13 +267,13 @@ class TestCreateOperation:
             )
 
     @pytest.mark.asyncio
-    async def test_wraps_register_dynamic_tool_value_error(
+    async def test_wraps_register_tool_value_error(
         self,
         mcp_client: _FakeMCPClient,
         registry: ToolRegistry,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """A raw `ValueError` from `register_dynamic_tool` is surfaced as `ToolRegistryError`.
+        """A raw `ValueError` from `register_tool` is surfaced as `ToolRegistryError`.
 
         Another `tool_registry` factory could race a duplicate registration
         between our checks and the write; callers should still see a single
@@ -288,7 +286,7 @@ class TestCreateOperation:
         def raise_duplicate(_tool: Any) -> None:
             raise ValueError("Tool 'alpha' already exists")
 
-        monkeypatch.setattr(registry, "register_dynamic_tool", raise_duplicate)
+        monkeypatch.setattr(registry, "register_tool", raise_duplicate)
         with pytest.raises(ToolRegistryError, match="already exists"):
             await registry_tool(
                 operation="create",
@@ -484,64 +482,115 @@ class TestCreateOperation:
         assert "alpha" in registry.dynamic_tools
 
     @pytest.mark.asyncio
-    async def test_does_not_orphan_reservation_on_concurrent_delete(
+    async def test_aba_create_delete_recreate_does_not_orphan(
         self,
         mcp_client: _FakeMCPClient,
         registry: ToolRegistry,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """A `delete` landing between `create`'s reservation and write must not orphan."""
-        registry_tool = make_tool_registry(
-            mcp_clients={"weather": mcp_client},
-        )
+        """A delete+recreate during an in-flight create must not orphan A2's registration.
+
+        Previously, A1's rollback called owned.discard(name) unconditionally, which
+        removed A2's ownership entry too. With token-based ownership, A1's rollback
+        detects that the token changed and leaves A2's entry intact.
+        """
+        registry_tool = make_tool_registry(mcp_clients={"weather": mcp_client})
         ctx = _tool_context(registry)
 
-        real_resolve = trmod._resolve_mcp_tool
         gate = asyncio.Event()
+        real_resolve = trmod._resolve_mcp_tool
 
         async def gated_resolve(*args: Any, **kwargs: Any) -> Any:
-            # Suspend until the test releases us so a concurrent `delete` can
-            # slip between the synchronous reservation and the post-await
-            # registry write.
             await gate.wait()
             return await real_resolve(*args, **kwargs)
 
         monkeypatch.setattr(trmod, "_resolve_mcp_tool", gated_resolve)
 
-        # Task B: start `create` and let it park on the gate.
-        create_task = asyncio.create_task(
+        # A1: create "alpha", parks at gate.
+        a1 = asyncio.create_task(
             registry_tool(
-                operation="create",
-                tool_name="alpha",
-                source="weather",
-                remote_name="remote_alpha",
-                tool_context=ctx,
+                operation="create", tool_name="alpha", source="weather", remote_name="remote_alpha", tool_context=ctx
             )
         )
-        for _ in range(3):
-            await asyncio.sleep(0)
+        await asyncio.sleep(0)
 
-        # Task A: delete the reserved-but-not-yet-registered tool.
-        delete_result = await registry_tool(
-            operation="delete",
-            tool_name="alpha",
-            tool_context=ctx,
+        # Delete the reservation, then A2 re-creates the same name.
+        monkeypatch.undo()
+        await registry_tool(operation="delete", tool_name="alpha", tool_context=ctx)
+        tru_a2 = await registry_tool(
+            operation="create", tool_name="alpha", source="weather", remote_name="remote_alpha", tool_context=ctx
         )
-        assert delete_result == {"operation": "delete", "name": "alpha", "dynamic_count": 0}
+        assert tru_a2 == {"operation": "create", "name": "alpha", "dynamic_count": 1}
 
-        # Release create; it must abort rather than resurrect an orphan.
+        # Release A1; it must abort, not orphan A2's registration.
         gate.set()
+        monkeypatch.setattr(trmod, "_resolve_mcp_tool", gated_resolve)
         with pytest.raises(ToolRegistryError, match="cancelled by a concurrent delete"):
-            await create_task
+            await a1
 
-        # No orphan in the SDK registry; ownership set is empty.
-        assert "alpha" not in registry.dynamic_tools
-        assert "alpha" not in registry.registry
-        assert await registry_tool(operation="list", tool_context=ctx) == {
-            "tools": unittest.mock.ANY,
-            "dynamic_count": 0,
-            "dynamic_limit": MAX_DYNAMIC_TOOLS,
-        }
+        # A2's registration is intact and deletable.
+        monkeypatch.undo()
+        tru_list = await registry_tool(operation="list", tool_context=ctx)
+        alpha_entry = next(t for t in tru_list["tools"] if t["name"] == "alpha")
+        assert alpha_entry["registered_by_tool_registry"] is True
+        assert tru_list["dynamic_count"] == 1
+        tru_delete = await registry_tool(operation="delete", tool_name="alpha", tool_context=ctx)
+        assert tru_delete == {"operation": "delete", "name": "alpha", "dynamic_count": 0}
+
+    @pytest.mark.asyncio
+    async def test_aba_update_aborted_after_delete_recreate(
+        self,
+        mcp_client: _FakeMCPClient,
+        registry: ToolRegistry,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """An update that completes after a delete+recreate must be aborted, not applied.
+
+        Previously, the post-await guard only checked `tool_name not in owned`, which
+        passed after the recreate because the name was back in owned. With token-based
+        ownership, the update detects the token changed and aborts.
+        """
+        registry_tool = make_tool_registry(mcp_clients={"weather": mcp_client})
+        ctx = _tool_context(registry)
+
+        # Create x->remote_alpha.
+        await registry_tool(
+            operation="create", tool_name="alpha", source="weather", remote_name="remote_alpha", tool_context=ctx
+        )
+
+        gate = asyncio.Event()
+        real_resolve = trmod._resolve_mcp_tool
+
+        async def gated_resolve(*args: Any, **kwargs: Any) -> Any:
+            await gate.wait()
+            return await real_resolve(*args, **kwargs)
+
+        monkeypatch.setattr(trmod, "_resolve_mcp_tool", gated_resolve)
+
+        # Start update x->remote_beta, parks at gate.
+        update_task = asyncio.create_task(
+            registry_tool(
+                operation="update", tool_name="alpha", source="weather", remote_name="remote_beta", tool_context=ctx
+            )
+        )
+        await asyncio.sleep(0)
+
+        # Delete then re-create x->remote_gamma while update is parked.
+        monkeypatch.undo()
+        await registry_tool(operation="delete", tool_name="alpha", tool_context=ctx)
+        await registry_tool(
+            operation="create", tool_name="alpha", source="weather", remote_name="remote_gamma", tool_context=ctx
+        )
+
+        # Release update; it must abort, not overwrite gamma with beta.
+        gate.set()
+        monkeypatch.setattr(trmod, "_resolve_mcp_tool", gated_resolve)
+        with pytest.raises(ToolRegistryError, match="cancelled by a concurrent delete"):
+            await update_task
+
+        # x still points at gamma.
+        monkeypatch.undo()
+        assert registry.dynamic_tools["alpha"].mcp_tool.name == "remote_gamma"
 
 
 class TestUpdateOperation:

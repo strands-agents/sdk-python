@@ -60,6 +60,34 @@ def test_process_tools_with_invalid_path():
         tool_registry.process_tools([invalid_path])
 
 
+def test_remove_static_tool():
+    tool_registry = ToolRegistry()
+    static_tool = PythonAgentTool(tool_name="my_tool", tool_spec=MagicMock(), tool_func=lambda: None)
+    tool_registry.register_tool(static_tool)
+
+    tool_registry.remove("my_tool")
+
+    assert "my_tool" not in tool_registry.registry
+    assert "my_tool" not in tool_registry.dynamic_tools
+
+
+def test_remove_dynamic_tool():
+    tool_registry = ToolRegistry()
+    dynamic_tool = PythonAgentTool(tool_name="my_tool", tool_spec=MagicMock(), tool_func=lambda: None)
+    dynamic_tool.mark_dynamic()
+    tool_registry.register_tool(dynamic_tool)
+
+    tool_registry.remove("my_tool")
+
+    assert "my_tool" not in tool_registry.registry
+    assert "my_tool" not in tool_registry.dynamic_tools
+
+
+def test_remove_nonexistent_tool_is_noop():
+    tool_registry = ToolRegistry()
+    tool_registry.remove("does_not_exist")  # must not raise
+
+
 def test_register_tool_with_similar_name_raises():
     tool_1 = PythonAgentTool(tool_name="tool-like-this", tool_spec=MagicMock(), tool_func=lambda: None)
     tool_2 = PythonAgentTool(tool_name="tool_like_this", tool_spec=MagicMock(), tool_func=lambda: None)

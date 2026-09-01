@@ -47,19 +47,14 @@ logger = logging.getLogger(__name__)
 
 
 def _get_owned_names(
-    ownership: weakref.WeakKeyDictionary[ToolRegistry, set[str]],
+    ownership: weakref.WeakKeyDictionary[ToolRegistry, dict[str, object]],
     registry: ToolRegistry,
-) -> set[str]:
+) -> dict[str, object]:
     owned = ownership.get(registry)
     if owned is None:
-        owned = set()
+        owned = {}
         ownership[registry] = owned
     return owned
-
-
-def _validate_tool_name(name: str) -> None:
-    if not isinstance(name, str) or not TOOL_NAME_PATTERN.match(name):
-        raise ToolRegistryError(f"invalid tool name '{name}': must match {TOOL_NAME_PATTERN.pattern}")
 
 
 def _find_normalized_conflict(registry: ToolRegistry, name: str) -> str | None:
@@ -152,7 +147,7 @@ def make_tool_registry(
     # Ownership map for this factory instance: keyed on ToolRegistry so two factories
     # on one agent track their tools independently. WeakKeyDictionary lets the entry
     # disappear when the registry is garbage-collected.
-    ownership: weakref.WeakKeyDictionary[ToolRegistry, set[str]] = weakref.WeakKeyDictionary()
+    ownership: weakref.WeakKeyDictionary[ToolRegistry, dict[str, object]] = weakref.WeakKeyDictionary()
 
     @tool(name=name, description=description, context="tool_context")
     async def tool_registry_tool(
@@ -205,7 +200,7 @@ def make_tool_registry(
                 # Omit input_schema only when the key is absent from the underlying tool.
                 # An explicit empty dict is a valid schema and must be preserved.
                 if "inputSchema" in spec:
-                    entry["input_schema"] = spec["inputSchema"]
+                    entry["input_schema"] = spec["inputSchema"]["json"]
                 tools_out.append(entry)
             return ListResult(
                 tools=tools_out,
@@ -220,7 +215,8 @@ def make_tool_registry(
 
         if tool_name is None:
             raise ToolRegistryError(f"'tool_name' is required for operation '{operation}'")
-        _validate_tool_name(tool_name)
+        if not isinstance(tool_name, str) or not TOOL_NAME_PATTERN.match(tool_name):
+            raise ToolRegistryError(f"invalid tool name '{tool_name}': must match {TOOL_NAME_PATTERN.pattern}")
 
         if description_override is not None and not description_override.strip():
             raise ToolRegistryError("description_override must be non-empty; omit it to keep the server's description")
@@ -235,9 +231,8 @@ def make_tool_registry(
                     f"tool '{tool_name}' was not registered via tool_registry; "
                     "developer-registered tools cannot be removed"
                 )
-            # Guard against external tampering removing the tool between calls.
-            agent_registry.dynamic_tools.pop(tool_name, None)
-            owned.discard(tool_name)
+            agent_registry.remove(tool_name)
+            del owned[tool_name]
             return MutationResult(operation="delete", name=tool_name, dynamic_count=len(owned))
 
         # create / update below share the source-resolution logic.
@@ -261,23 +256,26 @@ def make_tool_registry(
                     f"dynamic tool cap reached ({max_dynamic_tools}); "
                     "delete an existing dynamically-registered tool first"
                 )
-            # Reserve slot before the async MCP lookup to block concurrent creates from bypassing the cap.
-            owned.add(tool_name)
+            # Unique token per registration; guards detect a concurrent delete+recreate.
+            token: object = object()
+            owned[tool_name] = token
             try:
                 new_tool = await _resolve_mcp_tool(clients[source], effective_remote, tool_name, description_override)
-                # Abort if a concurrent delete cleared our reservation during the await.
-                if tool_name not in owned:
+                # Abort if a concurrent delete invalidated our registration during the await.
+                if owned.get(tool_name) is not token:
                     raise ToolRegistryError(
                         f"create of '{tool_name}' was cancelled by a concurrent delete "
                         "before the tool could be registered"
                     )
                 try:
-                    agent_registry.register_dynamic_tool(new_tool)
+                    agent_registry.register_tool(new_tool)
                 except ValueError as err:
                     # Concurrent registration can still land a duplicate between the checks and write.
                     raise ToolRegistryError(str(err)) from err
             except BaseException:
-                owned.discard(tool_name)
+                # Only release the slot if it still belongs to this create, not a concurrent delete and recreate.
+                if owned.get(tool_name) is token:
+                    del owned[tool_name]
                 raise
             return MutationResult(operation="create", name=tool_name, dynamic_count=len(owned))
 
@@ -286,14 +284,18 @@ def make_tool_registry(
             raise ToolRegistryError(
                 f"tool '{tool_name}' was not registered via tool_registry; developer-registered tools cannot be updated"
             )
+        update_token = owned[tool_name]
         new_tool = await _resolve_mcp_tool(clients[source], effective_remote, tool_name, description_override)
         # Abort if a concurrent delete cleared ownership during the await (mirrors the create guard).
-        if tool_name not in owned:
+        if owned.get(tool_name) is not update_token:
             raise ToolRegistryError(
                 f"update of '{tool_name}' was cancelled by a concurrent delete before the tool could be re-bound"
             )
         # Replace under the same name, keeping ownership.
-        agent_registry.dynamic_tools[tool_name] = new_tool
+        try:
+            agent_registry.replace(new_tool)
+        except ValueError as err:
+            raise ToolRegistryError(str(err)) from err
         return MutationResult(operation="update", name=tool_name, dynamic_count=len(owned))
 
     return tool_registry_tool

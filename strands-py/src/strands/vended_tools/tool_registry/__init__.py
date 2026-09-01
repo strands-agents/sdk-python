@@ -9,11 +9,9 @@ Example Usage:
     from strands.tools.mcp import MCPClient
     from strands.vended_tools.tool_registry import make_tool_registry
 
-    weather = MCPClient(...)
-    weather.start()
-    registry_tool = make_tool_registry(mcp_clients={"weather": weather})
-
-    agent = Agent(tools=[registry_tool])
+    with MCPClient(...) as weather:
+        registry_tool = make_tool_registry(mcp_clients={"weather": weather})
+        agent = Agent(tools=[registry_tool])
     ```
 """
 
