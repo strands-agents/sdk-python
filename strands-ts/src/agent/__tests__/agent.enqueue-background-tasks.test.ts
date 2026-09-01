@@ -5,7 +5,7 @@ import { MockMessageModel } from '../../__fixtures__/mock-message-model.js'
 import { ExecuteToolStage } from '../../middleware/index.js'
 import { tool } from '../../tools/tool-factory.js'
 import { InterruptResponseContent } from '../../types/interrupt.js'
-import { TextBlock } from '../../types/messages.js'
+import { TextBlock, ToolUseBlock } from '../../types/messages.js'
 import { Agent } from '../agent.js'
 
 import type { BackgroundTask } from '../../background-tasks/types.js'
@@ -75,6 +75,18 @@ function hasBackgroundDelivery(content: readonly unknown[]): boolean {
 
 function persistedTasks(agent: Agent): BackgroundTask[] | undefined {
   return agent.appState.get(BACKGROUND_TASKS_STATE_KEY) as unknown as BackgroundTask[] | undefined
+}
+
+/** The input of the first delivered background-task synthetic tool use, if any. */
+function deliveryInput(agent: Agent): Record<string, unknown> | undefined {
+  for (const message of agent.messages) {
+    for (const block of message.content) {
+      if (block instanceof ToolUseBlock && block.name === 'strands_background_task_result') {
+        return block.input as Record<string, unknown>
+      }
+    }
+  }
+  return undefined
 }
 
 describe('concurrentInvocationMode enqueue × backgroundTasks', () => {
@@ -205,7 +217,35 @@ describe('concurrentInvocationMode enqueue × backgroundTasks', () => {
     const deliveryIndex = messageIndex(agent, hasBackgroundDelivery)
     const secondInputIndex = messageIndex(agent, (content) => hasText(content, 'second'))
     expect(deliveryIndex).toBeGreaterThan(secondInputIndex)
+    // Cross-invocation delivery carries provenance: the model must not fold the old
+    // task's result into its answer to the new caller.
+    expect(deliveryInput(agent)).toEqual({ toolName: 'work', startedBy: 'an earlier request in this conversation' })
     expect(persistedTasks(agent)).toBeUndefined()
+  })
+
+  it('does not mark a same-invocation delivery as started by an earlier request', async () => {
+    const work = createGate('work')
+    const model = new MockMessageModel()
+      .addTurn({ type: 'toolUseBlock', name: 'work', toolUseId: 'work-use', input: {} })
+      .addTurn({ type: 'textBlock', text: 'first done' })
+      .addTurn({ type: 'textBlock', text: 'delivered' })
+    const agent = new Agent({
+      model,
+      tools: [work.tool],
+      backgroundTasks: { always: [work.tool] },
+      printer: false,
+    })
+
+    const first = agent.invoke('first')
+    await work.started
+    // Let the invocation reach its final model pass first, so the task settles
+    // during the end-of-invocation settlement wait and is delivered by the same
+    // invocation's delivery continuation.
+    await until(() => agent.messages.some((message) => hasText(message.content, 'first done')), 'first final turn')
+    work.release()
+    const result = await first
+    expect(resultText(result)).toBe('delivered')
+    expect(deliveryInput(agent)).toEqual({ toolName: 'work' })
   })
 
   it('rejects a queued caller loudly when a background task interrupt ends the running invocation', async () => {
@@ -314,6 +354,62 @@ describe('concurrentInvocationMode enqueue × backgroundTasks', () => {
     slow.release()
     const urgentResult = await urgent
     expect(resultText(urgentResult)).toBe('slow delivered')
+    expect(persistedTasks(agent)).toBeUndefined()
+  })
+
+  it('surfaces a background-task interrupt even when the invocation was cancelled (resume is not gated)', async () => {
+    const approval = tool({
+      name: 'approval',
+      description: 'Wait for approval.',
+      inputSchema: z.object({}),
+      callback: () => 'approved',
+    })
+    const holdGate = createGate('hold_gate')
+    const model = new MockMessageModel()
+      .addTurn([
+        { type: 'toolUseBlock', name: 'approval', toolUseId: 'approval-use', input: {} },
+        { type: 'toolUseBlock', name: 'hold_gate', toolUseId: 'hold-gate-use', input: {} },
+      ])
+      .addTurn({ type: 'textBlock', text: 'resumed' })
+      .addTurn({ type: 'textBlock', text: 'delivered' })
+    const agent = new Agent({
+      model,
+      tools: [approval, holdGate.tool],
+      backgroundTasks: { always: [approval], never: [holdGate.tool] },
+      printer: false,
+    })
+    agent.addMiddleware(ExecuteToolStage, async function* (context, next) {
+      if (context.toolUse.name === 'approval') {
+        context.interrupt<string>({ name: 'approve', reason: 'Approve work?' })
+      }
+      return yield* next(context)
+    })
+
+    const first = agent.invoke('first')
+    await holdGate.started
+    await until(() => (persistedTasks(agent) ?? []).some((task) => task.status === 'input_required'), 'input_required')
+
+    // Cancel the running invocation (the gate resolves on abort). The pending
+    // input_required interrupt must still surface: the resume path is deliberately
+    // NOT gated on cancellation — its pass raises the interrupt before any model
+    // call and terminates promptly, so gating it would silently drop the interrupt
+    // and return a plain result the caller cannot resume from.
+    agent.cancel()
+    const firstResult = await first
+    expect(firstResult.stopReason).toBe('interrupt')
+    expect(firstResult.interrupts).toHaveLength(1)
+    // The resume pass raised before any model call: no pass beyond the first ran.
+    expect(model.callCount).toBe(1)
+
+    // The interrupt remains resumable.
+    const resumed = await agent.invoke([
+      new InterruptResponseContent({
+        interruptId: firstResult.interrupts![0]!.id,
+        response: 'yes',
+      }),
+    ])
+    expect(resumed.stopReason).toBe('endTurn')
+    expect(messageIndex(agent, hasBackgroundDelivery)).toBeGreaterThan(-1)
     expect(persistedTasks(agent)).toBeUndefined()
   })
 })

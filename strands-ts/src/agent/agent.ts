@@ -1008,22 +1008,37 @@ export class Agent implements LocalAgent, InvokableAgent {
     }
     if (!this._isInvoking) {
       this._isInvoking = true
+      this._installTurnController()
       return
     }
     const strategy = options?.ifBusy ?? this._concurrentInvocationMode
-    if (strategy === 'throw') {
-      throw new ConcurrentInvocationError(
-        'Agent is already processing an invocation. Wait for the current invoke() or stream() call to complete before invoking again.'
-      )
+    // Exhaustive on purpose: a future mode added to the vocabulary must be given
+    // explicit dispatch semantics here — it must not silently fall through to enqueue.
+    switch (strategy) {
+      case 'throw':
+        throw new ConcurrentInvocationError(
+          'Agent is already processing an invocation. Wait for the current invoke() or stream() call to complete before invoking again.'
+        )
+      case 'enqueue':
+      case 'interrupt': {
+        const turn = this._invocationQueue.wait(args, {
+          front: strategy === 'interrupt',
+          ...(options?.cancelSignal !== undefined && { cancelSignal: options.cancelSignal }),
+        })
+        // A caller whose cancelSignal is already aborted never enters the queue (its
+        // `wait()` above has already rejected) — cancelling the running invocation for
+        // it would be pure collateral damage, so the interrupt half is skipped.
+        if (strategy === 'interrupt' && options?.cancelSignal?.aborted !== true) {
+          this.cancel()
+        }
+        await turn
+        return
+      }
+      default: {
+        const exhaustive: never = strategy
+        throw new Error(`Unsupported concurrency mode: ${String(exhaustive)}`)
+      }
     }
-    const turn = this._invocationQueue.wait(args, {
-      front: strategy === 'interrupt',
-      ...(options?.cancelSignal !== undefined && { cancelSignal: options.cancelSignal }),
-    })
-    if (strategy === 'interrupt') {
-      this.cancel()
-    }
-    await turn
   }
 
   /**
@@ -1047,9 +1062,28 @@ export class Agent implements LocalAgent, InvokableAgent {
    * a waiter can be stranded.
    */
   private _releaseTurn(): void {
-    if (!this._invocationQueue.handoff()) {
+    if (this._invocationQueue.handoff()) {
+      // Install the successor's AbortController synchronously with the handoff. A
+      // `cancel()` (or `ifBusy: 'interrupt'`) arriving between this handoff and the
+      // successor's first loop pass must target the successor — not the finished
+      // predecessor's stale controller, where the abort would be silently discarded
+      // when the successor started. The successor's first pass adopts this controller
+      // instead of replacing it (see the loop in `stream()`).
+      this._installTurnController()
+    } else {
       this._isInvoking = false
     }
+  }
+
+  /**
+   * Installs a fresh AbortController for the invocation that now owns the turn.
+   * Called synchronously at both turn-acquisition points (idle acquire and queue
+   * handoff) so there is no window in which `cancel()` aborts a stale controller
+   * that the turn owner never observes.
+   */
+  private _installTurnController(): void {
+    this._abortController = new AbortController()
+    this._abortSignal = this._abortController.signal
   }
 
   /**
@@ -1244,7 +1278,10 @@ export class Agent implements LocalAgent, InvokableAgent {
    * Hook callbacks can check `event.agent.cancelSignal.aborted` to detect
    * cancellation and adjust their behavior accordingly.
    *
-   * The stream/invoke call will return an AgentResult with `stopReason: 'cancelled'`.
+   * The stream/invoke call will return an AgentResult with `stopReason: 'cancelled'` —
+   * or with `stopReason: 'endTurn'` when the final model pass had already completed and
+   * the invocation was only awaiting end-of-invocation work (e.g. background-task
+   * settlement); the completed result is returned promptly rather than discarded.
    * If the agent is not currently invoking, this is a no-op.
    *
    * Only the *running* invocation is cancelled: queued invocations (under
@@ -1353,10 +1390,17 @@ export class Agent implements LocalAgent, InvokableAgent {
       const resolvedOptions: InvokeOptions = options?.invocationState ? options : { ...options, invocationState }
 
       let currentArgs: InvokeArgs = args
+      let firstPass = true
 
       while (true) {
-        // Fresh AbortController per iteration, composed with any external signal.
-        this._abortController = new AbortController()
+        // Fresh AbortController per iteration, composed with any external signal. The
+        // first pass ADOPTS the controller installed at turn acquisition instead of
+        // replacing it: a cancel that landed between acquiring the turn and this point
+        // (e.g. `ifBusy: 'interrupt'` racing a queue handoff) must be observed, not wiped.
+        if (!firstPass) {
+          this._abortController = new AbortController()
+        }
+        firstPass = false
         this._abortSignal = resolvedOptions?.cancelSignal
           ? AbortSignal.any([this._abortController.signal, resolvedOptions.cancelSignal])
           : this._abortController.signal

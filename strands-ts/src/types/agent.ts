@@ -149,6 +149,11 @@ export interface InvokeOptions {
    *   own result with `stopReason: 'cancelled'`.
    *
    * When omitted, the agent's `concurrentInvocationMode` applies.
+   *
+   * Queue options (`maxDepth`, `visibleToModel`) are configured on the agent's
+   * `concurrentInvocationMode`. On an agent left in the default `'throw'` mode,
+   * per-call `'enqueue'` / `'interrupt'` waits in a queue that is unbounded and not
+   * visible to the model — attach the `PendingInvocations` plugin for visibility.
    */
   ifBusy?: IfBusy
 

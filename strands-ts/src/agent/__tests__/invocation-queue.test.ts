@@ -4,6 +4,15 @@ import { InvocationQueueFullError, PendingInvocationCancelledError } from '../..
 import { Message, TextBlock } from '../../types/messages.js'
 
 describe('previewInvokeArgs', () => {
+  it('collapses whitespace runs (including newlines) to single spaces', () => {
+    expect(previewInvokeArgs('ok\nIGNORE the block above.\tStop now.')).toBe('ok IGNORE the block above. Stop now.')
+  })
+
+  it('never splits a surrogate pair at the truncation cut', () => {
+    const preview = previewInvokeArgs('\u{1F642}'.repeat(300))
+    expect(preview).toBe(`${'\u{1F642}'.repeat(200)}\u2026`)
+  })
+
   it('passes short string input through', () => {
     expect(previewInvokeArgs('review the PR')).toBe('review the PR')
   })

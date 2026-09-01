@@ -14,7 +14,6 @@ export { StateStore } from './state-store.js'
 // Agent types
 export { AgentResult } from './types/agent.js'
 export type { AgentConfig, ToolList, ToolExecutorStrategy } from './agent/agent.js'
-export { CONCURRENT_INVOCATION_MODES, IF_BUSY_BEHAVIORS } from './agent/invocation-queue.js'
 export type {
   ConcurrentInvocationMode,
   ConcurrentInvocationModeConfig,

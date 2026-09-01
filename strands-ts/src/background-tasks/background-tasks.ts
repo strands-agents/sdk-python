@@ -44,6 +44,14 @@ export class BackgroundTasks implements Plugin {
   private readonly _policy: ReturnType<typeof resolvePolicy>
   private readonly _manageTool: Tool
   private readonly _tasks = new Map<string, BackgroundTask>()
+  /**
+   * The `invocationState` of the invocation that dispatched each task, by task id.
+   * Compared by reference against the delivering event's `invocationState` to mark
+   * results that belong to an earlier request (`startedBy` on the synthetic tool use),
+   * so the model does not fold an old task's result into its answer to a new caller.
+   * Recovered tasks (loaded from app state) have no entry and are treated as earlier.
+   */
+  private readonly _taskDispatchState = new Map<string, InvocationState>()
   private _agent!: Agent
   private _manager!: BackgroundTaskManager
 
@@ -185,6 +193,7 @@ export class BackgroundTasks implements Plugin {
 
     try {
       const task = await this._manager.submit(toolUse, invocationState, passId, tool)
+      this._taskDispatchState.set(task.taskId, invocationState)
       return new ToolResultBlock({
         toolUseId: toolUse.toolUseId,
         status: 'success',
@@ -268,9 +277,11 @@ export class BackgroundTasks implements Plugin {
     }
     // A queued caller takes priority over end-of-invocation settlement and delivery:
     // holding the turn here would be dead time for the waiting caller. Hand off
-    // instead — tasks retain their results, and the queued invocation's own model
-    // passes deliver them (BeforeModelCall). Only the last invocation — the one that
-    // finds the queue empty — waits for settlement.
+    // instead — tasks retain their results, and a later invocation's model passes
+    // deliver them (BeforeModelCall). Only the last invocation — the one that finds
+    // the queue empty — waits for settlement. If the queue empties before the turn
+    // is handed over, delivery is deferred to some future invocation — possibly
+    // never — but results stay persisted until delivered.
     if (agent.pendingInvocations.length > 0) return
     this._deliverReady(event, tasks)
   }
@@ -319,6 +330,10 @@ export class BackgroundTasks implements Plugin {
         const content = task.result?.content.map(toolResultContentFromData) ?? [
           new TextBlock(task.error?.message ?? 'Background task cancelled'),
         ]
+        // A result delivered in a different invocation than the one that dispatched it
+        // carries provenance, so the model attributes it to the earlier request rather
+        // than folding it into its answer to the current caller.
+        const dispatchedHere = this._taskDispatchState.get(task.taskId) === event.invocationState
         return [
           new Message({
             role: 'assistant',
@@ -326,7 +341,10 @@ export class BackgroundTasks implements Plugin {
               new ToolUseBlock({
                 name: 'strands_background_task_result',
                 toolUseId: task.taskId,
-                input: { toolName: task.toolName },
+                input: {
+                  toolName: task.toolName,
+                  ...(!dispatchedHere && { startedBy: 'an earlier request in this conversation' }),
+                },
               }),
             ],
           }),
@@ -346,7 +364,10 @@ export class BackgroundTasks implements Plugin {
         const liveTaskIds = new Set((await this._manager.list()).map((task) => task.taskId))
         const managerTaskIds = taskIds.filter((taskId) => liveTaskIds.has(taskId))
         await this._manager.remove(managerTaskIds)
-        for (const taskId of taskIds) this._tasks.delete(taskId)
+        for (const taskId of taskIds) {
+          this._tasks.delete(taskId)
+          this._taskDispatchState.delete(taskId)
+        }
         this._persistTasks()
       },
     })
@@ -354,6 +375,7 @@ export class BackgroundTasks implements Plugin {
 
   _loadAppState(): void {
     this._tasks.clear()
+    this._taskDispatchState.clear()
     const storedTasks =
       (this._agent.appState.get(BACKGROUND_TASKS_STATE_KEY) as unknown as BackgroundTask[] | undefined) ?? []
     const recoveredInterruptIds = new Set<string>()

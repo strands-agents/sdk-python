@@ -19,7 +19,7 @@ export const CONCURRENT_INVOCATION_MODES = ['throw', 'enqueue'] as const
  * Agent-level behavior when `invoke()` or `stream()` is called while an invocation
  * is already in progress.
  *
- * - `'throw'`: reject the new call with {@link ConcurrentInvocationError} (default).
+ * - `'throw'`: reject the new call with `ConcurrentInvocationError` (default).
  * - `'enqueue'`: queue the new call FIFO; it runs as its own invocation — with its own
  *   result, hook events, and cancellation signal — when the current one finishes.
  */
@@ -48,8 +48,12 @@ export interface ConcurrentInvocationModeConfig {
 
 /**
  * Supported values for the per-call `ifBusy` option.
+ *
+ * Deliberately a literal list rather than `[...CONCURRENT_INVOCATION_MODES, 'interrupt']`:
+ * a future agent-level mode must be added here (and to the dispatch in `Agent`)
+ * explicitly, not silently inherited as a per-call value with fall-through semantics.
  */
-export const IF_BUSY_BEHAVIORS = [...CONCURRENT_INVOCATION_MODES, 'interrupt'] as const
+export const IF_BUSY_BEHAVIORS = ['throw', 'enqueue', 'interrupt'] as const
 
 /**
  * Per-call behavior when the agent is already processing an invocation.
@@ -89,9 +93,17 @@ interface QueueEntry extends PendingInvocation {
 /** Maximum characters of input text preserved in {@link PendingInvocation.preview}. */
 const PREVIEW_MAX_CHARS = 200
 
-/** Truncates text to {@link PREVIEW_MAX_CHARS}, marking the cut. */
+/**
+ * Collapses whitespace runs (including newlines) to single spaces and truncates to
+ * {@link PREVIEW_MAX_CHARS}, marking the cut. Collapsing keeps the preview a single
+ * line wherever it is rendered — in particular a queued request cannot inject
+ * line-structured text into the model-facing pending-invocations block. Truncation
+ * splits on code points, never inside a surrogate pair.
+ */
 function truncatePreview(text: string): string {
-  return text.length <= PREVIEW_MAX_CHARS ? text : `${text.slice(0, PREVIEW_MAX_CHARS)}…`
+  const collapsed = text.replace(/\s+/g, ' ').trim()
+  const codePoints = [...collapsed]
+  return codePoints.length <= PREVIEW_MAX_CHARS ? collapsed : `${codePoints.slice(0, PREVIEW_MAX_CHARS).join('')}…`
 }
 
 /** Collects `text` fields from a content-block-like or message-like array element. */
