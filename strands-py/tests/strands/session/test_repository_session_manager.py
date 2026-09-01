@@ -1221,6 +1221,76 @@ def _populate_messages(repo, agent_id, texts):
         repo.create_message("test-session", agent_id, msg)
 
 
+def test_initialize_uses_persisted_pinned_head_count_not_constructor(existing_session_manager):
+    """Restore must reattach the persisted head size, not constructor pin_first.
+
+    Compaction can persist a different count than the live pin_first (constructor
+    changed between runs, or partition stopped mid tool-pair). Using constructor
+    pin_first on restore reattaches the wrong messages.
+    """
+    conversation_manager = SummarizingConversationManager(pin_first=2)
+    conversation_manager.removed_message_count = 1
+    conversation_manager._summary_message = {"role": "user", "content": [{"text": "summary"}]}
+    conversation_manager.pinned_head_count = 2
+
+    session_agent = SessionAgent(
+        agent_id="mismatch-agent",
+        state={},
+        conversation_manager_state=conversation_manager.get_state(),
+    )
+    existing_session_manager.session_repository.create_agent("test-session", session_agent)
+
+    _populate_messages(
+        existing_session_manager.session_repository,
+        "mismatch-agent",
+        ["pinned-0", "pinned-1", "summarized", "remaining"],
+    )
+
+    # Constructor pin_first disagrees with the persisted count on purpose.
+    agent = Agent(agent_id="mismatch-agent", conversation_manager=SummarizingConversationManager(pin_first=5))
+    existing_session_manager.initialize(agent)
+
+    texts = [m["content"][0]["text"] for m in agent.messages]
+    assert texts == ["pinned-0", "pinned-1", "summary", "remaining"]
+    assert agent.conversation_manager.pinned_head_count == 2
+
+
+def test_initialize_empty_tail_does_not_restart_message_ids(existing_session_manager):
+    """When restore offset lands past the last stored message, append must not restart at 0."""
+    conversation_manager = SummarizingConversationManager(pin_first=2)
+    conversation_manager.removed_message_count = 2
+    conversation_manager._summary_message = {"role": "user", "content": [{"text": "summary"}]}
+    conversation_manager.pinned_head_count = 2
+
+    session_agent = SessionAgent(
+        agent_id="empty-tail-agent",
+        state={},
+        conversation_manager_state=conversation_manager.get_state(),
+    )
+    existing_session_manager.session_repository.create_agent("test-session", session_agent)
+
+    _populate_messages(
+        existing_session_manager.session_repository,
+        "empty-tail-agent",
+        ["pinned-0", "pinned-1"],
+    )
+
+    agent = Agent(agent_id="empty-tail-agent", conversation_manager=SummarizingConversationManager(pin_first=2))
+    existing_session_manager.initialize(agent)
+
+    agent.messages.append({"role": "user", "content": [{"text": "NEW"}]})
+    existing_session_manager.append_message(agent.messages[-1], agent)
+
+    stored = existing_session_manager.session_repository.list_messages(
+        session_id="test-session",
+        agent_id="empty-tail-agent",
+    )
+    texts = [m.to_message()["content"][0]["text"] for m in stored]
+    ids = [m.message_id for m in stored]
+    assert texts == ["pinned-0", "pinned-1", "NEW"]
+    assert ids == [0, 1, 2]
+
+
 def test_initialize_restores_pinned_messages_after_summary_with_pin_first(existing_session_manager):
     """After a compaction with pin_first, restoring the agent must reattach the pinned head.
 
