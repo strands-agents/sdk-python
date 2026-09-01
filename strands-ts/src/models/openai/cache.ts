@@ -28,8 +28,7 @@ interface CacheableRequest {
 }
 
 /**
- * The OpenAI caching values to write, derived from a `CacheConfig`, before any wire casing or
- * container choice.
+ * The OpenAI caching values to write, derived from a `CacheConfig`.
  *
  * @internal
  */
@@ -54,14 +53,8 @@ function hasPlacementConfig(cacheConfig: CacheConfig): boolean {
 }
 
 /**
- * Resolves a `CacheConfig` into OpenAI caching values, independent of wire casing or container.
+ * Resolves a `CacheConfig` into OpenAI caching values.
  *
- * Warns once about placement fields, which OpenAI cannot honor. The explicit-value-wins write and the
- * unsupported-`ttl` warning stay with the caller, since both depend on what already occupies the
- * caller's target request/options — see {@link warnUnsupportedRetention}.
- *
- * @param cacheConfig - The provider's configured cache settings.
- * @returns The cache key and retention literal to write.
  * @internal
  */
 export function resolveOpenAICache(cacheConfig: CacheConfig): ResolvedOpenAICache {
@@ -86,14 +79,12 @@ export function resolveOpenAICache(cacheConfig: CacheConfig): ResolvedOpenAICach
 }
 
 /**
- * Warns once that a `ttl` names no OpenAI retention literal and was ignored. Callers invoke this only
- * inside their own explicit-wins guard, so an explicit retention already on the target suppresses it.
+ * Warns once if a `ttl` is not an OpenAI retention literal.
  *
- * @param ttl - The `cacheConfig.ttl` value that matched no retention literal.
  * @internal
  */
-export function warnUnsupportedRetention(ttl: string): void {
-  warnOnce(logger, `ttl=<${ttl}> | cacheConfig.ttl is not an openai retention value, ignoring`)
+export function warnUnsupportedRetention(): void {
+  warnOnce(logger, 'cacheConfig.ttl is not an openai retention value, ignoring')
 }
 
 /**
@@ -117,6 +108,6 @@ export function applyCacheConfig(request: CacheableRequest, cacheConfig: CacheCo
 
   if (request.prompt_cache_retention === undefined) {
     if (openaiCache.retention !== undefined) request.prompt_cache_retention = openaiCache.retention
-    else if (cacheConfig.ttl !== undefined) warnUnsupportedRetention(cacheConfig.ttl)
+    else if (cacheConfig.ttl !== undefined) warnUnsupportedRetention()
   }
 }
