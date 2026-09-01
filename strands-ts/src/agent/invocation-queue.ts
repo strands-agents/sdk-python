@@ -129,6 +129,7 @@ export class InvocationQueue {
   private readonly _entries: QueueEntry[] = []
   private readonly _maxDepth: number
   private _nextSequence = 1
+  private readonly _enqueueListeners = new Set<() => void>()
 
   constructor(maxDepth?: number) {
     this._maxDepth = maxDepth ?? Number.POSITIVE_INFINITY
@@ -142,6 +143,20 @@ export class InvocationQueue {
   /** Point-in-time snapshot of the queue, in run order. */
   snapshot(): readonly PendingInvocation[] {
     return this._entries.map(({ id, submittedAt, preview }) => Object.freeze({ id, submittedAt, preview }))
+  }
+
+  /**
+   * Registers a listener invoked whenever an invocation enters the queue.
+   * Listeners must not throw.
+   *
+   * @param listener - Called synchronously on each enqueue
+   * @returns A function that detaches the listener
+   */
+  onEnqueue(listener: () => void): () => void {
+    this._enqueueListeners.add(listener)
+    return (): void => {
+      this._enqueueListeners.delete(listener)
+    }
   }
 
   /**
@@ -187,6 +202,7 @@ export class InvocationQueue {
       } else {
         this._entries.push(entry)
       }
+      for (const listener of [...this._enqueueListeners]) listener()
     })
   }
 

@@ -1027,6 +1027,19 @@ export class Agent implements LocalAgent, InvokableAgent {
   }
 
   /**
+   * Registers a listener invoked whenever an invocation enters the pending queue.
+   * Lets end-of-invocation waits (e.g. background-task settlement) yield promptly
+   * to a newly queued caller instead of holding the turn.
+   *
+   * @param listener - Called synchronously on each enqueue; must not throw
+   * @returns A function that detaches the listener
+   * @internal
+   */
+  _onInvocationEnqueued(listener: () => void): () => void {
+    return this._invocationQueue.onEnqueue(listener)
+  }
+
+  /**
    * Releases the invocation turn: hands the lock to the next queued invocation, or
    * clears the busy flag when the queue is empty. Both the queue mutation and the
    * flag flip are synchronous, so a call arriving in between either takes the lock

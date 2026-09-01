@@ -130,4 +130,35 @@ describe('InvocationQueue', () => {
     controller.abort()
     await expect(waiting).resolves.toBeUndefined()
   })
+
+  it('notifies onEnqueue listeners when an entry enters the queue, including at the front', () => {
+    const queue = new InvocationQueue()
+    let notified = 0
+    queue.onEnqueue(() => notified++)
+    void queue.wait('first').catch(() => {})
+    expect(notified).toBe(1)
+    void queue.wait('urgent', { front: true }).catch(() => {})
+    expect(notified).toBe(2)
+  })
+
+  it('does not notify onEnqueue when a pre-aborted call is rejected without queueing', () => {
+    const queue = new InvocationQueue()
+    let notified = 0
+    queue.onEnqueue(() => notified++)
+    const aborted = new AbortController()
+    aborted.abort()
+    void queue.wait('never queued', { cancelSignal: aborted.signal }).catch(() => {})
+    expect(notified).toBe(0)
+    expect(queue.size).toBe(0)
+  })
+
+  it('stops notifying a detached onEnqueue listener', () => {
+    const queue = new InvocationQueue()
+    let notified = 0
+    const detach = queue.onEnqueue(() => notified++)
+    void queue.wait('first').catch(() => {})
+    detach()
+    void queue.wait('second').catch(() => {})
+    expect(notified).toBe(1)
+  })
 })

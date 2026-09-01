@@ -255,21 +255,29 @@ export class BackgroundTasks implements Plugin {
     while (
       this._config.waitForCompletion !== false &&
       !agent.cancelSignal.aborted &&
+      agent.pendingInvocations.length === 0 &&
       !tasks.some((task) => task.status === 'input_required') &&
       tasks.some((task) => !isTaskStatusTerminal(task.status))
     ) {
-      await this._awaitNextSettlement(tasks, agent.cancelSignal)
+      await this._awaitNextSettlement(tasks, agent)
       tasks = [...this._tasks.values()]
     }
     if (tasks.some((task) => task.status === 'input_required')) {
       event.resume ??= []
       return
     }
+    // A queued caller takes priority over end-of-invocation settlement and delivery:
+    // holding the turn here would be dead time for the waiting caller. Hand off
+    // instead — tasks retain their results, and the queued invocation's own model
+    // passes deliver them (BeforeModelCall). Only the last invocation — the one that
+    // finds the queue empty — waits for settlement.
+    if (agent.pendingInvocations.length > 0) return
     this._deliverReady(event, tasks)
   }
 
-  /** Races pending-task settlement against invocation cancellation. */
-  private async _awaitNextSettlement(tasks: readonly BackgroundTask[], cancelSignal: AbortSignal): Promise<void> {
+  /** Races pending-task settlement against invocation cancellation and queue arrivals. */
+  private async _awaitNextSettlement(tasks: readonly BackgroundTask[], agent: Agent): Promise<void> {
+    const cancelSignal = agent.cancelSignal
     let abort: () => void
     const cancelled = new Promise<void>((resolve) => {
       abort = resolve
@@ -279,13 +287,25 @@ export class BackgroundTasks implements Plugin {
         cancelSignal.addEventListener('abort', abort, { once: true })
       }
     })
+    // A caller enqueued mid-wait must not sit behind task settlement — it ends the
+    // wait immediately (the caller of this method re-checks the queue and hands off).
+    let detachEnqueued = (): void => {}
+    const enqueued = new Promise<void>((resolve) => {
+      if (agent.pendingInvocations.length > 0) {
+        resolve()
+      } else {
+        detachEnqueued = agent._onInvocationEnqueued(resolve)
+      }
+    })
     try {
       await Promise.race([
         cancelled,
+        enqueued,
         ...tasks.filter((task) => !isTaskStatusTerminal(task.status)).map((task) => this._manager.wait(task.taskId)),
       ])
     } finally {
       cancelSignal.removeEventListener('abort', abort!)
+      detachEnqueued()
     }
   }
 

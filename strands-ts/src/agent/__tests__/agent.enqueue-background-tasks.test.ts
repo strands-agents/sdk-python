@@ -78,13 +78,13 @@ function persistedTasks(agent: Agent): BackgroundTask[] | undefined {
 }
 
 describe('concurrentInvocationMode enqueue × backgroundTasks', () => {
-  it('runs a queued invocation strictly after background-task settlement and delivery', async () => {
+  it('hands the turn to a queued caller instead of waiting for background-task settlement', async () => {
     const work = createGate('work')
     const model = new MockMessageModel()
       .addTurn({ type: 'toolUseBlock', name: 'work', toolUseId: 'work-use', input: {} })
       .addTurn({ type: 'textBlock', text: 'first done' })
-      .addTurn({ type: 'textBlock', text: 'delivered' })
       .addTurn({ type: 'textBlock', text: 'second done' })
+      .addTurn({ type: 'textBlock', text: 'delivered' })
     const agent = new Agent({
       model,
       tools: [work.tool],
@@ -95,31 +95,69 @@ describe('concurrentInvocationMode enqueue × backgroundTasks', () => {
 
     const first = agent.invoke('first')
     await work.started
-    // Wait until the first invocation is past its final model turn — it is now blocked
-    // in AfterInvocation awaiting background-task settlement, still holding the turn.
-    await until(() => agent.messages.some((message) => hasText(message.content, 'first done')), 'first final turn')
-
+    // Queue the second caller while the first invocation is still running.
     const second = agent.invoke('second')
     await until(() => agent.pendingInvocations.length === 1, 'second invocation queued')
 
-    // The queued caller must NOT start while the first invocation awaits settlement.
-    expect(model.callCount).toBe(2)
-
-    work.release()
+    // The first invocation resolves WITHOUT the task settling: with a caller queued,
+    // AfterInvocation skips both the settlement wait and the delivery continuation.
     const firstResult = await first
-    const secondResult = await second
+    expect(resultText(firstResult)).toBe('first done')
 
-    // The first invocation absorbed the delivery continuation; the queued one ran after.
-    expect(resultText(firstResult)).toBe('delivered')
-    expect(resultText(secondResult)).toBe('second done')
+    // The queued invocation's model pass runs while the task is still working.
+    await until(() => model.callCount === 3, 'queued invocation model pass')
+    expect(persistedTasks(agent)?.map((task) => task.status)).toEqual(['working'])
+
+    // The queued invocation IS the last message: its AfterInvocation waits for
+    // settlement and absorbs the delivery continuation.
+    work.release()
+    const secondResult = await second
+    expect(resultText(secondResult)).toBe('delivered')
     expect(agent.pendingInvocations).toHaveLength(0)
 
-    // Durable history: delivery landed before the queued invocation's input.
+    // Durable history: the queued caller's input precedes the delivery.
     const deliveryIndex = messageIndex(agent, hasBackgroundDelivery)
     const secondInputIndex = messageIndex(agent, (content) => hasText(content, 'second'))
-    expect(deliveryIndex).toBeGreaterThan(-1)
-    expect(secondInputIndex).toBeGreaterThan(deliveryIndex)
+    expect(deliveryIndex).toBeGreaterThan(secondInputIndex)
     // The task is fully consumed — nothing left to re-deliver.
+    expect(persistedTasks(agent)).toBeUndefined()
+  })
+
+  it('ends an in-progress settlement wait as soon as a caller enqueues', async () => {
+    const work = createGate('work')
+    const model = new MockMessageModel()
+      .addTurn({ type: 'toolUseBlock', name: 'work', toolUseId: 'work-use', input: {} })
+      .addTurn({ type: 'textBlock', text: 'first done' })
+      .addTurn({ type: 'textBlock', text: 'second done' })
+      .addTurn({ type: 'textBlock', text: 'delivered' })
+    const agent = new Agent({
+      model,
+      tools: [work.tool],
+      backgroundTasks: { always: [work.tool] },
+      concurrentInvocationMode: 'enqueue',
+      printer: false,
+    })
+
+    const first = agent.invoke('first')
+    await work.started
+    // The first invocation is past its final model turn and blocked in
+    // AfterInvocation awaiting background-task settlement, still holding the turn.
+    await until(() => agent.messages.some((message) => hasText(message.content, 'first done')), 'first final turn')
+    expect(model.callCount).toBe(2)
+
+    // Enqueueing a caller breaks the wait: the first invocation resolves without
+    // the task ever settling (this would time out if the wait held the turn).
+    const second = agent.invoke('second')
+    const firstResult = await first
+    expect(resultText(firstResult)).toBe('first done')
+    expect(persistedTasks(agent)?.map((task) => task.status)).toEqual(['working'])
+
+    work.release()
+    const secondResult = await second
+    expect(resultText(secondResult)).toBe('delivered')
+    const deliveryIndex = messageIndex(agent, hasBackgroundDelivery)
+    const secondInputIndex = messageIndex(agent, (content) => hasText(content, 'second'))
+    expect(deliveryIndex).toBeGreaterThan(secondInputIndex)
     expect(persistedTasks(agent)).toBeUndefined()
   })
 
