@@ -13,6 +13,7 @@ per-module `warn_unused_ignores` override in pyproject.toml silences the
 ignores the installed line doesn't need.
 """
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from datetime import timedelta
@@ -44,6 +45,11 @@ __all__ = [
 # resolve by capability: `ClientSession.discover` is the 2.x replacement for
 # the removed initialize handshake.
 MCP_V2: bool = hasattr(ClientSession, "discover")
+
+# The official SDKs' shared default for SEP-2322 multi round-trip retries.
+_INPUT_REQUIRED_MAX_ROUNDS = 10
+
+_STATE_ONLY_RETRY_DELAY_SECONDS = 0.05
 
 try:
     from mcp.shared.exceptions import MCPError  # type: ignore[attr-defined]
@@ -81,13 +87,14 @@ async def call_tool(
     1.x server-initiated requests, so an `elicitation_callback` passed to
     `ClientSession` behaves the same on both lines.
 
-    The retry loop is `mcp.client._input_required.run_input_required_driver`,
-    which the 2.x line's own high-level client uses but does not re-export
-    from a public module, so the forced-2.x CI job is what catches a
-    relocation. It is used over the alternatives deliberately: the public
-    `mcp.client.Client` owns connection lifecycle that `MCPClient` manages
-    itself, and a hand-written loop would duplicate the driver's concurrent
-    dispatch, state-only backoff, and round-cap semantics.
+    The retry loop below stands on public 2.x API only: the `call_tool`
+    keywords, `dispatch_input_request` (whose docstring names exactly this
+    use), and `ClientRequestContext` / `InputRequiredRoundsExceededError`
+    from `mcp.client`. The `mcp` package ships its own loop, but only inside
+    the high-level `mcp.client.Client` (which owns connection lifecycle that
+    `MCPClient` manages itself) and a private module. Embedded requests are
+    dispatched one at a time, so a callback's exception propagates as
+    itself.
 
     Args:
         session: An active, negotiated `ClientSession`.
@@ -103,20 +110,19 @@ async def call_tool(
     Raises:
         MCPError: An embedded input request's callback declined it.
         InputRequiredRoundsExceededError: The server kept returning
-            `InputRequiredResult` past the driver's round cap.
+            `InputRequiredResult` past the round cap.
     """
     if not MCP_V2:
         return await session.call_tool(
             name, arguments, read_timeout_seconds, progress_callback=progress_callback, meta=meta
         )
 
-    from mcp.client._input_required import run_input_required_driver  # type: ignore[import-not-found]
-    from mcp.client.session import ClientRequestContext  # type: ignore[attr-defined]
-    from mcp.types import InputRequiredResult  # type: ignore[attr-defined]
+    from mcp.client import ClientRequestContext, InputRequiredRoundsExceededError  # type: ignore[attr-defined]
+    from mcp.types import ErrorData, InputRequiredResult  # type: ignore[attr-defined]
 
     timeout = read_timeout(read_timeout_seconds)
 
-    async def retry(input_responses: Any, request_state: str | None) -> Any:
+    async def call_once(input_responses: Any, request_state: str | None) -> Any:
         return await session.call_tool(  # type: ignore[call-arg]
             name,
             arguments,
@@ -128,16 +134,27 @@ async def call_tool(
             allow_input_required=True,
         )
 
-    async def dispatch(key: str, request: Any) -> Any:
-        context = ClientRequestContext(
-            session=session, request_id=key, meta=request.params.meta if request.params else None
-        )
-        return await session.dispatch_input_request(context, request)  # type: ignore[attr-defined]
-
-    result = await retry(None, None)
-    if not isinstance(result, InputRequiredResult):
-        return result
-    return await run_input_required_driver(result, dispatch=dispatch, retry=retry)
+    result = await call_once(None, None)
+    for _ in range(_INPUT_REQUIRED_MAX_ROUNDS):
+        if not isinstance(result, InputRequiredResult):
+            return result
+        responses: dict[str, Any] = {}
+        for key, request in (result.input_requests or {}).items():
+            context = ClientRequestContext(
+                session=session, request_id=key, meta=request.params.meta if request.params else None
+            )
+            response = await session.dispatch_input_request(context, request)  # type: ignore[attr-defined]
+            if isinstance(response, ErrorData):
+                raise MCPError(code=response.code, message=response.message, data=response.data)
+            responses[key] = response
+        if not responses:
+            # A state-only result asks the client to poll: wait a beat so the
+            # retry loop cannot hammer the server.
+            await asyncio.sleep(_STATE_ONLY_RETRY_DELAY_SECONDS)
+        result = await call_once(responses or None, result.request_state)
+    if isinstance(result, InputRequiredResult):
+        raise InputRequiredRoundsExceededError(_INPUT_REQUIRED_MAX_ROUNDS)
+    return result
 
 
 def input_schema(tool: Any) -> dict[str, Any]:
