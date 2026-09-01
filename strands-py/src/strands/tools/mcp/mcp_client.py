@@ -20,6 +20,7 @@ import uuid
 from asyncio import AbstractEventLoop
 from collections.abc import Callable, Coroutine, Sequence
 from concurrent import futures
+from contextlib import AsyncExitStack
 from datetime import timedelta
 from importlib.metadata import version as pkg_version
 from pathlib import Path
@@ -65,6 +66,7 @@ from ..tool_provider import ToolProvider
 from ._compat import (
     MCPError,
     is_error,
+    is_tools_list_changed,
     mime_type,
     negotiate_session,
     next_cursor,
@@ -72,6 +74,7 @@ from ._compat import (
     streamable_http_transport,
     structured_content,
     task_support,
+    tools_changed_subscription,
 )
 from ._compat import call_tool as compat_call_tool
 from .mcp_agent_tool import MCPAgentTool
@@ -183,6 +186,10 @@ _NON_FATAL_ERROR_PATTERNS = [
     "unknown request id",
 ]
 
+# Matches the TypeScript SDK's tools listChanged debounce, so a burst of
+# notifications folds into one refresh in both SDKs.
+_TOOLS_CHANGED_DEBOUNCE_SECONDS = 0.3
+
 
 class MCPClient(ToolProvider):
     """Represents a connection to a Model Context Protocol (MCP) server.
@@ -269,6 +276,7 @@ class MCPClient(ToolProvider):
         elicitation_callback: ElicitationFnT | None = None,
         progress_callback: ProgressFnT | None = None,
         tasks_config: TasksConfig | None = None,
+        on_tools_changed: Callable[[list[str], list[MCPAgentTool]], None] | None = None,
     ) -> None:
         """Initialize a new MCP Server connection.
 
@@ -302,6 +310,12 @@ class MCPClient(ToolProvider):
             tasks_config: Configuration for MCP task-augmented execution for long-running tools.
                 If provided (not None), enables task-augmented execution for tools that support it.
                 See TasksConfig for details. This feature is experimental and subject to change.
+            on_tools_changed: Optional callback invoked after the server announces a change to its
+                tool list and the client refreshes it. Called with the previous tool names and the
+                refreshed tool instances. Registering it turns on the refresh: the client listens
+                for the server's tools list-changed notifications, re-lists the tools (applying the
+                constructor's prefix and filters), and updates the cached tools that `load_tools`
+                returns.
 
         Raises:
             ValueError: If neither or both of `transport_callable` and `url` are provided, if
@@ -319,6 +333,11 @@ class MCPClient(ToolProvider):
         self._connection_failed = False
         self._elicitation_callback = elicitation_callback
         self._progress_callback = progress_callback
+        self._on_tools_changed = on_tools_changed
+        self._tools_refresh_in_progress = False
+        self._tools_refresh_pending = False
+        # Keep refresh tasks alive until they finish; asyncio only retains weak references.
+        self._tools_refresh_tasks: set[asyncio.Task[None]] = set()
 
         mcp_instrumentation()
         self._session_id = uuid.uuid4()
@@ -470,37 +489,38 @@ class MCPClient(ToolProvider):
 
         if self._loaded_tools is None:
             logger.debug("loading tools from MCP server")
-            self._loaded_tools = []
-            pagination_token = None
-            page_count = 0
-
-            while True:
-                logger.debug("page=<%d>, token=<%s> | fetching tools page", page_count, pagination_token)
-                # Use constructor defaults for prefix and filters in load_tools
-                paginated_tools = self.list_tools_sync(
-                    pagination_token, prefix=self._prefix, tool_filters=self._tool_filters
-                )
-
-                # Tools are already filtered by list_tools_sync, so add them all
-                for tool in paginated_tools:
-                    self._loaded_tools.append(tool)
-
-                logger.debug(
-                    "page=<%d>, page_tools=<%d>, total_filtered=<%d> | processed page",
-                    page_count,
-                    len(paginated_tools),
-                    len(self._loaded_tools),
-                )
-
-                pagination_token = paginated_tools.pagination_token
-                page_count += 1
-
-                if pagination_token is None:
-                    break
-
+            self._loaded_tools = self._list_all_tools_sync()
             logger.debug("final_tools=<%d> | loading complete", len(self._loaded_tools))
 
         return self._loaded_tools
+
+    def _list_all_tools_sync(self) -> list[MCPAgentTool]:
+        """List every tool page with the constructor's prefix and filters applied."""
+        all_tools: list[MCPAgentTool] = []
+        pagination_token = None
+        page_count = 0
+
+        while True:
+            logger.debug("page=<%d>, token=<%s> | fetching tools page", page_count, pagination_token)
+            paginated_tools = self.list_tools_sync(
+                pagination_token, prefix=self._prefix, tool_filters=self._tool_filters
+            )
+
+            # Tools are already filtered by list_tools_sync, so add them all
+            all_tools.extend(paginated_tools)
+
+            logger.debug(
+                "page=<%d>, page_tools=<%d>, total_filtered=<%d> | processed page",
+                page_count,
+                len(paginated_tools),
+                len(all_tools),
+            )
+
+            pagination_token = paginated_tools.pagination_token
+            page_count += 1
+
+            if pagination_token is None:
+                return all_tools
 
     def add_consumer(self, consumer_id: Any, **kwargs: Any) -> None:
         """Add a consumer to this tool provider.
@@ -1108,7 +1128,7 @@ class MCPClient(ToolProvider):
                 async with ClientSession(
                     read_stream,
                     write_stream,
-                    message_handler=self._handle_error_message,
+                    message_handler=self._handle_session_message,
                     elicitation_callback=self._elicitation_callback,
                     client_info=(
                         Implementation(
@@ -1140,16 +1160,23 @@ class MCPClient(ToolProvider):
                         "server_task_capable=<%s> | cached server task capability", self._server_task_capable
                     )
 
-                    # Signal that the session has been created and is ready for use
-                    self._init_future.set_result(None)
+                    async with AsyncExitStack() as session_scope:
+                        if self._on_tools_changed is not None:
+                            subscription = await session_scope.enter_async_context(tools_changed_subscription(session))
+                            self._log_debug_with_thread(
+                                "subscribed=<%s> | tools list-changed intake ready", subscription is not None
+                            )
 
-                    self._log_debug_with_thread("waiting for close signal")
-                    # Keep background thread running until signaled to close.
-                    # Thread is not blocked as this a future
-                    await self._close_future
+                        # Signal that the session has been created and is ready for use
+                        self._init_future.set_result(None)
 
-                    self._log_debug_with_thread("close signal received")
-                    await self._drain_background_cleanup_tasks()
+                        self._log_debug_with_thread("waiting for close signal")
+                        # Keep background thread running until signaled to close.
+                        # Thread is not blocked as this a future
+                        await self._close_future
+
+                        self._log_debug_with_thread("close signal received")
+                        await self._drain_background_cleanup_tasks()
         except Exception as e:
             # If we encounter an exception and the future is still running,
             # it means it was encountered during the initialization phase.
@@ -1168,14 +1195,56 @@ class MCPClient(ToolProvider):
 
     # Raise an exception if the underlying client raises an exception in a message
     # This happens when the underlying client has an http timeout error
-    async def _handle_error_message(self, message: Exception | Any) -> None:
+    async def _handle_session_message(self, message: Exception | Any) -> None:
         if isinstance(message, Exception):
             error_msg = str(message).lower()
             if any(pattern in error_msg for pattern in _NON_FATAL_ERROR_PATTERNS):
                 self._log_debug_with_thread("ignoring non-fatal MCP session error: %s", message)
             else:
                 raise message
+        elif is_tools_list_changed(message) and self._on_tools_changed is not None:
+            self._log_debug_with_thread("received tools list-changed notification")
+            refresh_task = asyncio.create_task(self._handle_tools_changed())
+            self._tools_refresh_tasks.add(refresh_task)
+            refresh_task.add_done_callback(self._tools_refresh_tasks.discard)
         await anyio.lowlevel.checkpoint()
+
+    async def _handle_tools_changed(self) -> None:
+        """Refresh the tool list after a list-changed notification.
+
+        Runs on the background event loop. One refresh runs at a time;
+        notifications that arrive mid-refresh fold into a single trailing
+        rerun, and the debounce folds a burst of notifications into one
+        refresh.
+        """
+        if self._tools_refresh_in_progress:
+            self._tools_refresh_pending = True
+            return
+        self._tools_refresh_in_progress = True
+        try:
+            while True:
+                self._tools_refresh_pending = False
+                await asyncio.sleep(_TOOLS_CHANGED_DEBOUNCE_SECONDS)
+                await asyncio.to_thread(self._refresh_loaded_tools)
+                if not self._tools_refresh_pending:
+                    return
+        except Exception as error:
+            logger.warning("error=<%s> | failed to refresh tools after list-changed notification", error)
+        finally:
+            self._tools_refresh_in_progress = False
+
+    def _refresh_loaded_tools(self) -> None:
+        """Re-list every tool and invoke the change callback.
+
+        Runs off the event loop thread because `list_tools_sync` blocks on
+        work it submits back to the background loop.
+        """
+        previous_names = [tool.tool_name for tool in self._loaded_tools or []]
+        refreshed_tools = self._list_all_tools_sync()
+        self._loaded_tools = refreshed_tools
+        callback = self._on_tools_changed
+        if callback is not None:
+            callback(previous_names, refreshed_tools)
 
     def _background_task(self) -> None:
         """Sets up and runs the event loop in the background thread.

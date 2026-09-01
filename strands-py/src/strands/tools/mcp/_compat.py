@@ -15,13 +15,13 @@ ignores the installed line doesn't need.
 
 import asyncio
 from collections.abc import AsyncIterator
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from datetime import timedelta
 from typing import Any
 
 import httpx
 from mcp import ClientSession
-from mcp.types import ServerCapabilities
+from mcp.types import ServerCapabilities, ToolListChangedNotification
 
 __all__ = [
     "MCP_V2",
@@ -30,6 +30,7 @@ __all__ = [
     "call_tool",
     "input_schema",
     "is_error",
+    "is_tools_list_changed",
     "mime_type",
     "negotiate_session",
     "next_cursor",
@@ -39,6 +40,7 @@ __all__ = [
     "streamable_http_transport",
     "structured_content",
     "task_support",
+    "tools_changed_subscription",
 ]
 
 # Feature-probed rather than version-parsed so pre-releases and backports
@@ -189,6 +191,26 @@ def is_error(call_tool_result: Any) -> bool | None:
     return error
 
 
+def is_tools_list_changed(message: Any) -> bool:
+    """Return whether a message-handler message is a tools list-changed notification.
+
+    The 1.x session hands the message handler a `ServerNotification` wrapper
+    whose `root` holds the notification; the 2.x session hands it the
+    notification itself, including events it tees from a
+    `subscriptions/listen` stream on a 2026-07-28 connection. Both shapes are
+    accepted unconditionally, so no version branch is needed.
+
+    Args:
+        message: A message delivered to the session's `message_handler`.
+
+    Returns:
+        Whether the message announces a change to the server's tool list.
+    """
+    if isinstance(message, ToolListChangedNotification):
+        return True
+    return isinstance(getattr(message, "root", None), ToolListChangedNotification)
+
+
 def mime_type(content: Any) -> str | None:
     """Read a content or resource block's MIME type, on either `mcp` major line.
 
@@ -337,6 +359,42 @@ async def negotiate_session(session: ClientSession) -> tuple[str | None, ServerC
 
     init_result = await session.initialize()
     return init_result.instructions, session.get_server_capabilities()  # type: ignore[attr-defined]
+
+
+@asynccontextmanager
+async def tools_changed_subscription(session: ClientSession) -> AsyncIterator[Any]:
+    """Hold open the subscription that makes a 2026-07-28 server publish tools list changes.
+
+    The 2026-07-28 spec (SEP-2575) consolidated server notifications into an
+    opt-in `subscriptions/listen` stream: a modern server emits a tools
+    list-changed event only while a subscriber holds the stream open. The 2.x
+    session tees each event to the `message_handler` as a
+    `ToolListChangedNotification`, so holding the stream open is all the
+    intake requires. The 1.x line and legacy-negotiated 2.x connections push
+    the notification without any subscription; those yield None and hold
+    nothing.
+
+    Args:
+        session: An active, negotiated `ClientSession`.
+
+    Yields:
+        The subscription handle, or None when the connection has no
+        subscription to hold.
+    """
+    if not MCP_V2:
+        yield None
+        return
+
+    from mcp.client.subscriptions import ListenNotSupportedError, listen  # type: ignore[import-not-found]
+
+    async with AsyncExitStack() as subscription_scope:
+        try:
+            subscription = await subscription_scope.enter_async_context(listen(session, tools_list_changed=True))
+        except ListenNotSupportedError:
+            # The connection negotiated a legacy protocol version, so the
+            # server pushes list-changed notifications unprompted.
+            subscription = None
+        yield subscription
 
 
 def streamable_http_transport(

@@ -1263,14 +1263,14 @@ def test_call_tool_sync_embedded_unknown_resource_type_dropped(mock_transport, m
 
 
 @pytest.mark.asyncio
-async def test_handle_error_message_non_fatal_error():
-    """Test that _handle_error_message ignores non-fatal errors and logs them."""
+async def test_handle_session_message_non_fatal_error():
+    """Test that _handle_session_message ignores non-fatal errors and logs them."""
     client = MCPClient(MagicMock())
 
     # Test the message handler directly with a non-fatal error
     with patch.object(client, "_log_debug_with_thread") as mock_log:
         # This should not raise an exception
-        await client._handle_error_message(Exception("unknown request id: abc123"))
+        await client._handle_session_message(Exception("unknown request id: abc123"))
 
         # Verify the non-fatal error was logged as ignored
         assert mock_log.called
@@ -1279,22 +1279,109 @@ async def test_handle_error_message_non_fatal_error():
 
 
 @pytest.mark.asyncio
-async def test_handle_error_message_fatal_error():
-    """Test that _handle_error_message raises fatal errors."""
+async def test_handle_session_message_fatal_error():
+    """Test that _handle_session_message raises fatal errors."""
     client = MCPClient(MagicMock())
 
     # This should raise the exception
     with pytest.raises(Exception, match="connection timeout"):
-        await client._handle_error_message(Exception("connection timeout"))
+        await client._handle_session_message(Exception("connection timeout"))
 
 
 @pytest.mark.asyncio
-async def test_handle_error_message_non_exception():
-    """Test that _handle_error_message handles non-exception messages."""
+async def test_handle_session_message_non_exception():
+    """Test that _handle_session_message handles non-exception messages."""
     client = MCPClient(MagicMock())
 
     # This should not raise an exception
-    await client._handle_error_message("normal message")
+    await client._handle_session_message("normal message")
+
+
+@pytest.mark.asyncio
+async def test_handle_session_message_tools_changed_schedules_a_refresh():
+    """Test that a tools list-changed notification schedules a refresh when the callback is set."""
+    from mcp.types import ToolListChangedNotification
+
+    client = MCPClient(MagicMock(), on_tools_changed=MagicMock())
+    notification = ToolListChangedNotification(method="notifications/tools/list_changed")
+
+    with patch.object(client, "_handle_tools_changed", new=AsyncMock()) as mock_refresh:
+        await client._handle_session_message(notification)
+        assert client._tools_refresh_tasks
+        await asyncio.gather(*client._tools_refresh_tasks)
+        # One more loop tick so the done-callback that discards the task runs.
+        await asyncio.sleep(0)
+
+    mock_refresh.assert_awaited_once()
+    assert not client._tools_refresh_tasks
+
+
+@pytest.mark.asyncio
+async def test_handle_session_message_tools_changed_ignored_without_callback():
+    """Test that a tools list-changed notification is a no-op when no callback is registered."""
+    from mcp.types import ToolListChangedNotification
+
+    client = MCPClient(MagicMock())
+    notification = ToolListChangedNotification(method="notifications/tools/list_changed")
+
+    await client._handle_session_message(notification)
+
+    assert not client._tools_refresh_tasks
+
+
+@pytest.mark.asyncio
+async def test_handle_tools_changed_coalesces_overlapping_notifications(monkeypatch):
+    """Test that a notification arriving mid-refresh folds into one trailing rerun."""
+    import strands.tools.mcp.mcp_client as mcp_client_module
+
+    monkeypatch.setattr(mcp_client_module, "_TOOLS_CHANGED_DEBOUNCE_SECONDS", 0)
+    client = MCPClient(MagicMock(), on_tools_changed=MagicMock())
+    refresh_calls = []
+    first_refresh_started = threading.Event()
+    release_first_refresh = threading.Event()
+
+    def blocking_refresh():
+        refresh_calls.append(len(refresh_calls))
+        if len(refresh_calls) == 1:
+            first_refresh_started.set()
+            assert release_first_refresh.wait(timeout=5)
+
+    monkeypatch.setattr(client, "_refresh_loaded_tools", blocking_refresh)
+
+    first_notification = asyncio.create_task(client._handle_tools_changed())
+    while not first_refresh_started.is_set():
+        await asyncio.sleep(0.01)
+
+    await client._handle_tools_changed()
+    assert client._tools_refresh_pending
+
+    release_first_refresh.set()
+    await first_notification
+
+    assert refresh_calls == [0, 1]
+    assert not client._tools_refresh_in_progress
+
+
+def test_refresh_loaded_tools_updates_the_cache_and_invokes_the_callback():
+    """Test that a refresh replaces the cached tools and reports the change to the callback."""
+    on_tools_changed = MagicMock()
+    client = MCPClient(MagicMock(), on_tools_changed=on_tools_changed)
+    previous_tool = MagicMock()
+    previous_tool.tool_name = "previous_tool"
+    client._loaded_tools = [previous_tool]
+    refreshed_tools = [MagicMock()]
+
+    with patch.object(client, "_list_all_tools_sync", return_value=refreshed_tools):
+        client._refresh_loaded_tools()
+
+    assert client._loaded_tools is refreshed_tools
+    on_tools_changed.assert_called_once_with(["previous_tool"], refreshed_tools)
+
+
+def test_client_with_on_tools_changed_starts_and_stops(mock_transport, mock_session):
+    """Test that registering the callback leaves the connection lifecycle working."""
+    with MCPClient(mock_transport["transport_callable"], on_tools_changed=MagicMock()) as client:
+        assert client._init_future.done()
 
 
 def test_call_tool_sync_with_meta_and_structured_content(mock_transport, mock_session):
@@ -1464,8 +1551,8 @@ def test_list_resource_templates_sync_session_not_active():
 
 
 @pytest.mark.asyncio
-async def test_handle_error_message_with_percent_in_message():
-    """Test that _handle_error_message handles messages containing % characters without string formatting errors.
+async def test_handle_session_message_with_percent_in_message():
+    """Test that _handle_session_message handles messages containing % characters without string formatting errors.
 
     This is a regression test for issue #1244 where MCP error messages containing '%' characters
     (e.g., from URLs like "https://example.com/path?param=value%20encoded") would cause a
@@ -1478,7 +1565,7 @@ async def test_handle_error_message_with_percent_in_message():
     error_with_percent = Exception("unknown request id: abc%20123%30def")
 
     # This should not raise TypeError and should not raise the exception (since it's non-fatal)
-    await client._handle_error_message(error_with_percent)
+    await client._handle_session_message(error_with_percent)
 
 
 def test_call_tool_sync_elicitation_error(mock_transport, mock_session):

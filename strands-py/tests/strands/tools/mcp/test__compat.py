@@ -688,3 +688,102 @@ async def test_streamable_http_transport_v2_owns_client_lifecycle(monkeypatch):
         ("transport_exit", "https://example.com/mcp"),
         ("client_exit", headers, auth),
     ]
+
+
+def test_is_tools_list_changed_accepts_both_delivery_shapes():
+    """Test that both message-handler delivery shapes are recognized.
+
+    The 1.x session wraps the notification in `ServerNotification`; the 2.x
+    session delivers it bare, including events teed from a
+    `subscriptions/listen` stream. The wrapper is constructible only on the
+    1.x line (2.x spells `ServerNotification` as a plain union), so the real
+    wrapped shape is asserted there and a stand-in with the same `root`
+    attribute everywhere.
+    """
+    from mcp.types import ToolListChangedNotification
+
+    notification = ToolListChangedNotification(method="notifications/tools/list_changed")
+
+    assert _compat.is_tools_list_changed(notification)
+    assert _compat.is_tools_list_changed(SimpleNamespace(root=notification))
+    if not _compat.MCP_V2:
+        from mcp.types import ServerNotification
+
+        assert _compat.is_tools_list_changed(ServerNotification(notification))
+
+
+def test_is_tools_list_changed_rejects_other_messages():
+    """Test that unrelated messages and exceptions are not treated as tool list changes."""
+    assert not _compat.is_tools_list_changed("normal message")
+    assert not _compat.is_tools_list_changed(Exception("boom"))
+    assert not _compat.is_tools_list_changed(SimpleNamespace(root="not a notification"))
+
+
+@requires_mcp_v2
+def test_installed_v2_line_exposes_the_subscriptions_names():
+    """Test that the names the 2.x subscription branch imports exist on the installed line."""
+    from mcp.client.subscriptions import ListenNotSupportedError, listen
+
+    assert callable(listen)
+    assert issubclass(ListenNotSupportedError, Exception)
+    assert "tools_list_changed" in inspect.signature(listen).parameters
+
+
+@pytest.mark.asyncio
+async def test_tools_changed_subscription_v1_yields_none(monkeypatch):
+    """Test that the 1.x branch holds no subscription: the server pushes notifications unprompted."""
+    monkeypatch.setattr(_compat, "MCP_V2", False)
+
+    async with _compat.tools_changed_subscription(MagicMock()) as subscription:
+        assert subscription is None
+
+
+@pytest.mark.asyncio
+async def test_tools_changed_subscription_v2_holds_the_listen_stream(monkeypatch):
+    """Test that the 2.x branch opens `subscriptions/listen` for tool changes and closes it on exit.
+
+    The `mcp.client.subscriptions` module exists only on the 2.x line, so a
+    stub module stands in for it to exercise this branch under the 1.x pin.
+    """
+    monkeypatch.setattr(_compat, "MCP_V2", True)
+    lifecycle_events = []
+    stream = MagicMock()
+    session = MagicMock()
+
+    @asynccontextmanager
+    async def fake_listen(listen_session, *, tools_list_changed):
+        lifecycle_events.append(("enter", listen_session, tools_list_changed))
+        yield stream
+        lifecycle_events.append(("exit",))
+
+    subscriptions_module = ModuleType("mcp.client.subscriptions")
+    subscriptions_module.listen = fake_listen  # type: ignore[attr-defined]
+    subscriptions_module.ListenNotSupportedError = type("ListenNotSupportedError", (RuntimeError,), {})  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "mcp.client.subscriptions", subscriptions_module)
+
+    async with _compat.tools_changed_subscription(session) as subscription:
+        assert subscription is stream
+        assert lifecycle_events == [("enter", session, True)]
+
+    assert lifecycle_events == [("enter", session, True), ("exit",)]
+
+
+@pytest.mark.asyncio
+async def test_tools_changed_subscription_v2_degrades_on_a_legacy_connection(monkeypatch):
+    """Test that a connection whose negotiated version predates `subscriptions/listen` yields None."""
+    monkeypatch.setattr(_compat, "MCP_V2", True)
+
+    listen_not_supported = type("ListenNotSupportedError", (RuntimeError,), {})
+
+    @asynccontextmanager
+    async def fake_listen(listen_session, *, tools_list_changed):
+        raise listen_not_supported("negotiated version predates 2026-07-28")
+        yield
+
+    subscriptions_module = ModuleType("mcp.client.subscriptions")
+    subscriptions_module.listen = fake_listen  # type: ignore[attr-defined]
+    subscriptions_module.ListenNotSupportedError = listen_not_supported  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "mcp.client.subscriptions", subscriptions_module)
+
+    async with _compat.tools_changed_subscription(MagicMock()) as subscription:
+        assert subscription is None
