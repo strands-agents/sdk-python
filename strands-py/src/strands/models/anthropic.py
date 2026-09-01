@@ -71,8 +71,8 @@ class AnthropicModel(Model):
         Attributes:
             cache_config: Configuration for prompt caching. Adds a cache point to the last user message,
                 caching everything before it. Caching is off when unset.
-            cache_tools: Caches the tool definitions (deprecated, use CacheConfig(tools_ttl=...)). When set,
-                takes precedence over cache_config.tools_ttl.
+            cache_tools: Caches the tool definitions (deprecated, use CacheConfig(tools_ttl=...)). Superseded
+                by an explicitly set cache_config.tools_ttl.
             max_tokens: Maximum number of tokens to generate.
             model_id: Calude model ID (e.g., "claude-3-7-sonnet-latest").
                 For a complete list of supported models, see
@@ -100,7 +100,7 @@ class AnthropicModel(Model):
             **model_config: Configuration options for the Anthropic model.
         """
         validate_config_keys(model_config, self.AnthropicConfig)
-        _warn_on_deprecated_cache_tools(model_config)
+        _warn_on_deprecated_cache_tools(model_config, stacklevel=3)
         self.config = AnthropicModel.AnthropicConfig(**model_config)
 
         logger.debug("config=<%s> | initializing", self.config)
@@ -116,7 +116,7 @@ class AnthropicModel(Model):
             **model_config: Configuration overrides.
         """
         validate_config_keys(model_config, self.AnthropicConfig)
-        _warn_on_deprecated_cache_tools(model_config)
+        _warn_on_deprecated_cache_tools(model_config, stacklevel=3)
         self.config.update(model_config)
 
     @override
@@ -310,25 +310,36 @@ class AnthropicModel(Model):
         return False
 
     def _resolve_tools_cache(self) -> dict[str, Any] | None:
-        """Return the Anthropic ``cache_control`` payload for tool definitions, if enabled."""
-        cache_tools = self.config.get("cache_tools")
-        if cache_tools:
-            ttl = cache_tools.ttl if isinstance(cache_tools, CacheToolsConfig) else None
-            if not ttl:
-                cache_config = self.config.get("cache_config")
-                if cache_config and cache_config.ttl and cache_config.strategy in ("auto", "anthropic"):
-                    ttl = cache_config.ttl
-            return self._format_cache_control(ttl)
+        """Return the Anthropic ``cache_control`` payload for tool definitions, if enabled.
 
+        An explicitly set ``cache_config.tools_ttl`` takes precedence; when it is left unset (None) the
+        deprecated model-level ``cache_tools`` applies instead so existing configs keep working.
+        """
         cache_config = self.config.get("cache_config")
-        if cache_config is None or cache_config.strategy not in ("auto", "anthropic"):
+        if cache_config is None or cache_config.tools_ttl is None:
+            return self._resolve_deprecated_cache_tools()
+
+        if cache_config.tools_ttl is False or cache_config.strategy not in ("auto", "anthropic"):
             return None
 
         tools_ttl = cache_config.tools_ttl
-        if tools_ttl is False:
+        ttl = tools_ttl if isinstance(tools_ttl, str) else cache_config.ttl
+        return self._format_cache_control(ttl)
+
+    def _resolve_deprecated_cache_tools(self) -> dict[str, Any] | None:
+        """Resolve tool caching from the deprecated model-level ``cache_tools`` option.
+
+        Reached only when ``cache_config.tools_ttl`` is unset; an explicit ``tools_ttl`` supersedes this path.
+        """
+        cache_tools = self.config.get("cache_tools")
+        if not cache_tools:
             return None
 
-        ttl = tools_ttl if isinstance(tools_ttl, str) else cache_config.ttl
+        ttl = cache_tools.ttl if isinstance(cache_tools, CacheToolsConfig) else None
+        if not ttl:
+            cache_config = self.config.get("cache_config")
+            if cache_config and cache_config.ttl and cache_config.strategy in ("auto", "anthropic"):
+                ttl = cache_config.ttl
         return self._format_cache_control(ttl)
 
     @staticmethod

@@ -107,17 +107,20 @@ def warn_on_cache_config_not_supported(
         )
 
 
-def _warn_on_deprecated_cache_tools(config_dict: Mapping[str, Any]) -> None:
+def _warn_on_deprecated_cache_tools(config_dict: Mapping[str, Any], *, stacklevel: int = 4) -> None:
     """Warn that the model-level ``cache_tools`` option is deprecated.
 
     Args:
         config_dict: The model configuration being set.
+        stacklevel: Frames to skip so the warning points at the caller rather than the SDK internals.
+            Providers pass the depth for their own call site, which differs by how deeply the warning
+            is nested below the public entry point.
     """
     if config_dict.get("cache_tools"):
         warnings.warn(
             "cache_tools is deprecated. Use CacheConfig(tools_ttl=...) instead.",
             DeprecationWarning,
-            stacklevel=4,
+            stacklevel=stacklevel,
         )
 
 

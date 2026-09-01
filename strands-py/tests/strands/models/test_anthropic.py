@@ -1553,7 +1553,10 @@ class TestPromptCaching:
 
         breakpoints = self._breakpoints(model.format_request(messages, tool_specs))
 
-        assert ("tools", "t2", {"type": "ephemeral", "ttl": "1h"}) in breakpoints
+        assert breakpoints == [
+            ("tools", "t2", {"type": "ephemeral", "ttl": "1h"}),
+            ("messages", 0, {"type": "ephemeral", "ttl": "1h"}),
+        ]
 
     def test_tools_ttl_string_sets_the_section_duration(self, model, messages, tool_specs):
         """A tools_ttl string sets the tools section's own duration rather than deriving from the shared ttl."""
@@ -1561,7 +1564,10 @@ class TestPromptCaching:
 
         breakpoints = self._breakpoints(model.format_request(messages, tool_specs))
 
-        assert ("tools", "t2", {"type": "ephemeral", "ttl": "5m"}) in breakpoints
+        assert breakpoints == [
+            ("tools", "t2", {"type": "ephemeral", "ttl": "5m"}),
+            ("messages", 0, {"type": "ephemeral", "ttl": "1h"}),
+        ]
 
     def test_tools_ttl_true_without_shared_ttl_stays_untimed(self, model, messages, tool_specs):
         """With nothing to derive from, tools_ttl=True still caches the tools but at the API default."""
@@ -1569,7 +1575,10 @@ class TestPromptCaching:
 
         breakpoints = self._breakpoints(model.format_request(messages, tool_specs))
 
-        assert ("tools", "t2", {"type": "ephemeral"}) in breakpoints
+        assert breakpoints == [
+            ("tools", "t2", {"type": "ephemeral"}),
+            ("messages", 0, {"type": "ephemeral"}),
+        ]
 
     def test_tools_ttl_false_disables_the_tools_cache_point(self, model, messages, tool_specs):
         """tools_ttl=False disables tool caching even when the shared ttl is set."""
@@ -1580,15 +1589,15 @@ class TestPromptCaching:
         assert not any(bp[0] == "tools" for bp in breakpoints)
 
     def test_tools_ttl_defaults_to_off(self, model, messages, tool_specs):
-        """tools_ttl defaults to False, so cache_config alone does not cache the tools yet."""
+        """tools_ttl defaults to None (unset), so cache_config alone does not cache the tools yet."""
         model.update_config(cache_config=CacheConfig(strategy="auto", ttl="1h"))
 
         breakpoints = self._breakpoints(model.format_request(messages, tool_specs))
 
         assert not any(bp[0] == "tools" for bp in breakpoints)
 
-    def test_cache_tools_takes_precedence_over_tools_ttl(self, model, messages, tool_specs):
-        """The deprecated cache_tools wins over the new tools_ttl when both are set."""
+    def test_tools_ttl_takes_precedence_over_deprecated_cache_tools(self, model, messages, tool_specs):
+        """An explicitly set tools_ttl wins over the deprecated cache_tools when both are set."""
         with pytest.warns(DeprecationWarning, match="cache_tools is deprecated"):
             model.update_config(
                 cache_config=CacheConfig(strategy="auto", ttl="1h", tools_ttl="5m"),
@@ -1597,7 +1606,22 @@ class TestPromptCaching:
 
         breakpoints = self._breakpoints(model.format_request(messages, tool_specs))
 
-        assert ("tools", "t2", {"type": "ephemeral", "ttl": "1h"}) in breakpoints
+        assert breakpoints == [
+            ("tools", "t2", {"type": "ephemeral", "ttl": "5m"}),
+            ("messages", 0, {"type": "ephemeral", "ttl": "1h"}),
+        ]
+
+    def test_tools_ttl_false_overrides_deprecated_cache_tools(self, model, messages, tool_specs):
+        """tools_ttl=False disables tool caching even when the deprecated cache_tools is set."""
+        with pytest.warns(DeprecationWarning, match="cache_tools is deprecated"):
+            model.update_config(
+                cache_config=CacheConfig(strategy="auto", ttl="1h", tools_ttl=False),
+                cache_tools=CacheToolsConfig(ttl="1h"),
+            )
+
+        breakpoints = self._breakpoints(model.format_request(messages, tool_specs))
+
+        assert not any(bp[0] == "tools" for bp in breakpoints)
 
     def test_both_options_produce_two_breakpoints(self, model, messages, tool_specs):
         model.update_config(cache_config=CacheConfig(strategy="auto"), cache_tools="default")

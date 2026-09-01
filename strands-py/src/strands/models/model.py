@@ -154,13 +154,15 @@ class CacheConfig:
         tools_ttl: Cache the tool definitions, auto-injecting a cache point on the tool block so repeated calls
             with the same tools hit the cache. A TTL string (e.g. "1h") sets this section's own
             duration and is honored as written; True derives the duration from ``ttl``; False disables it.
+            None (the default) leaves it unset, deferring to the deprecated model-level ``cache_tools``;
+            any explicit value — including False — takes precedence over ``cache_tools``.
     """
 
     strategy: Literal["auto", "anthropic"] = "auto"
     ttl: str | None = None
     system_prompt_ttl: bool | str = True
     cache_key: str | None = None
-    tools_ttl: bool | str = False
+    tools_ttl: bool | str | None = None
 
 
 @dataclass

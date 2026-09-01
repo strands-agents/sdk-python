@@ -5006,7 +5006,7 @@ def test_format_request_tools_ttl_false_disables_the_tools_cache_point(bedrock_c
 
 
 def test_format_request_tools_ttl_defaults_to_off(bedrock_client, messages, tool_spec):
-    """tools_ttl defaults to False, so cache_config alone does not cache the tools yet."""
+    """tools_ttl defaults to None (unset), so cache_config alone does not cache the tools yet."""
     _ = bedrock_client
     model = BedrockModel(
         model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
@@ -5031,8 +5031,8 @@ def test_format_request_tools_ttl_is_off_for_a_model_without_caching(bedrock_cli
     assert not any("cachePoint" in tool for tool in tru_request["toolConfig"]["tools"])
 
 
-def test_format_request_cache_tools_takes_precedence_over_tools_ttl(bedrock_client, messages, tool_spec):
-    """The deprecated cache_tools wins over the new tools_ttl when both are set."""
+def test_format_request_tools_ttl_takes_precedence_over_deprecated_cache_tools(bedrock_client, messages, tool_spec):
+    """An explicitly set tools_ttl wins over the deprecated cache_tools when both are set."""
     _ = bedrock_client
     with pytest.warns(DeprecationWarning, match="cache_tools is deprecated"):
         model = BedrockModel(
@@ -5043,7 +5043,22 @@ def test_format_request_cache_tools_takes_precedence_over_tools_ttl(bedrock_clie
 
     tru_point = model.format_request(messages, tool_specs=[tool_spec])["toolConfig"]["tools"][-1]
 
-    assert tru_point == {"cachePoint": {"type": "default", "ttl": "1h"}}
+    assert tru_point == {"cachePoint": {"type": "default", "ttl": "5m"}}
+
+
+def test_format_request_tools_ttl_false_overrides_deprecated_cache_tools(bedrock_client, messages, tool_spec):
+    """tools_ttl=False disables tool caching even when the deprecated cache_tools is set."""
+    _ = bedrock_client
+    with pytest.warns(DeprecationWarning, match="cache_tools is deprecated"):
+        model = BedrockModel(
+            model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+            cache_config=CacheConfig(strategy="auto", ttl="1h", tools_ttl=False),
+            cache_tools=CacheToolsConfig(ttl="1h"),
+        )
+
+    tru_request = model.format_request(messages, tool_specs=[tool_spec])
+
+    assert not any("cachePoint" in tool for tool in tru_request["toolConfig"]["tools"])
 
 
 def test_format_request_applies_the_configured_ttl_to_a_system_cache_point(bedrock_client, messages):
