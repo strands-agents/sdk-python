@@ -722,6 +722,38 @@ class TestUpdateOperation:
 
 class TestDeleteOperation:
     @pytest.mark.asyncio
+    async def test_delete_does_not_clobber_developer_tool_registered_over_model_tool(
+        self, registry_tool, registry: ToolRegistry
+    ) -> None:
+        """A developer tool registered over a model-created name must survive model delete.
+
+        register_tool with supports_hot_reload=True can overwrite registry['name']
+        with a developer tool after the model created a binding. The model's delete
+        must only remove its own entry (dynamic_tools), leaving the developer tool intact.
+        """
+        ctx = _tool_context(registry)
+        await registry_tool(
+            operation="create",
+            tool_name="alpha",
+            source="weather",
+            remote_name="remote_alpha",
+            tool_context=ctx,
+        )
+
+        # Simulate a developer registering a same-named tool on top (hot-reload allows it).
+        @tool_decorator(name="alpha", description="developer alpha tool")
+        def dev_alpha() -> str:
+            return "dev"
+
+        registry.register_tool(dev_alpha)
+        assert registry.registry.get("alpha") is dev_alpha
+
+        # Model deletes its owned binding — must not clobber the developer tool.
+        await registry_tool(operation="delete", tool_name="alpha", tool_context=ctx)
+        assert registry.registry.get("alpha") is dev_alpha
+        assert "alpha" not in registry.dynamic_tools
+
+    @pytest.mark.asyncio
     async def test_deletes_own_tool(self, registry_tool, registry: ToolRegistry) -> None:
         ctx = _tool_context(registry)
         await registry_tool(

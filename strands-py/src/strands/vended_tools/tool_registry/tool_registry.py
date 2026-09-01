@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import weakref
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 from ...tools.decorator import tool
 from ...tools.mcp import MCPAgentTool, MCPClient
@@ -45,11 +45,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Maps tool_name → registered MCPAgentTool, or a cast sentinel while a create is in flight.
+_OwnedTools = dict[str, MCPAgentTool]
 
-def _get_owned_names(
-    ownership: weakref.WeakKeyDictionary[ToolRegistry, dict[str, object]],
+
+def _get_owned_tools(
+    ownership: weakref.WeakKeyDictionary[ToolRegistry, _OwnedTools],
     registry: ToolRegistry,
-) -> dict[str, object]:
+) -> _OwnedTools:
     owned = ownership.get(registry)
     if owned is None:
         owned = {}
@@ -112,6 +115,121 @@ async def _resolve_mcp_tool(
     raise ToolRegistryError(f"tool '{remote_name}' not found on MCP server")
 
 
+def _list_tools(
+    agent_registry: ToolRegistry,
+    owned: _OwnedTools,
+    max_dynamic_tools: int,
+) -> ListResult:
+    tools_out: list[RegisteredTool] = []
+    for spec in agent_registry.get_all_tool_specs():
+        entry: RegisteredTool = {
+            "name": spec["name"],
+            "description": spec.get("description", ""),
+            "registered_by_tool_registry": spec["name"] in owned,
+        }
+        # Omit input_schema only when the key is absent from the underlying tool.
+        # An explicit empty dict is a valid schema and must be preserved.
+        if "inputSchema" in spec:
+            entry["input_schema"] = spec["inputSchema"]["json"]
+        tools_out.append(entry)
+    return ListResult(
+        tools=tools_out,
+        dynamic_count=len(owned),
+        dynamic_limit=max_dynamic_tools,
+    )
+
+
+def _delete_tool(
+    agent_registry: ToolRegistry,
+    owned: _OwnedTools,
+    tool_name: str,
+) -> MutationResult:
+    if tool_name not in owned:
+        raise ToolRegistryError(
+            f"tool '{tool_name}' was not registered via tool_registry; developer-registered tools cannot be removed"
+        )
+    owned_tool = owned[tool_name]
+    # Only remove from registry if it still holds a tool registered by the tool_registry tool
+    if agent_registry.registry.get(tool_name) is owned_tool:
+        agent_registry.remove(tool_name)
+    else:
+        agent_registry.dynamic_tools.pop(tool_name, None)
+    del owned[tool_name]
+    return MutationResult(operation="delete", name=tool_name, dynamic_count=len(owned))
+
+
+async def _create_tool(
+    agent_registry: ToolRegistry,
+    owned: _OwnedTools,
+    client: MCPClient,
+    tool_name: str,
+    effective_remote: str,
+    description_override: str | None,
+    max_dynamic_tools: int,
+) -> MutationResult:
+    if tool_name in agent_registry.registry or tool_name in agent_registry.dynamic_tools or tool_name in owned:
+        raise ToolRegistryError(f"a tool named '{tool_name}' is already registered")
+    conflict = _find_normalized_conflict(agent_registry, tool_name)
+    if conflict is not None:
+        raise ToolRegistryError(
+            f"a tool named '{conflict}' is already registered; tool names cannot differ only by '-' vs '_'"
+        )
+    if len(owned) >= max_dynamic_tools:
+        raise ToolRegistryError(
+            f"dynamic tool cap reached ({max_dynamic_tools}); delete an existing dynamically-registered tool first"
+        )
+    # Reserve the slot with a sentinel while the MCP round-trip is in flight.
+    reservation: MCPAgentTool = cast(MCPAgentTool, object())
+    new_tool: MCPAgentTool = reservation
+    owned[tool_name] = reservation
+    try:
+        new_tool = await _resolve_mcp_tool(client, effective_remote, tool_name, description_override)
+        # Abort if a concurrent delete+recreate invalidated our reservation during the await.
+        if owned.get(tool_name) is not reservation:
+            raise ToolRegistryError(
+                f"create of '{tool_name}' was cancelled by a concurrent delete before the tool could be registered"
+            )
+        owned[tool_name] = new_tool
+        try:
+            agent_registry.register_tool(new_tool)
+        except ValueError as err:
+            # Concurrent registration can still land a duplicate between the checks and write.
+            raise ToolRegistryError(str(err)) from err
+    except BaseException:
+        # Only release the slot if it still belongs to this create, not a concurrent delete+recreate.
+        current = owned.get(tool_name)
+        if current is reservation or current is new_tool:
+            del owned[tool_name]
+        raise
+    return MutationResult(operation="create", name=tool_name, dynamic_count=len(owned))
+
+
+async def _update_tool(
+    agent_registry: ToolRegistry,
+    owned: _OwnedTools,
+    client: MCPClient,
+    tool_name: str,
+    effective_remote: str,
+    description_override: str | None,
+) -> MutationResult:
+    if tool_name not in owned or tool_name not in agent_registry.dynamic_tools:
+        raise ToolRegistryError(
+            f"tool '{tool_name}' was not registered via tool_registry; developer-registered tools cannot be updated"
+        )
+    update_token = owned[tool_name]
+    new_tool = await _resolve_mcp_tool(client, effective_remote, tool_name, description_override)
+    # Abort if the registration was replaced by a delete+recreate during the await.
+    if owned.get(tool_name) is not update_token:
+        raise ToolRegistryError(
+            f"update of '{tool_name}' was cancelled by a concurrent delete before the tool could be re-bound"
+        )
+    try:
+        agent_registry.replace(new_tool)
+    except ValueError as err:
+        raise ToolRegistryError(str(err)) from err
+    return MutationResult(operation="update", name=tool_name, dynamic_count=len(owned))
+
+
 def make_tool_registry(
     *,
     mcp_clients: dict[str, MCPClient] | None = None,
@@ -147,7 +265,7 @@ def make_tool_registry(
     # Ownership map for this factory instance: keyed on ToolRegistry so two factories
     # on one agent track their tools independently. WeakKeyDictionary lets the entry
     # disappear when the registry is garbage-collected.
-    ownership: weakref.WeakKeyDictionary[ToolRegistry, dict[str, object]] = weakref.WeakKeyDictionary()
+    ownership: weakref.WeakKeyDictionary[ToolRegistry, _OwnedTools] = weakref.WeakKeyDictionary()
 
     @tool(name=name, description=description, context="tool_context")
     async def tool_registry_tool(
@@ -187,31 +305,15 @@ def make_tool_registry(
                 ``create``/``update``.
         """
         agent_registry: ToolRegistry = tool_context.agent.tool_registry
-        owned = _get_owned_names(ownership, agent_registry)
+        owned = _get_owned_tools(ownership, agent_registry)
 
-        if operation == "list":
-            tools_out: list[RegisteredTool] = []
-            for spec in agent_registry.get_all_tool_specs():
-                entry: RegisteredTool = {
-                    "name": spec["name"],
-                    "description": spec.get("description", ""),
-                    "registered_by_tool_registry": spec["name"] in owned,
-                }
-                # Omit input_schema only when the key is absent from the underlying tool.
-                # An explicit empty dict is a valid schema and must be preserved.
-                if "inputSchema" in spec:
-                    entry["input_schema"] = spec["inputSchema"]["json"]
-                tools_out.append(entry)
-            return ListResult(
-                tools=tools_out,
-                dynamic_count=len(owned),
-                dynamic_limit=max_dynamic_tools,
-            )
-
-        if operation not in ("create", "update", "delete"):
+        if operation not in ("list", "create", "update", "delete"):
             raise ToolRegistryError(
                 f"invalid operation '{operation}': must be one of 'list', 'create', 'update', 'delete'"
             )
+
+        if operation == "list":
+            return _list_tools(agent_registry, owned, max_dynamic_tools)
 
         if tool_name is None:
             raise ToolRegistryError(f"'tool_name' is required for operation '{operation}'")
@@ -226,16 +328,8 @@ def make_tool_registry(
             raise ToolRegistryError(f"cannot {operation} the tool_registry tool ('{tool_name}') itself")
 
         if operation == "delete":
-            if tool_name not in owned:
-                raise ToolRegistryError(
-                    f"tool '{tool_name}' was not registered via tool_registry; "
-                    "developer-registered tools cannot be removed"
-                )
-            agent_registry.remove(tool_name)
-            del owned[tool_name]
-            return MutationResult(operation="delete", name=tool_name, dynamic_count=len(owned))
+            return _delete_tool(agent_registry, owned, tool_name)
 
-        # create / update below share the source-resolution logic.
         if not source:
             raise ToolRegistryError(f"'source' is required for operation '{operation}'")
         if source not in clients:
@@ -244,58 +338,24 @@ def make_tool_registry(
         effective_remote = remote_name or tool_name
 
         if operation == "create":
-            if tool_name in agent_registry.registry or tool_name in agent_registry.dynamic_tools or tool_name in owned:
-                raise ToolRegistryError(f"a tool named '{tool_name}' is already registered")
-            conflict = _find_normalized_conflict(agent_registry, tool_name)
-            if conflict is not None:
-                raise ToolRegistryError(
-                    f"a tool named '{conflict}' is already registered; tool names cannot differ only by '-' vs '_'"
-                )
-            if len(owned) >= max_dynamic_tools:
-                raise ToolRegistryError(
-                    f"dynamic tool cap reached ({max_dynamic_tools}); "
-                    "delete an existing dynamically-registered tool first"
-                )
-            # Unique token per registration; guards detect a concurrent delete+recreate.
-            token: object = object()
-            owned[tool_name] = token
-            try:
-                new_tool = await _resolve_mcp_tool(clients[source], effective_remote, tool_name, description_override)
-                # Abort if a concurrent delete invalidated our registration during the await.
-                if owned.get(tool_name) is not token:
-                    raise ToolRegistryError(
-                        f"create of '{tool_name}' was cancelled by a concurrent delete "
-                        "before the tool could be registered"
-                    )
-                try:
-                    agent_registry.register_tool(new_tool)
-                except ValueError as err:
-                    # Concurrent registration can still land a duplicate between the checks and write.
-                    raise ToolRegistryError(str(err)) from err
-            except BaseException:
-                # Only release the slot if it still belongs to this create, not a concurrent delete and recreate.
-                if owned.get(tool_name) is token:
-                    del owned[tool_name]
-                raise
-            return MutationResult(operation="create", name=tool_name, dynamic_count=len(owned))
+            return await _create_tool(
+                agent_registry,
+                owned,
+                clients[source],
+                tool_name,
+                effective_remote,
+                description_override,
+                max_dynamic_tools,
+            )
 
         # operation == "update"
-        if tool_name not in owned or tool_name not in agent_registry.dynamic_tools:
-            raise ToolRegistryError(
-                f"tool '{tool_name}' was not registered via tool_registry; developer-registered tools cannot be updated"
-            )
-        update_token = owned[tool_name]
-        new_tool = await _resolve_mcp_tool(clients[source], effective_remote, tool_name, description_override)
-        # Abort if a concurrent delete cleared ownership during the await (mirrors the create guard).
-        if owned.get(tool_name) is not update_token:
-            raise ToolRegistryError(
-                f"update of '{tool_name}' was cancelled by a concurrent delete before the tool could be re-bound"
-            )
-        # Replace under the same name, keeping ownership.
-        try:
-            agent_registry.replace(new_tool)
-        except ValueError as err:
-            raise ToolRegistryError(str(err)) from err
-        return MutationResult(operation="update", name=tool_name, dynamic_count=len(owned))
+        return await _update_tool(
+            agent_registry,
+            owned,
+            clients[source],
+            tool_name,
+            effective_remote,
+            description_override,
+        )
 
     return tool_registry_tool
