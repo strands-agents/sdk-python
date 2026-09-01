@@ -540,8 +540,6 @@ class ContextOffloader(Plugin):
                         references.append((ref, f"image/{img_format}", f"image/{img_format}, {len(img_bytes):,} bytes"))
                         self._track_stored_cycle(event.agent, ref, cycle)
                     else:
-                        # Non-bytes image source: storage only accepts bytes, so
-                        # keep the original block for the model and consumers. See #4017.
                         references.append(None)
                 elif "document" in block:
                     doc = block["document"]
@@ -553,9 +551,6 @@ class ContextOffloader(Plugin):
                         references.append((ref, f"application/{doc_format}", f"{doc_name}, {len(doc_bytes):,} bytes"))
                         self._track_stored_cycle(event.agent, ref, cycle)
                     else:
-                        # Non-bytes document source: storage only accepts bytes, so
-                        # keep the original block — an empty placeholder would
-                        # silently destroy the document metadata. See #4017.
                         references.append(None)
         except Exception:
             logger.warning(
@@ -574,9 +569,7 @@ class ContextOffloader(Plugin):
 
         # Build preview text — use tiktoken for exact slicing when available
         preview = self._slice_preview(full_text) if full_text else ""
-        # ``None`` entries in ``references`` mark blocks that the storage loop
-        # could not persist (image / document with a non-bytes source) — see
-        # #4017. Skip them when building the stored-references summary.
+        # Skip None: non-bytes image/document sources were left unstored (#4017).
         ref_lines = "\n".join(
             f"  {ref} ({desc})" for entry in references if entry is not None for ref, _, desc in [entry] if ref
         )
@@ -605,11 +598,7 @@ class ContextOffloader(Plugin):
         # Build new content with preview + placeholders for non-text blocks
         new_content: list[ToolResultContent] = [ToolResultContent(text=preview_text)]
         for i, block in enumerate(content):
-            # Blocks that the storage loop could not persist (image / document
-            # with a non-bytes source — e.g. ``location`` / ``text`` / ``content``)
-            # are marked with ``None`` in ``references``. Keep the original block
-            # in place so its metadata is preserved and the model is not misled
-            # by a ``0 bytes`` placeholder. See #4017.
+            # None = unstored non-bytes source; keep the original block (#4017).
             ref_entry = references[i] if i < len(references) else None
             if ref_entry is None:
                 new_content.append(block)
