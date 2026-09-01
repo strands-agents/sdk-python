@@ -4,8 +4,12 @@ import { NAMESPACED, namespace } from '../storage/storage.js'
 import { SnapshotStorageAdapter } from './snapshot-storage-adapter.js'
 import { validateIdentifier } from './validation.js'
 import type { SnapshotTriggerCallback } from './types.js'
+import type { Snapshot } from '../types/snapshot.js'
+import type { JSONValue } from '../types/json.js'
 import type { Plugin } from '../plugins/plugin.js'
 import type { LocalAgent } from '../types/agent.js'
+import type { ContextManager } from '../context-manager/context-manager.js'
+import { STASH_PREFIX } from '../context-manager/stash.js'
 import { AfterInvocationEvent, AfterModelCallEvent, InitializedEvent, MessageAddedEvent } from '../hooks/events.js'
 import { v7 as uuidV7 } from 'uuid'
 import { logger } from '../logging/logger.js'
@@ -104,6 +108,7 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
   private readonly _sessionId: string
   private _storage!: { snapshot: SnapshotStorage }
   private readonly _configStorage?: Storage | { snapshot: SnapshotStorage } | undefined
+  private _rootStorage: Storage | undefined
   private readonly _saveLatestOn: SaveLatestStrategy
   private readonly _snapshotTrigger?: SnapshotTriggerCallback | undefined
   private readonly _multiAgentSaveLatestOn: MultiAgentSaveLatestStrategy
@@ -128,6 +133,9 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
     this._configStorage = config.storage
     if (config.storage) {
       this._storage = { snapshot: this._resolveSnapshotStorage(config.storage) }
+      if (!('snapshot' in config.storage)) {
+        this._rootStorage = config.storage
+      }
     }
     this._saveLatestOn = config.saveLatestOn ?? 'invocation'
     this._multiAgentSaveLatestOn = config.multiAgentSaveLatestOn ?? 'node'
@@ -159,6 +167,7 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
       }
       this._storage = { snapshot: this._resolveSnapshotStorage(agent.storage) }
     }
+    this._rootStorage ??= agent.storage
     agent.addHook(InitializedEvent, async (event) => {
       await this._onAgentInitialized(event)
     })
@@ -197,6 +206,9 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
     const snapshot = isAgent
       ? (params.target as LocalAgent).takeSnapshot({ preset: 'session' })
       : takeMultiAgentSnapshot(params.target as Graph | Swarm, params.state)
+    if (isAgent) {
+      await this._includeStashData(params.target as LocalAgent, snapshot)
+    }
     const snapshotId = params.isLatest ? 'latest' : uuidV7()
     const location = isAgent
       ? this._location(params.target as LocalAgent)
@@ -204,9 +216,10 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
     await this._snapshotStorage.saveSnapshot({ location, snapshotId, isLatest: params.isLatest, snapshot })
   }
 
-  /** Deletes all snapshots and manifests for this session from storage. */
+  /** Deletes all snapshots, manifests, and stash data for this session from storage. */
   async deleteSession(): Promise<void> {
     await this._snapshotStorage.deleteSession({ sessionId: this._sessionId })
+    await this._deleteStashData()
   }
 
   /** Lists all available immutable snapshot IDs for the given agent target. */
@@ -243,6 +256,7 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
 
     if (isAgent) {
       ;(params.target as LocalAgent).loadSnapshot(snapshot)
+      await this._restoreStashData(params.target as LocalAgent, snapshot)
     } else {
       loadMultiAgentSnapshot(params.target as Graph | Swarm, snapshot, params.state)
     }
@@ -302,6 +316,7 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
   /** Captures one snapshot and writes it to both immutable history and snapshot_latest. */
   private async _saveImmutableAndLatest(agent: LocalAgent): Promise<void> {
     const snapshot = agent.takeSnapshot({ preset: 'session' })
+    await this._includeStashData(agent, snapshot)
     const snapshotId = uuidV7()
     await Promise.all([
       this._snapshotStorage.saveSnapshot({ location: this._location(agent), snapshotId, isLatest: false, snapshot }),
@@ -312,6 +327,36 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
         snapshot,
       }),
     ])
+  }
+
+  // ---------------------------------------------------------------------------
+  // Stash integration
+  // ---------------------------------------------------------------------------
+
+  private static _contextManager(agent: LocalAgent): ContextManager | undefined {
+    return (agent as unknown as { contextManager?: ContextManager }).contextManager
+  }
+
+  private async _includeStashData(agent: LocalAgent, snapshot: Snapshot): Promise<void> {
+    const stash = SessionManager._contextManager(agent)?.stash
+    if (!stash) return
+    const stashData = await stash.takeSnapshot()
+    snapshot.data.stash = stashData as unknown as JSONValue
+  }
+
+  private async _restoreStashData(agent: LocalAgent, snapshot: Snapshot): Promise<void> {
+    if ('stash' in snapshot.data && snapshot.data.stash) {
+      await SessionManager._contextManager(agent)?.stash?.loadSnapshot(
+        snapshot.data.stash as unknown as Record<string, unknown>
+      )
+    }
+  }
+
+  private async _deleteStashData(): Promise<void> {
+    if (!this._rootStorage) return
+    const prefix = `${STASH_PREFIX}/${this._sessionId}/`
+    const keys = await this._rootStorage.list(prefix)
+    await Promise.all(keys.map((key) => this._rootStorage!.delete(key)))
   }
 
   // ---------------------------------------------------------------------------

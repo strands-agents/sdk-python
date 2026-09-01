@@ -35,7 +35,7 @@ export class ContextManager implements Plugin {
   readonly name = 'strands:context-manager'
 
   private readonly _strategies: ContextStrategy[]
-  private readonly _stashStorage: Storage | false
+  private readonly _stashStorage: Storage | false | undefined
   private readonly _enableRetrievalTool: boolean
   private readonly _retrievalToolUseIds = new Set<string>()
   private _stash: Stash | undefined
@@ -51,7 +51,7 @@ export class ContextManager implements Plugin {
     ]
     const stashConfig = config?.stash
     const stashObj = typeof stashConfig === 'object' ? stashConfig : undefined
-    this._stashStorage = stashConfig === false ? false : (stashObj?.storage ?? new InMemoryStorage())
+    this._stashStorage = stashConfig === false ? false : stashObj?.storage
     this._enableRetrievalTool = stashConfig !== false && stashObj?.retrievalTool !== false
   }
 
@@ -66,7 +66,8 @@ export class ContextManager implements Plugin {
 
   initAgent(agent: LocalAgent): void {
     if (this._stashStorage !== false) {
-      this._stash = new Stash(this._stashStorage, agent.sessionId, agent.id)
+      const storage = this._stashStorage ?? agent.storage ?? new InMemoryStorage()
+      this._stash = new Stash(storage, agent.sessionId, agent.id)
     }
 
     if (this._stash) {
@@ -109,6 +110,10 @@ export class ContextManager implements Plugin {
       overflowRetries++
       event.retry = true
     })
+  }
+
+  get stash(): Stash | undefined {
+    return this._stash
   }
 
   private async _runStrategies(agent: LocalAgent, precomputedInputTokens?: number): Promise<boolean> {
