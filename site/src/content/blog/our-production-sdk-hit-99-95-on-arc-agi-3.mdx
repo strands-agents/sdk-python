@@ -47,34 +47,79 @@ Our harness first renders ARC-AGI-3's numeric grid as text. The runner stores th
 The loop kicks off when the action queue is empty, triggering the runner to invoke the agent. Opus 5 can repeatedly search logs, write and run shell or Python scripts, check the results, then adjust its strategy.
 
 ```python
-def analyze(self, log_path, action_num, **kwargs):
+def analyze(
+    self,
+    log_path: Path,
+    action_num: int,
+    retry_nudge: str = "",
+    **kwargs: Any,
+) -> Optional[dict[str, Any]]:
+    log_path = Path(log_path)
     workspace = log_path.parent
-    key = str(log_path)
-    is_first = self._call_count.get(key, 0) == 0
-    self._call_count[key] = self._call_count.get(key, 0) + 1
 
-    # PRO-LONG clears the action file every call — the plan is rebuilt from the log.
+    ...
+
+    path_key = str(log_path)
+    is_first = self._call_count.get(path_key, 0) == 0
+    self._call_count[path_key] = self._call_count.get(path_key, 0) + 1
+
     actions_path = workspace / _ACTIONS_FILE
     if actions_path.exists():
-        actions_path.unlink()
+        actions_path.unlink()  # PRO-LONG clears it every call
+
+    active_route = self._route_for(path_key)
 
     agent = Agent(
-        model=self._build_model(*self._route_for(key)),
+        model=self._build_model(*active_route),
         tools=make_prolong_tools(workspace),
         system_prompt=self._build_system_prompt(),
         callback_handler=None,
     )
-    result = agent(self._build_prompt(log_path, action_num, is_first, **kwargs))
+    prompt = self._build_prompt(
+        log_path, action_num, is_first, retry_nudge=retry_nudge, **kwargs
+    )
+
+    t0 = time.time()
+    result = None
+    for attempt in range(_MAX_THROTTLE_RETRIES):
+        try:
+            result = agent(prompt)
+            break
+        except Exception as exc:
+            ...
+    if result is None:
+        return None
+    elapsed = time.time() - t0
+
+    text = str(result)
+    meta = self._extract_usage(result, active_route[0])
 
     if not actions_path.exists():
-        # Model finished its turn without writing the plan. Instead of a cold
-        # retry, nudge the same agent — this keeps the conversation and prompt cache.
-        agent(f"You have not written {_ACTIONS_FILE} yet. Write it now ...")
+        ...
+        try:
+            agent(
+                f"You have not written {_ACTIONS_FILE} yet. Write it now with "
+                'the shape {"actions": ["ACTION1", "ACTION6(30,40)"]} — a list of '
+                f"1-{self._action_cap} actions to execute in order. Write the file; "
+                "do not reply with the JSON only."
+            )
+        except Exception as exc:
+            ...
+        ...
 
     actions = self._parse_actions_json_text(
         actions_path.read_text(errors="replace"), cap=self._action_cap
     )
-    return {"actions": actions, "plan": self._extract_tag(str(result), "PLAN")}
+
+    ...
+
+    return {
+        "actions": actions,
+        "hint": self._extract_tag(text, "PLAN") or text[-1500:],
+        "plan": self._extract_tag(text, "PLAN") or "",
+        "meta": meta,
+        "cost": 0.0,
+    }
 ```
 
 <div style="text-align: center">
