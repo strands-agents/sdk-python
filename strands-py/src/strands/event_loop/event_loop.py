@@ -17,8 +17,10 @@ from typing import TYPE_CHECKING, Any
 from opentelemetry import trace as trace_api
 
 from .._middleware.stages import InvokeModelContext, InvokeModelStage
+from ..agent import _continuation
 from ..experimental.checkpoint import Checkpoint, CheckpointPosition
 from ..hooks import AfterModelCallEvent, AfterToolsEvent, BeforeModelCallEvent, BeforeToolsEvent
+from ..interrupt import PendingToolExecution
 from ..telemetry.metrics import Trace, _total_prompt_tokens
 from ..telemetry.tracer import Tracer, get_tracer
 from ..tools._validator import validate_and_prepare_tools
@@ -285,9 +287,10 @@ async def event_loop_cycle(
     with trace_api.use_span(cycle_span, end_on_exit=False):
         try:
             # Resume a tool interrupt by replaying its stored message instead of calling the model.
-            if agent._interrupt_state.activated and "tool_use_message" in agent._interrupt_state.context:
+            pending_tool_execution = agent._interrupt_state.pending_tool_execution
+            if agent._interrupt_state.activated and pending_tool_execution is not None:
                 stop_reason: StopReason = "tool_use"
-                message = agent._interrupt_state.context["tool_use_message"]
+                message = pending_tool_execution.assistant_message
             # Skip model invocation if the latest message contains ToolUse
             elif _has_tool_use_in_latest_message(agent.messages):
                 stop_reason = "tool_use"
@@ -323,7 +326,7 @@ async def event_loop_cycle(
                 if (
                     agent._checkpointing
                     and not agent._observe_cancellation()
-                    and not agent._interrupt_state.has_pending_tool_execution
+                    and agent._interrupt_state.pending_tool_execution is None
                 ):
                     resume_position = agent._checkpoint_resume_position
                     agent._checkpoint_resume_position = None
@@ -497,9 +500,27 @@ async def _handle_model_execution(
                 invocation_state=invocation_state,
                 projected_input_tokens=projected_input_tokens,
             )
-            await agent.hooks.invoke_callbacks_async(before_model_call_event)
+            model_continuation: Messages | None = None
+            try:
+                await agent.hooks.invoke_callbacks_async(before_model_call_event)
+                model_continuation = await _continuation.prepare(
+                    before_model_call_event,
+                    agent._convert_prompt_to_messages,
+                )
+            finally:
+                if model_continuation is None:
+                    await _continuation.abandon(
+                        before_model_call_event,
+                        RuntimeError(
+                            "Agent stream closed before continuation input was incorporated into agent history"
+                        ),
+                    )
 
             if before_model_call_event.cancel:
+                await _continuation.abandon(
+                    before_model_call_event,
+                    RuntimeError("Continuation abandoned by BeforeModelCallEvent"),
+                )
                 cancel_text = (
                     before_model_call_event.cancel
                     if isinstance(before_model_call_event.cancel, str)
@@ -524,6 +545,17 @@ async def _handle_model_execution(
                     continue
                 yield ModelStopReason(stop_reason=stop_reason, message=message, usage=usage, metrics=metrics)
                 break
+
+            if model_continuation is not None:
+                await agent._append_continuation_messages(model_continuation, before_model_call_event)
+                try:
+                    projected_input_tokens = await _estimate_input_tokens(agent)
+                except Exception as error:
+                    projected_input_tokens = None
+                    logger.debug(
+                        "error=<%s> | token estimation failed after continuation input, proceeding without estimate",
+                        error,
+                    )
 
             tool_specs = agent.tool_registry.get_all_tool_specs()
 
@@ -725,7 +757,10 @@ async def _stop_for_interrupts(
     so interrupt persistence logic lives in one place.
     """
     # Session state stored on AfterInvocationEvent.
-    agent._interrupt_state.context = {"tool_use_message": message, "tool_results": tool_results}
+    agent._interrupt_state.pending_tool_execution = PendingToolExecution(
+        assistant_message=message,
+        completed_tool_results=tool_results,
+    )
     agent._interrupt_state.activate()
 
     agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
@@ -780,8 +815,9 @@ async def _handle_tool_execution(
     tool_results: list[ToolResult] = []
 
     # Merge tool results from a resumed tool interrupt.
-    if agent._interrupt_state.activated and "tool_results" in agent._interrupt_state.context:
-        tool_results.extend(agent._interrupt_state.context["tool_results"])
+    pending_tool_execution = agent._interrupt_state.pending_tool_execution
+    if agent._interrupt_state.activated and pending_tool_execution is not None:
+        tool_results.extend(pending_tool_execution.completed_tool_results)
 
         # Filter to only the interrupted tools when resuming from interrupt (tool uses without results)
         tool_use_ids = {tool_result["toolUseId"] for tool_result in tool_results}
@@ -867,7 +903,10 @@ async def _handle_tool_execution(
         except Exception:
             # Persist pending interrupts before re-raising so they aren't lost.
             if interrupts:
-                agent._interrupt_state.context = {"tool_use_message": message, "tool_results": tool_results}
+                agent._interrupt_state.pending_tool_execution = PendingToolExecution(
+                    assistant_message=message,
+                    completed_tool_results=tool_results,
+                )
                 agent._interrupt_state.activate()
             raise
 
@@ -893,8 +932,8 @@ async def _handle_tool_execution(
     if not agent._observe_cancellation():
         agent._interrupt_state.end_tool_cycle()
     # Update stored results so replay filter skips already-executed tools on next resume.
-    elif cancel_message is None and agent._interrupt_state.has_pending_tool_execution:
-        agent._interrupt_state.context["tool_results"] = tool_results
+    elif cancel_message is None:
+        agent._interrupt_state.set_pending_tool_results(tool_results)
 
     await agent._append_messages(tool_result_message)
 

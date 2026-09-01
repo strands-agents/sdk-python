@@ -243,6 +243,12 @@ module = [
 ]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# _compat branches on which mcp major line is installed; mypy only ever sees
+# one, so each branch's ignores are "unused" when checked against the other.
+module = ["strands.tools.mcp._compat"]
+warn_unused_ignores = false
+
 [tool.ruff]
 line-length = 120
 include = ["examples/**/*.py", "src/**/*.py", "tests/**/*.py", "tests_integ/**/*.py"]

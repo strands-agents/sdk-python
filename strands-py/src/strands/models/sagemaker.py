@@ -3,7 +3,7 @@
 import json
 import logging
 import os
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterable, Iterator
 from dataclasses import dataclass
 from typing import Any, Literal, TypedDict, TypeVar
 
@@ -87,6 +87,83 @@ class ToolCall:
         self.id = str(kwargs.get("id", ""))
         self.type = "function"
         self.function = FunctionCall(**kwargs.get("function", {"name": "", "arguments": ""}))
+
+
+def _strip_sse_framing(line: str) -> str | None:
+    """Return the JSON payload of one SSE line, or None if the line carries no event.
+
+    Strips an optional ``data:`` field prefix and skips blank lines, comment lines
+    (``:`` prefix), non-data SSE fields (``event:``, ``id:``, ``retry:``), and the
+    ``[DONE]`` sentinel.
+
+    Args:
+        line: A single line from the event stream, without its terminating newline.
+
+    Returns:
+        The payload to decode as JSON, or None if the line is not a data event.
+    """
+    line = line.strip()
+    if line.startswith("data:"):
+        line = line[len("data:") :].strip()
+    elif line.startswith(("event:", "id:", "retry:")):
+        return None
+    if not line or line.startswith(":") or line == "[DONE]":
+        return None
+    return line
+
+
+def _parse_event_stream(body: Iterable[Any]) -> Iterator[dict[str, Any]]:
+    """Yield decoded JSON events from a SageMaker response stream.
+
+    A ``PayloadPart`` is an arbitrary byte chunk that is not aligned to event
+    boundaries: a container such as vLLM or TGI may flush several ``data:`` SSE
+    events in one part, or split a single event across parts. Bytes are buffered;
+    each complete newline-delimited line is decoded as an independent event and any
+    trailing partial line is retained until the next part completes it. A malformed
+    ``data:``-framed line is dropped with a warning, while a bare line that does not
+    decode on its own defers to the whole-buffer decode, so a payload that is not
+    newline-framed (multi-line bare JSON) is decoded once the buffer parses whole.
+
+    Args:
+        body: The ``response["Body"]`` event stream of ``PayloadPart`` chunks.
+
+    Yields:
+        One decoded JSON object per event.
+    """
+    buffer = ""
+    for part in body:
+        buffer += part["PayloadPart"]["Bytes"].decode("utf-8")
+        logger.debug("buffer=<%s> | accumulated payload part", buffer)
+        while "\n" in buffer:
+            line, rest = buffer.split("\n", 1)
+            payload = _strip_sse_framing(line)
+            if payload is None:
+                buffer = rest
+                continue
+            try:
+                event = json.loads(payload)
+            except json.JSONDecodeError:
+                if not line.lstrip().startswith("data:"):
+                    # Not SSE-framed: likely one line of a bare JSON document that only
+                    # decodes as a whole. Stop line-splitting and let the whole-buffer
+                    # decode below retry once more bytes arrive.
+                    break
+                logger.warning("line=<%s> | skipping malformed event", line)
+                buffer = rest
+                continue
+            buffer = rest
+            yield event
+        payload = _strip_sse_framing(buffer)
+        if payload is None:
+            continue
+        try:
+            parsed = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+        buffer = ""
+        yield parsed
+    if _strip_sse_framing(buffer) is not None:
+        logger.warning("buffer=<%s> | stream ended with an undecoded partial event", buffer)
 
 
 class SageMakerAIModel(OpenAIModel):
@@ -338,72 +415,65 @@ class SageMakerAIModel(OpenAIModel):
 
                 # Parse the content
                 finish_reason = ""
-                partial_content = ""
                 tool_calls: dict[int, list[Any]] = {}
                 has_text_content = False
                 text_content_started = False
                 reasoning_content_started = False
 
-                for event in response["Body"]:
-                    chunk = event["PayloadPart"]["Bytes"].decode("utf-8")
-                    partial_content += chunk[6:] if chunk.startswith("data: ") else chunk  # TGI fix
-                    logger.info("chunk=<%s>", partial_content)
-                    try:
-                        content = json.loads(partial_content)
-                        partial_content = ""
-                        choice = content["choices"][0]
-                        logger.info("choice=<%s>", json.dumps(choice, indent=2))
-
-                        # Handle text content
-                        if choice["delta"].get("content"):
-                            if not text_content_started:
-                                yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
-                                text_content_started = True
-                            has_text_content = True
-                            yield self.format_chunk(
-                                {
-                                    "chunk_type": "content_delta",
-                                    "data_type": "text",
-                                    "data": choice["delta"]["content"],
-                                }
-                            )
-
-                        # Handle reasoning content
-                        # vLLM v0.16.0+ uses "reasoning" instead of "reasoning_content"
-                        reasoning_text = choice["delta"].get("reasoning_content") or choice["delta"].get("reasoning")
-                        if reasoning_text:
-                            if not reasoning_content_started:
-                                yield self.format_chunk(
-                                    {"chunk_type": "content_start", "data_type": "reasoning_content"}
-                                )
-                                reasoning_content_started = True
-                            yield self.format_chunk(
-                                {
-                                    "chunk_type": "content_delta",
-                                    "data_type": "reasoning_content",
-                                    "data": reasoning_text,
-                                }
-                            )
-
-                        # Handle tool calls
-                        generated_tool_calls = choice["delta"].get("tool_calls", [])
-                        if not isinstance(generated_tool_calls, list):
-                            generated_tool_calls = [generated_tool_calls]
-                        for tool_call in generated_tool_calls:
-                            tool_calls.setdefault(tool_call["index"], []).append(tool_call)
-
-                        if choice["finish_reason"] is not None:
-                            finish_reason = choice["finish_reason"]
-                            break
-
-                        if choice.get("usage"):
-                            yield self.format_chunk(
-                                {"chunk_type": "metadata", "data": UsageMetadata(**choice["usage"])}
-                            )
-
-                    except json.JSONDecodeError:
-                        # Continue accumulating content until we have valid JSON
+                for content in _parse_event_stream(response["Body"]):
+                    choices = content.get("choices")
+                    if not choices:
+                        if usage := content.get("usage"):
+                            yield self.format_chunk({"chunk_type": "metadata", "data": UsageMetadata(**usage)})
                         continue
+                    if finish_reason:
+                        continue
+
+                    choice = choices[0]
+                    logger.debug("choice=<%s>", json.dumps(choice, indent=2))
+
+                    # Handle text content
+                    if choice["delta"].get("content"):
+                        if not text_content_started:
+                            yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
+                            text_content_started = True
+                        has_text_content = True
+                        yield self.format_chunk(
+                            {
+                                "chunk_type": "content_delta",
+                                "data_type": "text",
+                                "data": choice["delta"]["content"],
+                            }
+                        )
+
+                    # Handle reasoning content
+                    # vLLM v0.16.0+ uses "reasoning" instead of "reasoning_content"
+                    reasoning_text = choice["delta"].get("reasoning_content") or choice["delta"].get("reasoning")
+                    if reasoning_text:
+                        if not reasoning_content_started:
+                            yield self.format_chunk({"chunk_type": "content_start", "data_type": "reasoning_content"})
+                            reasoning_content_started = True
+                        yield self.format_chunk(
+                            {
+                                "chunk_type": "content_delta",
+                                "data_type": "reasoning_content",
+                                "data": reasoning_text,
+                            }
+                        )
+
+                    # Handle tool calls
+                    generated_tool_calls = choice["delta"].get("tool_calls", [])
+                    if not isinstance(generated_tool_calls, list):
+                        generated_tool_calls = [generated_tool_calls]
+                    for tool_call in generated_tool_calls:
+                        tool_calls.setdefault(tool_call["index"], []).append(tool_call)
+
+                    usage = content.get("usage") or choice.get("usage")
+                    if usage:
+                        yield self.format_chunk({"chunk_type": "metadata", "data": UsageMetadata(**usage)})
+
+                    if choice["finish_reason"] is not None:
+                        finish_reason = choice["finish_reason"]
 
                 # Close reasoning content if it was started
                 if reasoning_content_started:

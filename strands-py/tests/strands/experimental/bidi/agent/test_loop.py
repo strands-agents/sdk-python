@@ -13,7 +13,10 @@ from strands.experimental.bidi.types.events import (
     BidiConnectionCloseEvent,
     BidiConnectionRestartEvent,
     BidiConnectionWarningEvent,
+    BidiResponseCompleteEvent,
+    BidiResponseStartEvent,
     BidiTextInputEvent,
+    BidiTranscriptStreamEvent,
     BidiUsageEvent,
 )
 from strands.experimental.hooks.events import BidiBeforeConnectionRestartEvent
@@ -550,6 +553,78 @@ async def test_send_assistant_text_does_not_mark_awaiting_response(loop, agent, 
     await loop.send(BidiTextInputEvent(text="injected context", role="assistant"))
     assert loop._awaiting_response is False
     assert loop._turn_complete.is_set()
+
+    await loop.stop()
+
+
+@pytest.mark.asyncio
+async def test_user_transcript_marks_turn_awaiting_response_before_final(loop, agent, agenerator):
+    """A non-final user transcript owes a reply, so a proactive reconnect holds even when the
+    provider never flags is_final on user speech (the Gemini case). History is not appended yet."""
+    partial = BidiTranscriptStreamEvent(
+        delta={"text": "what's the"}, text="what's the", role="user", is_final=False, current_transcript="what's the"
+    )
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator([partial]))
+
+    await loop.start()
+    for _ in range(10):
+        await asyncio.sleep(0)
+
+    assert loop._awaiting_response is True
+    assert not loop._turn_complete.is_set()  # a proactive reconnect would now wait for the reply
+    assert agent.messages == []  # non-final transcript is not committed to history
+
+    await loop.stop()
+
+
+@pytest.mark.asyncio
+async def test_assistant_transcript_does_not_mark_awaiting_response(loop, agent, agenerator):
+    """A model (assistant) transcript is output, not an owed user turn, so it must not hold."""
+    partial = BidiTranscriptStreamEvent(
+        delta={"text": "hi there"}, text="hi there", role="assistant", is_final=False, current_transcript="hi there"
+    )
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator([partial]))
+
+    await loop.start()
+    for _ in range(10):
+        await asyncio.sleep(0)
+
+    assert loop._awaiting_response is False
+
+    await loop.stop()
+
+
+@pytest.mark.asyncio
+async def test_response_complete_clears_awaiting_response(loop, agent, agenerator):
+    """A completed reply clears the awaited-response latch, so a user transcript that lagged into
+    the reply does not leave the turn falsely open (which would burn the alignment wait and flag a
+    spurious turn_interrupted)."""
+    events = [
+        BidiResponseStartEvent(response_id="r1"),
+        # A lagging user input transcript arrives during the reply and re-latches awaiting.
+        BidiTranscriptStreamEvent(
+            delta={"text": "earlier question"},
+            text="earlier question",
+            role="user",
+            is_final=False,
+            current_transcript="earlier question",
+        ),
+        BidiResponseCompleteEvent(response_id="r1", stop_reason="complete"),
+    ]
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator(events))
+
+    await loop.start()
+    # Drain through the reply so all three events are applied (the event queue has maxsize=1, so a
+    # reader with no consumer would stall after the first event).
+    async for event in loop.receive():
+        if isinstance(event, BidiResponseCompleteEvent):
+            break
+    # Let _run_model apply the post-dequeue turn-state update for the complete event.
+    for _ in range(10):
+        await asyncio.sleep(0)
+
+    assert loop._awaiting_response is False
+    assert loop._turn_complete.is_set()  # turn is idle, so a proactive reconnect fires immediately
 
     await loop.stop()
 

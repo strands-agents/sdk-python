@@ -317,7 +317,7 @@ async def test_cancel_during_tool_interrupt_resume_preserves_interrupt_state():
     interrupt_result = await agent.invoke_async("go")
     assert interrupt_result.stop_reason == "interrupt"
     assert agent._interrupt_state.activated
-    assert "tool_use_message" in agent._interrupt_state.context
+    assert agent._interrupt_state.pending_tool_execution is not None
 
     # Cancel the resume before the tool runs.
     agent.cancel()
@@ -328,7 +328,7 @@ async def test_cancel_during_tool_interrupt_resume_preserves_interrupt_state():
     assert cancelled_result.stop_reason == "cancelled"
     # The pending tool interrupt state survives the cancelled pass.
     assert agent._interrupt_state.activated
-    assert "tool_use_message" in agent._interrupt_state.context
+    assert agent._interrupt_state.pending_tool_execution is not None
 
 
 @pytest.mark.asyncio
@@ -570,6 +570,7 @@ async def test_hook_cancelled_tool_batch_does_not_replay_the_stored_tool_use():
     assert not agent._interrupt_state.activated
     assert not agent._interrupt_state.context
     assert not agent._interrupt_state.interrupts
+    assert agent._interrupt_state.pending_tool_execution is None
 
 
 def _approver_agent(ran, cancel_on_first_run=False):
