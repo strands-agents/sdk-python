@@ -37,6 +37,9 @@ class SessionManager(HookProvider, ABC):
     for an agent, and should be persisted in the session.
     """
 
+    session_id: str
+    """The unique session identifier for this session manager."""
+
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
         """Register hooks for persisting the agent to the session."""
         # After the normal Agent initialization behavior, call the session initialize function to restore the agent

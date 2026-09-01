@@ -4,12 +4,12 @@ from contextlib import AbstractAsyncContextManager
 from typing import Any, Literal
 
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from mcp.client.streamable_http import GetSessionIdCallback
 from mcp.shared.memory import MessageStream
 from mcp.shared.message import SessionMessage
 from typing_extensions import NotRequired, TypedDict
 
 from ...types.tools import ToolResult
+from ._compat import GetSessionIdCallback
 
 
 class MCPClientCredentials(TypedDict):

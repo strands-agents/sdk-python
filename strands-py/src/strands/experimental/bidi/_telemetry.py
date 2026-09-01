@@ -125,21 +125,31 @@ def end_response_span(
     tracer._end_span(span, attributes=attributes, error=error)
 
 
-def start_restart_span(tracer: Tracer, parent_span: Span | None = None, error_message: str | None = None) -> Span:
+def start_restart_span(
+    tracer: Tracer,
+    parent_span: Span | None = None,
+    reason: str = "timeout",
+    error_message: str | None = None,
+) -> Span:
     """Start a span for a connection restart.
 
     Args:
         tracer: Tracer instance.
         parent_span: Parent session span.
-        error_message: The timeout error message that triggered the restart.
+        reason: What triggered the restart ("timeout" reactively, "scheduled" proactively).
+        error_message: The timeout error message that triggered a reactive restart, if any.
 
     Returns:
         The restart span.
     """
     attributes: dict[str, AttributeValue] = tracer._get_common_attributes(operation_name="bidi_connection_restart")
+    attributes["gen_ai.bidi.restart_reason"] = reason
 
+    # The message of the timeout that triggered a reactive restart. Namespaced under
+    # gen_ai.bidi.* (not gen_ai.error.*) so it does not read as a failure of this span,
+    # which may end successfully; a failed restart is recorded via end_restart_span.
     if error_message:
-        attributes["gen_ai.error.message"] = error_message
+        attributes["gen_ai.bidi.restart_error_message"] = error_message
 
     return tracer._start_span("bidi_connection_restart", parent_span, attributes=attributes)
 

@@ -23,6 +23,8 @@ class MockBidiModel:
 
     def __init__(self, config=None, model_id="mock-model"):
         self.config = config or {"audio": {"input_rate": 16000, "output_rate": 24000, "channels": 1}}
+        self.connection_config = {}
+        self.usage_is_cumulative = False
         self.model_id = model_id
         self._connection_id = None
         self._started = False
@@ -38,6 +40,10 @@ class MockBidiModel:
         if self._started:
             self._started = False
             self._connection_id = None
+
+    async def reconnect(self, system_prompt=None, tools=None, messages=None, **restart_kwargs):
+        await self.stop()
+        await self.start(system_prompt, tools, messages, **restart_kwargs)
 
     async def send(self, content):
         if not self._started:
@@ -132,14 +138,14 @@ def test_bidi_agent_init_with_various_configurations():
     assert config["audio"]["channels"] == 1
 
 
-@pytest.mark.skipif(sys.version_info < (3, 12), reason="BidiNovaSonicModel is only supported for Python 3.12+")
+@pytest.mark.skipif(sys.version_info < (3, 12), reason="BedrockNovaSonicModel is only supported for Python 3.12+")
 def test_bidi_agent_init_with_model_id():
-    from strands.experimental.bidi.models.nova_sonic import BidiNovaSonicModel
+    from strands.experimental.bidi.models.bedrock import BedrockNovaSonicModel
 
     model_id = "amazon.nova-sonic-v1:0"
     agent = BidiAgent(model=model_id)
 
-    assert isinstance(agent.model, BidiNovaSonicModel)
+    assert isinstance(agent.model, BedrockNovaSonicModel)
     assert agent.model.model_id == model_id
 
 

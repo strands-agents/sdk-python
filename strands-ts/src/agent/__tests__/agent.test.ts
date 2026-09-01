@@ -419,6 +419,72 @@ describe('Agent', () => {
 
         expect(agent.metrics.cycleCount).toBe(1)
       })
+
+      it('includes the completed cycle duration in the returned result metrics', async () => {
+        vi.useFakeTimers()
+        vi.setSystemTime(0)
+
+        try {
+          const model = new MockMessageModel().addTurn(
+            { type: 'toolUseBlock', name: 'slowTool', toolUseId: 'tool-1', input: {} },
+            { usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 } }
+          )
+
+          const tool = createMockTool(
+            'slowTool',
+            (context) =>
+              new ToolResultBlock({
+                toolUseId: context.toolUse.toolUseId,
+                status: 'success' as const,
+                content: [new TextBlock('Done')],
+              })
+          )
+
+          const agent = new Agent({ model, tools: [tool] })
+          agent.addHook(BeforeToolsEvent, () => {
+            vi.setSystemTime(60)
+          })
+          agent.addHook(AfterToolsEvent, (event: AfterToolsEvent) => {
+            event.endTurn = true
+          })
+
+          const result = await agent.invoke('Test')
+
+          expect(result.stopReason).toBe('endTurn')
+          expect(result.metrics).toMatchObject({
+            cycleCount: 1,
+            totalDuration: 60,
+            averageCycleTime: 60,
+            latestAgentInvocation: { cycles: [{ duration: 60 }] },
+          })
+        } finally {
+          vi.useRealTimers()
+        }
+      })
+
+      it('includes the cycle duration when the model ends the turn without tools', async () => {
+        vi.useFakeTimers()
+        vi.setSystemTime(0)
+
+        try {
+          const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Hello' })
+          const agent = new Agent({ model })
+          agent.addHook(BeforeModelCallEvent, () => {
+            vi.setSystemTime(60)
+          })
+
+          const result = await agent.invoke('Test')
+
+          expect(result.metrics).toMatchObject({
+            cycleCount: 1,
+            totalDuration: 60,
+            averageCycleTime: 60,
+            latestAgentInvocation: { cycles: [{ duration: 60 }] },
+          })
+        } finally {
+          vi.useRealTimers()
+        }
+      })
     })
 
     describe('metrics on errors', () => {
@@ -1786,6 +1852,35 @@ describe('_estimateInputTokens', () => {
 
     // baseline = inputTokens(100) + outputTokens(20) = 120
     expect(await tokenPromise).toBe(120)
+  })
+
+  // Regression for #3546: on a disjoint provider (Bedrock/Anthropic) the cache read adds to inputTokens
+  // and must be counted in the baseline, or a large cached prompt reads as a handful of tokens and
+  // proactive compaction never fires.
+  it('counts disjoint-provider cache reads in the known baseline', async () => {
+    const model = new MockMessageModel()
+    model.addTurn({ type: 'textBlock', text: 'Hello' })
+
+    const agent = new Agent({
+      model,
+      printer: false,
+      messages: [
+        new Message({ role: 'user', content: [new TextBlock('Hi')] }),
+        new Message({
+          role: 'assistant',
+          content: [new TextBlock('Hello')],
+          metadata: {
+            usage: { inputTokens: 10, outputTokens: 4, totalTokens: 5862, cacheReadInputTokens: 5848 },
+          },
+        }),
+      ],
+    })
+
+    const tokenPromise = captureProjectedTokens(agent)
+    await agent.invoke([])
+
+    // baseline = total prompt (10 + 5848 cache read) + outputTokens(4) = 5862, not 14
+    expect(await tokenPromise).toBe(5862)
   })
 
   it('returns undefined projectedInputTokens when estimation fails', async () => {

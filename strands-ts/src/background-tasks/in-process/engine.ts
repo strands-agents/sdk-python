@@ -1,10 +1,10 @@
 import { normalizeError } from '../../errors.js'
 import { BackgroundTaskNotFoundError } from '../errors.js'
+import { assertTimerDelay } from '../timer.js'
 import type { InterruptStateData } from '../../interrupt.js'
-import type { InProcessTaskEngineOptions, InProcessTaskRecord, TaskExecutionOutcome, TaskStatus } from './types.js'
+import { isTaskStatusTerminal } from '../types.js'
+import type { InProcessTaskEngineOptions, InProcessTaskExecutionOutcome, InProcessTaskRecord } from './types.js'
 
-// Node.js treats delays above the signed 32-bit limit as 1ms.
-const MAX_TIMER_DELAY_MS = 2 ** 31 - 1
 const DEFAULT_EXECUTION_FAILURE_MESSAGE = 'Background task execution failed'
 
 interface ActiveExecution {
@@ -35,28 +35,23 @@ export class InProcessTaskEngine {
   }
 
   /**
-   * Submits a task for execution, returning an existing task when its idempotency key matches.
+   * Submits a task for execution.
    *
-   * @param admission - Tool execution details and optional idempotency key.
-   * @returns A snapshot of the admitted or matching task.
+   * @param admission - Tool execution details.
+   * @returns A snapshot of the admitted task.
    */
   submit(admission: {
     readonly toolUseId: string
     readonly toolName: string
     readonly invocationStateId: string
-    readonly idempotencyKey?: string
   }): InProcessTaskRecord {
-    if (admission.idempotencyKey !== undefined) {
-      const existing = [...this._tasks.values()].find((task) => task.idempotencyKey === admission.idempotencyKey)
-      if (existing) return globalThis.structuredClone(existing)
-    }
     const now = new Date().toISOString()
     const stored: InProcessTaskRecord = {
       taskId: globalThis.crypto.randomUUID(),
       ...admission,
       status: 'queued',
       createdAt: now,
-      updatedAt: now,
+      lastUpdatedAt: now,
     }
     this._tasks.set(stored.taskId, stored)
     this._notifyTaskUpdated(stored)
@@ -92,7 +87,7 @@ export class InProcessTaskEngine {
    */
   remove(taskId: string): void {
     const task = this._requireTask(taskId)
-    if (!isInProcessTaskTerminalStatus(task.status)) {
+    if (!isTaskStatusTerminal(task.status)) {
       throw new Error(`Background task '${taskId}' cannot be removed before reaching a terminal status`)
     }
     this._tasks.delete(taskId)
@@ -108,7 +103,7 @@ export class InProcessTaskEngine {
    */
   cancel(taskId: string, options: { readonly reason: string }): InProcessTaskRecord {
     const current = this._requireTask(taskId)
-    if (isInProcessTaskTerminalStatus(current.status)) return globalThis.structuredClone(current)
+    if (isTaskStatusTerminal(current.status)) return globalThis.structuredClone(current)
     const task = this._updateTask(taskId, (record) => {
       record.status = 'cancelled'
       delete record.state
@@ -228,7 +223,7 @@ export class InProcessTaskEngine {
       }, this._options.timeout)
     }
 
-    let outcome: TaskExecutionOutcome
+    let outcome: InProcessTaskExecutionOutcome
     try {
       outcome = await this._options.execute({
         taskId,
@@ -250,7 +245,7 @@ export class InProcessTaskEngine {
     this._finishOutcome(taskId, outcome)
   }
 
-  private _finishOutcome(taskId: string, outcome: TaskExecutionOutcome): void {
+  private _finishOutcome(taskId: string, outcome: InProcessTaskExecutionOutcome): void {
     if (outcome.status === 'input_required') {
       this._updateTask(taskId, (record) => {
         if (record.status !== 'working') return false
@@ -303,7 +298,7 @@ export class InProcessTaskEngine {
     const next = globalThis.structuredClone(current)
     if (!update(next)) return undefined
 
-    next.updatedAt = new Date().toISOString()
+    next.lastUpdatedAt = new Date().toISOString()
     const stored = globalThis.structuredClone(next)
     this._tasks.set(taskId, stored)
     this._notifyTaskUpdated(stored)
@@ -330,23 +325,10 @@ export class InProcessTaskEngine {
   }
 }
 
-function assertTimerDelay(name: string, value: number): void {
-  if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new TypeError(`${name} must be a positive finite integer, got ${value}`)
-  }
-  if (value > MAX_TIMER_DELAY_MS) {
-    throw new TypeError(`${name} must be at most ${MAX_TIMER_DELAY_MS}ms, got ${value}`)
-  }
-}
-
 function getExecutionFailureMessage(error: unknown): string {
   try {
     return normalizeError(error).message || DEFAULT_EXECUTION_FAILURE_MESSAGE
   } catch {
     return DEFAULT_EXECUTION_FAILURE_MESSAGE
   }
-}
-
-function isInProcessTaskTerminalStatus(status: TaskStatus): boolean {
-  return status === 'completed' || status === 'failed' || status === 'cancelled'
 }
