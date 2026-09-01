@@ -6,7 +6,6 @@
 import base64
 import json
 import logging
-import warnings
 from collections.abc import AsyncGenerator
 from typing import Any, TypeVar, cast
 
@@ -22,7 +21,7 @@ from ..types.exceptions import ContextWindowOverflowException, ModelThrottledExc
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolChoiceToolDict, ToolSpec
 from ._defaults import resolve_config_metadata
-from ._validation import _has_location_source, validate_config_keys
+from ._validation import _has_location_source, _warn_on_deprecated_cache_tools, validate_config_keys
 from .model import BaseModelConfig, CacheConfig, CacheToolsConfig, Model
 
 logger = logging.getLogger(__name__)
@@ -101,6 +100,7 @@ class AnthropicModel(Model):
             **model_config: Configuration options for the Anthropic model.
         """
         validate_config_keys(model_config, self.AnthropicConfig)
+        _warn_on_deprecated_cache_tools(model_config)
         self.config = AnthropicModel.AnthropicConfig(**model_config)
 
         logger.debug("config=<%s> | initializing", self.config)
@@ -116,6 +116,7 @@ class AnthropicModel(Model):
             **model_config: Configuration overrides.
         """
         validate_config_keys(model_config, self.AnthropicConfig)
+        _warn_on_deprecated_cache_tools(model_config)
         self.config.update(model_config)
 
     @override
@@ -312,11 +313,6 @@ class AnthropicModel(Model):
         """Return the Anthropic ``cache_control`` payload for tool definitions, if enabled."""
         cache_tools = self.config.get("cache_tools")
         if cache_tools:
-            warnings.warn(
-                "cache_tools is deprecated. Use CacheConfig(tools_ttl=...) instead.",
-                DeprecationWarning,
-                stacklevel=3,
-            )
             ttl = cache_tools.ttl if isinstance(cache_tools, CacheToolsConfig) else None
             if not ttl:
                 cache_config = self.config.get("cache_config")

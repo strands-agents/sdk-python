@@ -32,6 +32,10 @@ from strands.types.tools import ToolSpec
 
 FORMATTED_DEFAULT_MODEL_ID = DEFAULT_BEDROCK_MODEL_ID
 
+# cache_tools is deprecated in favor of CacheConfig(tools_ttl=...); tests that deliberately exercise the
+# backward-compat path emit its config-time DeprecationWarning, and assert it explicitly where relevant.
+pytestmark = pytest.mark.filterwarnings("ignore:cache_tools is deprecated:DeprecationWarning")
+
 
 @pytest.fixture
 def session_cls():
@@ -4930,11 +4934,9 @@ def test_format_request_cache_tools_string_backward_compat(model, messages, mode
 
 
 def test_format_request_cache_tools_emits_deprecation_warning(model, messages, tool_spec):
-    """cache_tools is deprecated in favor of CacheConfig(tools_ttl=...); using it warns."""
-    model.update_config(cache_tools="default")
-
+    """cache_tools is deprecated in favor of CacheConfig(tools_ttl=...); setting it warns."""
     with pytest.warns(DeprecationWarning, match="cache_tools is deprecated. Use CacheConfig"):
-        model.format_request(messages, tool_specs=[tool_spec])
+        model.update_config(cache_tools="default")
 
 
 def test_format_request_tools_ttl_true_derives_from_shared_ttl(bedrock_client, messages, tool_spec):
@@ -5030,16 +5032,16 @@ def test_format_request_tools_ttl_is_off_for_a_model_without_caching(bedrock_cli
 
 
 def test_format_request_cache_tools_takes_precedence_over_tools_ttl(bedrock_client, messages, tool_spec):
-    """The maintainer decision: the deprecated cache_tools wins over the new tools_ttl when both are set."""
+    """The deprecated cache_tools wins over the new tools_ttl when both are set."""
     _ = bedrock_client
-    model = BedrockModel(
-        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
-        cache_config=CacheConfig(strategy="auto", ttl="1h", tools_ttl="5m"),
-        cache_tools=CacheToolsConfig(ttl="1h"),
-    )
-
     with pytest.warns(DeprecationWarning, match="cache_tools is deprecated"):
-        tru_point = model.format_request(messages, tool_specs=[tool_spec])["toolConfig"]["tools"][-1]
+        model = BedrockModel(
+            model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+            cache_config=CacheConfig(strategy="auto", ttl="1h", tools_ttl="5m"),
+            cache_tools=CacheToolsConfig(ttl="1h"),
+        )
+
+    tru_point = model.format_request(messages, tool_specs=[tool_spec])["toolConfig"]["tools"][-1]
 
     assert tru_point == {"cachePoint": {"type": "default", "ttl": "1h"}}
 

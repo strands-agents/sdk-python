@@ -35,7 +35,7 @@ from ..types.streaming import CitationsDelta, StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
 from ._defaults import resolve_config_metadata
 from ._strict_schema import ensure_strict_json_schema
-from ._validation import validate_config_keys
+from ._validation import _warn_on_deprecated_cache_tools, validate_config_keys
 from .model import BaseModelConfig, CacheConfig, CacheToolsConfig, Model
 
 logger = logging.getLogger(__name__)
@@ -329,6 +329,7 @@ class BedrockModel(Model):
             **model_config: Configuration overrides.
         """
         validate_config_keys(model_config, self.BedrockConfig)
+        _warn_on_deprecated_cache_tools(model_config)
         self.config.update(model_config)
 
     @override
@@ -560,22 +561,17 @@ class BedrockModel(Model):
     def _build_tools_cache_point(self) -> list[dict[str, Any]]:
         """Build the cache point block appended to ``toolConfig.tools`` when tool caching is configured.
 
-        The deprecated model-level ``cache_tools`` takes precedence: when it is set, a ``DeprecationWarning``
-        is emitted and its type/TTL drive the point, so existing configurations keep working unchanged. When
-        ``cache_tools`` is unset, ``cache_config.tools_ttl`` drives the point, mirroring ``system_prompt_ttl`` -
-        a TTL string sets the tools section's own duration, True derives it from ``cache_config.ttl``, and False
-        disables it. Either way, a section that carries no TTL of its own inherits ``cache_config.ttl``.
+        The deprecated model-level ``cache_tools`` takes precedence: when it is set, its type/TTL drive the
+        point, so existing configurations keep working unchanged. When ``cache_tools`` is unset,
+        ``cache_config.tools_ttl`` drives the point, mirroring ``system_prompt_ttl`` - a TTL string sets the
+        tools section's own duration, True derives it from ``cache_config.ttl``, and False disables it. Either
+        way, a section that carries no TTL of its own inherits ``cache_config.ttl``.
 
         Returns:
             A single-element list containing the cache point block, or an empty list when tool caching is off.
         """
         cache_tools = self.config.get("cache_tools")
         if cache_tools:
-            warnings.warn(
-                "cache_tools is deprecated. Use CacheConfig(tools_ttl=...) instead.",
-                DeprecationWarning,
-                stacklevel=3,
-            )
             if isinstance(cache_tools, CacheToolsConfig):
                 cache_type, ttl = cache_tools.type, cache_tools.ttl
             else:

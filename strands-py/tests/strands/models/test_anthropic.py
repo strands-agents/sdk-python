@@ -1433,6 +1433,7 @@ class TestCountTokens:
         assert result >= 0
 
 
+@pytest.mark.filterwarnings("ignore:cache_tools is deprecated:DeprecationWarning")
 class TestPromptCaching:
     """Prompt caching via ``cache_config`` / ``cache_tools``.
 
@@ -1542,11 +1543,9 @@ class TestPromptCaching:
         assert self._breakpoints(model.format_request(messages, tool_specs)) == [("tools", "t2", {"type": "ephemeral"})]
 
     def test_cache_tools_emits_deprecation_warning(self, model, messages, tool_specs):
-        """cache_tools is deprecated in favor of CacheConfig(tools_ttl=...); using it warns."""
-        model.update_config(cache_tools="default")
-
+        """cache_tools is deprecated in favor of CacheConfig(tools_ttl=...); setting it warns."""
         with pytest.warns(DeprecationWarning, match="cache_tools is deprecated. Use CacheConfig"):
-            model.format_request(messages, tool_specs)
+            model.update_config(cache_tools="default")
 
     def test_tools_ttl_true_derives_from_shared_ttl(self, model, messages, tool_specs):
         """tools_ttl=True mirrors system_prompt_ttl: it derives the tools section duration from cache_config.ttl."""
@@ -1590,13 +1589,13 @@ class TestPromptCaching:
 
     def test_cache_tools_takes_precedence_over_tools_ttl(self, model, messages, tool_specs):
         """The deprecated cache_tools wins over the new tools_ttl when both are set."""
-        model.update_config(
-            cache_config=CacheConfig(strategy="auto", ttl="1h", tools_ttl="5m"),
-            cache_tools=CacheToolsConfig(ttl="1h"),
-        )
-
         with pytest.warns(DeprecationWarning, match="cache_tools is deprecated"):
-            breakpoints = self._breakpoints(model.format_request(messages, tool_specs))
+            model.update_config(
+                cache_config=CacheConfig(strategy="auto", ttl="1h", tools_ttl="5m"),
+                cache_tools=CacheToolsConfig(ttl="1h"),
+            )
+
+        breakpoints = self._breakpoints(model.format_request(messages, tool_specs))
 
         assert ("tools", "t2", {"type": "ephemeral", "ttl": "1h"}) in breakpoints
 

@@ -107,6 +107,20 @@ def warn_on_cache_config_not_supported(
         )
 
 
+def _warn_on_deprecated_cache_tools(config_dict: Mapping[str, Any]) -> None:
+    """Warn that the model-level ``cache_tools`` option is deprecated.
+
+    Args:
+        config_dict: The model configuration being set.
+    """
+    if config_dict.get("cache_tools"):
+        warnings.warn(
+            "cache_tools is deprecated. Use CacheConfig(tools_ttl=...) instead.",
+            DeprecationWarning,
+            stacklevel=4,
+        )
+
+
 def _has_location_source(content: ContentBlock) -> bool:
     """Check if a content block contains a location source.
 
