@@ -328,13 +328,14 @@ async def test_rejected_filter_string_match(mock_transport):
 
 
 @pytest.mark.asyncio
-async def test_prefix_renames_tools(mock_transport):
-    """Test that prefix properly renames tools."""
+async def test_prefix_and_meta_configure_tools(mock_transport):
+    """Test that prefix and metadata are passed to adapted tools."""
     # Create a mock MCP tool (not MCPAgentTool)
     mock_mcp_tool = MagicMock()
     mock_mcp_tool.name = "original_name"
 
-    client = MCPClient(mock_transport, prefix="prefix")
+    meta = {"trace_id": "trace-123"}
+    client = MCPClient(mock_transport, prefix="prefix", meta=meta)
     client._tool_provider_started = True
 
     # Mock the session active state
@@ -364,7 +365,9 @@ async def test_prefix_renames_tools(mock_transport):
         result = client.list_tools_sync(prefix="prefix")
 
         # Should create MCPAgentTool with prefixed name
-        mock_agent_tool_class.assert_called_once_with(mock_mcp_tool, client, name_override="prefix_original_name")
+        mock_agent_tool_class.assert_called_once_with(
+            mock_mcp_tool, client, name_override="prefix_original_name", meta=meta
+        )
 
         assert len(result) == 1
         assert result[0] is mock_agent_tool

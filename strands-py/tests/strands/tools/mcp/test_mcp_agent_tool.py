@@ -147,6 +147,24 @@ async def test_stream(mcp_agent_tool, mock_mcp_client, alist):
     )
 
 
+@pytest.mark.asyncio
+async def test_stream_forwards_configured_meta(mock_mcp_tool, mock_mcp_client, alist):
+    meta = {"trace_id": "trace-123", "tenant": "tenant-a"}
+    agent_tool = MCPAgentTool(mock_mcp_tool, mock_mcp_client, meta=meta)
+    tool_use = {"toolUseId": "test-meta", "name": "test_tool", "input": {}}
+
+    await alist(agent_tool.stream(tool_use, {}))
+
+    mock_mcp_client.call_tool_async.assert_called_once_with(
+        tool_use_id="test-meta",
+        name="test_tool",
+        arguments={},
+        read_timeout_seconds=None,
+        cancel_signal=None,
+        meta=meta,
+    )
+
+
 def test_timeout_initialization(mock_mcp_tool, mock_mcp_client):
     timeout = timedelta(seconds=30)
     agent_tool = MCPAgentTool(mock_mcp_tool, mock_mcp_client, timeout=timeout)
