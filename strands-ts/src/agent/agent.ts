@@ -2321,6 +2321,7 @@ export class Agent implements LocalAgent, InvokableAgent {
           ...(ctx.systemPrompt !== undefined && { systemPrompt: ctx.systemPrompt }),
         })
 
+        let gen: AsyncGenerator<AgentStreamEvent, StreamAggregatedResult, undefined> | undefined
         try {
           // Wrap the snapshot into a StateStore for the model provider, which expects
           // get/set methods.
@@ -2334,7 +2335,7 @@ export class Agent implements LocalAgent, InvokableAgent {
             // Omitted when zero, so an ordinary call's options are unchanged.
             ...(ctx.dynamicTrailingBlocks ? { dynamicTrailingBlocks: ctx.dynamicTrailingBlocks } : {}),
           }
-          const gen = self._streamFromModel(ctx.model, ctx.messages as Message[], streamOptions, ctx.invocationState)
+          gen = self._streamFromModel(ctx.model, ctx.messages as Message[], streamOptions, ctx.invocationState)
           let iterResult = await gen.next()
           while (!iterResult.done) {
             yield iterResult.value
@@ -2354,6 +2355,10 @@ export class Agent implements LocalAgent, InvokableAgent {
         } catch (error) {
           self._tracer.endModelInvokeSpan(modelSpan, { error: normalizeError(error) })
           throw error
+        } finally {
+          // A consumer break arrives as .return() mid-yield; without closing the model
+          // generator here its HTTP stream keeps running to completion.
+          await Promise.allSettled([gen?.return(undefined as never)])
         }
       }
     )
@@ -2418,6 +2423,12 @@ export class Agent implements LocalAgent, InvokableAgent {
       // Preserve the Agent cancellation contract when the shared signal fired.
       this._throwIfCancelled()
       throw error
+    } finally {
+      // A consumer break arrives as .return() mid-yield; without closing the model
+      // generator here its HTTP stream keeps running to completion.
+      await Promise.allSettled([streamGenerator.return(undefined as never)])
+      // generator here its HTTP stream keeps running to completion.
+      await streamGenerator.return(undefined as never)
     }
   }
 

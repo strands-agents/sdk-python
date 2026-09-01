@@ -444,6 +444,46 @@ describe('AnthropicModel', () => {
       return { captured, mockClient }
     }
 
+    it('passes the cancellation signal to the stream request', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ modelId: 'claude-3-opus', maxTokens: 1000, client: mockClient })
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+      const controller = new AbortController()
+
+      await collectIterator(provider.stream(messages, { cancelSignal: controller.signal }))
+
+      expect(captured.options.signal).toBe(controller.signal)
+    })
+
+    it('omits request options entirely without betas or a cancellation signal', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ modelId: 'claude-3-opus', maxTokens: 1000, client: mockClient })
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+
+      await collectIterator(provider.stream(messages))
+
+      expect(captured.options).toBeUndefined()
+    })
+
+    it('merges betas and the cancellation signal into one request options object', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({
+        modelId: 'claude-3-opus',
+        maxTokens: 1000,
+        client: mockClient,
+        betas: ['interleaved-thinking-2025-05-14'],
+      })
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+      const controller = new AbortController()
+
+      await collectIterator(provider.stream(messages, { cancelSignal: controller.signal }))
+
+      expect(captured.options).toEqual({
+        headers: { 'anthropic-beta': 'interleaved-thinking-2025-05-14' },
+        signal: controller.signal,
+      })
+    })
+
     it('formats basic request correctly', async () => {
       const { captured, mockClient } = setupCapture()
       const provider = new AnthropicModel({

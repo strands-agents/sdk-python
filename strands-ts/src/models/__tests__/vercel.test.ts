@@ -125,6 +125,51 @@ describe('VercelModel', () => {
   })
 
   describe('stream', () => {
+    it('passes the cancellation signal to the provider request', async () => {
+      const { callArgs, collect } = setupCaptureTest()
+      const controller = new AbortController()
+
+      await collect([new Message({ role: 'user', content: [new TextBlock('Hello')] })], {
+        cancelSignal: controller.signal,
+      })
+
+      expect(callArgs().abortSignal).toBe(controller.signal)
+    })
+    })
+
+    it('cancels the provider stream when the consumer exits early (#3992)', async () => {
+      let cancelled = false
+      const mock: LanguageModelV3 = {
+        specificationVersion: 'v3',
+        provider: 'test',
+        modelId: 'test-model',
+        supportedUrls: {},
+        doGenerate: vi.fn(),
+        doStream: vi.fn(async (): Promise<LanguageModelV3StreamResult> => ({
+          stream: new ReadableStream({
+            start(controller) {
+              controller.enqueue({ type: 'stream-start', warnings: [] })
+              controller.enqueue({ type: 'text-start', id: '1' })
+              controller.enqueue({ type: 'text-delta', id: '1', delta: 'hello' })
+              // Never closed, mimicking an in-flight HTTP response body
+            },
+            cancel() {
+              cancelled = true
+            },
+          }),
+        })),
+      }
+      const model = new VercelModel({ provider: mock })
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+
+      for await (const _event of model.stream(messages)) {
+        break
+      }
+
+      expect(cancelled).toBe(true)
+    })
+
+    describe('text streaming', () => {
     describe('text streaming', () => {
       it('emits correct events for simple text response', async () => {
         const { model } = setupCaptureTest([
