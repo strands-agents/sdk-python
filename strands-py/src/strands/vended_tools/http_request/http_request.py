@@ -8,6 +8,12 @@ networking to the client instance provided by the operator, giving full
 control over transport configuration, authentication, proxies, timeouts,
 redirects, and connection pooling.
 
+When redirects are enabled on the client, the tool follows them manually
+so that credential headers can be stripped on cross-origin hops. Only
+standard transport headers (``accept``, ``user-agent``, etc.) survive a
+redirect to a different origin; operator-configured credentials and
+model-supplied auth tokens are dropped.
+
 The parent agent's cancel signal (``Agent._cancel_signal``) is propagated so
 an in-flight fetch aborts when the agent is cancelled. Cancellation is
 signalled with :class:`asyncio.CancelledError`.
@@ -27,6 +33,19 @@ from .types import DEFAULT_HTTP_REQUEST_DESCRIPTION, HttpMethod, HttpRequestOutp
 
 if TYPE_CHECKING:
     from ...tools.decorator import DecoratedFunctionTool
+
+_SAFE_REDIRECT_HEADERS: frozenset[str] = frozenset(
+    {
+        "accept",
+        "accept-encoding",
+        "connection",
+        "host",
+        "user-agent",
+    }
+)
+"""Header names safe to forward on a cross-origin redirect."""
+
+_DEFAULT_SCHEME_PORTS: dict[str, int] = {"http": 80, "https": 443}
 
 
 class HttpRequestError(RuntimeError):
@@ -102,6 +121,49 @@ http_request = make_http_request()
 # ---- Internals ----
 
 
+def _port_or_default(url: httpx.URL) -> int:
+    """Return the explicit port, or the default for the URL's scheme."""
+    if url.port is not None:
+        return url.port
+    return _DEFAULT_SCHEME_PORTS.get(url.scheme, 0)
+
+
+def _is_safe_redirect(original: httpx.URL, target: httpx.URL) -> bool:
+    """Return True if credentials may be forwarded to the redirect target.
+
+    Same-origin redirects and HTTP-to-HTTPS upgrades on the same host are
+    considered safe.  An upgrade from ``http://h/`` to ``https://h/`` (both
+    using their scheme's default port) is safe because no explicit port
+    changed.
+    """
+    if (
+        original.scheme == target.scheme
+        and original.host == target.host
+        and _port_or_default(original) == _port_or_default(target)
+    ):
+        return True
+
+    if (
+        original.host == target.host
+        and original.port == target.port
+        and original.scheme == "http"
+        and target.scheme == "https"
+    ):
+        return True
+
+    return False
+
+
+def _safe_redirect_headers(headers: httpx.Headers) -> httpx.Headers:
+    """Strip all non-default headers for a cross-origin redirect.
+
+    Only httpx's standard transport headers (accept, user-agent, etc.) are
+    retained.  Everything else — operator credentials, model-supplied auth
+    tokens, custom API keys — is stripped to prevent credential leakage.
+    """
+    return httpx.Headers({key: value for key, value in headers.items() if key.lower() in _SAFE_REDIRECT_HEADERS})
+
+
 def _resolve_timeout(
     model_timeout: float | None,
     client: httpx.AsyncClient | None,
@@ -145,10 +207,12 @@ async def _perform_request(
     client: httpx.AsyncClient | None,
     cancel_signal: threading.Event | None = None,
 ) -> HttpRequestOutput:
-    """Perform the HTTP request, delegating all behavior to the client.
+    """Perform the HTTP request, following redirects with credential safety.
 
+    When the client has ``follow_redirects=True``, redirects are followed
+    manually so that credential headers can be stripped on cross-origin hops.
     The response body is streamed so the cancel signal can be checked between
-    chunks, giving mid-flight abort granularity similar to AbortSignal in fetch.
+    chunks.
     """
     owns_client = client is None
 
@@ -157,6 +221,9 @@ async def _perform_request(
         active_client = client
     else:
         active_client = httpx.AsyncClient()
+
+    should_follow = active_client.follow_redirects
+    max_redirects = active_client.max_redirects if should_follow else 0
 
     try:
         _check_cancelled(cancel_signal)
@@ -176,7 +243,35 @@ async def _perform_request(
                 content=body,
                 extensions=extensions,
             )
-            response = await active_client.send(request, stream=True)
+
+            redirect_count = 0
+            while True:
+                _check_cancelled(cancel_signal)
+                response = await active_client.send(request, stream=True, follow_redirects=False)
+
+                if not should_follow or not response.has_redirect_location:
+                    break
+
+                redirect_count += 1
+                if redirect_count > max_redirects:
+                    await response.aclose()
+                    raise httpx.TooManyRedirects(
+                        "Exceeded maximum allowed redirects.",
+                        request=request,
+                    )
+
+                await response.aread()
+                next_request = response.next_request
+                await response.aclose()
+
+                if next_request is None:
+                    break
+
+                if not _is_safe_redirect(request.url, next_request.url):
+                    next_request.headers = _safe_redirect_headers(next_request.headers)
+
+                request = next_request
+
         except httpx.TimeoutException as error:
             raise HttpRequestError(f"Request timed out: {error}") from error
         except httpx.TooManyRedirects as error:

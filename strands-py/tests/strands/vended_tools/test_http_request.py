@@ -441,6 +441,174 @@ class TestRequestError:
             await tool(method="GET", url="https://example.com/")
 
 
+class TestRedirectCredentialSafety:
+    """Cross-origin redirects strip credential headers to prevent leakage."""
+
+    @pytest.mark.asyncio
+    async def test_cross_origin_strips_custom_headers(self):
+        captured: dict[str, dict[str, str]] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured[str(request.url)] = dict(request.headers)
+            if request.url.host == "api.example.com":
+                return httpx.Response(302, headers={"location": "https://attacker.com/steal"})
+            return httpx.Response(200, text="ok")
+
+        client = httpx.AsyncClient(
+            transport=_make_transport(handler),
+            headers={"X-API-Key": "secret", "Authorization": "Bearer tok"},
+            follow_redirects=True,
+        )
+        tool = make_http_request(client=client)
+        result = await tool(method="GET", url="https://api.example.com/start")
+
+        assert result["status"] == 200
+        redirected = captured["https://attacker.com/steal"]
+        assert "x-api-key" not in redirected
+        assert "authorization" not in redirected
+
+    @pytest.mark.asyncio
+    async def test_same_origin_preserves_all_headers(self):
+        captured: dict[str, dict[str, str]] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured[str(request.url)] = dict(request.headers)
+            if request.url.path == "/start":
+                return httpx.Response(302, headers={"location": "/final"})
+            return httpx.Response(200, text="ok")
+
+        client = httpx.AsyncClient(
+            transport=_make_transport(handler),
+            headers={"X-API-Key": "secret", "Authorization": "Bearer tok"},
+            follow_redirects=True,
+        )
+        tool = make_http_request(client=client)
+        result = await tool(method="GET", url="https://api.example.com/start")
+
+        assert result["status"] == 200
+        redirected = captured["https://api.example.com/final"]
+        assert redirected["x-api-key"] == "secret"
+        assert redirected["authorization"] == "Bearer tok"
+
+    @pytest.mark.asyncio
+    async def test_cross_origin_preserves_default_headers(self):
+        captured: dict[str, dict[str, str]] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured[str(request.url)] = dict(request.headers)
+            if request.url.host == "example.com":
+                return httpx.Response(302, headers={"location": "https://other.com/page"})
+            return httpx.Response(200, text="ok")
+
+        client = httpx.AsyncClient(
+            transport=_make_transport(handler),
+            headers={"X-API-Key": "secret"},
+            follow_redirects=True,
+        )
+        tool = make_http_request(client=client)
+        await tool(method="GET", url="https://example.com/start")
+
+        redirected = captured["https://other.com/page"]
+        assert "user-agent" in redirected
+        assert "accept" in redirected
+
+    @pytest.mark.asyncio
+    async def test_cross_origin_strips_model_supplied_headers(self):
+        captured: dict[str, dict[str, str]] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured[str(request.url)] = dict(request.headers)
+            if request.url.host == "example.com":
+                return httpx.Response(302, headers={"location": "https://other.com/page"})
+            return httpx.Response(200, text="ok")
+
+        client = httpx.AsyncClient(
+            transport=_make_transport(handler),
+            follow_redirects=True,
+        )
+        tool = make_http_request(client=client)
+        await tool(method="GET", url="https://example.com/start", headers={"X-Custom-Auth": "secret"})
+
+        redirected = captured["https://other.com/page"]
+        assert "x-custom-auth" not in redirected
+
+    @pytest.mark.asyncio
+    async def test_multi_hop_strips_on_cross_origin_hop(self):
+        captured: dict[str, dict[str, str]] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured[str(request.url)] = dict(request.headers)
+            if request.url.path == "/start":
+                return httpx.Response(302, headers={"location": "https://a.com/mid"})
+            if request.url.path == "/mid":
+                return httpx.Response(302, headers={"location": "https://b.com/final"})
+            return httpx.Response(200, text="ok")
+
+        client = httpx.AsyncClient(
+            transport=_make_transport(handler),
+            headers={"X-API-Key": "secret"},
+            follow_redirects=True,
+        )
+        tool = make_http_request(client=client)
+        result = await tool(method="GET", url="https://a.com/start")
+
+        assert result["status"] == 200
+        assert captured["https://a.com/mid"]["x-api-key"] == "secret"
+        assert "x-api-key" not in captured["https://b.com/final"]
+
+    @pytest.mark.asyncio
+    async def test_no_redirect_follow_when_client_disabled(self):
+        call_count = {"n": 0}
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            call_count["n"] += 1
+            return httpx.Response(302, headers={"location": "https://other.com/page"}, text="redirecting")
+
+        client = httpx.AsyncClient(transport=_make_transport(handler))
+        tool = make_http_request(client=client)
+        result = await tool(method="GET", url="https://example.com/start")
+
+        assert result["status"] == 302
+        assert call_count["n"] == 1
+
+    @pytest.mark.asyncio
+    async def test_max_redirects_respected(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            next_path = "/next" + request.url.path
+            return httpx.Response(302, headers={"location": next_path})
+
+        client = httpx.AsyncClient(
+            transport=_make_transport(handler),
+            follow_redirects=True,
+            max_redirects=3,
+        )
+        tool = make_http_request(client=client)
+        with pytest.raises(HttpRequestError, match="Too many redirects"):
+            await tool(method="GET", url="https://example.com/start")
+
+    @pytest.mark.asyncio
+    async def test_https_upgrade_preserves_headers(self):
+        captured: dict[str, dict[str, str]] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured[str(request.url)] = dict(request.headers)
+            if request.url.scheme == "http":
+                return httpx.Response(302, headers={"location": "https://example.com/page"})
+            return httpx.Response(200, text="ok")
+
+        client = httpx.AsyncClient(
+            transport=_make_transport(handler),
+            headers={"X-API-Key": "secret"},
+            follow_redirects=True,
+        )
+        tool = make_http_request(client=client)
+        result = await tool(method="GET", url="http://example.com/page")
+
+        assert result["status"] == 200
+        redirected = captured["https://example.com/page"]
+        assert redirected["x-api-key"] == "secret"
+
+
 class TestEncodingFallback:
     """Response body decoding falls back to UTF-8 on unknown encodings."""
 
