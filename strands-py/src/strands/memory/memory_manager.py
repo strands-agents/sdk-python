@@ -26,6 +26,8 @@ from .types import (
     InjectionQueryContext,
     MemoryAddOptions,
     MemoryAddToolConfig,
+    MemoryDeleteOptions,
+    MemoryDeleteToolConfig,
     MemoryEntry,
     MemoryInjectionConfig,
     MemorySearchOptions,
@@ -49,6 +51,12 @@ SEARCH_TOOL_DESCRIPTION = (
 ADD_TOOL_DESCRIPTION = (
     "Add facts, preferences, or decisions to long-term memory so they are remembered across conversations. Use when "
     "the user shares something worth recalling later."
+)
+
+DELETE_TOOL_DESCRIPTION = (
+    "Delete a specific entry from long-term memory by its id. Use when the user asks to forget something, a stored "
+    "fact is wrong or stale, or a memory should no longer influence future conversations. Get the id from the "
+    "'memory_id' field of a search_memory result."
 )
 
 # Default maximum results per store when neither caller nor store specifies one.
@@ -92,6 +100,7 @@ class MemoryManager(Plugin):
         stores: list[MemoryStore],
         search_tool_config: MemoryToolConfig | bool = True,
         add_tool_config: MemoryAddToolConfig | bool = False,
+        delete_tool_config: MemoryDeleteToolConfig | bool = False,
         injection: MemoryInjectionConfig | bool = True,
     ) -> None:
         """Initialize the memory manager.
@@ -104,6 +113,10 @@ class MemoryManager(Plugin):
             add_tool_config: Add tool configuration. ``False`` (default) disables
                 the add tool; ``True`` lets it write to all writable stores; a
                 :class:`MemoryAddToolConfig` restricts/customizes it.
+            delete_tool_config: Delete tool configuration. ``False`` (default)
+                disables the delete tool; ``True`` lets it delete from all
+                writable stores that implement ``delete``; a
+                :class:`MemoryDeleteToolConfig` restricts/customizes it.
             injection: Memory context injection. ``True`` (default) uses the
                 default injection settings; a :class:`MemoryInjectionConfig`
                 customizes retrieval, timing, and formatting; ``False`` disables
@@ -113,8 +126,9 @@ class MemoryManager(Plugin):
         Raises:
             ValueError: If ``stores`` is empty, a store name is duplicated, a
                 writable store has no write sink, an extraction config is
-                misconfigured, or the add tool is enabled/scoped against stores
-                that cannot accept discrete ``add`` writes.
+                misconfigured, the add tool is enabled/scoped against stores
+                that cannot accept discrete ``add`` writes, or the delete tool is
+                enabled/scoped against stores that cannot ``delete``.
         """
         if len(stores) == 0:
             raise ValueError("MemoryManager: at least one store is required")
@@ -159,6 +173,8 @@ class MemoryManager(Plugin):
         self._search_stores = list(stores)
         # `add`-targeting paths (tool / programmatic) need an `add` method specifically.
         self._add_stores = [store for store in stores if store.writable and _has_method(store, "add")]
+        # `delete`-targeting paths (tool / programmatic) need a `delete` method specifically.
+        self._delete_stores = [store for store in stores if store.writable and _has_method(store, "delete")]
         # Stores with extraction enabled, each paired with its resolved config; wired up in ``init_agent``.
         self._extraction_stores = extraction_bindings
 
@@ -182,6 +198,19 @@ class MemoryManager(Plugin):
             resolved_config = add_tool_config if isinstance(add_tool_config, dict) else MemoryAddToolConfig()
             self._add_tool_config = resolved_config
             self._add_tool_stores = self._resolve_add_tool_stores(resolved_config)
+
+        self._delete_tool_config: MemoryDeleteToolConfig | Literal[False]
+        self._delete_tool_stores: list[MemoryStore]
+        if delete_tool_config is None or delete_tool_config is False:
+            self._delete_tool_config = False
+            self._delete_tool_stores = []
+        else:
+            # The `delete_memory` tool deletes via `delete`, so needs a `delete`-capable store.
+            if len(self._delete_stores) == 0:
+                raise ValueError("MemoryManager: delete_tool_config is enabled but no writable stores implement delete")
+            resolved_delete = delete_tool_config if isinstance(delete_tool_config, dict) else MemoryDeleteToolConfig()
+            self._delete_tool_config = resolved_delete
+            self._delete_tool_stores = self._resolve_delete_tool_stores(resolved_delete)
 
         # Fire-and-forget background tasks, retained so they aren't GC'd mid-flight.
         self._background_tasks: set[asyncio.Task] = set()
@@ -234,11 +263,44 @@ class MemoryManager(Plugin):
             resolved.append(found)
         return resolved
 
+    def _resolve_delete_tool_stores(self, tool_config: MemoryDeleteToolConfig) -> list[MemoryStore]:
+        """Resolve the writable stores the ``delete_memory`` tool may delete from.
+
+        Each entry (a store name or instance) must resolve by name to a
+        configured, ``delete``-capable writable store. Omitted means all such
+        stores.
+
+        Raises:
+            ValueError: If a referenced store is not configured, not writable, or
+                has no ``delete`` method.
+        """
+        config_stores = tool_config.get("stores")
+        if config_stores is None:
+            return self._delete_stores
+
+        names = [store if isinstance(store, str) else store.name for store in config_stores]
+
+        resolved: list[MemoryStore] = []
+        seen: set[str] = set()
+        for name in names:
+            if name in seen:
+                continue
+            seen.add(name)
+            found = next((store for store in self._stores if store.name == name), None)
+            if found is None:
+                raise ValueError(f"MemoryManager: delete_tool_config store '{name}' not found")
+            if not found.writable:
+                raise ValueError(f"MemoryManager: delete_tool_config store '{name}' is not writable")
+            if not _has_method(found, "delete"):
+                raise ValueError(f"MemoryManager: delete_tool_config store '{name}' has no delete method")
+            resolved.append(found)
+        return resolved
+
     def _build_tools(self) -> list[AgentTool]:
         """Build the tools this plugin registers.
 
-        Includes the manager's ``search_memory`` / ``add_memory`` tools plus any
-        tools the stores expose via
+        Includes the manager's ``search_memory`` / ``add_memory`` /
+        ``delete_memory`` tools plus any tools the stores expose via
         :meth:`~strands.memory.types.MemoryStore.get_tools`, in store order.
         """
         tools: list[AgentTool] = []
@@ -248,6 +310,9 @@ class MemoryManager(Plugin):
 
         if isinstance(self._add_tool_config, dict):
             tools.append(self._create_add_tool(self._add_tool_config, self._add_tool_stores))
+
+        if isinstance(self._delete_tool_config, dict):
+            tools.append(self._create_delete_tool(self._delete_tool_config, self._delete_tool_stores))
 
         for store in self._stores:
             if _has_method(store, "get_tools"):
@@ -354,7 +419,14 @@ class MemoryManager(Plugin):
                 store_failure_count += 1
                 continue
             for entry in outcome:
-                results.append(MemoryEntry(content=entry.content, store_name=store.name, metadata=entry.metadata))
+                results.append(
+                    MemoryEntry(
+                        content=entry.content,
+                        store_name=store.name,
+                        metadata=entry.metadata,
+                        memory_id=entry.memory_id,
+                    )
+                )
 
         tracer.end_memory_search_span(span, entries=results, store_failure_count=store_failure_count)
 
@@ -425,6 +497,73 @@ class MemoryManager(Plugin):
             raise aggregate_error
 
         tracer.end_memory_add_span(span)
+
+    async def delete(self, memory_id: str, options: MemoryDeleteOptions | None = None) -> None:
+        """Delete an entry, by store-native id, from delete-capable writable stores.
+
+        Unscoped: targets all configured ``delete``-capable writable stores. The
+        ``memory_id`` is opaque to the manager (it comes from a
+        :class:`~strands.memory.types.MemoryEntry`'s ``memory_id``, set by the
+        originating store). Target stores are validated first, then deletes are
+        awaited concurrently; per-store failures are logged and surfaced as an
+        :class:`~strands.types.exceptions.AggregateMemoryError`. Deleting a
+        missing entry is a store-level no-op, not a failure.
+
+        Args:
+            memory_id: Store-native identifier of the entry to delete.
+            options: Optional delete options (target stores).
+
+        Raises:
+            ValueError: If a named store is not found, is read-only, or has no
+                ``delete`` method, or if no delete-capable store matched.
+            AggregateMemoryError: If any targeted store delete fails.
+        """
+        requested_stores = options.get("stores") if options is not None else None
+
+        tracer = get_tracer()
+        span_store_names = (
+            requested_stores if requested_stores is not None else [store.name for store in self._delete_stores]
+        )
+        span = tracer.start_memory_delete_span(memory_id, span_store_names)
+
+        try:
+            with trace_api.use_span(span, end_on_exit=False):
+                if requested_stores is not None:
+                    target_stores = self._resolve_named_stores(requested_stores, require_writable=True)
+                    for store in target_stores:
+                        if not _has_method(store, "delete"):
+                            raise ValueError(f"MemoryManager: store '{store.name}' has no delete method")
+                else:
+                    target_stores = self._delete_stores
+
+                if len(target_stores) == 0:
+                    raise ValueError("MemoryManager: no delete-capable store matched")
+
+                settled = await asyncio.gather(
+                    *(store.delete(memory_id) for store in target_stores),
+                    return_exceptions=True,
+                )
+        except Exception as error:
+            tracer.end_memory_delete_span(span, error=error)
+            raise
+
+        failed_names: list[str] = []
+        reasons: list[BaseException] = []
+        for store, outcome in zip(target_stores, settled, strict=True):
+            if isinstance(outcome, BaseException):
+                logger.warning("store=<%s>, reason=<%s> | store delete failed", store.name, outcome)
+                failed_names.append(store.name)
+                reasons.append(outcome)
+
+        if failed_names:
+            aggregate_error = AggregateMemoryError(
+                f"MemoryManager: store deletes failed: {', '.join(failed_names)}",
+                reasons,
+            )
+            tracer.end_memory_delete_span(span, store_failure_count=len(failed_names), error=aggregate_error)
+            raise aggregate_error
+
+        tracer.end_memory_delete_span(span)
 
     def _resolve_tool_targets(self, scoped_names: list[str], requested: list[str] | None) -> list[str]:
         """Resolve the store names a tool callback should target.
@@ -498,6 +637,8 @@ class MemoryManager(Plugin):
                 item: dict[str, Any] = {"content": entry.content}
                 if entry.store_name:
                     item["store_name"] = entry.store_name
+                if entry.memory_id is not None:
+                    item["memory_id"] = entry.memory_id
                 if entry.metadata:
                     item["metadata"] = entry.metadata
                 payload.append(item)
@@ -568,6 +709,45 @@ class MemoryManager(Plugin):
             name=custom_name if custom_name is not None else "add_memory",
             description=description,
         )(add_memory)
+
+    def _create_delete_tool(self, config: MemoryDeleteToolConfig, stores: list[MemoryStore]) -> AgentTool:
+        """Build the ``delete_memory`` tool."""
+        custom_description = config.get("description")
+        description = custom_description if custom_description is not None else DELETE_TOOL_DESCRIPTION
+        store_descriptions = [f"- {store.name}: {store.description}" for store in stores if store.description]
+        if store_descriptions:
+            description += "\n\nAvailable stores:\n" + "\n".join(store_descriptions)
+            description += (
+                "\n\nYou can target specific stores by name, or omit to delete the id from all available stores."
+            )
+
+        scoped_names = [store.name for store in stores]
+
+        async def delete_memory(memory_id: str, stores: list[str] | None = None) -> dict[str, str]:
+            """Delete a specific entry from long-term memory by its id.
+
+            Args:
+                memory_id: Id of the entry to delete, taken from the ``memory_id``
+                    field of a ``search_memory`` result.
+                stores: Target specific stores by name. Omit to delete from all
+                    available stores.
+
+            Returns:
+                A summary of the delete (``{"deleted": memory_id}``).
+            """
+            # @tool validation does not enforce non-empty strings, so guard here.
+            if not memory_id:
+                raise ValueError("MemoryManager: delete_memory requires a memory_id")
+
+            targets = self._resolve_tool_targets(scoped_names, stores)
+            await self.delete(memory_id, MemoryDeleteOptions(stores=targets))
+            return {"deleted": memory_id}
+
+        custom_name = config.get("name")
+        return tool(
+            name=custom_name if custom_name is not None else "delete_memory",
+            description=description,
+        )(delete_memory)
 
     async def _add_swallow(self, content: str, targets: list[str]) -> None:
         """Run a programmatic ``add`` and swallow any failure (the add tool's fire-and-forget mode)."""

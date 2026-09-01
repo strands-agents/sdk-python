@@ -1126,6 +1126,56 @@ class Tracer:
         attributes: dict[str, AttributeValue] = {"memory.store.failure_count": store_failure_count}
         self._end_span(span, attributes, error)
 
+    def start_memory_delete_span(
+        self,
+        memory_id: str,
+        store_names: list[str],
+        parent_span: Span | None = None,
+        custom_trace_attributes: Mapping[str, AttributeValue] | None = None,
+        **kwargs: Any,
+    ) -> Span:
+        """Start a new span for a memory delete.
+
+        Args:
+            memory_id: Store-native identifier of the entry being deleted.
+            store_names: Names of the stores being targeted.
+            parent_span: Optional parent span to link this span to.
+            custom_trace_attributes: Optional mapping of custom trace attributes to include in the span.
+            **kwargs: Additional attributes to add to the span.
+
+        Returns:
+            The created span.
+        """
+        memory_attributes: dict[str, AttributeValue] = {
+            "memory.id": memory_id,
+            "memory.store.names": serialize(store_names),
+            "memory.store.count": len(store_names),
+        }
+        attributes = self._build_memory_span_attributes(
+            "memory.delete", memory_attributes, custom_trace_attributes, kwargs
+        )
+
+        return self._start_span("memory.delete", parent_span, attributes=attributes)
+
+    def end_memory_delete_span(
+        self,
+        span: Span,
+        store_failure_count: int = 0,
+        error: Exception | None = None,
+    ) -> None:
+        """End a memory delete span.
+
+        Args:
+            span: The span to end.
+            store_failure_count: Number of targeted stores whose delete failed.
+            error: Optional exception if the delete failed.
+        """
+        if not span or not span.is_recording():
+            return
+
+        attributes: dict[str, AttributeValue] = {"memory.store.failure_count": store_failure_count}
+        self._end_span(span, attributes, error)
+
     def start_memory_inject_span(
         self,
         max_entries: int | None = None,

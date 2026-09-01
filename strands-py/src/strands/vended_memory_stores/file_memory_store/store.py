@@ -165,6 +165,7 @@ class FileMemoryStore(MemoryStore):
                     MemoryEntry(
                         content=data.decode("utf-8", errors="replace").strip(),
                         metadata={"path": result.key, "score": result.score},
+                        memory_id=result.key,
                     )
                 )
         return entries
@@ -200,3 +201,16 @@ class FileMemoryStore(MemoryStore):
             await self._storage.write(key, merged.encode("utf-8"))
 
         return key
+
+    async def delete(self, memory_id: str) -> None:
+        """Delete a knowledge entry by its storage key.
+
+        The ``memory_id`` is the ``memory_id`` of a :meth:`search` result (the
+        canonical storage key the entry was read from). Deleting a key that does
+        not exist is a no-op, matching the underlying storage backend.
+
+        Args:
+            memory_id: The storage key of the entry to delete.
+        """
+        async with self._write_lock:
+            await self._storage.delete(memory_id)

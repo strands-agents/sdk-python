@@ -50,6 +50,8 @@ from strands.memory.memory_manager import DEFAULT_MAX_ENTRIES, DEFAULT_MAX_SEARC
 from strands.memory.types import (
     MemoryAddOptions,
     MemoryAddToolConfig,
+    MemoryDeleteOptions,
+    MemoryDeleteToolConfig,
     MemoryEntry,
     MemoryInjectionConfig,
     MemorySearchOptions,
@@ -75,6 +77,8 @@ def _store(
     search_error: BaseException | None = None,
     add_error: BaseException | None = None,
     add_messages_error: BaseException | None = None,
+    can_delete: bool = False,
+    delete_error: BaseException | None = None,
 ) -> Any:
     """Build a fake ``MemoryStore``.
 
@@ -95,6 +99,8 @@ def _store(
         search_error: When set, ``search`` raises this.
         add_error: When set, ``add`` raises this.
         add_messages_error: When set, ``add_messages`` raises this.
+        can_delete: When set, the store exposes a ``delete`` method.
+        delete_error: When set, ``delete`` raises this (implies ``can_delete``).
     """
     methods: dict[str, Any] = {}
 
@@ -116,6 +122,11 @@ def _store(
         )
     if tools is not None:
         methods["get_tools"] = MagicMock(return_value=list(tools))
+
+    if can_delete or delete_error is not None:
+        methods["delete"] = (
+            AsyncMock(side_effect=delete_error) if delete_error is not None else AsyncMock(return_value=None)
+        )
 
     store_cls = type(f"_FakeStore_{name}", (), dict(methods))
     store = store_cls()
@@ -934,6 +945,265 @@ async def test_add_tool_wait_for_writes_false_returns_accepted_even_when_a_write
 
     assert result == {"accepted": 2}
     await asyncio.sleep(0.05)  # let the (swallowed) failing writes drain
+
+
+# --------------------------------------------------------------------------- #
+# Delete tool constructor / store validation
+# --------------------------------------------------------------------------- #
+
+
+def test_constructor_raises_when_delete_tool_enabled_but_no_store_implements_delete():
+    with pytest.raises(ValueError, match="no writable stores implement delete"):
+        MemoryManager(stores=[_store("a", writable=True)], delete_tool_config=True)
+
+
+def test_constructor_allows_delete_tool_config_true_with_delete_capable_store():
+    mm = MemoryManager(stores=[_store("a", writable=True, can_delete=True)], delete_tool_config=True)
+    assert "delete_memory" in _tool_names(mm)
+
+
+def test_constructor_raises_when_delete_tool_config_stores_names_nonexistent():
+    with pytest.raises(ValueError, match="not found"):
+        MemoryManager(
+            stores=[_store("a", writable=True, can_delete=True)],
+            delete_tool_config=MemoryDeleteToolConfig(stores=["nonexistent"]),
+        )
+
+
+def test_constructor_raises_when_delete_tool_config_stores_names_non_writable():
+    with pytest.raises(ValueError, match="not writable"):
+        MemoryManager(
+            stores=[_store("a", writable=True, can_delete=True), _store("readonly")],
+            delete_tool_config=MemoryDeleteToolConfig(stores=["readonly"]),
+        )
+
+
+def test_constructor_raises_when_delete_tool_config_stores_names_writable_store_without_delete():
+    with pytest.raises(ValueError, match="has no delete method"):
+        MemoryManager(
+            stores=[_store("a", writable=True, can_delete=True), _store("no-delete", writable=True)],
+            delete_tool_config=MemoryDeleteToolConfig(stores=["no-delete"]),
+        )
+
+
+@pytest.mark.asyncio
+async def test_constructor_accepts_memory_store_instances_in_delete_tool_config_stores():
+    personal = _store("personal", writable=True, can_delete=True)
+    team = _store("team", writable=True, can_delete=True)
+    mm = MemoryManager(stores=[personal, team], delete_tool_config=MemoryDeleteToolConfig(stores=[personal]))
+
+    await _tool_named(mm, "delete_memory")(memory_id="k1")
+
+    personal.delete.assert_awaited_once_with("k1")
+    team.delete.assert_not_called()
+
+
+def test_get_tools_does_not_register_delete_tool_by_default():
+    mm = MemoryManager(stores=[_store("test", writable=True, can_delete=True)])
+    assert "delete_memory" not in _tool_names(mm)
+
+
+def test_get_tools_registers_delete_tool_when_enabled():
+    mm = MemoryManager(stores=[_store("test", writable=True, can_delete=True)], delete_tool_config=True)
+    assert _tool_names(mm) == ["search_memory", "delete_memory"]
+
+
+def test_get_tools_uses_custom_delete_tool_name():
+    mm = MemoryManager(
+        stores=[_store("test", writable=True, can_delete=True)],
+        delete_tool_config=MemoryDeleteToolConfig(name="forget_memory"),
+    )
+    assert "forget_memory" in _tool_names(mm)
+
+
+def test_get_tools_includes_store_descriptions_in_delete_description():
+    store = _store("notes", writable=True, can_delete=True, description="Personal notes")
+    mm = MemoryManager(stores=[store], delete_tool_config=True)
+    delete = _tool_named(mm, "delete_memory")
+    description = delete.tool_spec["description"]
+    assert "notes: Personal notes" in description
+
+
+# --------------------------------------------------------------------------- #
+# Programmatic delete
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_delete_targets_all_delete_capable_stores():
+    store1 = _store("a", writable=True, can_delete=True)
+    store2 = _store("b", writable=True, can_delete=True)
+    read_only = _store("c")
+    mm = MemoryManager(stores=[store1, store2, read_only])
+
+    await mm.delete("k1")
+
+    store1.delete.assert_awaited_once_with("k1")
+    store2.delete.assert_awaited_once_with("k1")
+
+
+@pytest.mark.asyncio
+async def test_delete_filters_to_named_stores():
+    store1 = _store("personal", writable=True, can_delete=True)
+    store2 = _store("team", writable=True, can_delete=True)
+    mm = MemoryManager(stores=[store1, store2])
+
+    await mm.delete("k1", MemoryDeleteOptions(stores=["personal"]))
+
+    store1.delete.assert_awaited_once_with("k1")
+    store2.delete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_delete_raises_when_no_delete_capable_stores_match():
+    mm = MemoryManager(stores=[_store("a", writable=True)])
+    with pytest.raises(ValueError, match="no delete-capable store matched"):
+        await mm.delete("k1")
+
+
+@pytest.mark.asyncio
+async def test_delete_raises_not_found_when_named_store_missing():
+    mm = MemoryManager(stores=[_store("a", writable=True, can_delete=True)])
+    with pytest.raises(ValueError, match="not found"):
+        await mm.delete("k1", MemoryDeleteOptions(stores=["nonexistent"]))
+
+
+@pytest.mark.asyncio
+async def test_delete_raises_read_only_when_named_store_not_writable():
+    mm = MemoryManager(stores=[_store("readonly")])
+    with pytest.raises(ValueError, match="read-only"):
+        await mm.delete("k1", MemoryDeleteOptions(stores=["readonly"]))
+
+
+@pytest.mark.asyncio
+async def test_delete_raises_when_named_writable_store_has_no_delete_method():
+    mm = MemoryManager(stores=[_store("no-delete", writable=True)])
+    with pytest.raises(ValueError, match="has no delete method"):
+        await mm.delete("k1", MemoryDeleteOptions(stores=["no-delete"]))
+
+
+@pytest.mark.asyncio
+async def test_delete_awaits_and_raises_aggregate_naming_failed_store():
+    failing = _store("failing", writable=True, delete_error=RuntimeError("delete error"))
+    ok = _store("ok", writable=True, can_delete=True)
+    mm = MemoryManager(stores=[failing, ok])
+
+    with pytest.raises(AggregateMemoryError, match="failing") as exc_info:
+        await mm.delete("k1")
+
+    # The remaining store still received its delete (partial failure completes the rest).
+    ok.delete.assert_awaited_once_with("k1")
+    assert len(exc_info.value.errors) == 1
+
+
+# --------------------------------------------------------------------------- #
+# Delete tool scoping and return value
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_delete_tool_deletes_from_all_stores_when_stores_omitted():
+    personal = _store("personal", writable=True, can_delete=True)
+    team = _store("team", writable=True, can_delete=True)
+    mm = MemoryManager(stores=[personal, team], delete_tool_config=True)
+
+    await _tool_named(mm, "delete_memory")(memory_id="k1")
+
+    personal.delete.assert_awaited_once_with("k1")
+    team.delete.assert_awaited_once_with("k1")
+
+
+@pytest.mark.asyncio
+async def test_delete_tool_treats_empty_stores_as_omitted():
+    personal = _store("personal", writable=True, can_delete=True)
+    team = _store("team", writable=True, can_delete=True)
+    mm = MemoryManager(stores=[personal, team], delete_tool_config=True)
+
+    await _tool_named(mm, "delete_memory")(memory_id="k1", stores=[])
+
+    personal.delete.assert_awaited_once_with("k1")
+    team.delete.assert_awaited_once_with("k1")
+
+
+@pytest.mark.asyncio
+async def test_delete_tool_is_scoped_to_allowlist_excluding_other_delete_stores():
+    personal = _store("personal", writable=True, can_delete=True)
+    team = _store("team", writable=True, can_delete=True)
+    mm = MemoryManager(stores=[personal, team], delete_tool_config=MemoryDeleteToolConfig(stores=["personal"]))
+
+    await _tool_named(mm, "delete_memory")(memory_id="k1")
+
+    personal.delete.assert_awaited_once_with("k1")
+    team.delete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_delete_tool_rejects_a_store_excluded_from_allowlist():
+    personal = _store("personal", writable=True, can_delete=True)
+    team = _store("team", writable=True, can_delete=True)
+    mm = MemoryManager(stores=[personal, team], delete_tool_config=MemoryDeleteToolConfig(stores=["personal"]))
+
+    with pytest.raises(Exception, match="none of the requested memory stores are available"):
+        await _tool_named(mm, "delete_memory")(memory_id="k1", stores=["team"])
+    team.delete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_delete_tool_keeps_valid_names_and_warns_on_out_of_scope(caplog):
+    personal = _store("personal", writable=True, can_delete=True)
+    team = _store("team", writable=True, can_delete=True)
+    mm = MemoryManager(stores=[personal, team], delete_tool_config=True)
+
+    with caplog.at_level(logging.WARNING):
+        await _tool_named(mm, "delete_memory")(memory_id="k1", stores=["personal", "nonexistent"])
+
+    personal.delete.assert_awaited_once_with("k1")
+    team.delete.assert_not_called()
+    assert "nonexistent" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_delete_tool_raises_when_every_requested_store_is_out_of_scope():
+    personal = _store("personal", writable=True, can_delete=True)
+    mm = MemoryManager(stores=[personal], delete_tool_config=True)
+
+    with pytest.raises(Exception, match="none of the requested memory stores are available"):
+        await _tool_named(mm, "delete_memory")(memory_id="k1", stores=["nonexistent"])
+    personal.delete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_delete_tool_rejects_an_empty_memory_id():
+    personal = _store("personal", writable=True, can_delete=True)
+    mm = MemoryManager(stores=[personal], delete_tool_config=True)
+
+    with pytest.raises(ValueError, match="requires a memory_id"):
+        await _tool_named(mm, "delete_memory")(memory_id="")
+    personal.delete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_delete_tool_returns_deleted_memory_id():
+    store = _store("notes", writable=True, can_delete=True)
+    mm = MemoryManager(stores=[store], delete_tool_config=True)
+
+    result = await _tool_named(mm, "delete_memory")(memory_id="k1")
+
+    assert result == {"deleted": "k1"}
+
+
+@pytest.mark.asyncio
+async def test_delete_tool_raises_aggregate_with_concrete_reasons_on_failure():
+    failing = _store("failing", writable=True, delete_error=RuntimeError("delete error"))
+    mm = MemoryManager(stores=[failing], delete_tool_config=True)
+
+    with pytest.raises(AggregateMemoryError) as exc_info:
+        await _tool_named(mm, "delete_memory")(memory_id="k1")
+
+    agg = exc_info.value
+    assert "failing" in str(agg)
+    assert len(agg.errors) == 1
+    assert "delete error" in str(agg.errors[0])
 
 
 # --------------------------------------------------------------------------- #

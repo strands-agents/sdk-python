@@ -87,9 +87,7 @@ class TestAdd:
 
     @pytest.mark.asyncio
     async def test_truncates_slug_at_50_chars(self, store, storage):
-        long_content = (
-            "this is a very long sentence that should be truncated when used as a filename slug for storage"
-        )
+        long_content = "this is a very long sentence that should be truncated when used as a filename slug for storage"
         await store.add(long_content)
         scoped = storage.namespace("memory/test-store")
         keys = await scoped.list("")
@@ -226,6 +224,12 @@ class TestSearch:
         assert results[0].metadata["path"] == "deploy-process-uses-blue-green-strategy.md"
 
     @pytest.mark.asyncio
+    async def test_sets_memory_id_to_storage_key(self, store):
+        await self._populate(store)
+        results = await store.search("deploy")
+        assert results[0].memory_id == "deploy-process-uses-blue-green-strategy.md"
+
+    @pytest.mark.asyncio
     async def test_uses_default_max_search_results(self, storage):
         big_store = FileMemoryStore(name="big", storage=storage)
         for index in range(15):
@@ -276,7 +280,6 @@ class TestExtraction:
         store = FileMemoryStore(name="ext-test", storage=storage)
         assert store.extraction is None
 
-
     @pytest.mark.asyncio
     async def test_key_aware_extractor_includes_headings_in_prompt(self, storage):
         store = FileMemoryStore(name="ext-test", storage=storage, extraction=True)
@@ -285,9 +288,7 @@ class TestExtraction:
 
         extractor = store.extraction["extractor"]
 
-        with patch(
-            "strands.vended_memory_stores.file_memory_store.store.ModelExtractor"
-        ) as mock_model_extractor_cls:
+        with patch("strands.vended_memory_stores.file_memory_store.store.ModelExtractor") as mock_model_extractor_cls:
             mock_instance = AsyncMock()
             mock_instance.extract = AsyncMock(return_value=[])
             mock_model_extractor_cls.return_value = mock_instance
@@ -302,3 +303,31 @@ class TestExtraction:
             assert "user preferences" in system_prompt
             assert "project setup" in system_prompt
             assert "Reuse an existing topic heading" in system_prompt
+
+
+class TestDelete:
+    @pytest.mark.asyncio
+    async def test_deletes_entry_by_memory_id(self, store, storage):
+        key = await store.add("User prefers dark mode")
+        scoped = storage.namespace("memory/test-store")
+        assert await scoped.read(key) is not None
+
+        await store.delete(key)
+
+        assert await scoped.read(key) is None
+
+    @pytest.mark.asyncio
+    async def test_delete_removes_entry_from_search_results(self, store):
+        await store.add("User prefers dark mode for all editors")
+        results = await store.search("dark mode")
+        memory_id = results[0].memory_id
+        assert memory_id is not None
+
+        await store.delete(memory_id)
+
+        assert await store.search("dark mode") == []
+
+    @pytest.mark.asyncio
+    async def test_delete_missing_entry_is_a_no_op(self, store):
+        # Deleting a key that never existed must not raise.
+        await store.delete("does-not-exist.md")

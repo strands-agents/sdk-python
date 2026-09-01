@@ -28,11 +28,16 @@ class MemoryEntry:
     Attributes:
         store_name: Name of the store this entry came from, set by
             ``MemoryManager.search``. Stores need not set this themselves.
+        memory_id: Store-native identifier for this entry, set by a store that
+            supports deletion so the entry can later be passed to
+            ``MemoryManager.delete`` / the ``delete_memory`` tool. Opaque to the
+            manager; ``None`` for stores that do not support targeted deletion.
     """
 
     content: str
     store_name: str | None = None
     metadata: Metadata | None = None
+    memory_id: str | None = None
 
 
 class SearchOptions(TypedDict, total=False):
@@ -94,6 +99,19 @@ class MemoryAddOptions(TypedDict, total=False):
     stores: list[str]
 
 
+class MemoryDeleteOptions(TypedDict, total=False):
+    """Options for ``MemoryManager.delete``.
+
+    Attributes:
+        stores: Filter to specific writable, delete-capable stores by name. Omit
+            to target all. A programmatic delete with an empty list matches no
+            store (raises), whereas the ``delete_memory`` tool treats an empty
+            list as "delete from all in-scope stores".
+    """
+
+    stores: list[str]
+
+
 class MemoryToolConfig(TypedDict, total=False):
     """Configuration for customizing a memory tool's name or description."""
 
@@ -115,6 +133,18 @@ class MemoryAddToolConfig(MemoryToolConfig, total=False):
 
     stores: list[str | MemoryStore]
     wait_for_writes: bool
+
+
+class MemoryDeleteToolConfig(MemoryToolConfig, total=False):
+    """Configuration for the ``delete_memory`` tool.
+
+    Attributes:
+        stores: The writable, delete-capable stores the tool may delete from, as
+            store names or :class:`MemoryStore` instances. Omit to allow all such
+            stores.
+    """
+
+    stores: list[str | MemoryStore]
 
 
 @dataclass
@@ -212,6 +242,9 @@ class MemoryManagerConfig(TypedDict, total=False):
         add_tool_config: Add tool configuration. Defaults to ``False`` (opt-in);
             ``True`` allows all writable stores, or pass a
             :class:`MemoryAddToolConfig` to restrict it.
+        delete_tool_config: Delete tool configuration. Defaults to ``False``
+            (opt-in); ``True`` allows all writable, delete-capable stores, or
+            pass a :class:`MemoryDeleteToolConfig` to restrict it.
         injection: Memory context injection. Defaults to ``True``. ``True`` uses the default
             injection settings; pass a :class:`MemoryInjectionConfig` to customize retrieval,
             timing, and formatting; ``False`` disables it.
@@ -220,6 +253,7 @@ class MemoryManagerConfig(TypedDict, total=False):
     stores: Required[list[MemoryStore]]
     search_tool_config: MemoryToolConfig | bool
     add_tool_config: MemoryAddToolConfig | bool
+    delete_tool_config: MemoryDeleteToolConfig | bool
     injection: MemoryInjectionConfig | bool
 
 
@@ -293,6 +327,18 @@ class MemoryStore(Protocol):
         The sink for extraction without a client-side extractor: the manager
         hands the filtered batch straight here. The resolved value is
         store-specific.
+        """
+        ...
+
+    async def delete(self, memory_id: str) -> Any:
+        """Delete a single stored entry, identified by a store-native id.
+
+        The ``memory_id`` is opaque to the manager: it is whatever a store puts
+        in a :class:`MemoryEntry`'s ``memory_id`` to identify an entry (e.g. the
+        storage key a search result was read from). Implementing this opts the
+        store into the ``delete_memory`` tool and ``MemoryManager.delete``.
+        Deleting a missing entry should be a no-op rather than an error. The
+        resolved value is store-specific and not consumed by the manager.
         """
         ...
 
