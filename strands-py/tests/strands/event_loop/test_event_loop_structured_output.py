@@ -480,7 +480,6 @@ async def test_forced_pass_preserves_tools_prefix(mock_agent, agenerator, alist)
 
     Regression test: the forced structured-output retry used to narrow the tools block to the schema
     tool alone, busting the tools -> system -> messages prompt-cache prefix on the retry.
-    https://github.com/strands-agents/harness-sdk/issues/<ISSUE_NUMBER>
     """
     structured_output_context = StructuredOutputContext(structured_output_model=ProductModel)
     structured_output_context.register_tool(mock_agent.tool_registry)

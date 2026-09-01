@@ -81,7 +81,9 @@ def _narrow_tools_for_unsupported_tool_choice(
 ) -> list[ToolSpec] | None:
     """Emulate ``tool_choice`` by narrowing the available tools.
 
-    Providers that cannot forward ``tool_choice`` to their API call this instead. 
+    Providers that cannot forward ``tool_choice`` to their API call this instead. A by-name force
+    is emulated by only advertising that tool to the model. It does not guarantee the model calls 
+    the tool (it may still answer with text), unlike native ``tool_choice`` on providers that support it.
 
     Args:
         tool_choice: The tool choice requested by the caller, or None.
