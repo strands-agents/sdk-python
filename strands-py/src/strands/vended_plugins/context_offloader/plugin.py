@@ -540,12 +540,8 @@ class ContextOffloader(Plugin):
                         references.append((ref, f"image/{img_format}", f"image/{img_format}, {len(img_bytes):,} bytes"))
                         self._track_stored_cycle(event.agent, ref, cycle)
                     else:
-                        # Non-bytes image source (e.g. ``location`` / ``text`` /
-                        # ``content``). The storage backend only accepts byte
-                        # payloads, so nothing can be stored here — synthesize
-                        # nothing and keep the original block in place so the
-                        # downstream model and consumers still see the image
-                        # metadata. See #4017.
+                        # Non-bytes image source: storage only accepts bytes, so
+                        # keep the original block for the model and consumers. See #4017.
                         references.append(None)
                 elif "document" in block:
                     doc = block["document"]
@@ -557,12 +553,9 @@ class ContextOffloader(Plugin):
                         references.append((ref, f"application/{doc_format}", f"{doc_name}, {len(doc_bytes):,} bytes"))
                         self._track_stored_cycle(event.agent, ref, cycle)
                     else:
-                        # Non-bytes document source (e.g. ``location`` / ``text`` /
-                        # ``content``). The storage backend only accepts byte
-                        # payloads, so nothing can be stored here — keep the
-                        # original block in place instead of replacing it with an
-                        # empty ``[document: …, 0 bytes]`` placeholder, which
-                        # silently destroys the document metadata. See #4017.
+                        # Non-bytes document source: storage only accepts bytes, so
+                        # keep the original block — an empty placeholder would
+                        # silently destroy the document metadata. See #4017.
                         references.append(None)
         except Exception:
             logger.warning(
