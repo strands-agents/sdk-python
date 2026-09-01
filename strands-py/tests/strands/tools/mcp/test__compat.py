@@ -722,11 +722,14 @@ def test_is_tools_list_changed_rejects_other_messages():
 @requires_mcp_v2
 def test_installed_v2_line_exposes_the_subscriptions_names():
     """Test that the names the 2.x subscription branch imports exist on the installed line."""
+    from contextlib import AbstractAsyncContextManager
+
     from mcp.client.subscriptions import ListenNotSupportedError, listen
 
-    assert callable(listen)
     assert issubclass(ListenNotSupportedError, Exception)
     assert "tools_list_changed" in inspect.signature(listen).parameters
+    # Creating the context manager defers the body, so no session traffic happens here.
+    assert isinstance(listen(MagicMock(), tools_list_changed=True), AbstractAsyncContextManager)
 
 
 @pytest.mark.asyncio
