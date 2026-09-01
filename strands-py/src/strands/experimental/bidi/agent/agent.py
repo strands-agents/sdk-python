@@ -15,13 +15,15 @@ Key capabilities:
 
 import asyncio
 import logging
+import uuid
 from collections.abc import AsyncGenerator
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from .... import _identifier
 from ...._middleware import MiddlewareRegistry
 from ....agent.state import AgentState
-from ....hooks import HookProvider, HookRegistry
+from ....hooks import HookCallback, HookOrder, HookProvider, HookRegistry
+from ....hooks.registry import TEvent
 from ....interrupt import _InterruptState
 from ....tools._caller import _ToolCaller
 from ....tools.executors import ConcurrentToolExecutor
@@ -29,7 +31,8 @@ from ....tools.executors._executor import ToolExecutor
 from ....tools.registry import ToolRegistry
 from ....tools.tool_provider import ToolProvider
 from ....tools.watcher import ToolWatcher
-from ....types.content import Message, Messages, _ensure_tracking_id
+from ....types.agent import LocalAgent
+from ....types.content import Message, Messages, SystemContentBlock, _ensure_tracking_id, split_system_prompt
 from ....types.tools import AgentTool
 from ...hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
 from .._async import _TaskGroup, stop_all
@@ -54,12 +57,14 @@ _DEFAULT_AGENT_NAME = "Strands Agents"
 _DEFAULT_AGENT_ID = "default"
 
 
-class BidiAgent:
+class BidiAgent(LocalAgent):
     """Agent for bidirectional streaming conversations.
 
     Enables real-time audio and text interaction with AI models through persistent
     connections. Supports concurrent tool execution and interruption handling.
     """
+
+    _is_strands_local_agent: ClassVar[Literal[True]] = True
 
     def __init__(
         self,
@@ -114,7 +119,7 @@ class BidiAgent:
         else:
             raise TypeError("model must be a BidiModel, string, or None")
 
-        self.system_prompt = system_prompt
+        self._system_prompt, self._system_prompt_content = split_system_prompt(system_prompt)
         self.messages = messages or []
 
         # Agent identification
@@ -164,7 +169,10 @@ class BidiAgent:
         # Initialize session management functionality
         self._session_manager = session_manager
         if self._session_manager:
+            self._session_id: str = getattr(self._session_manager, "session_id", None) or uuid.uuid4().hex[:8]
             self.hooks.add_hook(self._session_manager)
+        else:
+            self._session_id = uuid.uuid4().hex[:8]
 
         self._loop = _BidiAgentLoop(self)
 
@@ -208,6 +216,42 @@ class BidiAgent:
         """
         all_tools = self.tool_registry.get_all_tools_config()
         return list(all_tools.keys())
+
+    @property
+    def system_prompt(self) -> str | None:
+        """Get the system prompt as a string."""
+        return self._system_prompt
+
+    @system_prompt.setter
+    def system_prompt(self, value: str | None) -> None:
+        """Set the system prompt and its structured content representation."""
+        self._system_prompt, self._system_prompt_content = split_system_prompt(value)
+
+    @property
+    def system_prompt_content(self) -> list[SystemContentBlock] | None:
+        """Get the system prompt as structured content blocks."""
+        return list(self._system_prompt_content) if self._system_prompt_content is not None else None
+
+    @property
+    def session_id(self) -> str:
+        """Get the conversation session identifier."""
+        return self._session_id
+
+    def add_hook(
+        self,
+        callback: HookCallback[TEvent],
+        event_type: type[TEvent] | list[type[TEvent]] | None = None,
+        *,
+        order: float = HookOrder.DEFAULT,
+    ) -> None:
+        """Register a callback function for one or more event types.
+
+        Args:
+            callback: The callback function to invoke.
+            event_type: The event type or types to handle. If omitted, the type is inferred from the callback.
+            order: Execution priority. Lower values execute first.
+        """
+        self.hooks.add_callback(event_type, callback, order=order)
 
     async def start(self, invocation_state: dict[str, Any] | None = None) -> None:
         """Start a persistent bidirectional conversation connection.
