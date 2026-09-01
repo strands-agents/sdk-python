@@ -25,7 +25,7 @@ from strands.hooks import (
     HookRegistry,
     MessageAddedEvent,
 )
-from strands.interrupt import Interrupt, _InterruptState
+from strands.interrupt import Interrupt, PendingToolExecution, _InterruptState
 from strands.telemetry.metrics import EventLoopMetrics
 from strands.telemetry.tracer import Tracer
 from strands.tools.executors import ConcurrentToolExecutor, SequentialToolExecutor
@@ -1331,8 +1331,10 @@ async def test_event_loop_cycle_interrupts_preserved_when_after_tools_hook_raise
 
     # Interrupt state was preserved before the exception propagated.
     assert agent._interrupt_state.activated
-    assert agent._interrupt_state.context["tool_use_message"] == agent.messages[-1]
-    assert agent._interrupt_state.context["tool_results"] == []
+    assert agent._interrupt_state.pending_tool_execution == PendingToolExecution(
+        assistant_message=agent.messages[-1],
+        completed_tool_results=[],
+    )
 
 
 @pytest.mark.asyncio
@@ -1783,7 +1785,11 @@ async def test_event_loop_cycle_before_tools_interrupts_and_resume_without_model
         "v1:before_tools:fc7d4db5-7c70-583b-86ca-392fc71cadf6",
     ]
     assert execution_events == []
-    assert agent._interrupt_state.context == {"tool_use_message": agent.messages[1], "tool_results": []}
+    assert agent._interrupt_state.context == {}
+    assert agent._interrupt_state.pending_tool_execution == PendingToolExecution(
+        assistant_message=agent.messages[1],
+        completed_tool_results=[],
+    )
     assert model.stream.call_count == 1
 
     agent._interrupt_state.resume(
@@ -1875,9 +1881,10 @@ async def test_event_loop_cycle_interrupt(agent, model, tool_stream, agenerator,
     tru_state = agent._interrupt_state.to_dict()
     exp_state = {
         "activated": True,
-        "context": {
-            "tool_results": [],
-            "tool_use_message": {
+        "context": {},
+        "pending_tool_execution": {
+            "completed_tool_results": [],
+            "assistant_message": {
                 "content": [
                     {
                         "toolUse": {
@@ -1940,7 +1947,10 @@ async def test_event_loop_cycle_interrupt_resume(agent, model, tool, tool_times_
         },
     ]
 
-    agent._interrupt_state.context = {"tool_use_message": tool_use_message, "tool_results": tool_results}
+    agent._interrupt_state.pending_tool_execution = PendingToolExecution(
+        assistant_message=tool_use_message,
+        completed_tool_results=tool_results,
+    )
     agent._interrupt_state.interrupts[interrupt.id] = interrupt
     agent._interrupt_state.activate()
 

@@ -25,7 +25,7 @@ from importlib.metadata import version as pkg_version
 from pathlib import Path
 from re import Pattern
 from types import TracebackType
-from typing import Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 from urllib.parse import urlparse
 
 import anyio
@@ -46,6 +46,7 @@ from mcp.types import (
     ListPromptsResult,
     ListResourcesResult,
     ListResourceTemplatesResult,
+    PaginatedRequestParams,
     ReadResourceResult,
     TextResourceContents,
 )
@@ -61,15 +62,40 @@ from ...types.exceptions import MCPClientInitializationError, ToolProviderExcept
 from ...types.media import ImageFormat
 from ...types.tools import AgentTool, ToolResultContent, ToolResultStatus
 from ..tool_provider import ToolProvider
-from ._compat import MCPError, negotiate_session, streamable_http_transport
+from ._compat import (
+    MCPError,
+    is_error,
+    mime_type,
+    negotiate_session,
+    next_cursor,
+    read_timeout,
+    resource_templates,
+    streamable_http_transport,
+    structured_content,
+    task_support,
+)
 from .mcp_agent_tool import MCPAgentTool
 from .mcp_instrumentation import inject_trace_context, mcp_instrumentation
 from .mcp_tasks import DEFAULT_TASK_CONFIG, DEFAULT_TASK_POLL_TIMEOUT, DEFAULT_TASK_TTL, TasksConfig
 from .mcp_types import MCPClientCredentials, MCPToolResult, MCPTransport
 
+if TYPE_CHECKING:
+    # Only the mcp 1.x line spells this name; the runtime import stays inside
+    # the tasks-enabled branch of __init__.
+    from mcp.types import TaskExecutionMode
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+
+def _pagination_params(pagination_token: str | None) -> PaginatedRequestParams | None:
+    """Build the params object for a paginated list_* request.
+
+    The session list methods' `cursor` keyword is deprecated on the mcp 1.x
+    line and removed on 2.x; `params` is the form both lines accept.
+    """
+    return PaginatedRequestParams(cursor=pagination_token) if pagination_token is not None else None
 
 
 class _MCPCallCancelledError(RuntimeError):
@@ -620,7 +646,9 @@ class MCPClient(ToolProvider):
         effective_filters = self._tool_filters if tool_filters is None else tool_filters
 
         async def _list_tools_async() -> ListToolsResult:
-            return await cast(ClientSession, self._background_thread_session).list_tools(cursor=pagination_token)
+            return await cast(ClientSession, self._background_thread_session).list_tools(
+                params=_pagination_params(pagination_token)
+            )
 
         list_tools_response: ListToolsResult = self._invoke_on_background_thread(_list_tools_async()).result()
         self._log_debug_with_thread("received %d tools from MCP server", len(list_tools_response.tools))
@@ -629,10 +657,7 @@ class MCPClient(ToolProvider):
         for tool in list_tools_response.tools:
             if self._is_tasks_enabled():
                 # Cache taskSupport for task-augmented execution decisions
-                task_support = None
-                if tool.execution is not None and tool.execution.taskSupport is not None:
-                    task_support = tool.execution.taskSupport
-                self._tool_task_support_cache[tool.name] = task_support or "forbidden"
+                self._tool_task_support_cache[tool.name] = cast("TaskExecutionMode", task_support(tool) or "forbidden")
 
             # Apply prefix if specified
             if effective_prefix:
@@ -647,7 +672,7 @@ class MCPClient(ToolProvider):
                 mcp_tools.append(mcp_tool)
 
         self._log_debug_with_thread("successfully adapted %d MCP tools", len(mcp_tools))
-        return PaginatedList[MCPAgentTool](mcp_tools, token=list_tools_response.nextCursor)
+        return PaginatedList[MCPAgentTool](mcp_tools, token=next_cursor(list_tools_response))
 
     def list_prompts_sync(self, pagination_token: str | None = None) -> ListPromptsResult:
         """Synchronously retrieves the list of available prompts from the MCP server.
@@ -666,7 +691,9 @@ class MCPClient(ToolProvider):
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         async def _list_prompts_async() -> ListPromptsResult:
-            return await cast(ClientSession, self._background_thread_session).list_prompts(cursor=pagination_token)
+            return await cast(ClientSession, self._background_thread_session).list_prompts(
+                params=_pagination_params(pagination_token)
+            )
 
         list_prompts_result: ListPromptsResult = self._invoke_on_background_thread(_list_prompts_async()).result()
         self._log_debug_with_thread("received %d prompts from MCP server", len(list_prompts_result.prompts))
@@ -714,7 +741,9 @@ class MCPClient(ToolProvider):
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         async def _list_resources_async() -> ListResourcesResult:
-            return await cast(ClientSession, self._background_thread_session).list_resources(cursor=pagination_token)
+            return await cast(ClientSession, self._background_thread_session).list_resources(
+                params=_pagination_params(pagination_token)
+            )
 
         list_resources_result: ListResourcesResult = self._invoke_on_background_thread(_list_resources_async()).result()
         self._log_debug_with_thread("received %d resources from MCP server", len(list_resources_result.resources))
@@ -761,14 +790,14 @@ class MCPClient(ToolProvider):
 
         async def _list_resource_templates_async() -> ListResourceTemplatesResult:
             return await cast(ClientSession, self._background_thread_session).list_resource_templates(
-                cursor=pagination_token
+                params=_pagination_params(pagination_token)
             )
 
         list_resource_templates_result: ListResourceTemplatesResult = self._invoke_on_background_thread(
             _list_resource_templates_async()
         ).result()
         self._log_debug_with_thread(
-            "received %d resource templates from MCP server", len(list_resource_templates_result.resourceTemplates)
+            "received %d resource templates from MCP server", len(resource_templates(list_resource_templates_result))
         )
 
         return list_resource_templates_result
@@ -849,7 +878,11 @@ class MCPClient(ToolProvider):
                     if isinstance(request_id, int):
                         cancellation_state["request_id"] = request_id
                 return await session.call_tool(
-                    name, arguments, read_timeout_seconds, progress_callback=effective_callback, meta=meta
+                    name,
+                    arguments,
+                    read_timeout(read_timeout_seconds),
+                    progress_callback=effective_callback,
+                    meta=meta,
                 )
 
             return _call_tool_direct()
@@ -1032,7 +1065,8 @@ class MCPClient(ToolProvider):
             if (mc := self.map_mcp_content_to_tool_result_content(content)) is not None
         ]
 
-        status: ToolResultStatus = "error" if call_tool_result.isError else "success"
+        tool_error = is_error(call_tool_result)
+        status: ToolResultStatus = "error" if tool_error else "success"
         self._log_debug_with_thread("tool execution completed with status: %s", status)
         result = MCPToolResult(
             status=status,
@@ -1040,12 +1074,13 @@ class MCPClient(ToolProvider):
             content=mapped_contents,
         )
 
-        if call_tool_result.structuredContent:
-            result["structuredContent"] = call_tool_result.structuredContent
+        structured_payload = structured_content(call_tool_result)
+        if structured_payload:
+            result["structuredContent"] = structured_payload
         if call_tool_result.meta:
             result["metadata"] = call_tool_result.meta
-        if call_tool_result.isError is not None:
-            result["isError"] = call_tool_result.isError
+        if tool_error is not None:
+            result["isError"] = tool_error
 
         return result
 
@@ -1172,10 +1207,11 @@ class MCPClient(ToolProvider):
             self._log_debug_with_thread("mapping MCP text content")
             return {"text": content.text}
         elif isinstance(content, MCPImageContent):
-            self._log_debug_with_thread("mapping MCP image content with mime type: %s", content.mimeType)
+            image_mime = cast(str, mime_type(content))
+            self._log_debug_with_thread("mapping MCP image content with mime type: %s", image_mime)
             return {
                 "image": {
-                    "format": MIME_TO_FORMAT[content.mimeType],
+                    "format": MIME_TO_FORMAT[image_mime],
                     "source": {"bytes": base64.b64decode(content.data)},
                 }
             }
@@ -1202,9 +1238,10 @@ class MCPClient(ToolProvider):
                     self._log_debug_with_thread("embedded resource blob could not be decoded - dropping")
                     return None
 
-                if resource.mimeType and (
-                    resource.mimeType.startswith("text/")
-                    or resource.mimeType
+                resource_mime = mime_type(resource)
+                if resource_mime and (
+                    resource_mime.startswith("text/")
+                    or resource_mime
                     in (
                         "application/json",
                         "application/xml",
@@ -1212,17 +1249,17 @@ class MCPClient(ToolProvider):
                         "application/yaml",
                         "application/x-yaml",
                     )
-                    or resource.mimeType.endswith(("+json", "+xml"))
+                    or resource_mime.endswith(("+json", "+xml"))
                 ):
                     try:
                         return {"text": raw_bytes.decode("utf-8", errors="replace")}
                     except Exception:
                         pass
 
-                if resource.mimeType in MIME_TO_FORMAT:
+                if resource_mime in MIME_TO_FORMAT:
                     return {
                         "image": {
-                            "format": MIME_TO_FORMAT[resource.mimeType],
+                            "format": MIME_TO_FORMAT[resource_mime],
                             "source": {"bytes": raw_bytes},
                         }
                     }

@@ -9,10 +9,12 @@ the `MCP_V2` flag forced.
 """
 
 import importlib
+import inspect
 import sys
 from collections.abc import Callable
 from contextlib import asynccontextmanager
-from types import ModuleType
+from datetime import timedelta
+from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import mcp.client.streamable_http as streamable_http_module
@@ -45,6 +47,213 @@ def test_installed_line_exposes_expected_transport_names():
         assert hasattr(streamable_http_module, "streamablehttp_client")
 
 
+def test_installed_line_list_methods_accept_params():
+    """Test that the session list_* methods accept the `params` keyword on the installed line.
+
+    `MCPClient` passes pagination as `params` only: the `cursor` keyword is
+    deprecated on 1.x and removed on 2.x, while `params` exists on both lines
+    (added in 1.23.0, the dependency floor).
+    """
+    from mcp import ClientSession
+
+    for method_name in ("list_tools", "list_prompts", "list_resources", "list_resource_templates"):
+        method_parameters = inspect.signature(getattr(ClientSession, method_name)).parameters
+        assert "params" in method_parameters, method_name
+
+
+def test_installed_line_spells_the_accessor_read_fields_as_expected():
+    """Test that every model field a `_compat` accessor reads exists on the installed line's models."""
+    from mcp.types import (
+        BlobResourceContents,
+        CallToolResult,
+        ImageContent,
+        ListResourceTemplatesResult,
+        ListToolsResult,
+        Tool,
+        ToolExecution,
+    )
+
+    if _compat.MCP_V2:
+        assert "next_cursor" in ListToolsResult.model_fields
+        assert "resource_templates" in ListResourceTemplatesResult.model_fields
+        assert "task_support" in ToolExecution.model_fields
+        assert "is_error" in CallToolResult.model_fields
+        assert "structured_content" in CallToolResult.model_fields
+        assert "input_schema" in Tool.model_fields
+        assert "output_schema" in Tool.model_fields
+        assert "mime_type" in ImageContent.model_fields
+        assert "mime_type" in BlobResourceContents.model_fields
+    else:
+        assert "nextCursor" in ListToolsResult.model_fields
+        assert "resourceTemplates" in ListResourceTemplatesResult.model_fields
+        assert "taskSupport" in ToolExecution.model_fields
+        assert "isError" in CallToolResult.model_fields
+        assert "structuredContent" in CallToolResult.model_fields
+        assert "inputSchema" in Tool.model_fields
+        assert "outputSchema" in Tool.model_fields
+        assert "mimeType" in ImageContent.model_fields
+        assert "mimeType" in BlobResourceContents.model_fields
+
+
+def test_installed_line_call_tool_takes_the_arguments_mcp_client_passes():
+    """Test that the session `call_tool` takes what `MCPClient` passes on the installed line.
+
+    `MCPClient` passes the first three arguments positionally and the timeout
+    type differs between the lines, so position, kind, and annotation are
+    pinned along with the `read_timeout` conversion that must match it.
+    """
+    from mcp import ClientSession
+
+    call_tool_parameters = inspect.signature(ClientSession.call_tool).parameters
+    for parameter_name in ("progress_callback", "meta"):
+        assert parameter_name in call_tool_parameters, parameter_name
+
+    positional = list(call_tool_parameters.values())[1:4]
+    assert [parameter.name for parameter in positional] == ["name", "arguments", "read_timeout_seconds"]
+    assert all(parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD for parameter in positional)
+
+    expected_timeout_type = float if _compat.MCP_V2 else timedelta
+    assert expected_timeout_type.__name__ in str(positional[2].annotation)
+    assert isinstance(_compat.read_timeout(timedelta(seconds=30)), expected_timeout_type)
+
+
+def test_next_cursor_v1_reads_the_camel_case_field(monkeypatch):
+    """Test that the 1.x branch reads the result's `nextCursor` field."""
+    monkeypatch.setattr(_compat, "MCP_V2", False)
+
+    assert _compat.next_cursor(SimpleNamespace(nextCursor="page-2")) == "page-2"
+
+
+def test_next_cursor_v2_reads_the_snake_case_field(monkeypatch):
+    """Test that the 2.x branch reads the result's `next_cursor` field."""
+    monkeypatch.setattr(_compat, "MCP_V2", True)
+
+    assert _compat.next_cursor(SimpleNamespace(next_cursor="page-2")) == "page-2"
+
+
+def test_resource_templates_v1_reads_the_camel_case_field(monkeypatch):
+    """Test that the 1.x branch reads the result's `resourceTemplates` field."""
+    monkeypatch.setattr(_compat, "MCP_V2", False)
+
+    assert _compat.resource_templates(SimpleNamespace(resourceTemplates=["template"])) == ["template"]
+
+
+def test_resource_templates_v2_reads_the_snake_case_field(monkeypatch):
+    """Test that the 2.x branch reads the result's `resource_templates` field."""
+    monkeypatch.setattr(_compat, "MCP_V2", True)
+
+    assert _compat.resource_templates(SimpleNamespace(resource_templates=["template"])) == ["template"]
+
+
+def test_task_support_v1_reads_the_camel_case_field(monkeypatch):
+    """Test that the 1.x branch reads the tool's `execution.taskSupport` field."""
+    monkeypatch.setattr(_compat, "MCP_V2", False)
+
+    assert _compat.task_support(SimpleNamespace(execution=SimpleNamespace(taskSupport="optional"))) == "optional"
+
+
+def test_task_support_v2_reads_the_snake_case_field(monkeypatch):
+    """Test that the 2.x branch reads the tool's `execution.task_support` field."""
+    monkeypatch.setattr(_compat, "MCP_V2", True)
+
+    assert _compat.task_support(SimpleNamespace(execution=SimpleNamespace(task_support="optional"))) == "optional"
+
+
+def test_task_support_returns_none_for_a_tool_without_execution():
+    """Test that a tool with no execution block declares no task support level."""
+    assert _compat.task_support(SimpleNamespace(execution=None)) is None
+
+
+def test_is_error_v1_reads_the_camel_case_field(monkeypatch):
+    """Test that the 1.x branch reads the result's `isError` field."""
+    monkeypatch.setattr(_compat, "MCP_V2", False)
+
+    assert _compat.is_error(SimpleNamespace(isError=True)) is True
+
+
+def test_is_error_v2_reads_the_snake_case_field(monkeypatch):
+    """Test that the 2.x branch reads the result's `is_error` field."""
+    monkeypatch.setattr(_compat, "MCP_V2", True)
+
+    assert _compat.is_error(SimpleNamespace(is_error=True)) is True
+
+
+def test_structured_content_v1_reads_the_camel_case_field(monkeypatch):
+    """Test that the 1.x branch reads the result's `structuredContent` field."""
+    monkeypatch.setattr(_compat, "MCP_V2", False)
+
+    assert _compat.structured_content(SimpleNamespace(structuredContent={"answer": 42})) == {"answer": 42}
+
+
+def test_structured_content_v2_reads_the_snake_case_field(monkeypatch):
+    """Test that the 2.x branch reads the result's `structured_content` field."""
+    monkeypatch.setattr(_compat, "MCP_V2", True)
+
+    assert _compat.structured_content(SimpleNamespace(structured_content={"answer": 42})) == {"answer": 42}
+
+
+def test_mime_type_v1_reads_the_camel_case_field(monkeypatch):
+    """Test that the 1.x branch reads the content's `mimeType` field."""
+    monkeypatch.setattr(_compat, "MCP_V2", False)
+
+    assert _compat.mime_type(SimpleNamespace(mimeType="image/png")) == "image/png"
+
+
+def test_mime_type_v2_reads_the_snake_case_field(monkeypatch):
+    """Test that the 2.x branch reads the content's `mime_type` field."""
+    monkeypatch.setattr(_compat, "MCP_V2", True)
+
+    assert _compat.mime_type(SimpleNamespace(mime_type="image/png")) == "image/png"
+
+
+def test_input_schema_v1_reads_the_camel_case_field(monkeypatch):
+    """Test that the 1.x branch reads the tool's `inputSchema` field."""
+    monkeypatch.setattr(_compat, "MCP_V2", False)
+
+    assert _compat.input_schema(SimpleNamespace(inputSchema={"type": "object"})) == {"type": "object"}
+
+
+def test_input_schema_v2_reads_the_snake_case_field(monkeypatch):
+    """Test that the 2.x branch reads the tool's `input_schema` field."""
+    monkeypatch.setattr(_compat, "MCP_V2", True)
+
+    assert _compat.input_schema(SimpleNamespace(input_schema={"type": "object"})) == {"type": "object"}
+
+
+def test_output_schema_v1_reads_the_camel_case_field(monkeypatch):
+    """Test that the 1.x branch reads the tool's `outputSchema` field."""
+    monkeypatch.setattr(_compat, "MCP_V2", False)
+
+    assert _compat.output_schema(SimpleNamespace(outputSchema={"type": "object"})) == {"type": "object"}
+
+
+def test_output_schema_v2_reads_the_snake_case_field(monkeypatch):
+    """Test that the 2.x branch reads the tool's `output_schema` field."""
+    monkeypatch.setattr(_compat, "MCP_V2", True)
+
+    assert _compat.output_schema(SimpleNamespace(output_schema={"type": "object"})) == {"type": "object"}
+
+
+def test_read_timeout_v1_passes_the_timedelta_through(monkeypatch):
+    """Test that the 1.x branch keeps the timeout as the `timedelta` the session takes."""
+    monkeypatch.setattr(_compat, "MCP_V2", False)
+    timeout = timedelta(seconds=30)
+
+    assert _compat.read_timeout(timeout) is timeout
+
+
+def test_read_timeout_v2_converts_to_seconds(monkeypatch):
+    """Test that the 2.x branch converts the timeout to the float of seconds the session takes."""
+    monkeypatch.setattr(_compat, "MCP_V2", True)
+
+    assert _compat.read_timeout(timedelta(seconds=30)) == 30.0
+
+
+def test_read_timeout_passes_none_through():
+    """Test that an absent timeout stays absent on either line."""
+    assert _compat.read_timeout(None) is None
+
+
 def test_mcp_error_resolves_to_installed_exception():
     """Test that MCPError is the mcp package's error type regardless of its spelling."""
     import mcp.shared.exceptions as mcp_exceptions
@@ -75,6 +284,15 @@ def test_installed_v2_line_exposes_negotiate_auto():
     from mcp.client.client import negotiate_auto
 
     assert callable(negotiate_auto)
+
+
+@requires_mcp_v2
+def test_installed_v2_session_exposes_negotiation_attributes():
+    """Test that the session attributes the 2.x negotiation branch reads exist on the real ClientSession."""
+    from mcp import ClientSession
+
+    assert hasattr(ClientSession, "instructions")
+    assert hasattr(ClientSession, "server_capabilities")
 
 
 @pytest.mark.asyncio

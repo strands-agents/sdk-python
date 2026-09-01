@@ -12,6 +12,7 @@ from mcp.types import (
     ListPromptsResult,
     ListResourcesResult,
     ListResourceTemplatesResult,
+    PaginatedRequestParams,
     Prompt,
     PromptMessage,
     ReadResourceResult,
@@ -19,6 +20,7 @@ from mcp.types import (
     ResourceTemplate,
     TextResourceContents,
 )
+from mcp.types import ImageContent as MCPImageContent
 from mcp.types import TextContent as MCPTextContent
 from mcp.types import Tool as MCPTool
 from pydantic import AnyUrl
@@ -76,7 +78,7 @@ def test_list_tools_sync(mock_transport, mock_session):
     with MCPClient(mock_transport["transport_callable"]) as client:
         tools = client.list_tools_sync()
 
-        mock_session.list_tools.assert_called_once_with(cursor=None)
+        mock_session.list_tools.assert_called_once_with(params=None)
 
         assert len(tools) == 1
         assert tools[0].tool_name == "test_tool"
@@ -99,7 +101,7 @@ def test_list_tools_sync_with_pagination_token(mock_transport, mock_session):
     with MCPClient(mock_transport["transport_callable"]) as client:
         tools = client.list_tools_sync(pagination_token="current_page_token")
 
-        mock_session.list_tools.assert_called_once_with(cursor="current_page_token")
+        mock_session.list_tools.assert_called_once_with(params=PaginatedRequestParams(cursor="current_page_token"))
         assert len(tools) == 1
         assert tools[0].tool_name == "test_tool"
         assert tools.pagination_token == "next_page_token"
@@ -113,7 +115,7 @@ def test_list_tools_sync_without_pagination_token(mock_transport, mock_session):
     with MCPClient(mock_transport["transport_callable"]) as client:
         tools = client.list_tools_sync()
 
-        mock_session.list_tools.assert_called_once_with(cursor=None)
+        mock_session.list_tools.assert_called_once_with(params=None)
         assert len(tools) == 1
         assert tools[0].tool_name == "test_tool"
         assert tools.pagination_token is None
@@ -140,6 +142,23 @@ def test_call_tool_sync_status(mock_transport, mock_session, is_error, expected_
         assert result.get("structuredContent") is None
         # isError mirrors the MCP server's explicit value; absent only for protocol/client exceptions
         assert result.get("isError") is is_error
+
+
+def test_call_tool_sync_without_error_flag(mock_transport, mock_session):
+    """A result whose error flag is unset maps to success without an isError key.
+
+    mcp 2.x models the flag as `bool | None` defaulting to None; the 1.x model
+    validates it to a bool, so the unset shape is built with `model_construct`.
+    """
+    mock_content = MCPTextContent(type="text", text="Test message")
+    mock_session.call_tool.return_value = MCPCallToolResult.model_construct(isError=None, content=[mock_content])
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
+
+        assert result["status"] == "success"
+        assert result["content"][0]["text"] == "Test message"
+        assert "isError" not in result
 
 
 def test_call_tool_sync_session_not_active():
@@ -868,7 +887,7 @@ def test_list_prompts_sync(mock_transport, mock_session):
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.list_prompts_sync()
 
-        mock_session.list_prompts.assert_called_once_with(cursor=None)
+        mock_session.list_prompts.assert_called_once_with(params=None)
         assert len(result.prompts) == 1
         assert result.prompts[0].name == "test_prompt"
         assert result.nextCursor is None
@@ -882,7 +901,7 @@ def test_list_prompts_sync_with_pagination_token(mock_transport, mock_session):
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.list_prompts_sync(pagination_token="current_page_token")
 
-        mock_session.list_prompts.assert_called_once_with(cursor="current_page_token")
+        mock_session.list_prompts.assert_called_once_with(params=PaginatedRequestParams(cursor="current_page_token"))
         assert len(result.prompts) == 1
         assert result.prompts[0].name == "test_prompt"
         assert result.nextCursor == "next_page_token"
@@ -1041,6 +1060,23 @@ def test_mcp_client_state_reset_after_timeout():
     assert client._background_thread_session is None
     assert client._background_thread_event_loop is None
     assert not client._init_future.done()  # New future created
+
+
+def test_call_tool_sync_image_content(mock_transport, mock_session):
+    """A top-level ImageContent block should map to image content with decoded bytes."""
+    with open("tests_integ/resources/yellow.png", "rb") as image_file:
+        png_data = image_file.read()
+
+    image_content = MCPImageContent(type="image", data=base64.b64encode(png_data).decode(), mimeType="image/png")
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[image_content])
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="img-1", name="get_image", arguments={})
+
+        assert result["status"] == "success"
+        assert len(result["content"]) == 1
+        assert result["content"][0]["image"]["format"] == "png"
+        assert result["content"][0]["image"]["source"]["bytes"] == png_data
 
 
 def test_call_tool_sync_embedded_nested_text(mock_transport, mock_session):
@@ -1261,7 +1297,7 @@ def test_list_resources_sync(mock_transport, mock_session):
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.list_resources_sync()
 
-        mock_session.list_resources.assert_called_once_with(cursor=None)
+        mock_session.list_resources.assert_called_once_with(params=None)
         assert len(result.resources) == 1
         assert result.resources[0].name == "test.txt"
         assert str(result.resources[0].uri) == "file://documents/test.txt"
@@ -1278,7 +1314,7 @@ def test_list_resources_sync_with_pagination_token(mock_transport, mock_session)
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.list_resources_sync(pagination_token="current_page")
 
-        mock_session.list_resources.assert_called_once_with(cursor="current_page")
+        mock_session.list_resources.assert_called_once_with(params=PaginatedRequestParams(cursor="current_page"))
         assert len(result.resources) == 1
         assert result.resources[0].name == "test.txt"
         assert result.nextCursor == "next_page"
@@ -1352,7 +1388,7 @@ def test_list_resource_templates_sync(mock_transport, mock_session):
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.list_resource_templates_sync()
 
-        mock_session.list_resource_templates.assert_called_once_with(cursor=None)
+        mock_session.list_resource_templates.assert_called_once_with(params=None)
         assert len(result.resourceTemplates) == 1
         assert result.resourceTemplates[0].name == "document_template"
         assert result.resourceTemplates[0].uriTemplate == "file://documents/{name}"
@@ -1374,7 +1410,9 @@ def test_list_resource_templates_sync_with_pagination_token(mock_transport, mock
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.list_resource_templates_sync(pagination_token="current_page")
 
-        mock_session.list_resource_templates.assert_called_once_with(cursor="current_page")
+        mock_session.list_resource_templates.assert_called_once_with(
+            params=PaginatedRequestParams(cursor="current_page")
+        )
         assert len(result.resourceTemplates) == 1
         assert result.resourceTemplates[0].name == "document_template"
         assert result.nextCursor == "next_page"
