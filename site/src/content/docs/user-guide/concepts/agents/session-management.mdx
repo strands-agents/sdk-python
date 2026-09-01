@@ -242,6 +242,27 @@ Repository-based session managers are available in the Python SDK only.
 message records and agent metadata. Use them for existing repository-format sessions,
 Graph, Swarm, or bidirectional streaming.
 
+`SnapshotSessionManager` remains the recommended option for new single-agent sessions.
+Use the repository-based managers when you need one of the compatibility cases above:
+
+```python
+from strands import Agent
+from strands.session import FileSessionManager, S3SessionManager
+
+file_session_manager = FileSessionManager(
+    session_id="file-session",
+    storage_dir="./sessions/",
+)
+file_agent = Agent(session_manager=file_session_manager)
+
+s3_session_manager = S3SessionManager(
+    session_id="s3-session",
+    bucket="my-agent-sessions",
+    prefix="production/",
+)
+s3_agent = Agent(session_manager=s3_session_manager)
+```
+
 - **Agent Initialization**: Restores stored messages, agent state, conversation manager
   state, interrupt state, and model state.
 - **Message Addition**: Appends the message record and synchronizes changed agent state.
