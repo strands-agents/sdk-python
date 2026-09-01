@@ -819,7 +819,8 @@ class MCPClient(ToolProvider):
         Args:
             name: Name of the tool to call.
             arguments: Optional arguments to pass to the tool.
-            read_timeout_seconds: Optional timeout for the tool call.
+            read_timeout_seconds: Optional timeout for the tool call. On the mcp 2.x line, the timeout
+                bounds each request round of a multi round-trip tool call rather than the call as a whole.
             meta: Optional metadata to pass to the tool call per MCP spec (_meta).
             progress_callback: Optional callback to receive progress notifications.
                 If None, falls back to the instance-level callback set at construction time.
@@ -909,7 +910,8 @@ class MCPClient(ToolProvider):
             tool_use_id: Unique identifier for this tool use
             name: Name of the tool to call
             arguments: Optional arguments to pass to the tool
-            read_timeout_seconds: Optional timeout for the tool call
+            read_timeout_seconds: Optional timeout for the tool call. On the mcp 2.x line, the timeout
+                bounds each request round of a multi round-trip tool call rather than the call as a whole.
             meta: Optional metadata to pass to the tool call per MCP spec (_meta)
             progress_callback: Optional callback to receive progress notifications for this
                 call. Overrides the instance-level callback set at construction time.
@@ -966,7 +968,8 @@ class MCPClient(ToolProvider):
             tool_use_id: Unique identifier for this tool use
             name: Name of the tool to call
             arguments: Optional arguments to pass to the tool
-            read_timeout_seconds: Optional timeout for the tool call
+            read_timeout_seconds: Optional timeout for the tool call. On the mcp 2.x line, the timeout
+                bounds each request round of a multi round-trip tool call rather than the call as a whole.
             meta: Optional metadata to pass to the tool call per MCP spec (_meta)
             progress_callback: Optional callback to receive progress notifications for this
                 call. Overrides the instance-level callback set at construction time.

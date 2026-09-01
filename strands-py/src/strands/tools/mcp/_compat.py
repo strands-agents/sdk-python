@@ -84,7 +84,10 @@ async def call_tool(
     The retry loop is `mcp.client._input_required.run_input_required_driver`,
     which the 2.x line's own high-level client uses but does not re-export
     from a public module, so the forced-2.x CI job is what catches a
-    relocation.
+    relocation. It is used over the alternatives deliberately: the public
+    `mcp.client.Client` owns connection lifecycle that `MCPClient` manages
+    itself, and a hand-written loop would duplicate the driver's concurrent
+    dispatch, state-only backoff, and round-cap semantics.
 
     Args:
         session: An active, negotiated `ClientSession`.

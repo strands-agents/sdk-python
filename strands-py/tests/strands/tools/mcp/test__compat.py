@@ -298,13 +298,23 @@ async def test_call_tool_v2_returns_a_terminal_result_without_retrying():
     terminal_result = CallToolResult(content=[TextContent(type="text", text="done")])
     session = MagicMock()
     session.call_tool = AsyncMock(return_value=terminal_result)
+    progress_callback = MagicMock()
 
-    result = await _compat.call_tool(session, "echo", {"to_echo": "x"}, timedelta(seconds=30), None, None)
+    result = await _compat.call_tool(
+        session, "echo", {"to_echo": "x"}, timedelta(seconds=30), progress_callback, {"trace": "id"}
+    )
 
     assert result is terminal_result
-    session.call_tool.assert_awaited_once()
-    assert session.call_tool.await_args.args[2] == 30.0
-    assert session.call_tool.await_args.kwargs["allow_input_required"] is True
+    session.call_tool.assert_awaited_once_with(
+        "echo",
+        {"to_echo": "x"},
+        30.0,
+        progress_callback=progress_callback,
+        meta={"trace": "id"},
+        input_responses=None,
+        request_state=None,
+        allow_input_required=True,
+    )
 
 
 @requires_mcp_v2
@@ -386,6 +396,52 @@ async def test_call_tool_v2_retries_without_request_state_when_the_server_sent_n
     assert result is terminal_result
     retry_kwargs = session.call_tool.await_args_list[1].kwargs
     assert retry_kwargs["request_state"] is None
+
+
+@requires_mcp_v2
+@pytest.mark.asyncio
+async def test_call_tool_v2_dispatches_each_request_under_its_own_key():
+    """Test that each embedded request dispatches with its server key and its own `_meta`, if any."""
+    from mcp.types import (
+        CallToolResult,
+        ElicitRequest,
+        ElicitRequestFormParams,
+        ElicitResult,
+        InputRequiredResult,
+        ListRootsRequest,
+        ListRootsResult,
+        TextContent,
+    )
+
+    elicit_request = ElicitRequest(
+        method="elicitation/create",
+        params=ElicitRequestFormParams(
+            mode="form",
+            message="need a value",
+            requested_schema={"type": "object", "properties": {}},
+            _meta={"traceparent": "tp"},
+        ),
+    )
+    roots_request = ListRootsRequest(method="roots/list")
+    input_required = InputRequiredResult(input_requests={"q1": elicit_request, "r1": roots_request})
+    terminal_result = CallToolResult(content=[TextContent(type="text", text="done")])
+    session = MagicMock()
+    session.call_tool = AsyncMock(side_effect=[input_required, terminal_result])
+    session.dispatch_input_request = AsyncMock(
+        side_effect=lambda context, request: (
+            ElicitResult(action="accept", content={"value": "x"})
+            if isinstance(request, ElicitRequest)
+            else ListRootsResult(roots=[])
+        )
+    )
+
+    result = await _compat.call_tool(session, "ask", None, None, None, None)
+
+    assert result is terminal_result
+    dispatched = {call.args[0].request_id: call.args[0] for call in session.dispatch_input_request.await_args_list}
+    assert dispatched.keys() == {"q1", "r1"}
+    assert dispatched["q1"].meta == {"traceparent": "tp"}
+    assert dispatched["r1"].meta is None
 
 
 def test_mcp_error_resolves_to_installed_exception():
