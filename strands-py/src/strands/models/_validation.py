@@ -4,12 +4,12 @@ import dataclasses
 import re
 import warnings
 from collections.abc import Collection, Mapping
-from typing import Any
+from typing import Any, cast
 
 from typing_extensions import get_type_hints
 
 from ..types.content import ContentBlock
-from ..types.tools import ToolChoice
+from ..types.tools import ToolChoice, ToolChoiceToolDict, ToolSpec
 from .model import CacheConfig
 
 # Matches AWS region identifiers such as us-east-1, ap-southeast-1, and us-gov-east-1.
@@ -73,6 +73,31 @@ def warn_on_tool_choice_not_supported(tool_choice: ToolChoice | None) -> None:
             "A ToolChoice was provided to this provider but is not supported and will be ignored",
             stacklevel=4,
         )
+
+
+def _narrow_tools_for_unsupported_tool_choice(
+    tool_choice: ToolChoice | None,
+    tool_specs: list[ToolSpec] | None,
+) -> list[ToolSpec] | None:
+    """Emulate ``tool_choice`` by narrowing the available tools.
+
+    Providers that cannot forward ``tool_choice`` to their API call this instead. 
+
+    Args:
+        tool_choice: The tool choice requested by the caller, or None.
+        tool_specs: The tools the caller intends to advertise.
+
+    Returns:
+        ``tool_specs`` narrowed to the forced tool when a by-name force can be emulated, otherwise
+        ``tool_specs`` unchanged.
+    """
+    if tool_choice and "tool" in tool_choice:
+        forced_name = cast(ToolChoiceToolDict, tool_choice)["tool"]["name"]
+        narrowed = [tool_spec for tool_spec in tool_specs or [] if tool_spec["name"] == forced_name]
+        if narrowed:
+            return narrowed
+    warn_on_tool_choice_not_supported(tool_choice)
+    return tool_specs
 
 
 def _cache_config_fields_set(cache_config: CacheConfig) -> set[str]:

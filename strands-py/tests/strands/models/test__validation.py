@@ -2,7 +2,11 @@
 
 import pytest
 
-from strands.models._validation import _has_location_source, validate_region
+from strands.models._validation import (
+    _has_location_source,
+    _narrow_tools_for_unsupported_tool_choice,
+    validate_region,
+)
 
 
 class TestValidateRegion:
@@ -101,3 +105,42 @@ class TestHasLocationSource:
         """Test that video without source is not detected as location."""
         content = {"video": {"format": "mp4"}}
         assert not _has_location_source(content)
+
+
+class TestNarrowToolsForUnsupportedToolChoice:
+    """Tests for _narrow_tools_for_unsupported_tool_choice, used by providers that drop tool_choice."""
+
+    TOOL_SPECS = [
+        {"name": "get_weather", "description": "d", "inputSchema": {"json": {}}},
+        {"name": "SampleModel", "description": "d", "inputSchema": {"json": {}}},
+    ]
+
+    def test_by_name_force_narrows_to_the_named_tool_without_warning(self, captured_warnings):
+        """A by-name force is emulated by keeping only the named tool, and does not warn."""
+        tru_tools = _narrow_tools_for_unsupported_tool_choice({"tool": {"name": "SampleModel"}}, self.TOOL_SPECS)
+        exp_tools = [{"name": "SampleModel", "description": "d", "inputSchema": {"json": {}}}]
+
+        assert tru_tools == exp_tools
+        assert captured_warnings == []
+
+    def test_any_choice_warns_and_leaves_tools_unchanged(self, captured_warnings):
+        """A choice that cannot be emulated (any/auto) still warns and passes the tools through."""
+        tru_tools = _narrow_tools_for_unsupported_tool_choice({"any": {}}, self.TOOL_SPECS)
+
+        assert tru_tools == self.TOOL_SPECS
+        assert len(captured_warnings) == 1
+        assert "ToolChoice was provided to this provider but is not supported" in str(captured_warnings[0].message)
+
+    def test_no_choice_is_a_noop_without_warning(self, captured_warnings):
+        """No tool_choice leaves the tools untouched and does not warn."""
+        tru_tools = _narrow_tools_for_unsupported_tool_choice(None, self.TOOL_SPECS)
+
+        assert tru_tools == self.TOOL_SPECS
+        assert captured_warnings == []
+
+    def test_by_name_force_for_absent_tool_warns_and_leaves_tools_unchanged(self, captured_warnings):
+        """A by-name force for a tool that is not advertised cannot be emulated, so it warns."""
+        tru_tools = _narrow_tools_for_unsupported_tool_choice({"tool": {"name": "missing"}}, self.TOOL_SPECS)
+
+        assert tru_tools == self.TOOL_SPECS
+        assert len(captured_warnings) == 1

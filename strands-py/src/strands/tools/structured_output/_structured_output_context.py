@@ -34,7 +34,6 @@ class StructuredOutputContext:
         self.results: dict[str, BaseModel] = {}
         self.structured_output_model: type[BaseModel] | None = structured_output_model
         self.structured_output_tool: StructuredOutputTool | None = None
-        self.forced_mode: bool = False
         self.force_attempted: bool = False
         self.tool_choice: ToolChoice | None = None
         self.stop_loop: bool = False
@@ -82,9 +81,10 @@ class StructuredOutputContext:
         """
         if not self.is_enabled:
             return
-        self.forced_mode = True
+        # is_enabled implies a model, which sets expected_tool_name in __init__.
+        assert self.expected_tool_name is not None
         self.force_attempted = True
-        self.tool_choice = tool_choice or {"any": {}}
+        self.tool_choice = tool_choice or {"tool": {"name": self.expected_tool_name}}
 
     def has_structured_output_tool(self, tool_uses: list[ToolUse]) -> bool:
         """Check if any tool uses are for the structured output tool.

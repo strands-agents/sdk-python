@@ -10,6 +10,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from opentelemetry.trace import StatusCode
 from pydantic import BaseModel
 
+from strands import tool
 from strands._middleware import MiddlewareRegistry
 from strands.event_loop.event_loop import event_loop_cycle, recurse_event_loop
 from strands.telemetry.metrics import EventLoopMetrics
@@ -37,6 +38,12 @@ class ProductModel(BaseModel):
     title: str
     price: float
     in_stock: bool
+
+
+@tool
+def get_weather(city: str) -> str:
+    """Get the weather for a city."""
+    return "sunny"
 
 
 @pytest.fixture
@@ -430,24 +437,15 @@ async def test_structured_output_context_not_enabled(mock_agent, agenerator, ali
 
 @pytest.mark.asyncio
 async def test_structured_output_forced_mode(mock_agent, agenerator, alist):
-    """Test event loop with structured output in forced mode."""
-    # Create context in forced mode
+    """The forced pass advertises the full tool set and forces the schema tool by name."""
     structured_output_context = StructuredOutputContext(structured_output_model=ProductModel)
+    structured_output_context.register_tool(mock_agent.tool_registry)
+    mock_agent.tool_registry.register_tool(get_weather)
     structured_output_context.set_forced_mode(tool_choice={"tool": {"name": "ProductModel"}})
 
-    # Model should be called with only the structured output tool spec
     mock_agent.model.stream.return_value = agenerator(
         [
-            {
-                "contentBlockStart": {
-                    "start": {
-                        "toolUse": {
-                            "toolUseId": "t1",
-                            "name": "ProductModel",
-                        }
-                    }
-                }
-            },
+            {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "t1", "name": "ProductModel"}}}},
             {
                 "contentBlockDelta": {
                     "delta": {"toolUse": {"input": '{"title": "Book", "price": 19.99, "in_stock": true}'}}
@@ -458,12 +456,8 @@ async def test_structured_output_forced_mode(mock_agent, agenerator, alist):
         ]
     )
 
-    # Mock tool executor
     mock_agent.tool_executor._execute = Mock(return_value=agenerator([]))
-
-    # Mock extract_result
-    test_result = ProductModel(title="Book", price=19.99, in_stock=True)
-    structured_output_context.extract_result = Mock(return_value=test_result)
+    structured_output_context.extract_result = Mock(return_value=ProductModel(title="Book", price=19.99, in_stock=True))
 
     stream = event_loop_cycle(
         agent=mock_agent,
@@ -472,19 +466,69 @@ async def test_structured_output_forced_mode(mock_agent, agenerator, alist):
     )
     await alist(stream)
 
-    # Verify model.stream was called with the forced tool spec
+    # model.stream(messages, tool_specs, system_prompt, tool_choice=tool_choice, ...)
     mock_agent.model.stream.assert_called_once()
     call_args = mock_agent.model.stream.call_args
 
-    # The model.stream method signature (from streaming.py) is:
-    # model.stream(messages, tool_specs, system_prompt, tool_choice=tool_choice)
-    tool_specs = call_args.args[1] if len(call_args.args) > 1 else None
+    assert {tool_spec["name"] for tool_spec in call_args.args[1]} == {"ProductModel", "get_weather"}
+    assert call_args.kwargs["tool_choice"] == {"tool": {"name": "ProductModel"}}
 
-    # In forced mode, only the structured output tool spec should be passed
-    assert tool_specs is not None, "Expected tool_specs to be provided"
-    assert isinstance(tool_specs, list), f"Expected tool_specs to be a list, got {type(tool_specs)}"
-    assert len(tool_specs) == 1
-    assert tool_specs[0]["name"] == "ProductModel"
+
+@pytest.mark.asyncio
+async def test_forced_pass_preserves_tools_prefix(mock_agent, agenerator, alist):
+    """Both passes advertise the identical full tool set so the tools cache prefix survives the retry.
+
+    Regression test: the forced structured-output retry used to narrow the tools block to the schema
+    tool alone, busting the tools -> system -> messages prompt-cache prefix on the retry.
+    https://github.com/strands-agents/harness-sdk/issues/<ISSUE_NUMBER>
+    """
+    structured_output_context = StructuredOutputContext(structured_output_model=ProductModel)
+    structured_output_context.register_tool(mock_agent.tool_registry)
+    mock_agent.tool_registry.register_tool(get_weather)
+
+    mock_agent.model.stream.side_effect = [
+        # Auto pass: the model answers with text instead of the tool, triggering the forced retry.
+        agenerator(
+            [
+                {"contentBlockDelta": {"delta": {"text": "Here is the product"}}},
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "end_turn"}},
+            ]
+        ),
+        # Forced pass: the model calls the schema tool.
+        agenerator(
+            [
+                {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "t1", "name": "ProductModel"}}}},
+                {
+                    "contentBlockDelta": {
+                        "delta": {"toolUse": {"input": '{"title": "Book", "price": 19.99, "in_stock": true}'}}
+                    }
+                },
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "tool_use"}},
+            ]
+        ),
+    ]
+
+    mock_agent.tool_executor._execute = Mock(return_value=agenerator([]))
+    structured_output_context.extract_result = Mock(return_value=ProductModel(title="Book", price=19.99, in_stock=True))
+
+    stream = event_loop_cycle(
+        agent=mock_agent,
+        invocation_state={},
+        structured_output_context=structured_output_context,
+    )
+    await alist(stream)
+
+    assert mock_agent.model.stream.call_count == 2
+    auto_call, forced_call = mock_agent.model.stream.call_args_list
+
+    # Byte-equal tools block across both passes: the cache prefix is preserved.
+    assert auto_call.args[1] == forced_call.args[1]
+    assert {tool_spec["name"] for tool_spec in forced_call.args[1]} == {"ProductModel", "get_weather"}
+    # Only the tool_choice differs: None on the auto pass, a by-name force on the retry.
+    assert auto_call.kwargs["tool_choice"] is None
+    assert forced_call.kwargs["tool_choice"] == {"tool": {"name": "ProductModel"}}
 
 
 @pytest.mark.asyncio
