@@ -1362,6 +1362,21 @@ async def test_handle_tools_changed_coalesces_overlapping_notifications(monkeypa
     assert not client._tools_refresh_in_progress
 
 
+@pytest.mark.asyncio
+async def test_handle_tools_changed_logs_and_recovers_when_the_refresh_raises(monkeypatch, caplog):
+    """Test that a failing refresh is logged as a warning and leaves the client ready for the next one."""
+    import strands.tools.mcp.mcp_client as mcp_client_module
+
+    monkeypatch.setattr(mcp_client_module, "_TOOLS_CHANGED_DEBOUNCE_SECONDS", 0)
+    client = MCPClient(MagicMock(), on_tools_changed=MagicMock())
+    monkeypatch.setattr(client, "_refresh_loaded_tools", MagicMock(side_effect=RuntimeError("listing failed")))
+
+    await client._handle_tools_changed()
+
+    assert "failed to refresh tools after list-changed notification" in caplog.text
+    assert not client._tools_refresh_in_progress
+
+
 def test_refresh_loaded_tools_updates_the_cache_and_invokes_the_callback():
     """Test that a refresh replaces the cached tools and reports the change to the callback."""
     on_tools_changed = MagicMock()
