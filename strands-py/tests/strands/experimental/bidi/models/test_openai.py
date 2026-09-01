@@ -20,6 +20,7 @@ from strands.experimental.bidi.models.model import BidiModelTimeoutError
 from strands.experimental.bidi.models.openai import (
     _RECONNECT_INSTRUCTION,
     OPENAI_MAX_TIMEOUT_S,
+    OPENAI_PROACTIVE_RECONNECT_MARGIN_S,
     OpenAIRealtimeModel,
 )
 from strands.experimental.bidi.types.events import (
@@ -952,11 +953,19 @@ async def test_tool_result_document_content_raises_error(mock_websockets_connect
 
 
 def test_connection_config_defaults_and_override(api_key, mock_websockets_connect):
-    """Reconnect timing is declared for the proactive timer and is overridable."""
+    """Proactive reconnect fires a margin below the reactive timeout, and is overridable."""
     default_model = OpenAIRealtimeModel(client_config={"api_key": api_key})
-    assert default_model.connection_config == {"restart_after_s": OPENAI_MAX_TIMEOUT_S}
+    # Deadline sits below the reactive timeout so a mid-turn swap is not preempted by it.
+    assert default_model.connection_config == {
+        "restart_after_s": OPENAI_MAX_TIMEOUT_S - OPENAI_PROACTIVE_RECONNECT_MARGIN_S
+    }
+    assert default_model.connection_config["restart_after_s"] < default_model.timeout_s
     # OpenAI reports per-response usage, so it must not be treated as cumulative.
     assert default_model.usage_is_cumulative is False
+
+    # Lowering timeout_s keeps the headroom rather than recreating the tie.
+    lowered_model = OpenAIRealtimeModel(client_config={"api_key": api_key, "timeout_s": 1000})
+    assert lowered_model.connection_config["restart_after_s"] == 1000 - OPENAI_PROACTIVE_RECONNECT_MARGIN_S
 
     tuned_model = OpenAIRealtimeModel(
         client_config={"api_key": api_key},
@@ -982,14 +991,60 @@ async def test_reconnect_reestablishes_and_replays_history(mock_websockets_conne
     assert model._connection_id is not None
     assert model._connection_id != first_connection_id
 
-    # History was replayed into the new connection.
-    item_creates = [
-        json.loads(call[0][0])
+    # Real history replay: the user turn is recreated on the new connection. Filtering on the user
+    # role ensures the re-anchor system message (also an item.create) cannot satisfy this alone.
+    user_items = [
+        json.loads(call[0][0])["item"]
         for call in mock_ws.send.call_args_list
         if json.loads(call[0][0]).get("type") == "conversation.item.create"
+        and json.loads(call[0][0])["item"].get("role") == "user"
     ]
-    assert len(item_creates) > 0
+    assert user_items == [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Hello"}]}]
 
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_reconnect_forwards_tools(mock_websockets_connect, model, tool_spec):
+    """Tools are re-sent on reconnect so the new session can still call them."""
+    _, mock_ws = mock_websockets_connect
+
+    await model.start()
+    mock_ws.send.reset_mock()
+
+    await model.reconnect(tools=[tool_spec])
+
+    tool_names = [
+        tool["name"]
+        for call in mock_ws.send.call_args_list
+        if json.loads(call[0][0]).get("type") == "session.update"
+        for tool in json.loads(call[0][0])["session"].get("tools", [])
+    ]
+    assert tool_spec["name"] in tool_names
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_reconnect_survives_reanchor_send_failure(mock_websockets_connect, model):
+    """A failed re-anchor send is logged, not fatal: the reconnected session stays healthy."""
+    _, mock_ws = mock_websockets_connect
+
+    await model.start()
+
+    async def fail_on_anchor(message):
+        payload = json.loads(message)
+        if payload.get("type") == "conversation.item.create" and payload.get("item", {}).get("role") == "system":
+            raise RuntimeError("re-anchor send failed")
+
+    mock_ws.send.side_effect = fail_on_anchor
+
+    # Must not raise even though the re-anchor send fails.
+    await model.reconnect()
+
+    assert model._connection_id is not None
+
+    mock_ws.send.side_effect = None
     await model.stop()
 
 

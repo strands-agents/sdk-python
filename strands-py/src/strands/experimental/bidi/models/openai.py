@@ -54,6 +54,10 @@ OpenAI documents a 60 minute limit on realtime sessions
 not emit any warnings when approaching the limit. As a workaround, we configure a max timeout client side to gracefully
 handle the connection closure. We set the max to 50 minutes to provide enough buffer before hitting the real limit.
 """
+# Proactive reconnect fires this many seconds below the reader's reactive timeout, leaving room for
+# the turn-boundary alignment wait so a mid-turn swap stays graceful instead of being preempted by
+# the reactive timeout firing at the same instant.
+OPENAI_PROACTIVE_RECONNECT_MARGIN_S = 300
 OPENAI_REALTIME_URL = "wss://api.openai.com/v1/realtime"
 DEFAULT_MODEL = "gpt-realtime"
 DEFAULT_SAMPLE_RATE = 24000
@@ -117,14 +121,6 @@ class OpenAIRealtimeModel(BidiModel):
         # Store model ID
         self.model_id = model_id
 
-        # OpenAI caps a realtime session at 60 min and emits no approaching-limit warning, so
-        # reconnect proactively with headroom below the cap; the client-side timeout in receive()
-        # (OPENAI_MAX_TIMEOUT_S) remains the reactive backstop. Tunable via
-        # provider_config["connection"], e.g. to lower restart_after_s for tests.
-        default_connection: BidiConnectionConfig = {"restart_after_s": OPENAI_MAX_TIMEOUT_S}
-        self.connection_config = cast(
-            BidiConnectionConfig, {**default_connection, **(provider_config or {}).get("connection", {})}
-        )
         # OpenAI reports per-response token usage on response.done, not cumulative session totals.
         self.usage_is_cumulative = False
 
@@ -144,6 +140,17 @@ class OpenAIRealtimeModel(BidiModel):
             raise ValueError(
                 f"timeout_s=<{self.timeout_s}>, max_timeout_s=<{OPENAI_MAX_TIMEOUT_S}> | timeout exceeds max limit"
             )
+
+        # OpenAI emits no approaching-limit warning, so reconnect proactively a margin below the
+        # reader's reactive timeout: the swap can then align to a turn boundary before the reactive
+        # path fires. Deriving from timeout_s keeps that headroom even when a caller lowers it.
+        # Tunable via provider_config["connection"], e.g. to lower restart_after_s for tests.
+        default_connection: BidiConnectionConfig = {
+            "restart_after_s": self.timeout_s - OPENAI_PROACTIVE_RECONNECT_MARGIN_S
+        }
+        self.connection_config = cast(
+            BidiConnectionConfig, {**default_connection, **(provider_config or {}).get("connection", {})}
+        )
 
         # Connection state (initialized in start())
         self._connection_id: str | None = None
@@ -843,17 +850,22 @@ class OpenAIRealtimeModel(BidiModel):
         logger.debug("openai realtime reconnect starting")
         await self.stop()
         await self.start(system_prompt, tools, messages, **restart_kwargs)
-        # Re-anchor the fresh session so it continues the conversation rather than drifting.
-        await self._send_event(
-            {
-                "type": "conversation.item.create",
-                "item": {
-                    "type": "message",
-                    "role": "system",
-                    "content": [{"type": "input_text", "text": _RECONNECT_INSTRUCTION}],
-                },
-            }
-        )
+        # Re-anchor the fresh session so it continues the conversation rather than drifting. This is
+        # a best-effort nudge: if the send fails, the connection is still healthy, so log and move on
+        # rather than let a failed nudge tear down the session.
+        try:
+            await self._send_event(
+                {
+                    "type": "conversation.item.create",
+                    "item": {
+                        "type": "message",
+                        "role": "system",
+                        "content": [{"type": "input_text", "text": _RECONNECT_INSTRUCTION}],
+                    },
+                }
+            )
+        except Exception as error:
+            logger.warning("error=<%s> | failed to send reconnect re-anchor message | continuing", error)
         logger.debug("connection_id=<%s> | openai realtime reconnect complete", self._connection_id)
 
     async def _send_event(self, event: dict[str, Any]) -> None:
