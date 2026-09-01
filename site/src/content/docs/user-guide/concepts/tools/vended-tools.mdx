@@ -354,18 +354,16 @@ from strands import Agent
 from strands.tools.mcp import MCPClient
 from strands.vended_tools import make_tool_registry
 
-weather = MCPClient(lambda: stdio_client(StdioServerParameters(command="uvx", args=["mcp-weather"])))
-weather.start()
-
-registry_tool = make_tool_registry(mcp_clients={"weather": weather})
-agent = Agent(tools=[registry_tool])
-agent("List the tools you have, then add the forecast tool from weather.")
+with MCPClient(lambda: stdio_client(StdioServerParameters(command="uvx", args=["mcp-weather"]))) as weather:
+    registry_tool = make_tool_registry(mcp_clients={"weather": weather})
+    agent = Agent(tools=[registry_tool])
+    agent("List the tools you have, then add the forecast tool from weather.")
 ```
 
 </Tab>
 </Tabs>
 
-**Custom cap:**
+**Custom configuration:**
 
 <Tabs>
 <Tab label="Python">
@@ -377,12 +375,9 @@ from strands import Agent
 from strands.tools.mcp import MCPClient
 from strands.vended_tools import make_tool_registry
 
-weather = MCPClient(lambda: stdio_client(StdioServerParameters(command="uvx", args=["mcp-weather"])))
-weather.start()
-
-# Allow the model to register up to 10 tools instead of the default 32.
-registry_tool = make_tool_registry(mcp_clients={"weather": weather}, max_dynamic_tools=10)
-agent = Agent(tools=[registry_tool])
+with MCPClient(lambda: stdio_client(StdioServerParameters(command="uvx", args=["mcp-weather"]))) as weather:
+    registry_tool = make_tool_registry(mcp_clients={"weather": weather}, max_dynamic_tools=10)
+    agent = Agent(tools=[registry_tool])
 ```
 
 </Tab>
