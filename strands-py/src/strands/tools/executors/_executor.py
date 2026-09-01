@@ -6,6 +6,7 @@ thread pools, etc.).
 
 import abc
 import logging
+import threading
 import time
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any, cast
@@ -105,7 +106,9 @@ class ToolExecutor(abc.ABC):
             return False
         if cast(dict[str, Any], after_event.result).get("cancelled") is True:
             return False
-        return not (ToolExecutor._is_agent(agent) and agent._cancel_signal.is_set())
+        if not ToolExecutor._is_agent(agent):
+            return True
+        return not cast("Agent", agent)._observe_cancellation()
 
     @staticmethod
     async def _stream(
@@ -164,6 +167,10 @@ class ToolExecutor(abc.ABC):
                 ),
             }
         )
+
+        # A BidiAgent has no cancellation signal; an inert event keeps the middleware and tool
+        # contracts non-optional.
+        cancel_signal = cast("Agent", agent).cancel_signal if ToolExecutor._is_agent(agent) else threading.Event()
 
         # Retry loop for tool execution - hooks can set after_event.retry = True to retry
         while True:
@@ -237,6 +244,7 @@ class ToolExecutor(abc.ABC):
                     tool=selected_tool,
                     tool_use=dict(tool_use),  # type: ignore[arg-type]
                     invocation_state=invocation_state,
+                    cancel_signal=cancel_signal,
                     _interrupt_state=agent._interrupt_state,
                 )
 

@@ -1,6 +1,6 @@
 """Bidirectional streaming package."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 # Main components - Primary user interface
 # Re-export standard agent events for tool handling
@@ -24,6 +24,7 @@ from .types.events import (
     BidiConnectionCloseEvent,
     BidiConnectionRestartEvent,
     BidiConnectionStartEvent,
+    BidiConnectionWarningEvent,
     BidiErrorEvent,
     BidiImageInputEvent,
     BidiInputEvent,
@@ -37,6 +38,12 @@ from .types.events import (
     ModalityUsage,
 )
 
+# Reconnect configuration (declared by providers, tunable via provider_config)
+from .types.model import BidiConnectionConfig
+
+if TYPE_CHECKING:
+    from .io.audio import BidiAudioIO, BidiAudioIOConfig, BidiAudioProcessorConfig
+
 __all__ = [
     # Main interface
     "BidiAgent",
@@ -48,6 +55,7 @@ __all__ = [
     # Output Event types
     "BidiConnectionStartEvent",
     "BidiConnectionRestartEvent",
+    "BidiConnectionWarningEvent",
     "BidiConnectionCloseEvent",
     "BidiResponseStartEvent",
     "BidiResponseCompleteEvent",
@@ -58,6 +66,8 @@ __all__ = [
     "ModalityUsage",
     "BidiErrorEvent",
     "BidiOutputEvent",
+    # Reconnect configuration
+    "BidiConnectionConfig",
     # Tool Event types (reused from standard agent)
     "ToolUseStreamEvent",
     "ToolResultEvent",
@@ -65,7 +75,8 @@ __all__ = [
     # Model interface
     "BidiModel",
     # IO channels and configuration
-    "AudioProcessorConfig",
+    "BidiAudioProcessorConfig",
+    "BidiAudioIOConfig",
     "BidiAudioIO",
     "BidiTextIO",
     # Built-in tools (deprecated)
@@ -78,10 +89,14 @@ def __getattr__(name: str) -> Any:
 
     This defers the import of optional dependencies until actually needed.
     """
-    if name == "AudioProcessorConfig":
-        from .audio import AudioProcessorConfig
+    if name == "BidiAudioProcessorConfig":
+        from .io.audio import BidiAudioProcessorConfig
 
-        return AudioProcessorConfig
+        return BidiAudioProcessorConfig
+    if name == "BidiAudioIOConfig":
+        from .io.audio import BidiAudioIOConfig
+
+        return BidiAudioIOConfig
     if name == "BidiAudioIO":
         from .io.audio import BidiAudioIO
 

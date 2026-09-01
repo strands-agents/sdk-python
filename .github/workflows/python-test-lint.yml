@@ -88,6 +88,49 @@ jobs:
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+  unit-test-mcp-v2:
+    name: MCP 2.x Compat
+    # The dependency pin is `mcp<2`, so the unit-test matrix only ever
+    # exercises the 1.x line and the 2.x branches of `_compat` run against
+    # mocks there. This job force-installs the 2.x line over the pin to verify
+    # against the real package that `import strands` succeeds and the compat
+    # layer resolves the 2.x names. Scoped to the compat tests; the full suite
+    # is not expected to pass on 2.x while the pin holds. Pinned to `2.0.*` so
+    # upstream 2.x releases cannot break unrelated PRs; bump deliberately.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: strands-py
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.10'
+
+      - name: Install package, then force mcp 2.x over the pin
+        run: |
+          pip install --no-cache-dir -e . \
+            "pytest>=9.0.0,<10.0.0" \
+            "pytest-asyncio>=1.0.0,<1.5.0" \
+            "pytest-timeout>=2.0.0,<3.0.0" \
+            "moto>=5.1.0,<6.0.0"
+          pip install --no-cache-dir "mcp==2.0.*"
+
+      - name: Verify import and version flag
+        run: python -c "import strands; from strands.tools.mcp import _compat; assert _compat.MCP_V2"
+
+      - name: Run compat tests
+        run: pytest tests/strands/tools/mcp/test__compat.py -vv
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -120,80 +163,3 @@ jobs:
         id: lint
         run: hatch fmt --linter --check
         continue-on-error: false
-
-  # Bidi has its own extras (pyaudio, pywebrtc-audio) and system dependencies
-  # (portaudio) that the general unit-test/lint jobs neither install nor need.
-  # Run the bidi suite — and install portaudio — only when bidi sources change.
-  bidi-test:
-    name: Bidi Tests - Python ${{ matrix.python-version }}
-    permissions:
-      contents: read
-    runs-on: ubuntu-latest
-    # 25 min caps a hung step (portaudio apt install / pyaudio build) instead of
-    # the 6-hour default.
-    timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        # bidi requires Python >= 3.12 (see the bidi extra markers in pyproject.toml).
-        python-version: ["3.12", "3.13"]
-    defaults:
-      run:
-        working-directory: strands-py
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.ref }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      # Only build pyaudio / run the bidi suite when bidi sources or tests changed.
-      # This keeps the portaudio system-dependency install off every other PR.
-      - name: Detect bidi changes
-        id: changes
-        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
-        with:
-          filters: |
-            bidi:
-              - 'strands-py/src/strands/experimental/bidi/**'
-              - 'strands-py/tests/strands/experimental/bidi/**'
-
-      - name: Set up Python
-        if: steps.changes.outputs.bidi == 'true'
-        uses: actions/setup-python@v7.0.0
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      # portaudio19-dev / libasound2-dev are the C headers pyaudio (bidi-io extra)
-      # builds against; only this job installs them.
-      - name: Install system audio dependencies
-        if: steps.changes.outputs.bidi == 'true'
-        working-directory: .
-        timeout-minutes: 5
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          for attempt in 1 2 3; do
-            if sudo apt-get -o Acquire::Retries=3 update \
-              && sudo apt-get -o Acquire::Retries=3 install -y portaudio19-dev libasound2-dev; then
-              exit 0
-            fi
-            if [ "$attempt" -lt 3 ]; then
-              echo "apt-get attempt $attempt failed; retrying in 15s..."
-              sleep 15
-            fi
-          done
-          echo "apt-get failed after 3 attempts" >&2
-          exit 1
-
-      - name: Install dependencies
-        if: steps.changes.outputs.bidi == 'true'
-        run: pip install --no-cache-dir hatch
-
-      - name: Run bidi tests
-        if: steps.changes.outputs.bidi == 'true'
-        # The bidi-test hatch env installs bidi-all (pyaudio, pywebrtc-audio, ...) and
-        # its pytest target runs tests/strands/experimental/bidi, which the default
-        # unit-test run ignores.
-        run: hatch run bidi-test:test

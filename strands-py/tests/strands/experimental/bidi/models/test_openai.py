@@ -1,6 +1,6 @@
 """Unit tests for OpenAI Realtime bidirectional streaming model.
 
-Tests the unified BidiOpenAIRealtimeModel interface including:
+Tests the unified OpenAIRealtimeModel interface including:
 - Model initialization and configuration
 - Connection establishment with WebSocket
 - Unified send() method with different content types
@@ -16,7 +16,7 @@ import unittest.mock
 import pytest
 
 from strands.experimental.bidi.models.model import BidiModelTimeoutError
-from strands.experimental.bidi.models.openai_realtime import BidiOpenAIRealtimeModel
+from strands.experimental.bidi.models.openai import OpenAIRealtimeModel
 from strands.experimental.bidi.types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
@@ -47,7 +47,7 @@ def mock_websockets_connect(mock_websocket):
     async def async_connect(*args, **kwargs):
         return mock_websocket
 
-    with unittest.mock.patch("strands.experimental.bidi.models.openai_realtime.websockets.connect") as mock_connect:
+    with unittest.mock.patch("strands.experimental.bidi.models.openai.websockets.connect") as mock_connect:
         mock_connect.side_effect = async_connect
         yield mock_connect, mock_websocket
 
@@ -64,8 +64,8 @@ def api_key():
 
 @pytest.fixture
 def model(mock_websockets_connect, api_key, model_name):
-    """Create an BidiOpenAIRealtimeModel instance."""
-    return BidiOpenAIRealtimeModel(model=model_name, client_config={"api_key": api_key})
+    """Create an OpenAIRealtimeModel instance."""
+    return OpenAIRealtimeModel(model=model_name, client_config={"api_key": api_key})
 
 
 @pytest.fixture
@@ -93,25 +93,25 @@ def messages():
 def test_model_initialization(api_key, model_name, monkeypatch):
     """Test model initialization with various configurations."""
     # Test default config
-    model_default = BidiOpenAIRealtimeModel(client_config={"api_key": "test-key"})
+    model_default = OpenAIRealtimeModel(client_config={"api_key": "test-key"})
     assert model_default.model_id == "gpt-realtime"
     assert model_default.api_key == "test-key"
 
     # Test with custom model
-    model_custom = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
+    model_custom = OpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
     assert model_custom.model_id == model_name
     assert model_custom.api_key == api_key
 
     # Test with organization and project via environment variables
     monkeypatch.setenv("OPENAI_ORGANIZATION", "org-123")
     monkeypatch.setenv("OPENAI_PROJECT", "proj-456")
-    model_env = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
+    model_env = OpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
     assert model_env.organization == "org-123"
     assert model_env.project == "proj-456"
 
     # Test with env API key
     monkeypatch.setenv("OPENAI_API_KEY", "env-key")
-    model_env = BidiOpenAIRealtimeModel()
+    model_env = OpenAIRealtimeModel()
     assert model_env.api_key == "env-key"
 
 
@@ -120,7 +120,7 @@ def test_model_initialization(api_key, model_name, monkeypatch):
 
 def test_audio_config_defaults(api_key, model_name):
     """Test default audio configuration."""
-    model = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
+    model = OpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
 
     assert model.config["audio"]["input_rate"] == 24000
     assert model.config["audio"]["output_rate"] == 24000
@@ -132,7 +132,7 @@ def test_audio_config_defaults(api_key, model_name):
 def test_audio_config_partial_override(api_key, model_name):
     """Test partial audio configuration override."""
     provider_config = {"audio": {"output_rate": 48000, "voice": "echo"}}
-    model = BidiOpenAIRealtimeModel(
+    model = OpenAIRealtimeModel(
         model_id=model_name, client_config={"api_key": api_key}, provider_config=provider_config
     )
 
@@ -157,7 +157,7 @@ def test_audio_config_full_override(api_key, model_name):
             "voice": "shimmer",
         }
     }
-    model = BidiOpenAIRealtimeModel(
+    model = OpenAIRealtimeModel(
         model_id=model_name, client_config={"api_key": api_key}, provider_config=provider_config
     )
 
@@ -172,7 +172,7 @@ def test_audio_config_extracts_voice_from_provider_config(api_key, model_name):
     """Test that voice is extracted from provider_config when config audio not provided."""
     provider_config = {"audio": {"voice": "fable"}}
 
-    model = BidiOpenAIRealtimeModel(
+    model = OpenAIRealtimeModel(
         model_id=model_name, client_config={"api_key": api_key}, provider_config=provider_config
     )
 
@@ -184,7 +184,7 @@ def test_init_without_api_key_raises(monkeypatch):
     """Test that initialization without API key raises error."""
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     with pytest.raises(ValueError, match="OpenAI API key is required"):
-        BidiOpenAIRealtimeModel()
+        OpenAIRealtimeModel()
 
 
 # Connection Tests
@@ -248,7 +248,7 @@ async def test_connection_with_org_header(mock_websockets_connect, monkeypatch):
     mock_connect, mock_ws = mock_websockets_connect
 
     monkeypatch.setenv("OPENAI_ORGANIZATION", "org-123")
-    model_org = BidiOpenAIRealtimeModel(client_config={"api_key": "test-key"})
+    model_org = OpenAIRealtimeModel(client_config={"api_key": "test-key"})
     await model_org.start()
     call_kwargs = mock_connect.call_args.kwargs
     headers = call_kwargs.get("additional_headers", [])
@@ -328,7 +328,7 @@ async def test_connection_edge_cases(mock_websockets_connect, api_key, model_nam
     mock_connect, mock_ws = mock_websockets_connect
 
     # Test connection error
-    model1 = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
+    model1 = OpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
     mock_connect.side_effect = Exception("Connection failed")
     with pytest.raises(Exception, match="Connection failed"):
         await model1.start()
@@ -340,18 +340,18 @@ async def test_connection_edge_cases(mock_websockets_connect, api_key, model_nam
     mock_connect.side_effect = async_connect
 
     # Test double connection
-    model2 = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
+    model2 = OpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
     await model2.start()
     with pytest.raises(RuntimeError, match=r"call stop before starting again"):
         await model2.start()
     await model2.stop()
 
     # Test close when not connected
-    model3 = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
+    model3 = OpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
     await model3.stop()  # Should not raise
 
     # Test close error
-    model4 = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
+    model4 = OpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
     await model4.start()
     mock_ws.close.side_effect = Exception("Close failed")
     with pytest.raises(Exception, match=r"failed stop sequence"):
@@ -495,9 +495,7 @@ async def test_send_edge_cases(mock_websockets_connect, model):
     image_item = image_creates[0].get("item", {})
     assert image_item.get("type") == "message"
     assert image_item.get("role") == "user"
-    assert image_item.get("content") == [
-        {"type": "input_image", "image_url": f"data:image/jpeg;base64,{image_b64}"}
-    ]
+    assert image_item.get("content") == [{"type": "input_image", "image_url": f"data:image/jpeg;base64,{image_b64}"}]
     # Image input must NOT auto-trigger a response — caller decides when to commit.
     assert not any(m.get("type") == "response.create" for m in image_calls)
 
@@ -533,7 +531,7 @@ async def test_receive_lifecycle_events(mock_websocket, model):
     assert tru_events == exp_events
 
 
-@unittest.mock.patch("strands.experimental.bidi.models.openai_realtime.time.time")
+@unittest.mock.patch("strands.experimental.bidi.models.openai.time.time")
 @pytest.mark.asyncio
 async def test_receive_timeout(mock_time, model):
     mock_time.side_effect = itertools.count()
@@ -598,7 +596,8 @@ async def test_event_conversion(model):
     tool_use = converted[0]["delta"]["toolUse"]
     assert tool_use["toolUseId"] == "call-123"
     assert tool_use["name"] == "calculator"
-    assert tool_use["input"]["expression"] == "2+2"
+    assert json.loads(tool_use["input"]) == {"expression": "2+2"}
+    assert converted[0]["current_tool_use"]["input"] == {"expression": "2+2"}
 
     # Test voice activity (now returns list with BidiInterruptionEvent for speech_started)
     speech_started = {"type": "input_audio_buffer.speech_started"}
@@ -725,7 +724,7 @@ async def test_custom_audio_sample_rate(mock_websockets_connect, api_key):
     # Create model with custom sample rate
     custom_sample_rate = 48000
     provider_config = {"audio": {"output_rate": custom_sample_rate}}
-    model = BidiOpenAIRealtimeModel(client_config={"api_key": api_key}, provider_config=provider_config)
+    model = OpenAIRealtimeModel(client_config={"api_key": api_key}, provider_config=provider_config)
 
     await model.start()
 
@@ -753,7 +752,7 @@ async def test_default_audio_sample_rate(mock_websockets_connect, api_key):
     _, mock_ws = mock_websockets_connect
 
     # Create model without custom audio config
-    model = BidiOpenAIRealtimeModel(client_config={"api_key": api_key})
+    model = OpenAIRealtimeModel(client_config={"api_key": api_key})
 
     await model.start()
 
@@ -782,7 +781,7 @@ async def test_partial_audio_config(mock_websockets_connect, api_key):
 
     # Create model with partial audio config (missing format.rate)
     provider_config = {"audio": {"output": {"voice": "alloy"}}}
-    model = BidiOpenAIRealtimeModel(client_config={"api_key": api_key}, provider_config=provider_config)
+    model = OpenAIRealtimeModel(client_config={"api_key": api_key}, provider_config=provider_config)
 
     await model.start()
 
@@ -811,7 +810,7 @@ async def test_partial_audio_config(mock_websockets_connect, api_key):
 async def test_tool_result_single_text_content(mock_websockets_connect, api_key):
     """Test tool result with single text content block."""
     _, mock_ws = mock_websockets_connect
-    model = BidiOpenAIRealtimeModel(client_config={"api_key": api_key})
+    model = OpenAIRealtimeModel(client_config={"api_key": api_key})
     await model.start()
 
     tool_result: ToolResult = {
@@ -842,7 +841,7 @@ async def test_tool_result_single_text_content(mock_websockets_connect, api_key)
 async def test_tool_result_single_json_content(mock_websockets_connect, api_key):
     """Test tool result with single JSON content block."""
     _, mock_ws = mock_websockets_connect
-    model = BidiOpenAIRealtimeModel(client_config={"api_key": api_key})
+    model = OpenAIRealtimeModel(client_config={"api_key": api_key})
     await model.start()
 
     tool_result: ToolResult = {
@@ -872,7 +871,7 @@ async def test_tool_result_single_json_content(mock_websockets_connect, api_key)
 async def test_tool_result_multiple_content_blocks(mock_websockets_connect, api_key):
     """Test tool result with multiple content blocks (text and json)."""
     _, mock_ws = mock_websockets_connect
-    model = BidiOpenAIRealtimeModel(client_config={"api_key": api_key})
+    model = OpenAIRealtimeModel(client_config={"api_key": api_key})
     await model.start()
 
     tool_result: ToolResult = {
@@ -910,7 +909,7 @@ async def test_tool_result_multiple_content_blocks(mock_websockets_connect, api_
 async def test_tool_result_image_content_raises_error(mock_websockets_connect, api_key):
     """Test that tool result with image content raises ValueError."""
     _, mock_ws = mock_websockets_connect
-    model = BidiOpenAIRealtimeModel(client_config={"api_key": api_key})
+    model = OpenAIRealtimeModel(client_config={"api_key": api_key})
     await model.start()
 
     tool_result: ToolResult = {
@@ -929,7 +928,7 @@ async def test_tool_result_image_content_raises_error(mock_websockets_connect, a
 async def test_tool_result_document_content_raises_error(mock_websockets_connect, api_key):
     """Test that tool result with document content raises ValueError."""
     _, mock_ws = mock_websockets_connect
-    model = BidiOpenAIRealtimeModel(client_config={"api_key": api_key})
+    model = OpenAIRealtimeModel(client_config={"api_key": api_key})
     await model.start()
 
     tool_result: ToolResult = {

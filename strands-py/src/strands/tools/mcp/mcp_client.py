@@ -25,19 +25,16 @@ from importlib.metadata import version as pkg_version
 from pathlib import Path
 from re import Pattern
 from types import TracebackType
-from typing import Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 from urllib.parse import urlparse
 
 import anyio
 import httpx
 from mcp import ClientSession, ListToolsResult, StdioServerParameters, stdio_client
 from mcp.client.auth.extensions.client_credentials import ClientCredentialsOAuthProvider
-from mcp.client.session import ElicitationFnT
+from mcp.client.session import ElicitationFnT, ProgressFnT
 from mcp.client.sse import sse_client
-from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
-from mcp.shared.exceptions import McpError
-from mcp.shared.session import ProgressFnT
 from mcp.types import (
     BlobResourceContents,
     CancelledNotification,
@@ -49,6 +46,7 @@ from mcp.types import (
     ListPromptsResult,
     ListResourcesResult,
     ListResourceTemplatesResult,
+    PaginatedRequestParams,
     ReadResourceResult,
     TextResourceContents,
 )
@@ -64,14 +62,40 @@ from ...types.exceptions import MCPClientInitializationError, ToolProviderExcept
 from ...types.media import ImageFormat
 from ...types.tools import AgentTool, ToolResultContent, ToolResultStatus
 from ..tool_provider import ToolProvider
+from ._compat import (
+    MCPError,
+    is_error,
+    mime_type,
+    negotiate_session,
+    next_cursor,
+    read_timeout,
+    resource_templates,
+    streamable_http_transport,
+    structured_content,
+    task_support,
+)
 from .mcp_agent_tool import MCPAgentTool
 from .mcp_instrumentation import inject_trace_context, mcp_instrumentation
 from .mcp_tasks import DEFAULT_TASK_CONFIG, DEFAULT_TASK_POLL_TIMEOUT, DEFAULT_TASK_TTL, TasksConfig
 from .mcp_types import MCPClientCredentials, MCPToolResult, MCPTransport
 
+if TYPE_CHECKING:
+    # Only the mcp 1.x line spells this name; the runtime import stays inside
+    # the tasks-enabled branch of __init__.
+    from mcp.types import TaskExecutionMode
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+
+def _pagination_params(pagination_token: str | None) -> PaginatedRequestParams | None:
+    """Build the params object for a paginated list_* request.
+
+    The session list methods' `cursor` keyword is deprecated on the mcp 1.x
+    line and removed on 2.x; `params` is the form both lines accept.
+    """
+    return PaginatedRequestParams(cursor=pagination_token) if pagination_token is not None else None
 
 
 class _MCPCallCancelledError(RuntimeError):
@@ -622,7 +646,9 @@ class MCPClient(ToolProvider):
         effective_filters = self._tool_filters if tool_filters is None else tool_filters
 
         async def _list_tools_async() -> ListToolsResult:
-            return await cast(ClientSession, self._background_thread_session).list_tools(cursor=pagination_token)
+            return await cast(ClientSession, self._background_thread_session).list_tools(
+                params=_pagination_params(pagination_token)
+            )
 
         list_tools_response: ListToolsResult = self._invoke_on_background_thread(_list_tools_async()).result()
         self._log_debug_with_thread("received %d tools from MCP server", len(list_tools_response.tools))
@@ -631,10 +657,7 @@ class MCPClient(ToolProvider):
         for tool in list_tools_response.tools:
             if self._is_tasks_enabled():
                 # Cache taskSupport for task-augmented execution decisions
-                task_support = None
-                if tool.execution is not None and tool.execution.taskSupport is not None:
-                    task_support = tool.execution.taskSupport
-                self._tool_task_support_cache[tool.name] = task_support or "forbidden"
+                self._tool_task_support_cache[tool.name] = cast("TaskExecutionMode", task_support(tool) or "forbidden")
 
             # Apply prefix if specified
             if effective_prefix:
@@ -649,7 +672,7 @@ class MCPClient(ToolProvider):
                 mcp_tools.append(mcp_tool)
 
         self._log_debug_with_thread("successfully adapted %d MCP tools", len(mcp_tools))
-        return PaginatedList[MCPAgentTool](mcp_tools, token=list_tools_response.nextCursor)
+        return PaginatedList[MCPAgentTool](mcp_tools, token=next_cursor(list_tools_response))
 
     def list_prompts_sync(self, pagination_token: str | None = None) -> ListPromptsResult:
         """Synchronously retrieves the list of available prompts from the MCP server.
@@ -668,7 +691,9 @@ class MCPClient(ToolProvider):
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         async def _list_prompts_async() -> ListPromptsResult:
-            return await cast(ClientSession, self._background_thread_session).list_prompts(cursor=pagination_token)
+            return await cast(ClientSession, self._background_thread_session).list_prompts(
+                params=_pagination_params(pagination_token)
+            )
 
         list_prompts_result: ListPromptsResult = self._invoke_on_background_thread(_list_prompts_async()).result()
         self._log_debug_with_thread("received %d prompts from MCP server", len(list_prompts_result.prompts))
@@ -716,7 +741,9 @@ class MCPClient(ToolProvider):
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         async def _list_resources_async() -> ListResourcesResult:
-            return await cast(ClientSession, self._background_thread_session).list_resources(cursor=pagination_token)
+            return await cast(ClientSession, self._background_thread_session).list_resources(
+                params=_pagination_params(pagination_token)
+            )
 
         list_resources_result: ListResourcesResult = self._invoke_on_background_thread(_list_resources_async()).result()
         self._log_debug_with_thread("received %d resources from MCP server", len(list_resources_result.resources))
@@ -763,14 +790,14 @@ class MCPClient(ToolProvider):
 
         async def _list_resource_templates_async() -> ListResourceTemplatesResult:
             return await cast(ClientSession, self._background_thread_session).list_resource_templates(
-                cursor=pagination_token
+                params=_pagination_params(pagination_token)
             )
 
         list_resource_templates_result: ListResourceTemplatesResult = self._invoke_on_background_thread(
             _list_resource_templates_async()
         ).result()
         self._log_debug_with_thread(
-            "received %d resource templates from MCP server", len(list_resource_templates_result.resourceTemplates)
+            "received %d resource templates from MCP server", len(resource_templates(list_resource_templates_result))
         )
 
         return list_resource_templates_result
@@ -851,7 +878,11 @@ class MCPClient(ToolProvider):
                     if isinstance(request_id, int):
                         cancellation_state["request_id"] = request_id
                 return await session.call_tool(
-                    name, arguments, read_timeout_seconds, progress_callback=effective_callback, meta=meta
+                    name,
+                    arguments,
+                    read_timeout(read_timeout_seconds),
+                    progress_callback=effective_callback,
+                    meta=meta,
                 )
 
             return _call_tool_direct()
@@ -982,7 +1013,7 @@ class MCPClient(ToolProvider):
             MCPToolResult: Error result containing either the elicitation data or the
                 original exception message.
         """
-        if isinstance(exception, McpError) and exception.error.code == -32042:
+        if isinstance(exception, MCPError) and exception.error.code == -32042:
             try:
                 error_data = ElicitationRequiredErrorData.model_validate(exception.error.data)
                 elicitations = [e.model_dump(exclude_none=True) for e in error_data.elicitations]
@@ -1034,7 +1065,8 @@ class MCPClient(ToolProvider):
             if (mc := self.map_mcp_content_to_tool_result_content(content)) is not None
         ]
 
-        status: ToolResultStatus = "error" if call_tool_result.isError else "success"
+        tool_error = is_error(call_tool_result)
+        status: ToolResultStatus = "error" if tool_error else "success"
         self._log_debug_with_thread("tool execution completed with status: %s", status)
         result = MCPToolResult(
             status=status,
@@ -1042,12 +1074,13 @@ class MCPClient(ToolProvider):
             content=mapped_contents,
         )
 
-        if call_tool_result.structuredContent:
-            result["structuredContent"] = call_tool_result.structuredContent
+        structured_payload = structured_content(call_tool_result)
+        if structured_payload:
+            result["structuredContent"] = structured_payload
         if call_tool_result.meta:
             result["metadata"] = call_tool_result.meta
-        if call_tool_result.isError is not None:
-            result["isError"] = call_tool_result.isError
+        if tool_error is not None:
+            result["isError"] = tool_error
 
         return result
 
@@ -1080,17 +1113,15 @@ class MCPClient(ToolProvider):
                     ),
                 ) as session:
                     self._log_debug_with_thread("initializing MCP session")
-                    init_result = await session.initialize()
+                    instructions, caps = await negotiate_session(session)
 
                     self._log_debug_with_thread("session initialized successfully")
-                    # Store server instructions from InitializeResult for Host applications
-                    self.server_instructions = init_result.instructions
+                    # Store server instructions from the handshake for Host applications
+                    self.server_instructions = instructions
                     # Store the session for use while we await the close event
                     self._background_thread_session = session
 
-                    # Cache server task capability immediately after initialization
-                    # Capabilities are exchanged during session.initialize(), so this is available now
-                    caps = session.get_server_capabilities()
+                    # Capabilities are exchanged during the handshake, so this is available now
                     self._server_task_capable = (
                         caps is not None
                         and caps.tasks is not None
@@ -1176,10 +1207,11 @@ class MCPClient(ToolProvider):
             self._log_debug_with_thread("mapping MCP text content")
             return {"text": content.text}
         elif isinstance(content, MCPImageContent):
-            self._log_debug_with_thread("mapping MCP image content with mime type: %s", content.mimeType)
+            image_mime = cast(str, mime_type(content))
+            self._log_debug_with_thread("mapping MCP image content with mime type: %s", image_mime)
             return {
                 "image": {
-                    "format": MIME_TO_FORMAT[content.mimeType],
+                    "format": MIME_TO_FORMAT[image_mime],
                     "source": {"bytes": base64.b64decode(content.data)},
                 }
             }
@@ -1206,9 +1238,10 @@ class MCPClient(ToolProvider):
                     self._log_debug_with_thread("embedded resource blob could not be decoded - dropping")
                     return None
 
-                if resource.mimeType and (
-                    resource.mimeType.startswith("text/")
-                    or resource.mimeType
+                resource_mime = mime_type(resource)
+                if resource_mime and (
+                    resource_mime.startswith("text/")
+                    or resource_mime
                     in (
                         "application/json",
                         "application/xml",
@@ -1216,17 +1249,17 @@ class MCPClient(ToolProvider):
                         "application/yaml",
                         "application/x-yaml",
                     )
-                    or resource.mimeType.endswith(("+json", "+xml"))
+                    or resource_mime.endswith(("+json", "+xml"))
                 ):
                     try:
                         return {"text": raw_bytes.decode("utf-8", errors="replace")}
                     except Exception:
                         pass
 
-                if resource.mimeType in MIME_TO_FORMAT:
+                if resource_mime in MIME_TO_FORMAT:
                     return {
                         "image": {
-                            "format": MIME_TO_FORMAT[resource.mimeType],
+                            "format": MIME_TO_FORMAT[resource_mime],
                             "source": {"bytes": raw_bytes},
                         }
                     }
@@ -1759,7 +1792,7 @@ def _resolve_transport_callable(
     if scheme == "http" and (auth is not None or auth_provider is not None):
         logger.warning("url=<%s> | sending oauth credentials over plaintext http", server_url)
     resolved_auth = _build_client_credentials_auth(server_url, auth) if auth is not None else auth_provider
-    return lambda: streamablehttp_client(url=server_url, headers=headers, auth=resolved_auth)
+    return lambda: streamable_http_transport(url=server_url, headers=headers, auth=resolved_auth)
 
 
 # Matches ${VAR} and ${env:VAR} where VAR is a valid environment variable identifier.
@@ -1849,7 +1882,7 @@ def _config_transport_callable(name: str, transport: str, server: dict[str, Any]
                 raise ValueError(f"server '{name}': streamable-http transport requires 'url'")
             headers = server.get("headers")
             resolved_auth = _parse_config_auth(name, cast(str, url), server.get("auth"))
-            return lambda: streamablehttp_client(url=cast(str, url), headers=headers, auth=resolved_auth)
+            return lambda: streamable_http_transport(url=cast(str, url), headers=headers, auth=resolved_auth)
 
         case "sse":
             url = server.get("url")

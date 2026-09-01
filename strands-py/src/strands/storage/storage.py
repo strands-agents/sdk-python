@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import builtins
 import re
+from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
 from typing_extensions import TypeVar
@@ -11,6 +12,7 @@ from typing_extensions import TypeVar
 from ..types.exceptions import StorageError
 
 ListQuery = TypeVar("ListQuery", default=str, contravariant=True)
+SearchQuery = TypeVar("SearchQuery", default=str, contravariant=True)
 
 _NAMESPACED: object = object()
 """Internal sentinel marking a storage view as already namespace-scoped.
@@ -18,6 +20,23 @@ _NAMESPACED: object = object()
 SDK constructs use this to detect whether the caller already scoped the storage,
 so the default auto-prefix can be skipped.
 """
+
+
+@dataclass
+class StorageSearchResult:
+    """A single result from a storage search call.
+
+    Attributes:
+        key: Storage key of the matched item.
+        score: Relevance score; higher values indicate greater relevance.
+            Backends using distance-based scoring (e.g. vector distance) must
+            invert to similarity before returning results.
+        data: Stored bytes, present only when the backend includes them.
+    """
+
+    key: str
+    score: float
+    data: bytes | None = field(default=None, repr=False)
 
 
 def _normalize_key(key: str) -> str:
@@ -71,7 +90,7 @@ def _normalize_prefix(prefix: str) -> str:
 
 
 @runtime_checkable
-class Storage(Protocol[ListQuery]):
+class Storage(Protocol[ListQuery, SearchQuery]):
     """A backend for storing and retrieving raw bytes under string keys.
 
     The interface is deliberately minimal — four operations over opaque bytes
@@ -143,6 +162,27 @@ class Storage(Protocol[ListQuery]):
         """
         ...
 
+    async def search(self, query: SearchQuery) -> builtins.list[StorageSearchResult]:
+        """Search stored content by query.
+
+        The default implementation uses :class:`~strands.storage.search.KeywordSearchStrategy`
+        (token-overlap scoring over all keys). Backends may override with a richer
+        strategy (vector similarity, full-text index, etc.).
+
+        The ``SearchQuery`` type parameter controls what this method accepts. It defaults
+        to ``str`` (a natural-language query). Implementations may widen it to accept
+        richer query objects (e.g. a pre-computed embedding vector with metadata filters).
+
+        Args:
+            query: A string query or backend-specific query object.
+
+        Returns:
+            Matched keys with relevance scores, ranked best-first.
+        """
+        from .search.keyword import KeywordSearchStrategy
+
+        return await KeywordSearchStrategy().search(self, query)  # type: ignore[arg-type]
+
 
 class _NamespacedStorage:
     """A storage view that prepends a prefix to all keys.
@@ -177,6 +217,21 @@ class _NamespacedStorage:
         keys = await self._storage.list(f"{self._prefix}{query}")
         return [key[len(self._prefix) :] for key in keys]
 
+    async def search(self, query: str) -> builtins.list[StorageSearchResult]:
+        """Search within this namespace, filtering results to the prefix."""
+        results: builtins.list[StorageSearchResult] = await self._storage.search(query)
+        scoped: builtins.list[StorageSearchResult] = []
+        for result in results:
+            if result.key.startswith(self._prefix):
+                scoped.append(
+                    StorageSearchResult(
+                        key=result.key[len(self._prefix) :],
+                        score=result.score,
+                        data=result.data,
+                    )
+                )
+        return scoped
+
     def namespace(self, prefix: str) -> _NamespacedStorage:
         """Return a further-scoped view by nesting prefixes."""
         return _NamespacedStorage(self._storage, f"{self._prefix}{prefix}")
@@ -188,3 +243,25 @@ class _NamespacedStorage:
             return self
         bound = inner.for_sandbox(sandbox)
         return _NamespacedStorage(bound, self._prefix.rstrip("/"))
+
+
+def _resolve_namespace(storage: Storage, prefix: str) -> Storage:
+    """Return a namespaced view unless the storage is already namespaced.
+
+    If already marked with the internal ``_NAMESPACED`` sentinel, return as-is;
+    otherwise delegate to the storage's own ``namespace()`` method or wrap with
+    ``_NamespacedStorage``.
+
+    Args:
+        storage: The storage to scope.
+        prefix: Prefix to apply.
+
+    Returns:
+        A namespaced Storage view (or the original if already namespaced).
+    """
+    if getattr(storage, "_namespaced", None) is _NAMESPACED:
+        return storage
+    if hasattr(storage, "namespace"):
+        result: Storage = storage.namespace(prefix)
+        return result
+    return _NamespacedStorage(storage, prefix)
