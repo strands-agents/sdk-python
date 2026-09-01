@@ -15,6 +15,7 @@ ignores the installed line doesn't need.
 
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from datetime import timedelta
 from typing import Any
 
 import httpx
@@ -25,10 +26,16 @@ __all__ = [
     "MCP_V2",
     "GetSessionIdCallback",
     "MCPError",
+    "input_schema",
+    "is_error",
+    "mime_type",
     "negotiate_session",
     "next_cursor",
+    "output_schema",
+    "read_timeout",
     "resource_templates",
     "streamable_http_transport",
+    "structured_content",
     "task_support",
 ]
 
@@ -53,6 +60,54 @@ except ImportError:
     GetSessionIdCallback = Callable[[], str | None]  # type: ignore[misc, assignment]
 
 
+def input_schema(tool: Any) -> dict[str, Any]:
+    """Read a tool's input schema, on either `mcp` major line.
+
+    `mcp` 2.x renamed the pydantic model fields to snake_case, so the field
+    is `input_schema` there and `inputSchema` on 1.x.
+
+    Args:
+        tool: A `Tool` from a list tools result.
+
+    Returns:
+        The tool's JSON input schema.
+    """
+    schema: dict[str, Any] = tool.input_schema if MCP_V2 else tool.inputSchema
+    return schema
+
+
+def is_error(call_tool_result: Any) -> bool | None:
+    """Read a tool call result's error flag, on either `mcp` major line.
+
+    `mcp` 2.x renamed the pydantic result models' camelCase fields to
+    snake_case, so the field is `is_error` there and `isError` on 1.x.
+
+    Args:
+        call_tool_result: A `CallToolResult` returned by the session.
+
+    Returns:
+        The tool's application-level error flag.
+    """
+    error: bool | None = call_tool_result.is_error if MCP_V2 else call_tool_result.isError
+    return error
+
+
+def mime_type(content: Any) -> str | None:
+    """Read a content or resource block's MIME type, on either `mcp` major line.
+
+    `mcp` 2.x renamed the pydantic model fields to snake_case, so the field
+    is `mime_type` there and `mimeType` on 1.x.
+
+    Args:
+        content: An `ImageContent`, `AudioContent`, or `*ResourceContents` model.
+
+    Returns:
+        The block's MIME type, or None when the model leaves it unset.
+    """
+    mime: str | None = content.mime_type if MCP_V2 else content.mimeType
+    return mime
+
+
 def next_cursor(list_result: Any) -> str | None:
     """Read a paginated list result's continuation cursor, on either `mcp` major line.
 
@@ -67,6 +122,39 @@ def next_cursor(list_result: Any) -> str | None:
     """
     cursor: str | None = list_result.next_cursor if MCP_V2 else list_result.nextCursor
     return cursor
+
+
+def output_schema(tool: Any) -> dict[str, Any] | None:
+    """Read a tool's output schema, on either `mcp` major line.
+
+    `mcp` 2.x renamed the pydantic model fields to snake_case, so the field
+    is `output_schema` there and `outputSchema` on 1.x.
+
+    Args:
+        tool: A `Tool` from a list tools result.
+
+    Returns:
+        The tool's JSON output schema, or None when the tool declares none.
+    """
+    schema: dict[str, Any] | None = tool.output_schema if MCP_V2 else tool.outputSchema
+    return schema
+
+
+def read_timeout(timeout: timedelta | None) -> Any:
+    """Convert a tool call read timeout to the form the installed `mcp` line takes.
+
+    The session `call_tool` takes `read_timeout_seconds` as a `timedelta` on
+    1.x and as a `float` of seconds on 2.x.
+
+    Args:
+        timeout: The timeout from the `MCPClient` public API, if any.
+
+    Returns:
+        The value to pass as the session's `read_timeout_seconds`.
+    """
+    if timeout is None:
+        return None
+    return timeout.total_seconds() if MCP_V2 else timeout
 
 
 def resource_templates(list_result: Any) -> list[Any]:
@@ -84,6 +172,27 @@ def resource_templates(list_result: Any) -> list[Any]:
     """
     templates: list[Any] = list_result.resource_templates if MCP_V2 else list_result.resourceTemplates
     return templates
+
+
+def structured_content(call_tool_result: Any) -> Any:
+    """Read a tool call result's structured content, on either `mcp` major line.
+
+    `mcp` 2.x renamed the pydantic result models' camelCase fields to
+    snake_case, so the field is `structured_content` there and
+    `structuredContent` on 1.x.
+
+    The return is `Any` because the lines type the field differently: 1.x
+    validates it to `dict[str, Any] | None`, while 2.x allows any JSON value
+    (the 2026-07-28 spec lifted the JSON-object restriction). Non-dict values
+    pass through unchanged; callers decide how to surface them.
+
+    Args:
+        call_tool_result: A `CallToolResult` returned by the session.
+
+    Returns:
+        The structured JSON payload, or None when the tool returned none.
+    """
+    return call_tool_result.structured_content if MCP_V2 else call_tool_result.structuredContent
 
 
 def task_support(tool: Any) -> str | None:
