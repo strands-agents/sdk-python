@@ -24,7 +24,6 @@ from strands.hooks import AfterAuxiliaryModelCallEvent, BeforeAuxiliaryModelCall
 from strands.memory.extraction.model_extractor import ModelExtractor
 from strands.memory.extraction.types import ExtractionResult, ExtractorContext
 from strands.types.content import Message
-from strands.types.exceptions import AuxiliaryModelCallCancelledException
 from tests.fixtures.mock_hook_provider import MockHookProvider
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
@@ -89,21 +88,6 @@ async def test_fires_aux_hooks_and_records_usage_on_context_agent():
     assert after_event.source == "extraction"
     assert after_event.stop_response.usage == {"inputTokens": 21, "outputTokens": 7, "totalTokens": 28}
     assert agent.event_loop_metrics.accumulated_usage_by_source["extraction"]["totalTokens"] == 28
-
-
-@pytest.mark.asyncio
-async def test_cancel_hook_aborts_extraction():
-    model = MockedModelProvider([_assistant_text('[{"content": "fact"}]')])
-    extractor = ModelExtractor(model=model)
-    agent = Agent(model=MockedModelProvider([]))
-
-    def cancel(event: BeforeAuxiliaryModelCallEvent) -> None:
-        event.cancel = "extraction blocked"
-
-    agent.hooks.add_callback(BeforeAuxiliaryModelCallEvent, cancel)
-
-    with pytest.raises(AuxiliaryModelCallCancelledException, match="extraction blocked"):
-        await extractor.extract([_user_turn("I like dark mode")], ExtractorContext(agent=agent))
 
 
 @pytest.mark.asyncio

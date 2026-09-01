@@ -20,7 +20,7 @@ from opentelemetry.trace import SpanContext
 from ...models.model import Model
 from ...telemetry.tracer import get_tracer
 from ...types.content import ContentBlock, Message
-from ...types.exceptions import AggregateMemoryError, AuxiliaryModelCallCancelledException
+from ...types.exceptions import AggregateMemoryError
 from ..types import AddMessagesContext, MemoryStore
 from .resolve_extraction_config import _ResolvedExtractionConfig
 from .types import Extractor, ExtractorContext, MemoryMessageFilter
@@ -237,16 +237,6 @@ class ExtractionCoordinator:
                 # leaves backoff state untouched.
                 self._consecutive_failures[id(store)] = 0
                 self._backoff_counters.pop(id(store), None)
-        except AuxiliaryModelCallCancelledException as cancel_error:
-            # A hook cancelled the extraction model call: skip the batch without failure
-            # accounting — the store is healthy. The mark stays advanced, so the batch is
-            # dropped rather than retried: a cancelling hook plausibly wants exactly this
-            # content kept out of memory, and retry-forever would grow the buffer unboundedly.
-            logger.debug(
-                "store=<%s>, reason=<%s> | memory extraction cancelled by hook, batch skipped",
-                store.name,
-                str(cancel_error),
-            )
         except Exception as error:  # noqa: BLE001 - saving must never break the agent loop.
             write_error = error
             self._on_save_failed(store, mark, error)

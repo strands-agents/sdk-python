@@ -175,8 +175,6 @@ async def generate_summary(
 
     Raises:
         RuntimeError: If the model fails to produce a response.
-        AuxiliaryModelCallCancelledException: If a ``BeforeAuxiliaryModelCallEvent`` hook cancelled
-            the summarization call.
     """
     resolved_system_prompt = system_prompt if system_prompt is not None else DEFAULT_SUMMARIZATION_PROMPT
 

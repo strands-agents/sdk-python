@@ -419,34 +419,25 @@ class BeforeAuxiliaryModelCallEvent(HookEvent):
             releases; treat unknown values as opaque rather than exhaustive-match on
             them.
         messages: The messages sent to the model.
+        system_prompt: The system prompt sent to the model, when the call site provides
+            one (e.g. the summarization or extraction instruction). None otherwise.
         invocation_state: State and configuration passed through the agent invocation,
             when the call site has access to it.
-        cancel: When set, cancels the auxiliary model call by raising
-            :class:`~strands.types.exceptions.AuxiliaryModelCallCancelledException`. If a
-            string, used as the cancellation message. How cancellation degrades is up
-            to the auxiliary feature: routing classification declines (the router
-            serves its default model) and memory extraction skips the batch, but
-            cancelling summarization fails the context reduction — in the reactive
-            overflow path the exception propagates out of the agent invocation itself,
-            so the caller sees ``AuxiliaryModelCallCancelledException``.
     """
 
     source: AuxiliaryModelCallSource
     messages: Messages
+    system_prompt: str | None = None
     invocation_state: dict[str, Any] = field(default_factory=dict)
-    cancel: bool | str = False
-
-    def _can_write(self, name: str) -> bool:
-        return name == "cancel"
 
 
 @dataclass
 class AfterAuxiliaryModelCallEvent(HookEvent):
     """Event triggered after an SDK-internal (non-main-loop) model call completes.
 
-    Fired after every :class:`BeforeAuxiliaryModelCallEvent` whose call was not cancelled,
-    whether the call succeeded or raised. See :class:`BeforeAuxiliaryModelCallEvent` for
-    what counts as an auxiliary model call.
+    Fired after every :class:`BeforeAuxiliaryModelCallEvent`, whether the call succeeded
+    or raised. See :class:`BeforeAuxiliaryModelCallEvent` for what counts as an auxiliary
+    model call.
 
     Note: This event uses reverse callback ordering, meaning callbacks registered
     later will be invoked first during cleanup.

@@ -15,7 +15,7 @@ from strands.agent.conversation_manager.compression.context_compression import (
 from strands.agent.conversation_manager.compression.pin_message import partition_pinned, pin_message
 from strands.hooks import AfterAuxiliaryModelCallEvent, BeforeAuxiliaryModelCallEvent
 from strands.types.content import Message
-from strands.types.exceptions import AuxiliaryModelCallCancelledException, ContextWindowOverflowException
+from strands.types.exceptions import ContextWindowOverflowException
 from tests.fixtures.mock_hook_provider import MockHookProvider
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
@@ -218,18 +218,6 @@ class TestGenerateSummary:
         assert after_event.source == "summarization"
         assert after_event.stop_response.usage == {"inputTokens": 12, "outputTokens": 4, "totalTokens": 16}
         assert agent.event_loop_metrics.accumulated_usage_by_source["summarization"]["totalTokens"] == 16
-
-    async def test_cancel_hook_aborts_summarization(self):
-        model = mock_model("Summary")
-        agent = Agent(model=MockedModelProvider([]))
-
-        def cancel(event: BeforeAuxiliaryModelCallEvent) -> None:
-            event.cancel = "summarization blocked"
-
-        agent.hooks.add_callback(BeforeAuxiliaryModelCallEvent, cancel)
-
-        with pytest.raises(AuxiliaryModelCallCancelledException, match="summarization blocked"):
-            await generate_summary([text_msg("user", "hello")], model, agent=agent)
 
     async def test_propagates_model_errors(self):
         model = Mock()

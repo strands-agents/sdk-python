@@ -38,7 +38,6 @@ from strands.memory.extraction.types import (
 )
 from strands.memory.types import AddMessagesContext
 from strands.types.content import Message
-from strands.types.exceptions import AuxiliaryModelCallCancelledException
 
 # A stub model. The coordinator only passes ``default_model`` through to an
 # extractor's context, so any sentinel object suffices.
@@ -294,25 +293,6 @@ async def test_extractor_route_rolls_back_and_retries_batch_on_entry_failure():
     # 2 writes on the first attempt + 2 on the retry.
     assert store.add.call_count == 4
     assert extractor.extract.call_count == 2
-
-
-@pytest.mark.asyncio
-async def test_cancelled_extraction_is_skipped_without_failure_accounting():
-    """A hook-cancelled aux model call means "skip this batch", not "the store is broken"."""
-    extractor = SimpleNamespace()
-    extractor.extract = AsyncMock(side_effect=AuxiliaryModelCallCancelledException("extraction blocked"))
-    store = _make_store("s", ExtractionConfig(trigger=_trigger(), extractor=extractor), sink="add")
-    coordinator = _coordinator(store)
-
-    coordinator.record(_user_msg("x"))
-    await _drive(coordinator, store)
-    await _drive(coordinator, store)
-
-    # No failure streak, no backoff, nothing written; the batch is dropped (mark stays
-    # advanced), so the second drive has nothing new to extract.
-    assert coordinator._consecutive_failures.get(id(store), 0) == 0
-    assert store.add.call_count == 0
-    assert extractor.extract.call_count == 1
 
 
 # --------------------------------------------------------------------------- #

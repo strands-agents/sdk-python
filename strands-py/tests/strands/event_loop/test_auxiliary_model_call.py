@@ -10,7 +10,6 @@ from strands.event_loop._auxiliary_model_call import instrument_auxiliary_model_
 from strands.hooks import AfterAuxiliaryModelCallEvent, BeforeAuxiliaryModelCallEvent
 from strands.types.content import Message, Messages
 from strands.types.event_loop import Metrics, Usage
-from strands.types.exceptions import AuxiliaryModelCallCancelledException
 from tests.fixtures.mock_hook_provider import MockHookProvider
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
@@ -65,6 +64,7 @@ async def test_fires_hook_pair_and_records_usage(agent, hook_provider):
             agent=agent,
             messages=PROMPT_MESSAGES,
             invocation_state=invocation_state,
+            system_prompt="summarize this",
         )
     ]
 
@@ -78,6 +78,7 @@ async def test_fires_hook_pair_and_records_usage(agent, hook_provider):
     assert isinstance(before_event, BeforeAuxiliaryModelCallEvent)
     assert before_event.source == "summarization"
     assert before_event.messages == PROMPT_MESSAGES
+    assert before_event.system_prompt == "summarize this"
     assert before_event.invocation_state == invocation_state
 
     assert isinstance(after_event, AfterAuxiliaryModelCallEvent)
@@ -118,30 +119,6 @@ async def test_before_event_fires_before_stream_body_starts(agent):
 
 
 @pytest.mark.asyncio
-async def test_cancel_never_starts_stream_body(agent):
-    """A cancelling Before hook must prevent the model call entirely."""
-    started = False
-
-    async def stream():
-        nonlocal started
-        started = True
-        yield {"stop": ("end_turn", STOP_MESSAGE, STOP_USAGE, STOP_METRICS)}
-
-    def cancel(event: BeforeAuxiliaryModelCallEvent) -> None:
-        event.cancel = True
-
-    agent.hooks.add_callback(BeforeAuxiliaryModelCallEvent, cancel)
-
-    with pytest.raises(AuxiliaryModelCallCancelledException):
-        async for _ in instrument_auxiliary_model_call(
-            stream(), source="summarization", agent=agent, messages=PROMPT_MESSAGES
-        ):
-            pass
-
-    assert not started
-
-
-@pytest.mark.asyncio
 async def test_agent_none_still_emits_span_but_skips_hooks_and_metrics():
     """Without an owning agent, hooks/metrics are skipped but the call remains traceable."""
     tracer = MagicMock()
@@ -173,7 +150,9 @@ async def test_emits_model_invoke_span_tagged_with_source(agent):
         ):
             pass
 
-    tracer.start_model_invoke_span.assert_called_once_with(messages=PROMPT_MESSAGES, model_id="m-1", system_prompt="sys")
+    tracer.start_model_invoke_span.assert_called_once_with(
+        messages=PROMPT_MESSAGES, model_id="m-1", system_prompt="sys"
+    )
     span = tracer.start_model_invoke_span.return_value
     span.set_attribute.assert_called_once_with("strands.source", "summarization")
     end_call = tracer.end_model_invoke_span.call_args
@@ -208,37 +187,6 @@ async def test_span_ended_without_usage_when_no_stop(agent):
 
     tracer.start_model_invoke_span.return_value.end.assert_called_once()
     tracer.end_model_invoke_span.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_cancel_raises_and_skips_after_event(agent, hook_provider):
-    def cancel(event: BeforeAuxiliaryModelCallEvent) -> None:
-        event.cancel = True
-
-    agent.hooks.add_callback(BeforeAuxiliaryModelCallEvent, cancel)
-
-    with pytest.raises(AuxiliaryModelCallCancelledException, match="auxiliary model call cancelled by hook"):
-        async for _ in instrument_auxiliary_model_call(
-            _stream_with_stop(), source="summarization", agent=agent, messages=PROMPT_MESSAGES
-        ):
-            pass
-
-    assert hook_provider.event_types_received == [BeforeAuxiliaryModelCallEvent]
-    assert agent.event_loop_metrics.accumulated_usage_by_source == {}
-
-
-@pytest.mark.asyncio
-async def test_cancel_with_message_uses_it(agent):
-    def cancel(event: BeforeAuxiliaryModelCallEvent) -> None:
-        event.cancel = "blocked by guardrail"
-
-    agent.hooks.add_callback(BeforeAuxiliaryModelCallEvent, cancel)
-
-    with pytest.raises(AuxiliaryModelCallCancelledException, match="blocked by guardrail"):
-        async for _ in instrument_auxiliary_model_call(
-            _stream_with_stop(), source="summarization", agent=agent, messages=PROMPT_MESSAGES
-        ):
-            pass
 
 
 @pytest.mark.asyncio
@@ -328,11 +276,8 @@ async def test_malformed_usage_payload_is_skipped_without_error(agent, hook_prov
     assert agent.event_loop_metrics.accumulated_usage_by_source == {}
 
 
-def test_before_event_cancel_is_writable_and_source_is_not(agent):
+def test_before_event_is_not_writable(agent):
     event = BeforeAuxiliaryModelCallEvent(agent=agent, source="summarization", messages=PROMPT_MESSAGES)
-
-    event.cancel = True
-    assert event.cancel is True
 
     with pytest.raises(AttributeError, match="Property source is not writable"):
         event.source = "routing"

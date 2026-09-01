@@ -20,7 +20,6 @@ from ..hooks import AfterAuxiliaryModelCallEvent, BeforeAuxiliaryModelCallEvent
 from ..telemetry.tracer import get_tracer
 from ..types.content import Messages
 from ..types.event_loop import AuxiliaryModelCallSource
-from ..types.exceptions import AuxiliaryModelCallCancelledException
 
 if TYPE_CHECKING:
     from ..agent import Agent
@@ -69,33 +68,24 @@ async def instrument_auxiliary_model_call(
         invocation_state: Invocation state to expose on the hook events, when the call
             site has access to it.
         model_id: The model identifier, recorded on the span's ``gen_ai.request.model``.
-        system_prompt: The system prompt sent to the model, recorded on the span.
+        system_prompt: The system prompt sent to the model, exposed on the Before event
+            and recorded on the span.
 
     Yields:
         The events from the wrapped stream, unchanged.
-
-    Raises:
-        AuxiliaryModelCallCancelledException: If a ``BeforeAuxiliaryModelCallEvent`` callback set
-            ``cancel``. The After event does not fire in this case, matching the
-            hook-pair contract for short-circuited Before events.
     """
     resolved_invocation_state = invocation_state if invocation_state is not None else {}
 
     if agent is not None:
-        before_event = BeforeAuxiliaryModelCallEvent(
-            agent=agent,
-            source=source,
-            messages=messages,
-            invocation_state=resolved_invocation_state,
-        )
-        await agent.hooks.invoke_callbacks_async(before_event)
-        if before_event.cancel:
-            cancel_message = (
-                before_event.cancel
-                if isinstance(before_event.cancel, str)
-                else "auxiliary model call cancelled by hook"
+        await agent.hooks.invoke_callbacks_async(
+            BeforeAuxiliaryModelCallEvent(
+                agent=agent,
+                source=source,
+                messages=messages,
+                system_prompt=system_prompt,
+                invocation_state=resolved_invocation_state,
             )
-            raise AuxiliaryModelCallCancelledException(cancel_message)
+        )
 
     tracer = get_tracer()
     span = tracer.start_model_invoke_span(messages=messages, model_id=model_id, system_prompt=system_prompt)
