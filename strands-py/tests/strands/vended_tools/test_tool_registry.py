@@ -636,6 +636,41 @@ class TestUpdateOperation:
         assert registry.dynamic_tools["alpha"].tool_spec["description"] == "overridden on update"
 
     @pytest.mark.asyncio
+    async def test_create_update_delete_removes_tool_cleanly(self, registry_tool, registry: ToolRegistry) -> None:
+        """create → update → delete must leave no trace in registry or dynamic_tools."""
+        ctx = _tool_context(registry)
+        await registry_tool(
+            operation="create", tool_name="alpha", source="weather", remote_name="remote_alpha", tool_context=ctx
+        )
+        await registry_tool(
+            operation="update", tool_name="alpha", source="weather", remote_name="remote_beta", tool_context=ctx
+        )
+        await registry_tool(operation="delete", tool_name="alpha", tool_context=ctx)
+        assert "alpha" not in registry.registry
+        assert "alpha" not in registry.dynamic_tools
+
+    @pytest.mark.asyncio
+    async def test_update_rejected_after_developer_hot_reload(self, registry_tool, registry: ToolRegistry) -> None:
+        """update must be rejected if a developer registered a same-named tool on top."""
+        ctx = _tool_context(registry)
+        await registry_tool(
+            operation="create", tool_name="alpha", source="weather", remote_name="remote_alpha", tool_context=ctx
+        )
+
+        @tool_decorator(name="alpha", description="developer alpha tool")
+        def dev_alpha() -> str:
+            return "dev"
+
+        registry.register_tool(dev_alpha)
+
+        with pytest.raises(ToolRegistryError, match="no longer managed"):
+            await registry_tool(
+                operation="update", tool_name="alpha", source="weather", remote_name="remote_beta", tool_context=ctx
+            )
+
+        assert registry.registry.get("alpha") is dev_alpha
+
+    @pytest.mark.asyncio
     async def test_cannot_update_developer_tool(self, registry_tool, registry: ToolRegistry) -> None:
         with pytest.raises(ToolRegistryError, match="developer-registered"):
             await registry_tool(

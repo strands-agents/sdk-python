@@ -216,17 +216,22 @@ async def _update_tool(
         raise ToolRegistryError(
             f"tool '{tool_name}' was not registered via tool_registry; developer-registered tools cannot be updated"
         )
-    update_token = owned[tool_name]
+    # Snapshot before the await so concurrent tool registry writes are detectable afterward.
+    old_tool = owned[tool_name]
     new_tool = await _resolve_mcp_tool(client, effective_remote, tool_name, description_override)
     # Abort if the registration was replaced by a delete+recreate during the await.
-    if owned.get(tool_name) is not update_token:
+    if owned.get(tool_name) is not old_tool:
         raise ToolRegistryError(
             f"update of '{tool_name}' was cancelled by a concurrent delete before the tool could be re-bound"
         )
+    # Guard against a developer hot-reloading a same-named tool on top since we last checked.
+    if agent_registry.registry.get(tool_name) is not old_tool:
+        raise ToolRegistryError(f"tool '{tool_name}' is no longer managed by tool_registry; it cannot be updated")
     try:
         agent_registry.replace(new_tool)
     except ValueError as err:
         raise ToolRegistryError(str(err)) from err
+    owned[tool_name] = new_tool
     return MutationResult(operation="update", name=tool_name, dynamic_count=len(owned))
 
 
