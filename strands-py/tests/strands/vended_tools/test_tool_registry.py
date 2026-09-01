@@ -10,6 +10,7 @@ validation failures surface as raised ``ToolRegistryError``.
 from __future__ import annotations
 
 import asyncio
+import unittest.mock
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
@@ -102,40 +103,57 @@ def registry_tool(mcp_client: _FakeMCPClient) -> Any:
 class TestListOperation:
     @pytest.mark.asyncio
     async def test_lists_developer_registered_tools_as_not_owned(self, registry_tool, registry: ToolRegistry) -> None:
-        result = await registry_tool(operation="list", tool_context=_tool_context(registry))
-        names = {t["name"]: t for t in result["tools"]}
-        assert "dev_echo" in names
-        assert "dev_ping" in names
-        assert names["dev_echo"]["registered_by_tool_registry"] is False
-        assert names["dev_ping"]["registered_by_tool_registry"] is False
-        assert result["dynamic_count"] == 0
-        assert result["dynamic_limit"] == MAX_DYNAMIC_TOOLS
+        tru_result = await registry_tool(operation="list", tool_context=_tool_context(registry))
+        exp_result = {
+            "tools": [
+                {
+                    "name": "dev_echo",
+                    "description": "developer-registered echo",
+                    "input_schema": {
+                        "json": {
+                            "type": "object",
+                            "properties": {"text": {"description": "Parameter text", "type": "string"}},
+                            "required": ["text"],
+                        }
+                    },
+                    "registered_by_tool_registry": False,
+                },
+                {
+                    "name": "dev_ping",
+                    "description": "developer-registered ping",
+                    "input_schema": {"json": {"type": "object", "properties": {}, "required": []}},
+                    "registered_by_tool_registry": False,
+                },
+            ],
+            "dynamic_count": 0,
+            "dynamic_limit": MAX_DYNAMIC_TOOLS,
+        }
+        assert tru_result == exp_result
 
 
 class TestCreateOperation:
     @pytest.mark.asyncio
     async def test_registers_mcp_tool_and_marks_owned(self, registry_tool, registry: ToolRegistry) -> None:
-        result = await registry_tool(
+        tru_result = await registry_tool(
             operation="create",
             tool_name="alpha",
             source="weather",
             remote_name="remote_alpha",
             tool_context=_tool_context(registry),
         )
-        assert result["operation"] == "create"
-        assert result["name"] == "alpha"
-        assert result["dynamic_count"] == 1
+        exp_result = {"operation": "create", "name": "alpha", "dynamic_count": 1}
+        assert tru_result == exp_result
         assert "alpha" in registry.dynamic_tools
 
     @pytest.mark.asyncio
     async def test_uses_tool_name_as_default_remote_name(self, registry_tool, registry: ToolRegistry) -> None:
-        result = await registry_tool(
+        tru_result = await registry_tool(
             operation="create",
             tool_name="remote_beta",
             source="weather",
             tool_context=_tool_context(registry),
         )
-        assert result["name"] == "remote_beta"
+        assert tru_result == {"operation": "create", "name": "remote_beta", "dynamic_count": 1}
         assert "remote_beta" in registry.dynamic_tools
 
     @pytest.mark.asyncio
@@ -280,24 +298,21 @@ class TestCreateOperation:
                 tool_context=_tool_context(registry),
             )
         # Reservation released on failure.
-        list_result = await registry_tool(
-            operation="list",
-            tool_context=_tool_context(registry),
-        )
-        assert list_result["dynamic_count"] == 0
+        tru_list = await registry_tool(operation="list", tool_context=_tool_context(registry))
+        assert tru_list["dynamic_count"] == 0
 
     @pytest.mark.asyncio
     async def test_accepts_maximum_length_tool_name(self, registry_tool, registry: ToolRegistry) -> None:
         # 64 chars: one leading letter + 63 alphanumeric/underscore characters.
         max_name = "a" * 64
-        result = await registry_tool(
+        tru_result = await registry_tool(
             operation="create",
             tool_name=max_name,
             source="weather",
             remote_name="remote_alpha",
             tool_context=_tool_context(registry),
         )
-        assert result["name"] == max_name
+        assert tru_result == {"operation": "create", "name": max_name, "dynamic_count": 1}
 
     @pytest.mark.asyncio
     async def test_enforces_dynamic_tool_cap(self, mcp_client: _FakeMCPClient, registry: ToolRegistry) -> None:
@@ -409,15 +424,14 @@ class TestCreateOperation:
 
         # Reservation must be released — cap and name are available again.
         monkeypatch.undo()
-        result = await registry_tool(
+        tru_result = await registry_tool(
             operation="create",
             tool_name="alpha",
             source="weather",
             remote_name="remote_alpha",
             tool_context=ctx,
         )
-        assert result["name"] == "alpha"
-        assert result["dynamic_count"] == 1
+        assert tru_result == {"operation": "create", "name": "alpha", "dynamic_count": 1}
 
     @pytest.mark.asyncio
     async def test_concurrent_create_and_update_same_name(
@@ -465,9 +479,8 @@ class TestCreateOperation:
 
         # Release create; it completes normally and alpha is now owned.
         gate.set()
-        result = await create_task
-        assert result["name"] == "alpha"
-        assert result["dynamic_count"] == 1
+        tru_result = await create_task
+        assert tru_result == {"operation": "create", "name": "alpha", "dynamic_count": 1}
         assert "alpha" in registry.dynamic_tools
 
     @pytest.mark.asyncio
@@ -514,7 +527,7 @@ class TestCreateOperation:
             tool_name="alpha",
             tool_context=ctx,
         )
-        assert delete_result["operation"] == "delete"
+        assert delete_result == {"operation": "delete", "name": "alpha", "dynamic_count": 0}
 
         # Release create; it must abort rather than resurrect an orphan.
         gate.set()
@@ -524,8 +537,11 @@ class TestCreateOperation:
         # No orphan in the SDK registry; ownership set is empty.
         assert "alpha" not in registry.dynamic_tools
         assert "alpha" not in registry.registry
-        list_result = await registry_tool(operation="list", tool_context=ctx)
-        assert list_result["dynamic_count"] == 0
+        assert await registry_tool(operation="list", tool_context=ctx) == {
+            "tools": unittest.mock.ANY,
+            "dynamic_count": 0,
+            "dynamic_limit": MAX_DYNAMIC_TOOLS,
+        }
 
 
 class TestUpdateOperation:
@@ -546,9 +562,7 @@ class TestUpdateOperation:
             remote_name="remote_beta",
             tool_context=ctx,
         )
-        assert result["operation"] == "update"
-        assert result["name"] == "alpha"
-        assert result["dynamic_count"] == 1
+        assert result == {"operation": "update", "name": "alpha", "dynamic_count": 1}
         # The adapter points at remote_beta now.
         assert registry.dynamic_tools["alpha"].mcp_tool.name == "remote_beta"
 
@@ -640,7 +654,7 @@ class TestUpdateOperation:
             tool_name="alpha",
             tool_context=ctx,
         )
-        assert delete_result["operation"] == "delete"
+        assert delete_result == {"operation": "delete", "name": "alpha", "dynamic_count": 0}
 
         # Release the update; it must abort rather than resurrect the tool.
         gate.set()
@@ -650,8 +664,11 @@ class TestUpdateOperation:
         # Deletion stuck; no orphan.
         assert "alpha" not in registry.dynamic_tools
         assert "alpha" not in registry.registry
-        list_result = await registry_tool(operation="list", tool_context=ctx)
-        assert list_result["dynamic_count"] == 0
+        assert await registry_tool(operation="list", tool_context=ctx) == {
+            "tools": unittest.mock.ANY,
+            "dynamic_count": 0,
+            "dynamic_limit": MAX_DYNAMIC_TOOLS,
+        }
 
 
 class TestDeleteOperation:
@@ -666,8 +683,7 @@ class TestDeleteOperation:
             tool_context=ctx,
         )
         result = await registry_tool(operation="delete", tool_name="alpha", tool_context=ctx)
-        assert result["operation"] == "delete"
-        assert result["dynamic_count"] == 0
+        assert result == {"operation": "delete", "name": "alpha", "dynamic_count": 0}
         assert "alpha" not in registry.dynamic_tools
 
     @pytest.mark.asyncio
@@ -748,8 +764,8 @@ class TestOperationDispatch:
     async def test_read_only_when_no_mcp_clients_configured(self, registry: ToolRegistry) -> None:
         registry_tool = make_tool_registry()  # empty
         # list still works
-        result = await registry_tool(operation="list", tool_context=_tool_context(registry))
-        assert result["dynamic_limit"] == MAX_DYNAMIC_TOOLS
+        tru_list = await registry_tool(operation="list", tool_context=_tool_context(registry))
+        assert tru_list == {"tools": unittest.mock.ANY, "dynamic_count": 0, "dynamic_limit": MAX_DYNAMIC_TOOLS}
         # create fails
         with pytest.raises(ToolRegistryError, match="unknown source"):
             await registry_tool(
