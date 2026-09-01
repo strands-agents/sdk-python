@@ -15,7 +15,7 @@ are expected to fail with an ``ImportError`` until that implementation exists.
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -178,29 +178,12 @@ async def test_raises_when_no_model_is_configured_and_no_default_is_provided():
 
 
 @pytest.mark.asyncio
-async def test_wraps_the_model_call_in_a_model_invoke_span():
-    """The extraction model call is wrapped in start/end model-invoke spans with usage/metrics."""
-    model = MockedModelProvider([_assistant_text('[{"content": "fact"}]')])
-    extractor = ModelExtractor(model=model)
+async def test_model_failure_propagates():
+    """A model failure during extraction propagates to the caller.
 
-    tracer = MagicMock()
-    with patch("strands.memory.extraction.model_extractor.get_tracer", return_value=tracer):
-        entries = await extractor.extract([_user_turn("x")])
-
-    assert entries == [ExtractionResult(content="fact")]
-    tracer.start_model_invoke_span.assert_called_once()
-    # The terminal stop tuple's usage/metrics/stop_reason are passed through on end.
-    end_call = tracer.end_model_invoke_span.call_args
-    span, message, usage, metrics, stop_reason = end_call.args
-    assert span is tracer.start_model_invoke_span.return_value
-    assert "inputTokens" in usage
-    assert "latencyMs" in metrics
-    tracer.end_span_with_error.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_ends_model_invoke_span_with_error_on_failure():
-    """A model failure ends the span via end_span_with_error and re-raises."""
+    Span/error-span behavior now lives in the shared auxiliary-call helper; see
+    ``tests/strands/event_loop/test_auxiliary_model_call.py``.
+    """
 
     class _BoomModel(MockedModelProvider):
         async def stream(self, *args: Any, **kwargs: Any):  # type: ignore[override]
@@ -209,18 +192,13 @@ async def test_ends_model_invoke_span_with_error_on_failure():
 
     extractor = ModelExtractor(model=_BoomModel([]))
 
-    tracer = MagicMock()
-    with patch("strands.memory.extraction.model_extractor.get_tracer", return_value=tracer):
-        with pytest.raises(RuntimeError, match="model down"):
-            await extractor.extract([_user_turn("x")])
-
-    tracer.end_span_with_error.assert_called_once()
-    tracer.end_model_invoke_span.assert_not_called()
+    with pytest.raises(RuntimeError, match="model down"):
+        await extractor.extract([_user_turn("x")])
 
 
 @pytest.mark.asyncio
-async def test_raises_and_ends_span_when_model_yields_no_stop_event():
-    """A stream that never emits a terminal stop event raises and ends the span with the error."""
+async def test_raises_when_model_yields_no_stop_event():
+    """A stream that never emits a terminal stop event raises 'no response'."""
 
     async def _no_stop_stream(*_args: Any, **_kwargs: Any):
         # An async generator that yields no events at all -> no ``stop`` -> no final message.
@@ -229,13 +207,6 @@ async def test_raises_and_ends_span_when_model_yields_no_stop_event():
 
     extractor = ModelExtractor(model=MockedModelProvider([_assistant_text("ignored")]))
 
-    tracer = MagicMock()
-    with (
-        patch("strands.memory.extraction.model_extractor.get_tracer", return_value=tracer),
-        patch("strands.event_loop.streaming.stream_messages", _no_stop_stream),
-    ):
+    with patch("strands.event_loop.streaming.stream_messages", _no_stop_stream):
         with pytest.raises(RuntimeError, match="model returned no response"):
             await extractor.extract([_user_turn("x")])
-
-    tracer.end_span_with_error.assert_called_once()
-    tracer.end_model_invoke_span.assert_not_called()

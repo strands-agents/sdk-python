@@ -196,6 +196,8 @@ async def generate_summary(
         source="summarization",
         agent=agent,
         messages=summarization_messages,
+        model_id=model.config.get("model_id") if hasattr(model, "config") else None,
+        system_prompt=resolved_system_prompt,
     )
     async for event in events:
         if "stop" in event:

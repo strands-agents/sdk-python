@@ -98,6 +98,8 @@ async def _invoke_classifier(
         messages=request_messages,
         # A shallow copy, so hooks can't add or remove keys in the read-only invocation_state.
         invocation_state=dict(context.invocation_state),
+        model_id=model.config.get("model_id") if hasattr(model, "config") else None,
+        system_prompt=system_prompt,
     )
 
     output: object | None = None

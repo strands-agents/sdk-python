@@ -11,12 +11,8 @@ import json
 import logging
 from typing import Any
 
-from opentelemetry import trace as trace_api
-
 from ...models.model import Model
-from ...telemetry.tracer import get_tracer
 from ...types.content import Message
-from ...types.exceptions import AuxiliaryModelCallCancelledException
 from .types import ExtractionResult, ExtractorContext
 
 logger = logging.getLogger(__name__)
@@ -86,43 +82,26 @@ class ModelExtractor:
         from ...event_loop._auxiliary_model_call import instrument_auxiliary_model_call
         from ...event_loop.streaming import stream_messages
 
-        tracer = get_tracer()
         model_id = model.config.get("model_id") if hasattr(model, "config") else None
-        span = tracer.start_model_invoke_span(messages=[prompt], model_id=model_id, system_prompt=self._system_prompt)
 
         final_message: Message | None = None
-        stop: Any = None
-        try:
-            with trace_api.use_span(span, end_on_exit=False):
-                events = instrument_auxiliary_model_call(
-                    stream_messages(model, self._system_prompt, [prompt], tool_specs=[]),
-                    source="extraction",
-                    agent=context.agent if context else None,
-                    messages=[prompt],
-                )
-                async for event in events:
-                    # The terminal ``ModelStopReason`` event carries
-                    # ``{"stop": (stop_reason, message, usage, metrics)}``.
-                    candidate = event.get("stop")
-                    if candidate is not None:
-                        stop = candidate
-                        final_message = stop[1]
-        except AuxiliaryModelCallCancelledException:
-            # A hook cancelled the call before the model was invoked: close the span
-            # cleanly rather than recording a phantom failed model call.
-            span.end()
-            raise
-        except Exception as error:
-            tracer.end_span_with_error(span, str(error), error)
-            raise
+        events = instrument_auxiliary_model_call(
+            stream_messages(model, self._system_prompt, [prompt], tool_specs=[]),
+            source="extraction",
+            agent=context.agent if context else None,
+            messages=[prompt],
+            model_id=model_id,
+            system_prompt=self._system_prompt,
+        )
+        async for event in events:
+            # The terminal ``ModelStopReason`` event carries
+            # ``{"stop": (stop_reason, message, usage, metrics)}``.
+            candidate = event.get("stop")
+            if candidate is not None:
+                final_message = candidate[1]
 
         if final_message is None:
-            no_response_error = RuntimeError("ModelExtractor: model returned no response")
-            tracer.end_span_with_error(span, str(no_response_error), no_response_error)
-            raise no_response_error
-
-        stop_reason, message, usage, metrics = stop
-        tracer.end_model_invoke_span(span, message, usage, metrics, stop_reason)
+            raise RuntimeError("ModelExtractor: model returned no response")
 
         text = "".join(block.get("text", "") for block in final_message["content"]).strip()
 

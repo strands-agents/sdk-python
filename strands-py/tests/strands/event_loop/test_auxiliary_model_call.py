@@ -1,6 +1,7 @@
 """Tests for the shared auxiliary model call instrumentation helper."""
 
 import asyncio
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -141,15 +142,72 @@ async def test_cancel_never_starts_stream_body(agent):
 
 
 @pytest.mark.asyncio
-async def test_agent_none_passes_events_through_uninstrumented():
-    tru_events = [
-        event
-        async for event in instrument_auxiliary_model_call(
-            _stream_with_stop(), source="summarization", agent=None, messages=PROMPT_MESSAGES
-        )
-    ]
+async def test_agent_none_still_emits_span_but_skips_hooks_and_metrics():
+    """Without an owning agent, hooks/metrics are skipped but the call remains traceable."""
+    tracer = MagicMock()
+    with patch("strands.event_loop._auxiliary_model_call.get_tracer", return_value=tracer):
+        tru_events = [
+            event
+            async for event in instrument_auxiliary_model_call(
+                _stream_with_stop(), source="summarization", agent=None, messages=PROMPT_MESSAGES, model_id="m-1"
+            )
+        ]
 
     assert len(tru_events) == 2
+    tracer.start_model_invoke_span.assert_called_once_with(messages=PROMPT_MESSAGES, model_id="m-1", system_prompt=None)
+    tracer.end_model_invoke_span.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_emits_model_invoke_span_tagged_with_source(agent):
+    """The auxiliary call opens a model-invoke span, tags it with source, and ends it with usage."""
+    tracer = MagicMock()
+    with patch("strands.event_loop._auxiliary_model_call.get_tracer", return_value=tracer):
+        async for _ in instrument_auxiliary_model_call(
+            _stream_with_stop(),
+            source="summarization",
+            agent=agent,
+            messages=PROMPT_MESSAGES,
+            model_id="m-1",
+            system_prompt="sys",
+        ):
+            pass
+
+    tracer.start_model_invoke_span.assert_called_once_with(messages=PROMPT_MESSAGES, model_id="m-1", system_prompt="sys")
+    span = tracer.start_model_invoke_span.return_value
+    span.set_attribute.assert_called_once_with("strands.source", "summarization")
+    end_call = tracer.end_model_invoke_span.call_args
+    assert end_call.args[0] is span
+    assert "inputTokens" in end_call.args[2]
+    tracer.end_span_with_error.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_span_ended_with_error_on_stream_failure(agent):
+    tracer = MagicMock()
+    error = RuntimeError("model failed")
+    with patch("strands.event_loop._auxiliary_model_call.get_tracer", return_value=tracer):
+        with pytest.raises(RuntimeError, match="model failed"):
+            async for _ in instrument_auxiliary_model_call(
+                _stream_that_raises(error), source="summarization", agent=agent, messages=PROMPT_MESSAGES
+            ):
+                pass
+
+    tracer.end_span_with_error.assert_called_once()
+    tracer.end_model_invoke_span.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_span_ended_without_usage_when_no_stop(agent):
+    tracer = MagicMock()
+    with patch("strands.event_loop._auxiliary_model_call.get_tracer", return_value=tracer):
+        async for _ in instrument_auxiliary_model_call(
+            _stream_without_stop(), source="routing", agent=agent, messages=PROMPT_MESSAGES
+        ):
+            pass
+
+    tracer.start_model_invoke_span.return_value.end.assert_called_once()
+    tracer.end_model_invoke_span.assert_not_called()
 
 
 @pytest.mark.asyncio
