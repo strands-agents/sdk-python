@@ -14,7 +14,7 @@ ignores the installed line doesn't need.
 """
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from datetime import timedelta
 from typing import Any
@@ -28,6 +28,7 @@ __all__ = [
     "GetSessionIdCallback",
     "MCPError",
     "call_tool",
+    "get_prompt",
     "input_schema",
     "is_error",
     "is_tools_list_changed",
@@ -35,6 +36,7 @@ __all__ = [
     "negotiate_session",
     "next_cursor",
     "output_schema",
+    "read_resource",
     "read_timeout",
     "resource_templates",
     "streamable_http_transport",
@@ -64,77 +66,35 @@ try:
 except ImportError:
     # mcp 2.x removed protocol sessions, so its transports never yield a
     # session-id callback; the alias survives only to type 1.x transports.
-    from collections.abc import Callable
-
     GetSessionIdCallback = Callable[[], str | None]  # type: ignore[misc, assignment]
 
 
-async def call_tool(
-    session: ClientSession,
-    name: str,
-    arguments: dict[str, Any] | None,
-    read_timeout_seconds: timedelta | None,
-    progress_callback: Any,
-    meta: Any,
-) -> Any:
-    """Call a tool on an active session, on either `mcp` major line.
+async def _drive_input_required(session: ClientSession, call_once: Callable[[Any, str | None], Any]) -> Any:
+    """Retry a 2.x request until it stops returning `InputRequiredResult`.
 
-    The 2026-07-28 spec (SEP-2322) replaced server-initiated requests with
-    multi round-trip requests: instead of sending `elicitation/create` back
-    to the client mid-call, the server returns an `InputRequiredResult`, and
-    the client resolves the embedded input requests and retries the call
-    carrying the responses and the echoed opaque `request_state`. The 2.x
-    branch resolves each embedded request through
-    `session.dispatch_input_request`, the same callback table that serves
-    1.x server-initiated requests, so an `elicitation_callback` passed to
-    `ClientSession` behaves the same on both lines.
+    The 2026-07-28 spec (SEP-2322) replaced server-initiated requests with multi round-trip requests: instead of
+    sending `elicitation/create` back to the client mid-call, the server returns an `InputRequiredResult` from
+    `tools/call`, `prompts/get`, or `resources/read`, and the client resolves the embedded input requests and retries
+    the call carrying the responses and the echoed opaque `request_state`. Each round resolves the embedded requests
+    through `session.dispatch_input_request`, the same callback table that serves 1.x server-initiated requests, so an
+    `elicitation_callback` passed to `ClientSession` behaves the same on both lines.
 
-    The retry loop below stands on public 2.x API only: the `call_tool`
-    keywords, `dispatch_input_request` (whose docstring names exactly this
-    use), and `ClientRequestContext` / `InputRequiredRoundsExceededError`
-    from `mcp.client`. The `mcp` package ships its own loop, but only inside
-    the high-level `mcp.client.Client` (which owns connection lifecycle that
-    `MCPClient` manages itself) and a private module. Embedded requests are
-    dispatched one at a time, so a callback's exception propagates as
-    itself.
+    The `mcp` package ships its own retry loop, but only inside the high-level `mcp.client.Client`, which owns
+    connection lifecycle that `MCPClient` manages itself, so the loop is reimplemented here at the session level.
 
     Args:
         session: An active, negotiated `ClientSession`.
-        name: The tool name as the server knows it.
-        arguments: Arguments to pass to the tool.
-        read_timeout_seconds: Timeout for each request round, if any.
-        progress_callback: Callback for progress notifications, if any.
-        meta: Request metadata (`_meta`) to send with the call, if any.
+        call_once: Sends one request round, taking the input responses and the request state to carry.
 
     Returns:
-        The terminal `CallToolResult`.
+        The terminal result.
 
     Raises:
         MCPError: An embedded input request's callback declined it.
-        InputRequiredRoundsExceededError: The server kept returning
-            `InputRequiredResult` past the round cap.
+        InputRequiredRoundsExceededError: The server kept returning `InputRequiredResult` past the round cap.
     """
-    if not MCP_V2:
-        return await session.call_tool(
-            name, arguments, read_timeout_seconds, progress_callback=progress_callback, meta=meta
-        )
-
     from mcp.client import ClientRequestContext, InputRequiredRoundsExceededError  # type: ignore[attr-defined]
     from mcp.types import ErrorData, InputRequiredResult  # type: ignore[attr-defined]
-
-    timeout = read_timeout(read_timeout_seconds)
-
-    async def call_once(input_responses: Any, request_state: str | None) -> Any:
-        return await session.call_tool(  # type: ignore[call-arg]
-            name,
-            arguments,
-            timeout,  # type: ignore[arg-type]
-            progress_callback=progress_callback,
-            meta=meta,
-            input_responses=input_responses,
-            request_state=request_state,
-            allow_input_required=True,
-        )
 
     result = await call_once(None, None)
     for _ in range(_INPUT_REQUIRED_MAX_ROUNDS):
@@ -150,13 +110,127 @@ async def call_tool(
                 raise MCPError(code=response.code, message=response.message, data=response.data)
             responses[key] = response
         if not responses:
-            # A state-only result asks the client to poll: wait a beat so the
-            # retry loop cannot hammer the server.
+            # A state-only result asks the client to poll: wait a beat so the retry loop cannot hammer the server.
             await asyncio.sleep(_STATE_ONLY_RETRY_DELAY_SECONDS)
         result = await call_once(responses or None, result.request_state)
     if isinstance(result, InputRequiredResult):
         raise InputRequiredRoundsExceededError(_INPUT_REQUIRED_MAX_ROUNDS)
     return result
+
+
+async def call_tool(
+    session: ClientSession,
+    name: str,
+    arguments: dict[str, Any] | None,
+    read_timeout_seconds: timedelta | None,
+    progress_callback: Any,
+    meta: Any,
+) -> Any:
+    """Call a tool on an active session, on either `mcp` major line.
+
+    On the 2.x branch the server may answer with an `InputRequiredResult` mid-call. `_drive_input_required`
+    resolves the embedded input requests and retries until the call reaches a terminal result.
+
+    Args:
+        session: An active, negotiated `ClientSession`.
+        name: The tool name as the server knows it.
+        arguments: Arguments to pass to the tool.
+        read_timeout_seconds: Timeout for each request round, if any.
+        progress_callback: Callback for progress notifications, if any.
+        meta: Request metadata (`_meta`) to send with the call, if any.
+
+    Returns:
+        The terminal `CallToolResult`.
+
+    Raises:
+        MCPError: An embedded input request's callback declined it.
+        InputRequiredRoundsExceededError: The server kept returning `InputRequiredResult` past the round cap.
+    """
+    if not MCP_V2:
+        return await session.call_tool(
+            name, arguments, read_timeout_seconds, progress_callback=progress_callback, meta=meta
+        )
+
+    timeout = read_timeout(read_timeout_seconds)
+
+    async def call_once(input_responses: Any, request_state: str | None) -> Any:
+        return await session.call_tool(  # type: ignore[call-arg]
+            name,
+            arguments,
+            timeout,  # type: ignore[arg-type]
+            progress_callback=progress_callback,
+            meta=meta,
+            input_responses=input_responses,
+            request_state=request_state,
+            allow_input_required=True,
+        )
+
+    return await _drive_input_required(session, call_once)
+
+
+async def get_prompt(session: ClientSession, name: str, arguments: dict[str, str] | None) -> Any:
+    """Get a prompt on an active session, on either `mcp` major line.
+
+    On the 2.x branch the server may answer with an `InputRequiredResult` mid-call. `_drive_input_required`
+    resolves the embedded input requests and retries until the call reaches a terminal result.
+
+    Args:
+        session: An active, negotiated `ClientSession`.
+        name: The prompt name as the server knows it.
+        arguments: Arguments to pass to the prompt.
+
+    Returns:
+        The terminal `GetPromptResult`.
+
+    Raises:
+        MCPError: An embedded input request's callback declined it.
+        InputRequiredRoundsExceededError: The server kept returning `InputRequiredResult` past the round cap.
+    """
+    if not MCP_V2:
+        return await session.get_prompt(name, arguments=arguments)
+
+    async def call_once(input_responses: Any, request_state: str | None) -> Any:
+        return await session.get_prompt(  # type: ignore[call-arg]
+            name,
+            arguments=arguments,
+            input_responses=input_responses,
+            request_state=request_state,
+            allow_input_required=True,
+        )
+
+    return await _drive_input_required(session, call_once)
+
+
+async def read_resource(session: ClientSession, uri: Any) -> Any:
+    """Read a resource on an active session, on either `mcp` major line.
+
+    On the 2.x branch the server may answer with an `InputRequiredResult` mid-call. `_drive_input_required`
+    resolves the embedded input requests and retries until the call reaches a terminal result.
+
+    Args:
+        session: An active, negotiated `ClientSession`.
+        uri: The resource URI. 1.x takes the pydantic `AnyUrl` model. 2.x takes a plain string, so anything
+            `str()` accepts works there.
+
+    Returns:
+        The terminal `ReadResourceResult`.
+
+    Raises:
+        MCPError: An embedded input request's callback declined it.
+        InputRequiredRoundsExceededError: The server kept returning `InputRequiredResult` past the round cap.
+    """
+    if not MCP_V2:
+        return await session.read_resource(uri)
+
+    async def call_once(input_responses: Any, request_state: str | None) -> Any:
+        return await session.read_resource(  # type: ignore[call-arg]
+            str(uri),  # type: ignore[arg-type]
+            input_responses=input_responses,
+            request_state=request_state,
+            allow_input_required=True,
+        )
+
+    return await _drive_input_required(session, call_once)
 
 
 def input_schema(tool: Any) -> dict[str, Any]:
