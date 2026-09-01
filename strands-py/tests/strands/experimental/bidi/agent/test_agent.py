@@ -143,6 +143,16 @@ def test_bidi_agent_init_with_various_configurations():
     assert config["audio"]["channels"] == 1
 
 
+def test_bidi_agent_system_prompt_setter(mock_model):
+    """Test setting the system prompt updates its content blocks."""
+    agent = BidiAgent(model=mock_model, system_prompt="initial prompt")
+
+    agent.system_prompt = "updated prompt"
+
+    assert agent.system_prompt == "updated prompt"
+    assert agent.system_prompt_content == [{"text": "updated prompt"}]
+
+
 def test_bidi_agent_tool_emits_shared_hook_events_and_retries(mock_model):
     """Test BidiAgent emits shared tool hook events and honors retry requests."""
     call_count = 0
