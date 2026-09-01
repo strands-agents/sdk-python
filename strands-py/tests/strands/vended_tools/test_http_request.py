@@ -587,6 +587,29 @@ class TestRedirectCredentialSafety:
             await tool(method="GET", url="https://example.com/start")
 
     @pytest.mark.asyncio
+    async def test_redirect_stops_when_next_request_is_none(self):
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(302, headers={"location": "https://other.com/page"}, text="redirecting")
+
+        client = httpx.AsyncClient(
+            transport=_make_transport(handler),
+            follow_redirects=True,
+        )
+        original_send = client.send
+
+        async def send_nulling_next_request(*args, **kwargs):
+            response = await original_send(*args, **kwargs)
+            response.next_request = None
+            return response
+
+        client.send = send_nulling_next_request  # type: ignore[assignment]
+        tool = make_http_request(client=client)
+        result = await tool(method="GET", url="https://example.com/start")
+
+        assert result["status"] == 302
+        assert result["body"] == "redirecting"
+
+    @pytest.mark.asyncio
     async def test_https_upgrade_preserves_headers(self):
         captured: dict[str, dict[str, str]] = {}
 
