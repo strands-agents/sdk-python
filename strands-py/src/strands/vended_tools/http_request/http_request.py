@@ -9,9 +9,9 @@ control over transport configuration, authentication, proxies, timeouts,
 redirects, and connection pooling.
 
 When redirects are enabled on the client, the tool follows them manually
-so that credential headers can be stripped on cross-origin hops. Only
+so that credential headers can be stripped on cross-host hops. Only
 standard transport headers (``accept``, ``user-agent``, etc.) survive a
-redirect to a different origin; operator-configured credentials and
+redirect to a different host; operator-configured credentials and
 model-supplied auth tokens are dropped.
 
 The parent agent's cancel signal (``Agent._cancel_signal``) is propagated so
@@ -34,18 +34,8 @@ from .types import DEFAULT_HTTP_REQUEST_DESCRIPTION, HttpMethod, HttpRequestOutp
 if TYPE_CHECKING:
     from ...tools.decorator import DecoratedFunctionTool
 
-_SAFE_REDIRECT_HEADERS: frozenset[str] = frozenset(
-    {
-        "accept",
-        "accept-encoding",
-        "connection",
-        "host",
-        "user-agent",
-    }
-)
-"""Header names safe to forward on a cross-origin redirect."""
-
-_DEFAULT_SCHEME_PORTS: dict[str, int] = {"http": 80, "https": 443}
+_SAFE_REDIRECT_HEADERS: frozenset[str] = frozenset({"accept", "accept-encoding", "connection", "host", "user-agent"})
+"""Header names safe to forward on a cross-host redirect."""
 
 
 class HttpRequestError(RuntimeError):
@@ -121,47 +111,9 @@ http_request = make_http_request()
 # ---- Internals ----
 
 
-def _port_or_default(url: httpx.URL) -> int:
-    """Return the explicit port, or the default for the URL's scheme."""
-    if url.port is not None:
-        return url.port
-    return _DEFAULT_SCHEME_PORTS.get(url.scheme, 0)
-
-
-def _is_safe_redirect(original: httpx.URL, target: httpx.URL) -> bool:
-    """Return True if credentials may be forwarded to the redirect target.
-
-    Same-origin redirects and HTTP-to-HTTPS upgrades on the same host are
-    considered safe.  An upgrade from ``http://h/`` to ``https://h/`` (both
-    using their scheme's default port) is safe because no explicit port
-    changed.
-    """
-    if (
-        original.scheme == target.scheme
-        and original.host == target.host
-        and _port_or_default(original) == _port_or_default(target)
-    ):
-        return True
-
-    if (
-        original.host == target.host
-        and original.port == target.port
-        and original.scheme == "http"
-        and target.scheme == "https"
-    ):
-        return True
-
-    return False
-
-
-def _safe_redirect_headers(headers: httpx.Headers) -> httpx.Headers:
-    """Strip all non-default headers for a cross-origin redirect.
-
-    Only httpx's standard transport headers (accept, user-agent, etc.) are
-    retained.  Everything else — operator credentials, model-supplied auth
-    tokens, custom API keys — is stripped to prevent credential leakage.
-    """
-    return httpx.Headers({key: value for key, value in headers.items() if key.lower() in _SAFE_REDIRECT_HEADERS})
+def _strip_headers_for_cross_host(headers: httpx.Headers) -> httpx.Headers:
+    """Keep only safe transport headers, dropping everything else."""
+    return httpx.Headers({k: v for k, v in headers.items() if k.lower() in _SAFE_REDIRECT_HEADERS})
 
 
 def _resolve_timeout(
@@ -210,7 +162,7 @@ async def _perform_request(
     """Perform the HTTP request, following redirects with credential safety.
 
     When the client has ``follow_redirects=True``, redirects are followed
-    manually so that credential headers can be stripped on cross-origin hops.
+    manually so that credential headers can be stripped on cross-host hops.
     The response body is streamed so the cancel signal can be checked between
     chunks.
     """
@@ -267,8 +219,8 @@ async def _perform_request(
                 if next_request is None:
                     break
 
-                if not _is_safe_redirect(request.url, next_request.url):
-                    next_request.headers = _safe_redirect_headers(next_request.headers)
+                if request.url.host != next_request.url.host:
+                    next_request.headers = _strip_headers_for_cross_host(next_request.headers)
 
                 request = next_request
 
