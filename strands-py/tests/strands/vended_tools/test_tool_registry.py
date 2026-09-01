@@ -18,6 +18,7 @@ import pytest
 from mcp.types import Tool as MCPTool
 
 from strands.tools.decorator import tool as tool_decorator
+from strands.tools.mcp.mcp_agent_tool import MCPAgentTool
 from strands.tools.registry import ToolRegistry
 from strands.types import PaginatedList
 from strands.types.tools import ToolContext
@@ -25,6 +26,7 @@ from strands.vended_tools.tool_registry import (
     ToolRegistryError,
     make_tool_registry,
 )
+from strands.vended_tools.tool_registry import tool_registry as trmod
 from strands.vended_tools.tool_registry.types import MAX_DYNAMIC_TOOLS
 
 
@@ -40,9 +42,6 @@ class _FakeMCPClient:
     tools: list[MCPTool]
 
     def list_tools_sync(self, pagination_token: str | None = None, **kwargs: Any) -> PaginatedList[Any]:
-        # Import here to avoid a cycle when tests are collected before mcp submodule init.
-        from strands.tools.mcp.mcp_agent_tool import MCPAgentTool
-
         adapted = [MCPAgentTool(t, self) for t in self.tools]  # type: ignore[arg-type]
         return PaginatedList(adapted, token=None)
 
@@ -97,7 +96,7 @@ def mcp_client() -> _FakeMCPClient:
 def registry_tool(mcp_client: _FakeMCPClient) -> Any:
     # Cast MCPClient explicitly via typing.Any to sidestep the isinstance check
     # in the tool factory; the factory only requires the ``list_tools_sync`` API.
-    return make_tool_registry(mcp_clients={"weather": mcp_client})  # type: ignore[dict-item]
+    return make_tool_registry(mcp_clients={"weather": mcp_client})
 
 
 class TestListOperation:
@@ -153,6 +152,19 @@ class TestCreateOperation:
         assert spec["description"] == "custom text"
 
     @pytest.mark.asyncio
+    async def test_rejects_empty_description_override(self, registry_tool, registry: ToolRegistry) -> None:
+        for bad_desc in ["", "   "]:
+            with pytest.raises(ToolRegistryError, match="non-empty"):
+                await registry_tool(
+                    operation="create",
+                    tool_name="alpha",
+                    source="weather",
+                    remote_name="remote_alpha",
+                    description_override=bad_desc,
+                    tool_context=_tool_context(registry),
+                )
+
+    @pytest.mark.asyncio
     async def test_rejects_unknown_source(self, registry_tool, registry: ToolRegistry) -> None:
         with pytest.raises(ToolRegistryError, match="unknown source"):
             await registry_tool(
@@ -198,7 +210,7 @@ class TestCreateOperation:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "bad",
-        ["", "1_starts_with_digit", "has-dash", "has space", "toolname!", "a" * 65],
+        ["", "1_starts_with_digit", "has-dash", "has space", "toolname!", "a" * 65, "weather\n"],
     )
     async def test_rejects_invalid_tool_name(self, registry_tool, registry: ToolRegistry, bad: str) -> None:
         with pytest.raises(ToolRegistryError, match="invalid tool name"):
@@ -252,7 +264,7 @@ class TestCreateOperation:
         exception type from the tool.
         """
         registry_tool = make_tool_registry(
-            mcp_clients={"weather": mcp_client},  # type: ignore[dict-item]
+            mcp_clients={"weather": mcp_client},
         )
 
         def raise_duplicate(_tool: Any) -> None:
@@ -291,7 +303,7 @@ class TestCreateOperation:
     async def test_enforces_dynamic_tool_cap(self, mcp_client: _FakeMCPClient, registry: ToolRegistry) -> None:
         # Cap at 2 so we can exhaust it quickly.
         registry_tool = make_tool_registry(
-            mcp_clients={"weather": mcp_client},  # type: ignore[dict-item]
+            mcp_clients={"weather": mcp_client},
             max_dynamic_tools=2,
         )
         ctx = _tool_context(registry)
@@ -321,18 +333,12 @@ class TestCreateOperation:
     ) -> None:
         cap = 2
         registry_tool = make_tool_registry(
-            mcp_clients={"weather": mcp_client},  # type: ignore[dict-item]
+            mcp_clients={"weather": mcp_client},
             max_dynamic_tools=cap,
         )
         ctx = _tool_context(registry)
 
-        # `_resolve_mcp_tool` in production never yields (list_tools_sync is
-        # sync), so gather-scheduled invocations would serialize and the old
-        # check-then-write ordering would also pass this test. Monkey-patch a
-        # yielding fake so each concurrent create actually suspends between
-        # its cap check and its registry write, exercising the race window.
-        from strands.vended_tools.tool_registry import tool_registry as trmod
-
+        # Replace _resolve_mcp_tool with a version that yields to let concurrent creates overlap.
         real_resolve = trmod._resolve_mcp_tool
 
         async def yielding_resolve(*args: Any, **kwargs: Any) -> Any:
@@ -362,6 +368,109 @@ class TestCreateOperation:
         assert len(failures) == cap
 
     @pytest.mark.asyncio
+    async def test_cancellation_releases_reservation(
+        self,
+        mcp_client: _FakeMCPClient,
+        registry: ToolRegistry,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A task cancelled during the MCP round-trip must not leak its cap slot or name reservation.
+
+        Without the fix (except Exception instead of except BaseException), the
+        CancelledError bypasses the cleanup branch, leaving the name in `owned`
+        permanently — subsequent creates hit "already registered" and the cap
+        error says to delete a tool that doesn't exist.
+        """
+        registry_tool = make_tool_registry(
+            mcp_clients={"weather": mcp_client},
+        )
+        ctx = _tool_context(registry)
+
+        async def hanging_resolve(*args: Any, **kwargs: Any) -> Any:
+            # Park indefinitely so the task can be cancelled mid-await.
+            await asyncio.Event().wait()
+            raise AssertionError("unreachable")  # pragma: no cover
+
+        monkeypatch.setattr(trmod, "_resolve_mcp_tool", hanging_resolve)
+
+        create_task = asyncio.create_task(
+            registry_tool(
+                operation="create",
+                tool_name="alpha",
+                source="weather",
+                remote_name="remote_alpha",
+                tool_context=ctx,
+            )
+        )
+        await asyncio.sleep(0)  # let the task reach the await
+        create_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await create_task
+
+        # Reservation must be released — cap and name are available again.
+        monkeypatch.undo()
+        result = await registry_tool(
+            operation="create",
+            tool_name="alpha",
+            source="weather",
+            remote_name="remote_alpha",
+            tool_context=ctx,
+        )
+        assert result["name"] == "alpha"
+        assert result["dynamic_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_concurrent_create_and_update_same_name(
+        self,
+        mcp_client: _FakeMCPClient,
+        registry: ToolRegistry,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A concurrent update on a name that is only pending (in-flight create) must be rejected."""
+        registry_tool = make_tool_registry(
+            mcp_clients={"weather": mcp_client},
+        )
+        ctx = _tool_context(registry)
+
+        real_resolve = trmod._resolve_mcp_tool
+        gate = asyncio.Event()
+
+        async def gated_resolve(*args: Any, **kwargs: Any) -> Any:
+            await gate.wait()
+            return await real_resolve(*args, **kwargs)
+
+        monkeypatch.setattr(trmod, "_resolve_mcp_tool", gated_resolve)
+
+        # Start create and let it park on the gate (name is now in pending, not owned).
+        create_task = asyncio.create_task(
+            registry_tool(
+                operation="create",
+                tool_name="alpha",
+                source="weather",
+                remote_name="remote_alpha",
+                tool_context=ctx,
+            )
+        )
+        await asyncio.sleep(0)
+
+        # Concurrent update on the same name must be rejected — alpha is only pending.
+        with pytest.raises(ToolRegistryError, match="developer-registered"):
+            await registry_tool(
+                operation="update",
+                tool_name="alpha",
+                source="weather",
+                remote_name="remote_beta",
+                tool_context=ctx,
+            )
+
+        # Release create; it completes normally and alpha is now owned.
+        gate.set()
+        result = await create_task
+        assert result["name"] == "alpha"
+        assert result["dynamic_count"] == 1
+        assert "alpha" in registry.dynamic_tools
+
+    @pytest.mark.asyncio
     async def test_does_not_orphan_reservation_on_concurrent_delete(
         self,
         mcp_client: _FakeMCPClient,
@@ -370,11 +479,9 @@ class TestCreateOperation:
     ) -> None:
         """A `delete` landing between `create`'s reservation and write must not orphan."""
         registry_tool = make_tool_registry(
-            mcp_clients={"weather": mcp_client},  # type: ignore[dict-item]
+            mcp_clients={"weather": mcp_client},
         )
         ctx = _tool_context(registry)
-
-        from strands.vended_tools.tool_registry import tool_registry as trmod
 
         real_resolve = trmod._resolve_mcp_tool
         gate = asyncio.Event()
@@ -491,7 +598,7 @@ class TestUpdateOperation:
         no longer track.
         """
         registry_tool = make_tool_registry(
-            mcp_clients={"weather": mcp_client},  # type: ignore[dict-item]
+            mcp_clients={"weather": mcp_client},
         )
         ctx = _tool_context(registry)
 
@@ -503,8 +610,6 @@ class TestUpdateOperation:
             remote_name="remote_alpha",
             tool_context=ctx,
         )
-
-        from strands.vended_tools.tool_registry import tool_registry as trmod
 
         real_resolve = trmod._resolve_mcp_tool
         gate = asyncio.Event()
@@ -579,9 +684,7 @@ class TestDeleteOperation:
     @pytest.mark.asyncio
     async def test_does_not_leak_ownership_between_registries(self, mcp_client: _FakeMCPClient) -> None:
         """Two agents sharing a factory bind their own ownership sets."""
-        registry_tool_shared = make_tool_registry(
-            mcp_clients={"weather": mcp_client}  # type: ignore[dict-item]
-        )
+        registry_tool_shared = make_tool_registry(mcp_clients={"weather": mcp_client})
         reg_a = ToolRegistry()
         reg_b = ToolRegistry()
 
@@ -605,9 +708,9 @@ class TestDeleteOperation:
     @pytest.mark.asyncio
     async def test_two_factories_on_one_agent_do_not_collide(self, mcp_client: _FakeMCPClient) -> None:
         """Two separate factories on one agent track ownership independently."""
-        factory_a = make_tool_registry(mcp_clients={"weather": mcp_client})  # type: ignore[dict-item]
+        factory_a = make_tool_registry(mcp_clients={"weather": mcp_client})
         factory_b = make_tool_registry(
-            mcp_clients={"weather": mcp_client},  # type: ignore[dict-item]
+            mcp_clients={"weather": mcp_client},
             name="tool_registry_b",
         )
         reg = ToolRegistry()

@@ -11,7 +11,7 @@ from typing_extensions import NotRequired
 # capped at 64 characters. Stricter than the underlying registry (which also allows '-')
 # because the dynamically-registered tool name is echoed into user-visible spec strings
 # and log messages; disallowing '-' keeps every generated identifier a legal Python name.
-TOOL_NAME_PATTERN: re.Pattern[str] = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,63}$")
+TOOL_NAME_PATTERN: re.Pattern[str] = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,63}\Z")
 """Regex enforced on all dynamically-registered tool names."""
 
 MAX_DYNAMIC_TOOLS: int = 32

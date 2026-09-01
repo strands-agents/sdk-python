@@ -16,9 +16,7 @@ exposes four operations to the model:
 
 ``create`` only accepts tools from the pre-connected MCP clients supplied via ``mcp_clients``;
 filesystem paths and inline source code are out of scope because both introduce a
-code-execution attack surface disproportionate to the benefit. The blast radius is
-intentionally bounded to whatever the developer-approved MCP servers already expose.
-Consumers that need those flows should build a separate, more locked-down tool.
+code-execution attack surface disproportionate to the benefit.
 """
 
 from __future__ import annotations
@@ -67,8 +65,10 @@ def _validate_tool_name(name: str) -> None:
 def _find_normalized_conflict(registry: ToolRegistry, name: str) -> str | None:
     """Return an existing registry name that collides with ``name``.
 
-    The SDK's normalized-name rule treats ``-`` and ``_`` as equivalent. We replicate the
-    check here to fail with a clear ToolRegistryError rather than a bare ValueError from the SDK.
+    The SDK's normalized-name rule treats ``-`` and ``_`` as equivalent.
+    ``register_dynamic_tool`` does not, so we replicate the check here to keep
+    the tool_registry surface consistent with ``register_tool`` and to fail
+    with a clear ToolRegistryError rather than a bare ValueError from the SDK.
     """
     normalized = name.replace("-", "_")
     for existing in list(registry.registry.keys()) + list(registry.dynamic_tools.keys()):
@@ -89,9 +89,7 @@ async def _resolve_mcp_tool(
 
     ``list_tools_sync`` is a blocking network call, so it is dispatched to a
     worker thread with :func:`asyncio.to_thread`; without that the whole event
-    loop would stall on the round-trip. The suspension point is real, which is
-    what makes the reservation and concurrent-delete/update guards reachable in
-    production the same way the tests exercise them.
+    loop would stall on the round-trip.
 
     Raises:
         ToolRegistryError: If ``remote_name`` is not exposed by the MCP server.
@@ -224,6 +222,9 @@ def make_tool_registry(
             raise ToolRegistryError(f"'tool_name' is required for operation '{operation}'")
         _validate_tool_name(tool_name)
 
+        if description_override is not None and not description_override.strip():
+            raise ToolRegistryError("description_override must be non-empty; omit it to keep the server's description")
+
         # Never allow this tool to remove or replace itself.
         if tool_name == name:
             raise ToolRegistryError(f"cannot {operation} the tool_registry tool ('{tool_name}') itself")
@@ -236,7 +237,6 @@ def make_tool_registry(
                 )
             # Guard against external tampering removing the tool between calls.
             agent_registry.dynamic_tools.pop(tool_name, None)
-            agent_registry.registry.pop(tool_name, None)
             owned.discard(tool_name)
             return MutationResult(operation="delete", name=tool_name, dynamic_count=len(owned))
 
@@ -276,13 +276,13 @@ def make_tool_registry(
                 except ValueError as err:
                     # Concurrent registration can still land a duplicate between the checks and write.
                     raise ToolRegistryError(str(err)) from err
-            except Exception:
+            except BaseException:
                 owned.discard(tool_name)
                 raise
             return MutationResult(operation="create", name=tool_name, dynamic_count=len(owned))
 
         # operation == "update"
-        if tool_name not in owned:
+        if tool_name not in owned or tool_name not in agent_registry.dynamic_tools:
             raise ToolRegistryError(
                 f"tool '{tool_name}' was not registered via tool_registry; developer-registered tools cannot be updated"
             )
@@ -294,8 +294,6 @@ def make_tool_registry(
             )
         # Replace under the same name, keeping ownership.
         agent_registry.dynamic_tools[tool_name] = new_tool
-        if tool_name in agent_registry.registry:
-            agent_registry.registry[tool_name] = new_tool
         return MutationResult(operation="update", name=tool_name, dynamic_count=len(owned))
 
     return tool_registry_tool
