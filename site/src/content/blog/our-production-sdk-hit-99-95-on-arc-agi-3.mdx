@@ -19,7 +19,7 @@ We wondered how crucial Anthropic's harness was when they reported Fable 5 [comp
 
 Although Fable 5 beat Pokémon FireRed with an agent harness that took screenshots, it [failed](https://arcprize.org/results/anthropic-claude-fable-5) to complete all game puzzle levels in ARC-AGI-1 and ARC-AGI-2 without a harness. Granted Anthropic isn’t permitted to use a harness for its ARC-AGI set, our team felt curious using our harness with a weaker model for this benchmark. We tested our open source Strands Harness SDK with Opus 5 and [achieved](https://arcprize.org/scorecards/8a10b024-3560-448f-ac31-becc48affe5b) a 99.95% ARC-AGI-3 score with all levels completed.
 
-This was fun given our day-to-day is maintaining an open source agent framework. Achieving a 99.95% score with Opus 5 and our harness, [compared](https://arcprize.org/results/anthropic-claude-opus-5) to Opus 5's current 30.16% score, highlights how much intelligence gets left on the table. Through the power of a well-constructed agent loop and basic tools (e.g. `bash`, `grep`, file operations), our harness enabled Opus 5 to solve all levels without needing a single screenshot. Similarly, NVIDIA's AVO harness with Opus 5 [scored](https://developer.nvidia.com/blog/nvidia-avo-reaches-100-on-arc-agi-3-demonstrating-a-frontier-level-general-purpose-architecture-for-long-horizon-autonomous-agents/?ncid=so-twit-543600) a 100% on ARC-AGI-3. We made our harness code [public](https://github.com/strands-labs/benchmark-harnesses/tree/main/arc-agi-3-agent).
+Achieving a 99.95% score with Opus 5 and our harness, [compared](https://arcprize.org/results/anthropic-claude-opus-5) to Opus 5's current 30.16% score, highlights how much intelligence gets left on the table without a harness. Through the power of a well-constructed agent loop and basic tools (e.g. `bash`, `grep`, file operations), our harness enabled Opus 5 to solve all levels without needing a single screenshot.
 
 <video
   src={arcAgiVideo}
@@ -34,9 +34,11 @@ This was fun given our day-to-day is maintaining an open source agent framework.
 
 <div style="text-align: center">
 
-*Example of ARC-AGI-3 puzzle done by a human*
+*Example of ARC-AGI-3 puzzle being done by a human. Our agent did this without a vision harness.*
 
 </div>
+
+Similarly, NVIDIA's AVO harness with Opus 5 [scored](https://developer.nvidia.com/blog/nvidia-avo-reaches-100-on-arc-agi-3-demonstrating-a-frontier-level-general-purpose-architecture-for-long-horizon-autonomous-agents/?ncid=so-twit-543600) a 100% on ARC-AGI-3. We made our harness code [public](https://github.com/strands-labs/benchmark-harnesses/tree/main/arc-agi-3-agent).
 
 ## Our agent did its own context-engineering
 
@@ -45,43 +47,39 @@ Our harness first renders ARC-AGI-3's numeric grid as text. The runner stores th
 The loop kicks off when the action queue is empty, triggering the runner to invoke the agent. Opus 5 can repeatedly search logs, write and run shell or Python scripts, check the results, then adjust its strategy.
 
 ```python
-def _build_prompt(
-        self,
-        log_path: Path,
-        action_num: int,
-        is_first: bool,
-        retry_nudge: str = "",
-        **kwargs: Any,
-    ) -> str:
-        if is_first:
-            body = (
-                f"Read the full game log at {log_path.name}\n\n"
-                "This is the first analysis. Analyze the board state and write "
-                f"{_ACTIONS_FILE} with your first set of actions."
-            )
-        else:
-            body = (
-                f"Read {log_path.name}"
-                + (
-                    f" (last {self._log_window} actions)."
-                    if (self._log_window or 0) > 0
-                    else "."
-                )
-                + " Recent actions and boards are at the end of the log; what changed "
-                "since the last call (new moves, score transitions, plan adherence) "
-                "can be informative.\n\n"
-                f"Score: {kwargs.get('score', 0)} | Action: {action_num} | "
-                f"Level: {kwargs.get('level', 1)}\n"
-                f"Last actions: {kwargs.get('last_actions', 'none')}\n\n"
-                f"Check the workspace for anything you saved previously, then write a "
-                f"new {_ACTIONS_FILE}."
-            )
-        return f"{body}\n\n{retry_nudge}" if retry_nudge else body
+def analyze(self, log_path, action_num, **kwargs):
+    workspace = log_path.parent
+    key = str(log_path)
+    is_first = self._call_count.get(key, 0) == 0
+    self._call_count[key] = self._call_count.get(key, 0) + 1
+
+    # PRO-LONG clears the action file every call — the plan is rebuilt from the log.
+    actions_path = workspace / _ACTIONS_FILE
+    if actions_path.exists():
+        actions_path.unlink()
+
+    agent = Agent(
+        model=self._build_model(*self._route_for(key)),
+        tools=make_prolong_tools(workspace),
+        system_prompt=self._build_system_prompt(),
+        callback_handler=None,
+    )
+    result = agent(self._build_prompt(log_path, action_num, is_first, **kwargs))
+
+    if not actions_path.exists():
+        # Model finished its turn without writing the plan. Instead of a cold
+        # retry, nudge the same agent — this keeps the conversation and prompt cache.
+        agent(f"You have not written {_ACTIONS_FILE} yet. Write it now ...")
+
+    actions = self._parse_actions_json_text(
+        actions_path.read_text(errors="replace"), cap=self._action_cap
+    )
+    return {"actions": actions, "plan": self._extract_tag(str(result), "PLAN")}
 ```
 
 <div style="text-align: center">
 
-*Source: [GitHub](https://github.com/strands-labs/benchmark-harnesses/blob/main/arc-agi-3-agent/prolong_agent/agent/strands_agent.py#L313-L344)*
+*Source: [GitHub](https://github.com/strands-labs/benchmark-harnesses/blob/main/arc-agi-3-agent/prolong_agent/agent/strands_agent.py#L348-L494)*
 
 </div>
 
