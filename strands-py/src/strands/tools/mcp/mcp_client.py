@@ -68,12 +68,12 @@ from ._compat import (
     mime_type,
     negotiate_session,
     next_cursor,
-    read_timeout,
     resource_templates,
     streamable_http_transport,
     structured_content,
     task_support,
 )
+from ._compat import call_tool as compat_call_tool
 from .mcp_agent_tool import MCPAgentTool
 from .mcp_instrumentation import inject_trace_context, mcp_instrumentation
 from .mcp_tasks import DEFAULT_TASK_CONFIG, DEFAULT_TASK_POLL_TIMEOUT, DEFAULT_TASK_TTL, TasksConfig
@@ -819,7 +819,8 @@ class MCPClient(ToolProvider):
         Args:
             name: Name of the tool to call.
             arguments: Optional arguments to pass to the tool.
-            read_timeout_seconds: Optional timeout for the tool call.
+            read_timeout_seconds: Optional timeout for the tool call. On the mcp 2.x line, the timeout
+                bounds each request round of a multi round-trip tool call rather than the call as a whole.
             meta: Optional metadata to pass to the tool call per MCP spec (_meta).
             progress_callback: Optional callback to receive progress notifications.
                 If None, falls back to the instance-level callback set at construction time.
@@ -877,13 +878,15 @@ class MCPClient(ToolProvider):
                     request_id = getattr(session, "_request_id", None)
                     if isinstance(request_id, int):
                         cancellation_state["request_id"] = request_id
-                return await session.call_tool(
+                result = await compat_call_tool(
+                    session,
                     name,
                     arguments,
-                    read_timeout(read_timeout_seconds),
-                    progress_callback=effective_callback,
-                    meta=meta,
+                    read_timeout_seconds,
+                    effective_callback,
+                    meta,
                 )
+                return cast(MCPCallToolResult, result)
 
             return _call_tool_direct()
 
@@ -907,7 +910,8 @@ class MCPClient(ToolProvider):
             tool_use_id: Unique identifier for this tool use
             name: Name of the tool to call
             arguments: Optional arguments to pass to the tool
-            read_timeout_seconds: Optional timeout for the tool call
+            read_timeout_seconds: Optional timeout for the tool call. On the mcp 2.x line, the timeout
+                bounds each request round of a multi round-trip tool call rather than the call as a whole.
             meta: Optional metadata to pass to the tool call per MCP spec (_meta)
             progress_callback: Optional callback to receive progress notifications for this
                 call. Overrides the instance-level callback set at construction time.
@@ -964,7 +968,8 @@ class MCPClient(ToolProvider):
             tool_use_id: Unique identifier for this tool use
             name: Name of the tool to call
             arguments: Optional arguments to pass to the tool
-            read_timeout_seconds: Optional timeout for the tool call
+            read_timeout_seconds: Optional timeout for the tool call. On the mcp 2.x line, the timeout
+                bounds each request round of a multi round-trip tool call rather than the call as a whole.
             meta: Optional metadata to pass to the tool call per MCP spec (_meta)
             progress_callback: Optional callback to receive progress notifications for this
                 call. Overrides the instance-level callback set at construction time.
@@ -1074,8 +1079,10 @@ class MCPClient(ToolProvider):
             content=mapped_contents,
         )
 
+        # `is not None`, not truthiness: the 2026-07-28 spec allows any JSON
+        # value here, so 0, False, "", [], and {} are all valid payloads.
         structured_payload = structured_content(call_tool_result)
-        if structured_payload:
+        if structured_payload is not None:
             result["structuredContent"] = structured_payload
         if call_tool_result.meta:
             result["metadata"] = call_tool_result.meta
