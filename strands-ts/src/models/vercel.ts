@@ -344,6 +344,15 @@ function applyBedrockCache(
   if (!isCacheStrategySupported(cacheConfig)) return
   if (!bedrockModelSupportsCaching(cacheConfig, modelId)) return
 
+  // The amazon-bedrock ai-sdk adapter accepts no tool-level cache point, so toolsTTL does nothing here.
+  // Tool definitions are cached only as part of the system/messages prefix.
+  if (cacheConfig.toolsTTL !== undefined && cacheConfig.toolsTTL !== true) {
+    warnOnce(
+      logger,
+      'toolsTTL=<${toolsTTL}> | toolsTTL has no effect on the amazon-bedrock vercel adapter, it accepts no tool-level cache point'
+    )
+  }
+
   const systemPrompt = resolveCacheSection(cacheConfig.systemPromptTTL, cacheConfig.ttl)
   if (systemPrompt.enabled) {
     const system = callOptions.prompt.find((message) => message.role === 'system')

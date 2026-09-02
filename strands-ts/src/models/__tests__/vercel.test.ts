@@ -1283,6 +1283,28 @@ describe('VercelModel', () => {
         expect(bedrockToolCachePoint(callArgs())).toBeUndefined()
       })
 
+      it('warns once that a configured toolsTTL has no effect', async () => {
+        const config = { cacheConfig: { toolsTTL: '1h' as const } }
+        const { collect } = setupCaptureTest(minimalParts, config, 'amazon-bedrock', CACHING_MODEL_ID)
+        await collect(userMessages, { toolSpecs })
+
+        expect(warnOnce).toHaveBeenCalledWith(
+          expect.objectContaining({ warn: expect.any(Function) }),
+          expect.stringContaining('toolsTTL has no effect on the amazon-bedrock vercel adapter')
+        )
+      })
+
+      it('does not warn when toolsTTL is left at its enabled default', async () => {
+        const config = { cacheConfig: { toolsTTL: true as const } }
+        const { collect } = setupCaptureTest(minimalParts, config, 'amazon-bedrock', CACHING_MODEL_ID)
+        await collect(userMessages, { toolSpecs })
+
+        expect(warnOnce).not.toHaveBeenCalledWith(
+          expect.objectContaining({ warn: expect.any(Function) }),
+          expect.stringContaining('toolsTTL has no effect')
+        )
+      })
+
       it('disables a section set to false', async () => {
         const config = { cacheConfig: { ttl: '1h', systemPromptTTL: false as const, messagesTTL: false as const } }
         const { collect, callArgs } = setupCaptureTest(minimalParts, config, 'amazon-bedrock', CACHING_MODEL_ID)
