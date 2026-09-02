@@ -8,7 +8,20 @@ servers.
 
 from .mcp_agent_tool import MCPAgentTool
 from .mcp_client import MCPClient, MCPServerConfig, ToolFilters
-from .mcp_tasks import TasksConfig
+from .mcp_tasks import (
+    MCPCancelTaskResult,
+    MCPCreateTaskResult,
+    MCPGetTaskResult,
+    MCPInputRequest,
+    MCPInputRequests,
+    MCPInputResponse,
+    MCPInputResponses,
+    MCPTask,
+    MCPTaskError,
+    MCPTaskStatus,
+    MCPUpdateTaskResult,
+    TasksConfig,
+)
 from .mcp_types import MCPClientCredentials, MCPTransport, ToolsChanged, ToolsChangedCallback
 
 __all__ = [
@@ -17,6 +30,17 @@ __all__ = [
     "MCPClientCredentials",
     "MCPServerConfig",
     "MCPTransport",
+    "MCPCancelTaskResult",
+    "MCPCreateTaskResult",
+    "MCPGetTaskResult",
+    "MCPInputRequest",
+    "MCPInputRequests",
+    "MCPInputResponse",
+    "MCPInputResponses",
+    "MCPTask",
+    "MCPTaskError",
+    "MCPTaskStatus",
+    "MCPUpdateTaskResult",
     "TasksConfig",
     "ToolFilters",
     "ToolsChanged",

@@ -21,12 +21,12 @@ from asyncio import AbstractEventLoop
 from collections.abc import Callable, Coroutine, Sequence
 from concurrent import futures
 from contextlib import AsyncExitStack
-from datetime import timedelta
+from datetime import datetime, timedelta
 from importlib.metadata import version as pkg_version
 from pathlib import Path
 from re import Pattern
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, TypeVar, cast
+from typing import Any, TypeVar, cast
 from urllib.parse import urlparse
 
 import anyio
@@ -71,9 +71,12 @@ from ._compat import (
     mime_type,
     negotiate_session,
     next_cursor,
+    read_timeout,
     resource_templates,
+    server_task_capable,
     streamable_http_transport,
     structured_content,
+    task_session_kwargs,
     task_support,
     tools_changed_subscription,
 )
@@ -82,13 +85,29 @@ from ._compat import get_prompt as compat_get_prompt
 from ._compat import read_resource as compat_read_resource
 from .mcp_agent_tool import MCPAgentTool
 from .mcp_instrumentation import inject_trace_context, mcp_instrumentation
-from .mcp_tasks import DEFAULT_TASK_CONFIG, DEFAULT_TASK_POLL_TIMEOUT, DEFAULT_TASK_TTL, TasksConfig
+from .mcp_tasks import (
+    _TASKS_EXTENSION,
+    _TASKS_PROTOCOL_VERSION,
+    DEFAULT_TASK_CONFIG,
+    DEFAULT_TASK_POLL_INTERVAL,
+    DEFAULT_TASK_POLL_TIMEOUT,
+    DEFAULT_TASK_REQUEST_TIMEOUT,
+    DEFAULT_TASK_TTL,
+    MCPCancelTaskResult,
+    MCPCreateTaskResult,
+    MCPGetTaskResult,
+    MCPInputRequest,
+    MCPInputResponses,
+    MCPUpdateTaskResult,
+    TasksConfig,
+    _CancelTaskRequest,
+    _CancelTaskRequestParams,
+    _GetTaskRequest,
+    _GetTaskRequestParams,
+    _UpdateTaskRequest,
+    _UpdateTaskRequestParams,
+)
 from .mcp_types import MCPClientCredentials, MCPToolResult, MCPTransport, ToolsChanged
-
-if TYPE_CHECKING:
-    # Only the mcp 1.x line spells this name; the runtime import stays inside
-    # the tasks-enabled branch of __init__.
-    from mcp.types import TaskExecutionMode
 
 logger = logging.getLogger(__name__)
 
@@ -309,8 +328,8 @@ class MCPClient(ToolProvider):
                 Called with `(progress, total, message)` as the server reports progress. The `total`
                 and `message` parameters may be `None` if the server does not provide them.
             tasks_config: Configuration for MCP task-augmented execution for long-running tools.
-                If provided (not None), enables task-augmented execution for tools that support it.
-                See TasksConfig for details. This feature is experimental and subject to change.
+                On MCP 2.x, this enables finalized SEP-2663 Tasks support. On MCP 1.x, it
+                enables the legacy task workflow. See TasksConfig for details.
             on_tools_changed: Optional callback invoked after the server announces a change to its
                 tool list and the client refreshes it. Called with the previous tool names and the
                 refreshed tool instances. Registering it turns on the refresh: the client listens
@@ -372,11 +391,7 @@ class MCPClient(ToolProvider):
         self._tasks_config = tasks_config
         self._server_task_capable: bool | None = None
 
-        # Conditionally set up the task support cache (old SDK versions don't expose TaskExecutionMode)
-        if self._is_tasks_enabled():
-            from mcp.types import TaskExecutionMode
-
-            self._tool_task_support_cache: dict[str, TaskExecutionMode] = {}
+        self._tool_task_support_cache: dict[str, str] = {}
 
     def __enter__(self) -> "MCPClient":
         """Context manager entry point which initializes the MCP server connection.
@@ -709,7 +724,7 @@ class MCPClient(ToolProvider):
         for tool in list_tools_response.tools:
             if self._is_tasks_enabled():
                 # Cache taskSupport for task-augmented execution decisions
-                self._tool_task_support_cache[tool.name] = cast("TaskExecutionMode", task_support(tool) or "forbidden")
+                self._tool_task_support_cache[tool.name] = task_support(tool) or "forbidden"
 
             # Apply prefix if specified
             if effective_prefix:
@@ -901,13 +916,22 @@ class MCPClient(ToolProvider):
 
         if use_task:
             self._log_debug_with_thread("tool=<%s> | using task-augmented execution", name)
-            if effective_callback is not None:
+            if effective_callback is not None and not MCP_V2:
                 logger.warning(
                     "tool=<%s> | progress callbacks are ignored when task-augmented execution is enabled",
                     name,
                 )
 
             async def _call_as_task() -> MCPCallToolResult:
+                if MCP_V2:
+                    return await self._call_tool_with_task_and_poll_async(
+                        name,
+                        arguments,
+                        poll_timeout=read_timeout_seconds,
+                        meta=meta,
+                        progress_callback=effective_callback,
+                        cancellation_state=cancellation_state,
+                    )
                 # When task-augmented execution is used, use the read_timeout_seconds parameter
                 # (which is a timedelta) for the polling timeout.
                 return await self._call_tool_as_task_and_poll_async(
@@ -1065,6 +1089,245 @@ class MCPClient(ToolProvider):
             logger.exception("tool execution failed")
             return self._handle_tool_execution_error(tool_use_id, e)
 
+    def call_tool_with_task_sync(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: timedelta | None = None,
+        meta: dict[str, Any] | None = None,
+        progress_callback: ProgressFnT | None = None,
+    ) -> MCPCallToolResult | MCPCreateTaskResult:
+        """Call a tool once and return its direct result or SEP-2663 task handle.
+
+        This protocol-level operation never polls a returned task.
+
+        Args:
+            name: Name of the tool to call.
+            arguments: Optional arguments to pass to the tool.
+            read_timeout_seconds: Optional timeout for the request.
+            meta: Optional MCP request metadata.
+            progress_callback: Optional progress callback for the request.
+
+        Returns:
+            The direct tool result or server-created task handle.
+
+        Raises:
+            MCPClientInitializationError: If the client session is not running.
+            RuntimeError: If finalized task support is unavailable.
+        """
+        if not self._is_session_active():
+            raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
+        if not self._is_tasks_enabled():
+            raise RuntimeError("SEP-2663 task-aware tool calls require MCPClient tasks_config")
+        result = self._invoke_on_background_thread(
+            self._call_tool_with_task_once_async(
+                name,
+                arguments,
+                read_timeout_seconds or self._get_task_config().get("request_timeout", DEFAULT_TASK_REQUEST_TIMEOUT),
+                inject_trace_context(meta),
+                progress_callback if progress_callback is not None else self._progress_callback,
+            )
+        ).result()
+        if isinstance(result, MCPCreateTaskResult):
+            self._require_modern_task_lifecycle()
+        return result
+
+    async def call_tool_with_task_async(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: timedelta | None = None,
+        meta: dict[str, Any] | None = None,
+        progress_callback: ProgressFnT | None = None,
+    ) -> MCPCallToolResult | MCPCreateTaskResult:
+        """Asynchronously call a tool once without polling a returned task.
+
+        Args:
+            name: Name of the tool to call.
+            arguments: Optional arguments to pass to the tool.
+            read_timeout_seconds: Optional timeout for the request.
+            meta: Optional MCP request metadata.
+            progress_callback: Optional progress callback for the request.
+
+        Returns:
+            The direct tool result or server-created task handle.
+
+        Raises:
+            MCPClientInitializationError: If the client session is not running.
+            RuntimeError: If finalized task support is unavailable.
+        """
+        if not self._is_session_active():
+            raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
+        if not self._is_tasks_enabled():
+            raise RuntimeError("SEP-2663 task-aware tool calls require MCPClient tasks_config")
+        future = self._invoke_on_background_thread(
+            self._call_tool_with_task_once_async(
+                name,
+                arguments,
+                read_timeout_seconds or self._get_task_config().get("request_timeout", DEFAULT_TASK_REQUEST_TIMEOUT),
+                inject_trace_context(meta),
+                progress_callback if progress_callback is not None else self._progress_callback,
+            )
+        )
+        result = await asyncio.wrap_future(future)
+        if isinstance(result, MCPCreateTaskResult):
+            self._require_modern_task_lifecycle()
+        return result
+
+    def get_task_sync(self, task_id: str, read_timeout_seconds: timedelta | None = None) -> MCPGetTaskResult:
+        """Synchronously retrieve the current state of a SEP-2663 task.
+
+        Args:
+            task_id: Server-issued task identifier.
+            read_timeout_seconds: Optional timeout for the request.
+
+        Returns:
+            The task's validated current state.
+
+        Raises:
+            MCPClientInitializationError: If the client session is not running.
+            RuntimeError: If finalized task support is unavailable.
+            ValueError: If ``task_id`` is empty.
+        """
+        if not self._is_session_active():
+            raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
+        if not task_id:
+            raise ValueError("task_id must not be empty")
+        return self._invoke_on_background_thread(self._get_task_async(task_id, read_timeout_seconds)).result()
+
+    async def get_task_async(self, task_id: str, read_timeout_seconds: timedelta | None = None) -> MCPGetTaskResult:
+        """Asynchronously retrieve the current state of a SEP-2663 task.
+
+        Args:
+            task_id: Server-issued task identifier.
+            read_timeout_seconds: Optional timeout for the request.
+
+        Returns:
+            The task's validated current state.
+
+        Raises:
+            MCPClientInitializationError: If the client session is not running.
+            RuntimeError: If finalized task support is unavailable.
+            ValueError: If ``task_id`` is empty.
+        """
+        if not self._is_session_active():
+            raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
+        if not task_id:
+            raise ValueError("task_id must not be empty")
+        return await asyncio.wrap_future(
+            self._invoke_on_background_thread(self._get_task_async(task_id, read_timeout_seconds))
+        )
+
+    def update_task_sync(
+        self,
+        task_id: str,
+        input_responses: MCPInputResponses,
+        read_timeout_seconds: timedelta | None = None,
+    ) -> MCPUpdateTaskResult:
+        """Synchronously supply responses to a task's outstanding input requests.
+
+        Args:
+            task_id: Server-issued task identifier.
+            input_responses: Responses keyed by the corresponding input request keys.
+            read_timeout_seconds: Optional timeout for the request.
+
+        Returns:
+            The server's validated acknowledgement.
+
+        Raises:
+            MCPClientInitializationError: If the client session is not running.
+            RuntimeError: If finalized task support is unavailable.
+            TypeError: If ``input_responses`` is not a dictionary.
+            ValueError: If ``task_id`` is empty.
+        """
+        if not self._is_session_active():
+            raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
+        if not task_id:
+            raise ValueError("task_id must not be empty")
+        if not isinstance(input_responses, dict):
+            raise TypeError("input_responses must be a dictionary")
+        return self._invoke_on_background_thread(
+            self._update_task_async(task_id, input_responses, read_timeout_seconds)
+        ).result()
+
+    async def update_task_async(
+        self,
+        task_id: str,
+        input_responses: MCPInputResponses,
+        read_timeout_seconds: timedelta | None = None,
+    ) -> MCPUpdateTaskResult:
+        """Asynchronously supply responses to a task's outstanding input requests.
+
+        Args:
+            task_id: Server-issued task identifier.
+            input_responses: Responses keyed by the corresponding input request keys.
+            read_timeout_seconds: Optional timeout for the request.
+
+        Returns:
+            The server's validated acknowledgement.
+
+        Raises:
+            MCPClientInitializationError: If the client session is not running.
+            RuntimeError: If finalized task support is unavailable.
+            TypeError: If ``input_responses`` is not a dictionary.
+            ValueError: If ``task_id`` is empty.
+        """
+        if not self._is_session_active():
+            raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
+        if not task_id:
+            raise ValueError("task_id must not be empty")
+        if not isinstance(input_responses, dict):
+            raise TypeError("input_responses must be a dictionary")
+        return await asyncio.wrap_future(
+            self._invoke_on_background_thread(self._update_task_async(task_id, input_responses, read_timeout_seconds))
+        )
+
+    def cancel_task_sync(self, task_id: str, read_timeout_seconds: timedelta | None = None) -> MCPCancelTaskResult:
+        """Synchronously request cooperative cancellation of a SEP-2663 task.
+
+        Args:
+            task_id: Server-issued task identifier.
+            read_timeout_seconds: Optional timeout for the request.
+
+        Returns:
+            The server's validated acknowledgement.
+
+        Raises:
+            MCPClientInitializationError: If the client session is not running.
+            RuntimeError: If finalized task support is unavailable.
+            ValueError: If ``task_id`` is empty.
+        """
+        if not self._is_session_active():
+            raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
+        if not task_id:
+            raise ValueError("task_id must not be empty")
+        return self._invoke_on_background_thread(self._cancel_task_async(task_id, read_timeout_seconds)).result()
+
+    async def cancel_task_async(
+        self, task_id: str, read_timeout_seconds: timedelta | None = None
+    ) -> MCPCancelTaskResult:
+        """Asynchronously request cooperative cancellation of a SEP-2663 task.
+
+        Args:
+            task_id: Server-issued task identifier.
+            read_timeout_seconds: Optional timeout for the request.
+
+        Returns:
+            The server's validated acknowledgement.
+
+        Raises:
+            MCPClientInitializationError: If the client session is not running.
+            RuntimeError: If finalized task support is unavailable.
+            ValueError: If ``task_id`` is empty.
+        """
+        if not self._is_session_active():
+            raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
+        if not task_id:
+            raise ValueError("task_id must not be empty")
+        return await asyncio.wrap_future(
+            self._invoke_on_background_thread(self._cancel_task_async(task_id, read_timeout_seconds))
+        )
+
     def _handle_tool_execution_error(self, tool_use_id: str, exception: Exception) -> MCPToolResult:
         """Create error ToolResult with consistent logging and elicitation callback support.
 
@@ -1176,6 +1439,7 @@ class MCPClient(ToolProvider):
                         if self._application_name
                         else None
                     ),
+                    **task_session_kwargs(self._is_tasks_enabled()),
                 ) as session:
                     self._log_debug_with_thread("initializing MCP session")
                     instructions, caps = await negotiate_session(session)
@@ -1187,13 +1451,7 @@ class MCPClient(ToolProvider):
                     self._background_thread_session = session
 
                     # Capabilities are exchanged during the handshake, so this is available now
-                    self._server_task_capable = (
-                        caps is not None
-                        and caps.tasks is not None
-                        and caps.tasks.requests is not None
-                        and caps.tasks.requests.tools is not None
-                        and caps.tasks.requests.tools.call is not None
-                    )
+                    self._server_task_capable = server_task_capable(caps)
                     self._log_debug_with_thread(
                         "server_task_capable=<%s> | cached server task capability", self._server_task_capable
                     )
@@ -1476,7 +1734,7 @@ class MCPClient(ToolProvider):
         try:
             cancellation: Coroutine[Any, Any, Any]
             if task_id := cancellation_state.get("task_id"):
-                cancellation = session.experimental.cancel_task(task_id)
+                cancellation = self._cancel_task_async(task_id) if MCP_V2 else session.experimental.cancel_task(task_id)
             elif (request_id := cancellation_state.get("request_id")) is not None:
                 cancellation = session.send_notification(
                     ClientNotification(
@@ -1638,6 +1896,8 @@ class MCPClient(ToolProvider):
         return TasksConfig(
             ttl=task_config.get("ttl", DEFAULT_TASK_TTL),
             poll_timeout=task_config.get("poll_timeout", DEFAULT_TASK_POLL_TIMEOUT),
+            request_timeout=task_config.get("request_timeout", DEFAULT_TASK_REQUEST_TIMEOUT),
+            poll_interval=task_config.get("poll_interval", DEFAULT_TASK_POLL_INTERVAL),
         )
 
     def _has_server_task_support(self) -> bool:
@@ -1669,6 +1929,9 @@ class MCPClient(ToolProvider):
         # Opt-in check: tasks must be explicitly enabled via tasks config
         if not self._is_tasks_enabled():
             return False
+
+        if MCP_V2:
+            return self._has_server_task_support()
 
         # Local import to avoid errors on old SDK versions that don't support Tasks
         from mcp.types import TASK_OPTIONAL, TASK_REQUIRED
@@ -1707,14 +1970,223 @@ class MCPClient(ToolProvider):
     # Task-Augmented Tool Execution
     # ==================================================================================
     #
-    # The MCP spec defines task-augmented execution for long-running tools. The flow is:
-    #
-    #   1. Check server capability (tasks.requests.tools.call) and tool setting (taskSupport)
-    #   2. If using tasks: call_tool_as_task() -> poll_task() -> get_task_result()
-    #   3. If not using tasks: call_tool() directly
-    #
-    # See: https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks
+    # MCP 2.x uses finalized SEP-2663: tools/call returns an immediate result or task,
+    # followed by tasks/get, tasks/update, and tasks/cancel as needed. MCP 1.x retains
+    # the legacy 2025-11-25 workflow implemented below the modern lifecycle.
     # ==================================================================================
+
+    def _require_modern_task_lifecycle(self) -> ClientSession:
+        """Return the active session after validating SEP-2663 availability."""
+        if not MCP_V2:
+            raise RuntimeError("SEP-2663 task operations require mcp 2.x")
+        if not self._is_tasks_enabled():
+            raise RuntimeError("SEP-2663 task operations require MCPClient tasks_config")
+        if not self._has_server_task_support():
+            raise RuntimeError(f"MCP server did not advertise the {_TASKS_EXTENSION} extension")
+
+        session = cast(ClientSession, self._background_thread_session)
+        if getattr(session, "protocol_version", None) != _TASKS_PROTOCOL_VERSION:
+            raise RuntimeError(f"SEP-2663 task operations require negotiated MCP protocol {_TASKS_PROTOCOL_VERSION}")
+        return session
+
+    async def _call_tool_with_task_once_async(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None,
+        read_timeout_seconds: timedelta | None,
+        meta: dict[str, Any] | None,
+        progress_callback: ProgressFnT | None,
+    ) -> MCPCallToolResult | MCPCreateTaskResult:
+        """Invoke modern ``tools/call`` and resolve any core input-required rounds."""
+        if not MCP_V2:
+            raise RuntimeError("SEP-2663 task-aware tool calls require mcp 2.x")
+
+        result = await compat_call_tool(
+            cast(ClientSession, self._background_thread_session),
+            name,
+            arguments,
+            read_timeout_seconds,
+            progress_callback,
+            meta,
+            allow_claimed=True,
+        )
+        return cast(MCPCallToolResult | MCPCreateTaskResult, result)
+
+    async def _get_task_async(self, task_id: str, read_timeout_seconds: timedelta | None = None) -> MCPGetTaskResult:
+        """Send a finalized ``tasks/get`` request."""
+        session = cast(Any, self._require_modern_task_lifecycle())
+        timeout = read_timeout_seconds or self._get_task_config().get("request_timeout", DEFAULT_TASK_REQUEST_TIMEOUT)
+        result = cast(
+            MCPGetTaskResult,
+            await session.send_request(
+                _GetTaskRequest(params=_GetTaskRequestParams(task_id=task_id)),
+                MCPGetTaskResult,
+                request_read_timeout_seconds=read_timeout(timeout),
+            ),
+        )
+        if result.task_id != task_id:
+            raise ValueError("MCP tasks/get response returned a different taskId")
+        return result
+
+    async def _update_task_async(
+        self,
+        task_id: str,
+        input_responses: MCPInputResponses,
+        read_timeout_seconds: timedelta | None = None,
+    ) -> MCPUpdateTaskResult:
+        """Send a finalized ``tasks/update`` request."""
+        session = cast(Any, self._require_modern_task_lifecycle())
+        timeout = read_timeout_seconds or self._get_task_config().get("request_timeout", DEFAULT_TASK_REQUEST_TIMEOUT)
+        return cast(
+            MCPUpdateTaskResult,
+            await session.send_request(
+                _UpdateTaskRequest(params=_UpdateTaskRequestParams(task_id=task_id, input_responses=input_responses)),
+                MCPUpdateTaskResult,
+                request_read_timeout_seconds=read_timeout(timeout),
+            ),
+        )
+
+    async def _cancel_task_async(
+        self, task_id: str, read_timeout_seconds: timedelta | None = None
+    ) -> MCPCancelTaskResult:
+        """Send a finalized ``tasks/cancel`` request."""
+        session = cast(Any, self._require_modern_task_lifecycle())
+        timeout = read_timeout_seconds or self._get_task_config().get("request_timeout", DEFAULT_TASK_REQUEST_TIMEOUT)
+        return cast(
+            MCPCancelTaskResult,
+            await session.send_request(
+                _CancelTaskRequest(params=_CancelTaskRequestParams(task_id=task_id)),
+                MCPCancelTaskResult,
+                request_read_timeout_seconds=read_timeout(timeout),
+            ),
+        )
+
+    async def _fulfill_task_input(
+        self,
+        task_id: str,
+        key: str,
+        request: MCPInputRequest,
+        read_timeout_seconds: timedelta,
+    ) -> None:
+        """Fulfill one input request carried by an input-required task."""
+        import mcp.types as mcp_types
+        from mcp.client.session import ClientRequestContext  # type: ignore[attr-defined]
+
+        session = cast(Any, self._require_modern_task_lifecycle())
+        params = getattr(request, "params", None)
+        context = ClientRequestContext(
+            session=session,
+            request_id=key,
+            meta=getattr(params, "meta", None),
+        )
+        response = await session.dispatch_input_request(context, request)
+        error_data_type = mcp_types.ErrorData
+        if isinstance(response, error_data_type):
+            raise MCPError.from_error_data(response)
+        await self._update_task_async(task_id, {key: response}, read_timeout_seconds)
+
+    async def _complete_modern_task(
+        self,
+        task: MCPCreateTaskResult,
+        cancellation_state: _CallCancellationState | None,
+    ) -> MCPCallToolResult:
+        """Poll a SEP-2663 task and return its final nested tool result."""
+        config = self._get_task_config()
+        request_timeout = config.get("request_timeout", DEFAULT_TASK_REQUEST_TIMEOUT)
+        default_poll_interval = config.get("poll_interval", DEFAULT_TASK_POLL_INTERVAL)
+        current: MCPCreateTaskResult | MCPGetTaskResult = task
+        detailed = False
+        answered_input_keys: set[str] = set()
+
+        if cancellation_state is not None:
+            cancellation_state["task_id"] = task.task_id
+
+        while True:
+            if detailed:
+                state = cast(MCPGetTaskResult, current)
+                if state.status == "completed":
+                    return cast(MCPCallToolResult, state.result)
+                if state.status == "failed":
+                    error = cast(Any, state.error)
+                    message = error.message
+                    if state.status_message:
+                        message = f"{message}: {state.status_message}"
+                    return self._create_task_error_result(message)
+                if state.status == "cancelled":
+                    return self._create_task_error_result(state.status_message or "Task was cancelled")
+                if state.status == "input_required":
+                    for key, request in (state.input_requests or {}).items():
+                        if key in answered_input_keys:
+                            continue
+                        await self._fulfill_task_input(task.task_id, key, request, request_timeout)
+                        answered_input_keys.add(key)
+
+            poll_interval_ms = current.poll_interval_ms
+            poll_interval = (
+                timedelta(milliseconds=poll_interval_ms) if poll_interval_ms is not None else default_poll_interval
+            )
+            if detailed or current.status == "working":
+                await asyncio.sleep(max(0.01, poll_interval.total_seconds()))
+
+            next_state = await self._get_task_async(task.task_id, request_timeout)
+            current = self._reconcile_modern_task_state(current, next_state, detailed)
+            detailed = True
+
+    @staticmethod
+    def _reconcile_modern_task_state(
+        previous: MCPCreateTaskResult | MCPGetTaskResult,
+        next_state: MCPGetTaskResult,
+        previous_is_detailed: bool,
+    ) -> MCPGetTaskResult:
+        """Reject contradictory task updates and ignore stale detailed states."""
+        if next_state.created_at != previous.created_at:
+            raise ValueError("MCP task response changed createdAt")
+
+        previous_updated_at = datetime.fromisoformat(previous.last_updated_at.replace("Z", "+00:00"))
+        next_updated_at = datetime.fromisoformat(next_state.last_updated_at.replace("Z", "+00:00"))
+        if next_updated_at < previous_updated_at:
+            if previous_is_detailed:
+                return cast(MCPGetTaskResult, previous)
+            raise ValueError("MCP task response predates the task handle")
+
+        return next_state
+
+    async def _call_tool_with_task_and_poll_async(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        poll_timeout: timedelta | None = None,
+        meta: dict[str, Any] | None = None,
+        progress_callback: ProgressFnT | None = None,
+        cancellation_state: _CallCancellationState | None = None,
+    ) -> MCPCallToolResult:
+        """Call a tool and automatically complete a returned SEP-2663 task."""
+        timeout = poll_timeout or self._get_task_config().get("poll_timeout", DEFAULT_TASK_POLL_TIMEOUT)
+        task_state = cancellation_state if cancellation_state is not None else _CallCancellationState()
+        task_state["session"] = cast(ClientSession, self._background_thread_session)
+
+        async def execute() -> MCPCallToolResult:
+            result = await self._call_tool_with_task_once_async(
+                name,
+                arguments,
+                self._get_task_config().get("request_timeout", DEFAULT_TASK_REQUEST_TIMEOUT),
+                meta,
+                progress_callback,
+            )
+            if isinstance(result, MCPCallToolResult):
+                return result
+            self._require_modern_task_lifecycle()
+            return await self._complete_modern_task(result, task_state)
+
+        try:
+            return await asyncio.wait_for(execute(), timeout=timeout.total_seconds())
+        except asyncio.TimeoutError:
+            task_id = task_state.get("task_id")
+            if task_id is not None:
+                await self._cancel_tool_call(task_state)
+            return self._create_task_error_result(
+                f"Task {task_id or '<pending>'} timed out after {timeout.total_seconds()} seconds"
+            )
 
     async def _call_tool_as_task_and_poll_async(
         self,
