@@ -8,6 +8,7 @@ Tests the unified OpenAIRealtimeModel interface including:
 - Connection lifecycle management
 """
 
+import asyncio
 import base64
 import itertools
 import json
@@ -16,7 +17,12 @@ import unittest.mock
 import pytest
 
 from strands.experimental.bidi.models.model import BidiModelTimeoutError
-from strands.experimental.bidi.models.openai import OpenAIRealtimeModel
+from strands.experimental.bidi.models.openai import (
+    _RECONNECT_INSTRUCTION,
+    OPENAI_MAX_TIMEOUT_S,
+    OPENAI_PROACTIVE_RECONNECT_MARGIN_S,
+    OpenAIRealtimeModel,
+)
 from strands.experimental.bidi.types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
@@ -941,3 +947,170 @@ async def test_tool_result_document_content_raises_error(mock_websockets_connect
         await model.send(ToolResultEvent(tool_result))
 
     await model.stop()
+
+
+# Reconnect Tests
+
+
+def test_connection_config_defaults_and_override(api_key, mock_websockets_connect):
+    """Proactive reconnect fires a margin below the reactive timeout, and is overridable."""
+    default_model = OpenAIRealtimeModel(client_config={"api_key": api_key})
+    # Deadline sits below the reactive timeout so a mid-turn swap is not preempted by it.
+    assert default_model.connection_config == {
+        "restart_after_s": OPENAI_MAX_TIMEOUT_S - OPENAI_PROACTIVE_RECONNECT_MARGIN_S
+    }
+    assert default_model.connection_config["restart_after_s"] < default_model.timeout_s
+    # OpenAI reports per-response usage, so it must not be treated as cumulative.
+    assert default_model.usage_is_cumulative is False
+
+    # Lowering timeout_s keeps the headroom rather than recreating the tie.
+    lowered_model = OpenAIRealtimeModel(client_config={"api_key": api_key, "timeout_s": 1000})
+    assert lowered_model.connection_config["restart_after_s"] == 1000 - OPENAI_PROACTIVE_RECONNECT_MARGIN_S
+
+    tuned_model = OpenAIRealtimeModel(
+        client_config={"api_key": api_key},
+        provider_config={"connection": {"restart_after_s": 25}},
+    )
+    assert tuned_model.connection_config["restart_after_s"] == 25
+
+
+@pytest.mark.asyncio
+async def test_reconnect_reestablishes_and_replays_history(mock_websockets_connect, model, system_prompt, messages):
+    """reconnect() closes the old socket, opens a new one, and replays conversation history."""
+    mock_connect, mock_ws = mock_websockets_connect
+
+    await model.start()
+    first_connection_id = model._connection_id
+    mock_ws.send.reset_mock()
+
+    await model.reconnect(system_prompt=system_prompt, messages=messages)
+
+    # Old socket closed, a new connection opened, and the connection identity advanced.
+    mock_ws.close.assert_called_once()
+    assert mock_connect.call_count == 2
+    assert model._connection_id is not None
+    assert model._connection_id != first_connection_id
+
+    # Real history replay: the user turn is recreated on the new connection. Filtering on the user
+    # role ensures the re-anchor system message (also an item.create) cannot satisfy this alone.
+    user_items = [
+        json.loads(call[0][0])["item"]
+        for call in mock_ws.send.call_args_list
+        if json.loads(call[0][0]).get("type") == "conversation.item.create"
+        and json.loads(call[0][0])["item"].get("role") == "user"
+    ]
+    assert user_items == [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Hello"}]}]
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_reconnect_forwards_tools(mock_websockets_connect, model, tool_spec):
+    """Tools are re-sent on reconnect so the new session can still call them."""
+    _, mock_ws = mock_websockets_connect
+
+    await model.start()
+    mock_ws.send.reset_mock()
+
+    await model.reconnect(tools=[tool_spec])
+
+    tool_names = [
+        tool["name"]
+        for call in mock_ws.send.call_args_list
+        if json.loads(call[0][0]).get("type") == "session.update"
+        for tool in json.loads(call[0][0])["session"].get("tools", [])
+    ]
+    assert tool_spec["name"] in tool_names
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_reconnect_survives_reanchor_send_failure(mock_websockets_connect, model):
+    """A failed re-anchor send is logged, not fatal: the reconnected session stays healthy."""
+    _, mock_ws = mock_websockets_connect
+
+    await model.start()
+
+    async def fail_on_anchor(message):
+        payload = json.loads(message)
+        if payload.get("type") == "conversation.item.create" and payload.get("item", {}).get("role") == "system":
+            raise RuntimeError("re-anchor send failed")
+
+    mock_ws.send.side_effect = fail_on_anchor
+
+    # Must not raise even though the re-anchor send fails.
+    await model.reconnect()
+
+    assert model._connection_id is not None
+
+    mock_ws.send.side_effect = None
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_reconnect_sends_reanchor_system_message(mock_websockets_connect, model):
+    """reconnect() injects a system message so the fresh session continues rather than drifting."""
+    _, mock_ws = mock_websockets_connect
+
+    await model.start()
+    mock_ws.send.reset_mock()
+
+    await model.reconnect()
+
+    system_items = [
+        json.loads(call[0][0])["item"]
+        for call in mock_ws.send.call_args_list
+        if json.loads(call[0][0]).get("type") == "conversation.item.create"
+        and json.loads(call[0][0])["item"].get("role") == "system"
+    ]
+    assert system_items == [
+        {"type": "message", "role": "system", "content": [{"type": "input_text", "text": _RECONNECT_INSTRUCTION}]}
+    ]
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_receive_binds_websocket_per_reader(mock_websockets_connect, model):
+    """A superseded reader keeps reading its own socket after self._websocket is swapped.
+
+    Guards against a still-draining reader stealing messages from the connection that replaced it
+    on reconnect.
+    """
+    _, ws1 = mock_websockets_connect
+    await model.start()
+
+    audio_from_ws1 = json.dumps({"type": "response.output_audio.delta", "delta": "FROM_WS1"})
+    blocker = asyncio.Event()
+    call_count = itertools.count()
+
+    async def ws1_recv(*args, **kwargs):
+        # First read yields one audio delta; subsequent reads park so the reader stays on ws1.
+        if next(call_count) == 0:
+            return audio_from_ws1
+        await blocker.wait()
+        return audio_from_ws1
+
+    ws1.recv = unittest.mock.AsyncMock(side_effect=ws1_recv)
+
+    reader = model.receive()
+    await reader.__anext__()  # BidiConnectionStartEvent (reader not yet bound to a socket)
+    first = await reader.__anext__()  # binds to ws1, reads its message
+    assert isinstance(first, BidiAudioStreamEvent)
+    assert first.audio == "FROM_WS1"
+
+    # Swap in a replacement socket, as a reconnect would.
+    ws2 = unittest.mock.AsyncMock()
+    ws2.recv = unittest.mock.AsyncMock(
+        return_value=json.dumps({"type": "response.output_audio.delta", "delta": "FROM_WS2"})
+    )
+    model._websocket = ws2
+
+    # The bound reader stays parked on ws1 and never touches the replacement socket.
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(reader.__anext__(), timeout=0.2)
+    ws2.recv.assert_not_called()
+
+    blocker.set()
+    await reader.aclose()

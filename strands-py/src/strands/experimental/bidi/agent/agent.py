@@ -103,10 +103,16 @@ class BidiAgent:
         """
         if isinstance(model, BidiModel):
             self.model = model
-        else:
+        elif isinstance(model, str):
             from ..models.bedrock import BedrockNovaSonicModel
 
-            self.model = BedrockNovaSonicModel(model_id=model) if isinstance(model, str) else BedrockNovaSonicModel()
+            self.model = BedrockNovaSonicModel(model_id=model)
+        elif model is None:
+            from ..models.bedrock import BedrockNovaSonicModel
+
+            self.model = BedrockNovaSonicModel()
+        else:
+            raise TypeError("model must be a BidiModel, string, or None")
 
         self.system_prompt = system_prompt
         self.messages = messages or []

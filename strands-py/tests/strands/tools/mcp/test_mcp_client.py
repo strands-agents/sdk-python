@@ -156,9 +156,44 @@ def test_call_tool_sync_without_error_flag(mock_transport, mock_session):
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
 
-        assert result["status"] == "success"
-        assert result["content"][0]["text"] == "Test message"
-        assert "isError" not in result
+        assert result == {
+            "status": "success",
+            "toolUseId": "test-123",
+            "content": [{"text": "Test message"}],
+        }
+
+
+def test_call_tool_sync_with_falsy_structured_content(mock_transport, mock_session):
+    """Test that an empty structured payload is forwarded, not dropped as falsy.
+
+    The 2026-07-28 spec allows any JSON value in `structuredContent`, so `0`,
+    `False`, `""`, `[]`, and `{}` are all valid payloads.
+    """
+    mock_content = MCPTextContent(type="text", text="Test message")
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[mock_content], structuredContent={})
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
+
+        assert result == {
+            "status": "success",
+            "toolUseId": "test-123",
+            "content": [{"text": "Test message"}],
+            "structuredContent": {},
+            "isError": False,
+        }
+
+
+def test_call_tool_sync_calls_the_tool_through_the_compat_shim(mock_transport, mock_session):
+    """Test that the direct tool-call path calls the tool through the version shim."""
+    mock_content = MCPTextContent(type="text", text="Test message")
+    shim = AsyncMock(return_value=MCPCallToolResult(isError=False, content=[mock_content]))
+
+    with patch("strands.tools.mcp.mcp_client.compat_call_tool", shim):
+        with MCPClient(mock_transport["transport_callable"]) as client:
+            client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
+
+    shim.assert_awaited_once_with(mock_session, "test_tool", {"param": "value"}, None, None, None)
 
 
 def test_call_tool_sync_session_not_active():
@@ -1073,10 +1108,12 @@ def test_call_tool_sync_image_content(mock_transport, mock_session):
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.call_tool_sync(tool_use_id="img-1", name="get_image", arguments={})
 
-        assert result["status"] == "success"
-        assert len(result["content"]) == 1
-        assert result["content"][0]["image"]["format"] == "png"
-        assert result["content"][0]["image"]["source"]["bytes"] == png_data
+        assert result == {
+            "status": "success",
+            "toolUseId": "img-1",
+            "content": [{"image": {"format": "png", "source": {"bytes": png_data}}}],
+            "isError": False,
+        }
 
 
 def test_call_tool_sync_embedded_nested_text(mock_transport, mock_session):

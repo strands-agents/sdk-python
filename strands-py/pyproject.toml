@@ -150,7 +150,7 @@ format-fix = [
 ]
 lint-check = [
     "ruff check",
-    "mypy ./src"
+    "mypy ./src ./tests_typing"
 ]
 lint-fix = [
     "ruff check --fix"
@@ -251,7 +251,7 @@ warn_unused_ignores = false
 
 [tool.ruff]
 line-length = 120
-include = ["examples/**/*.py", "src/**/*.py", "tests/**/*.py", "tests_integ/**/*.py"]
+include = ["examples/**/*.py", "src/**/*.py", "tests/**/*.py", "tests_integ/**/*.py", "tests_typing/**/*.py"]
 
 [tool.ruff.lint]
 select = [

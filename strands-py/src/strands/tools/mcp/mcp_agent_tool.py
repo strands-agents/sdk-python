@@ -44,7 +44,8 @@ class MCPAgentTool(AgentTool):
             mcp_client: The MCP server connection to use for tool invocation
             name_override: Optional name to use for the agent tool (for disambiguation)
                            If None, uses the original MCP tool name
-            timeout: Optional timeout duration for tool execution
+            timeout: Optional timeout duration for tool execution. On the mcp 2.x line, the timeout
+                     bounds each request round of a multi round-trip tool call rather than the call as a whole.
         """
         super().__init__()
         logger.debug("tool_name=<%s> | creating mcp agent tool", mcp_tool.name)
