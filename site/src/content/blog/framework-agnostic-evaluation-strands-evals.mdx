@@ -74,10 +74,9 @@ _Figure 1: The user-defined task converts raw traces into sessions using mappers
 
 Strands Evals handles other agent frameworks using session mappers: adapters that convert raw
 spans into unified session objects. Sessions represent the agent's trajectory (a record of what
-the agent did) in a standardized format and comprise a major part of the `TaskOutput`. The rest
-of the evaluation pipeline operates on the `TaskOutput` the same way it would for a native
-Strands agent. The other parts of `TaskOutput` (the agent output, interactions, and
-environment) vary by experiment setup and are therefore user-defined.
+the agent did) in a standardized format and comprise a major part of the `TaskOutput`. From here,
+Strands Evals works the same as with a native Strands agent. The remaining TaskOutput fields,
+output, interactions, and environment, are user-defined and vary by experiment.
 
 In practice, session mappers are called inside user-defined task functions. These tasks run the
 agent, collect the emitted trace spans, and assemble the `TaskOutput`. Strands Evals provides a
@@ -104,7 +103,7 @@ This walkthrough assumes familiarity with Strands Evals. If you are new, see the
 Install the dependencies:
 
 ```bash
-pip install strands-agents-evals claude-agent-sdk openinference-instrumentation-claude-agent-sdk opentelemetry-sdk
+pip install strands-agents-evals claude-agent-sdk openinference-instrumentation-claude-agent-sdk
 ```
 
 ### Step 1: Set up instrumentation
@@ -113,19 +112,11 @@ The first step is instrumentation. We use OpenInference, which hooks into the Cl
 and produces OTel spans collected in-process with `InMemorySpanExporter`.
 
 ```python
-from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-
-exporter = InMemorySpanExporter()
-provider = TracerProvider()
-provider.add_span_processor(SimpleSpanProcessor(exporter))
-trace.set_tracer_provider(provider)
-
 from openinference.instrumentation.claude_agent_sdk import ClaudeAgentSDKInstrumentor
+from strands_evals.telemetry import StrandsEvalsTelemetry
 
-ClaudeAgentSDKInstrumentor().instrument(tracer_provider=provider)
+telemetry = StrandsEvalsTelemetry().setup_in_memory_exporter()
+ClaudeAgentSDKInstrumentor().instrument()
 ```
 
 ### Step 2: Define the agent
@@ -180,16 +171,16 @@ from strands_evals.otel import detect_otel_mapper, readable_spans_to_dicts
 
 
 def task(case: Case) -> dict[str, Any]:
-    exporter.clear()
+    telemetry.in_memory_exporter.clear()
 
     loop = asyncio.new_event_loop()
     try:
         response = loop.run_until_complete(run_commit_agent(case.input))
     finally:
         loop.close()
-    provider.force_flush()
+    telemetry.tracer_provider.force_flush()
 
-    spans = readable_spans_to_dicts(exporter.get_finished_spans())
+    spans = readable_spans_to_dicts(telemetry.in_memory_exporter.get_finished_spans())
     session = detect_otel_mapper(spans).map_to_session(spans, session_id=case.session_id)
     return {"output": response, "trajectory": session}
 ```
@@ -265,19 +256,11 @@ pip install openai-agents openinference-instrumentation-openai-agents
 Set up the OpenInference instrumentor and in-memory exporter as before:
 
 ```python
-from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-
-exporter = InMemorySpanExporter()
-provider = TracerProvider()
-provider.add_span_processor(SimpleSpanProcessor(exporter))
-trace.set_tracer_provider(provider)
-
+from strands_evals.telemetry import StrandsEvalsTelemetry
 from openinference.instrumentation.openai_agents import OpenAIAgentsInstrumentor
 
-OpenAIAgentsInstrumentor().instrument(tracer_provider=provider)
+telemetry = StrandsEvalsTelemetry().setup_in_memory_exporter()
+OpenAIAgentsInstrumentor().instrument()
 ```
 
 Define an agent with OpenAI Agents SDK's `Agent` class and its executor with `Runner`.
@@ -315,7 +298,7 @@ in the first step and the rest of the setup stays the same.
 ```python
 from opentelemetry.instrumentation.openai_agents import OpenAIAgentsInstrumentor
 
-OpenAIAgentsInstrumentor().instrument(tracer_provider=provider)
+OpenAIAgentsInstrumentor().instrument()
 ```
 
 ## Evaluating production traces from AgentCore
@@ -484,32 +467,6 @@ provider = CloudWatchProvider(
 )
 ```
 
-**Amazon OpenSearch** is for agents exporting OTel spans to an OpenSearch cluster (self-hosted
-or Amazon OpenSearch Service). It queries the `otel-v1-apm-span-*` index pattern by session ID
-and maps the results through a dedicated session mapper.
-
-```python
-from strands_evals.providers import OpenSearchProvider
-
-# Local development
-provider = OpenSearchProvider(
-    host="https://localhost:9200",
-    auth=("admin", "password"),
-    verify_certs=False,
-)
-
-# Amazon OpenSearch Service with SigV4
-from opensearchpy import RequestsAWSV4SignerAuth
-import boto3
-
-credentials = boto3.Session().get_credentials()
-auth = RequestsAWSV4SignerAuth(credentials, "us-east-1", "es")
-provider = OpenSearchProvider(
-    host="https://my-domain.us-east-1.es.amazonaws.com",
-    auth=auth,
-)
-```
-
 **Langfuse** is for agents instrumented with any OTel-compatible framework and exporting to
 Langfuse. It fetches traces by session ID via the Langfuse API and converts Langfuse's native
 observation spans into evaluation sessions.
@@ -553,4 +510,4 @@ Then explore the resources below:
   look at evaluation features.
 - Try the [cross-framework examples](https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/evals-sdk).
 - See [Remote Trace Providers](/docs/user-guide/evals-sdk/how-to/trace_providers/) for full
-  configuration options for CloudWatch, Langfuse, and OpenSearch.
+  configuration options for providers.

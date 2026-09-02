@@ -1,27 +1,19 @@
 import asyncio
 from typing import Any
 
+from openinference.instrumentation.openai_agents import OpenAIAgentsInstrumentor
+
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import GoalSuccessRateEvaluator, HelpfulnessEvaluator
 from strands_evals.mappers import detect_otel_mapper, readable_spans_to_dicts
+from strands_evals.telemetry import StrandsEvalsTelemetry
 
 # =============================================================================
 # 1. Agent Setup
 # =============================================================================
 
-from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-
-exporter = InMemorySpanExporter()
-provider = TracerProvider()
-provider.add_span_processor(SimpleSpanProcessor(exporter))
-trace.set_tracer_provider(provider)
-
-from openinference.instrumentation.openai_agents import OpenAIAgentsInstrumentor  # noqa: E402
-
-OpenAIAgentsInstrumentor().instrument(tracer_provider=provider)
+telemetry = StrandsEvalsTelemetry().setup_in_memory_exporter()
+OpenAIAgentsInstrumentor().instrument()
 
 from agents import Agent, Runner  # noqa: E402
 
@@ -49,16 +41,16 @@ async def run_commit_agent(diff: str) -> str:
 
 
 def task(case: Case) -> dict[str, Any]:
-    exporter.clear()
+    telemetry.in_memory_exporter.clear()
 
     loop = asyncio.new_event_loop()
     try:
         response = loop.run_until_complete(run_commit_agent(case.input))
     finally:
         loop.close()
-    provider.force_flush()
+    telemetry.tracer_provider.force_flush()
 
-    spans = readable_spans_to_dicts(exporter.get_finished_spans())
+    spans = readable_spans_to_dicts(telemetry.in_memory_exporter.get_finished_spans())
     session = detect_otel_mapper(spans).map_to_session(spans, session_id=case.session_id)
     return {"output": response, "trajectory": session}
 
