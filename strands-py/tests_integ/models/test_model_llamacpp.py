@@ -14,6 +14,7 @@ import pytest
 from pydantic import BaseModel
 
 from strands.models.llamacpp import LlamaCppModel
+from strands.models.model import CacheConfig
 from strands.types.content import Message
 
 # Get server URL from environment or use default
@@ -401,6 +402,42 @@ async def test_cache_prompt(llamacpp_model: LlamaCppModel) -> None:
                 response2 += delta["text"]
 
     # Both should give valid responses
+    assert "4" in response1
+    assert "6" in response2
+
+
+@pytest.mark.asyncio
+async def test_cache_config_enables_prompt_cache() -> None:
+    """A CacheConfig enables llama.cpp's server-side KV-prefix caching end to end.
+
+    Two requests sharing a long system prefix reuse the cached prefix on the server; observe the reuse
+    via the server log (``kv cache rm [p0, end)`` with p0 > 0 on the second request) rather than asserting
+    on latency, which is inherently flaky.
+    """
+    model = LlamaCppModel(base_url=LLAMACPP_URL, cache_config=CacheConfig())
+
+    system_prompt = "You are a helpful assistant. Always be concise. " * 20
+    messages1: list[Message] = [
+        {"role": "system", "content": [{"text": system_prompt}]},
+        {"role": "user", "content": [{"text": "What is 2+2?"}]},
+    ]
+    messages2: list[Message] = [
+        {"role": "system", "content": [{"text": system_prompt}]},
+        {"role": "user", "content": [{"text": "What is 3+3?"}]},
+    ]
+
+    async def _collect(messages: list[Message]) -> str:
+        text = ""
+        async for event in model.stream(messages):
+            if "contentBlockDelta" in event:
+                delta = event["contentBlockDelta"]["delta"]
+                if "text" in delta:
+                    text += delta["text"]
+        return text
+
+    response1 = await _collect(messages1)
+    response2 = await _collect(messages2)
+
     assert "4" in response1
     assert "6" in response2
 

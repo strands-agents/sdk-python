@@ -29,12 +29,34 @@ from ..types.content import ContentBlock, Messages, SystemContentBlock
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
-from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
-from .model import BaseModelConfig, Model
+from ._validation import (
+    _has_location_source,
+    validate_config_keys,
+    warn_on_cache_config_not_supported,
+    warn_on_tool_choice_not_supported,
+)
+from .model import BaseModelConfig, CacheConfig, Model
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
+
+
+def _apply_cache_config(request: dict[str, Any], cache_config: CacheConfig | None) -> None:
+    """Enable llama.cpp server-side prompt caching from a CacheConfig.
+
+    llama.cpp handles caching server side via ``cache_prompt``. It has no per-field cache
+    controls, so a ``CacheConfig`` only turns caching on and every other field is a no-op.
+
+    Args:
+        request: The llama.cpp request dict to mutate.
+        cache_config: The provider's configured cache settings, if any.
+    """
+    if cache_config is None:
+        return
+    if "cache_prompt" not in request:
+        request["cache_prompt"] = True
+    warn_on_cache_config_not_supported(cache_config, "llama.cpp", supported=set())
 
 
 class LlamaCppModel(Model):
@@ -128,11 +150,16 @@ class LlamaCppModel(Model):
             use_native_token_count: Whether to use the native llama.cpp /tokenize endpoint.
                 When True, count_tokens() calls the server's tokenize endpoint for accurate counts.
                 When False (default), skips the API call and uses the local estimator.
+            cache_config: Enables llama.cpp's server-side caching. llama.cpp reuses the shared
+                prompt prefix across requests via a coarse ``cache_prompt`` boolean. Setting a CacheConfig
+                turns it on unless ``params["cache_prompt"]`` is set explicitly. llama.cpp has no per-field
+                cache controls, so every other CacheConfig field (ttl, cache_key, strategy, ...) is ignored.
         """
 
         model_id: str
         params: dict[str, Any] | None
         use_native_token_count: bool
+        cache_config: CacheConfig | None
 
     def __init__(
         self,
@@ -437,6 +464,7 @@ class LlamaCppModel(Model):
                 if param in llamacpp_specific_params:
                     request[param] = value
 
+        _apply_cache_config(request, cast(CacheConfig | None, self.config.get("cache_config")))
         return request
 
     def _format_chunk(self, event: dict[str, Any]) -> StreamEvent:

@@ -10,6 +10,7 @@ import pytest
 from pydantic import BaseModel
 
 from strands.models.llamacpp import LlamaCppModel
+from strands.models.model import CacheConfig
 from strands.types.exceptions import (
     ContextWindowOverflowException,
     ModelThrottledException,
@@ -285,6 +286,93 @@ def test_get_config() -> None:
 
     assert retrieved_config["model_id"] == "test-model"
     assert retrieved_config["params"]["temperature"] == 0.9
+
+
+def test_cache_config_enables_cache_prompt_when_params_absent(captured_warnings) -> None:
+    """A CacheConfig turns on server-side prompt caching even when no params are configured."""
+    model = LlamaCppModel(cache_config=CacheConfig())
+
+    request = model._format_request([{"role": "user", "content": [{"text": "Test"}]}])
+
+    assert request["cache_prompt"] is True
+    assert not any("have no effect" in str(warning.message) for warning in captured_warnings)
+
+
+def test_cache_config_enables_cache_prompt_alongside_other_params(captured_warnings) -> None:
+    """Enabling caching does not clobber other configured params."""
+    model = LlamaCppModel(params={"temperature": 0.7}, cache_config=CacheConfig())
+
+    request = model._format_request([{"role": "user", "content": [{"text": "Test"}]}])
+
+    assert request["cache_prompt"] is True
+    assert request["temperature"] == 0.7
+    assert not any("have no effect" in str(warning.message) for warning in captured_warnings)
+
+
+def test_cache_config_strategy_auto_enables_without_warning(captured_warnings) -> None:
+    """strategy="auto" is the default: it enables caching and warns about nothing, like a bare CacheConfig."""
+    model = LlamaCppModel(cache_config=CacheConfig(strategy="auto"))
+
+    request = model._format_request([{"role": "user", "content": [{"text": "Test"}]}])
+
+    assert request["cache_prompt"] is True
+    assert not any("have no effect" in str(warning.message) for warning in captured_warnings)
+
+
+def test_explicit_cache_prompt_false_preserved() -> None:
+    """An explicit params["cache_prompt"] wins over the CacheConfig enable signal."""
+    model = LlamaCppModel(params={"cache_prompt": False}, cache_config=CacheConfig())
+
+    request = model._format_request([{"role": "user", "content": [{"text": "Test"}]}])
+
+    assert request["cache_prompt"] is False
+
+
+def test_cache_prompt_absent_without_cache_config() -> None:
+    """Without a CacheConfig, cache_prompt is left unset so the server default applies."""
+    model = LlamaCppModel()
+
+    request = model._format_request([{"role": "user", "content": [{"text": "Test"}]}])
+
+    assert "cache_prompt" not in request
+
+
+def test_cache_config_round_trips(captured_warnings) -> None:
+    """cache_config is a valid config field and survives get_config/update_config unchanged."""
+    cache_config = CacheConfig()
+    model = LlamaCppModel(cache_config=cache_config)
+
+    assert model.get_config()["cache_config"] is cache_config
+
+    updated = CacheConfig()
+    model.update_config(cache_config=updated)
+    assert model.get_config()["cache_config"] is updated
+
+    assert not any("Invalid configuration parameters" in str(warning.message) for warning in captured_warnings)
+
+
+def test_cache_config_unsupported_ttl_warns_and_still_enables() -> None:
+    """llama.cpp has no retention control: ttl is a no-op that warns, and caching is still enabled."""
+    model = LlamaCppModel(cache_config=CacheConfig(ttl="1h"))
+
+    with pytest.warns(UserWarning, match=r"fields \['ttl'\] have no effect"):
+        request = model._format_request([{"role": "user", "content": [{"text": "Test"}]}])
+
+    assert request["cache_prompt"] is True
+
+
+def test_cache_config_cache_key_warns_and_is_not_routed() -> None:
+    """llama.cpp has no key-based cache routing: cache_key warns and is never placed on the request."""
+    model = LlamaCppModel(cache_config=CacheConfig(cache_key="tenant-42"))
+
+    with pytest.warns(UserWarning, match=r"fields \['cache_key'\] have no effect"):
+        request = model._format_request([{"role": "user", "content": [{"text": "Test"}]}])
+
+    assert request["cache_prompt"] is True
+    assert "prompt_cache_key" not in request
+    assert "cache_key" not in request
+    assert "slot_id" not in request
+    assert "id_slot" not in request
 
 
 @pytest.mark.asyncio
