@@ -230,10 +230,8 @@ function handleRead(notebooks: Record<string, string>, name: string, readRange?:
   }
 
   const selectedLines: string[] = []
-  for (let lineNum = start; lineNum <= end; lineNum++) {
-    if (lineNum >= 1 && lineNum <= lines.length) {
-      selectedLines.push(`${lineNum}: ${lines[lineNum - 1]}`)
-    }
+  for (let lineNum = Math.max(start, 1); lineNum <= Math.min(end, lines.length); lineNum++) {
+    selectedLines.push(`${lineNum}: ${lines[lineNum - 1]}`)
   }
 
   return selectedLines.length > 0 ? selectedLines.join('\n') : 'No valid lines found in range'

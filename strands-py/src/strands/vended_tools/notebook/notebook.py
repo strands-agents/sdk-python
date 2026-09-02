@@ -1,22 +1,22 @@
 """Notebook tool for managing persistent text notebooks in agent state.
 
 Notebooks are stored on the agent's :attr:`~strands.Agent.state` under the
-``notebooks`` key and persist within the agent session (and, if the caller
-supplies a durable :class:`~strands.agent.state.AgentState`, across sessions).
+``notebooks`` key and persist within the agent session.
+
 The tool is a thin wrapper over ``agent.state`` — persistence, isolation, and
 serialization all follow whatever the caller configured for agent state.
 
-Supported operations: ``create``, ``list``, ``read``, ``write`` (string
-replacement or line insertion), and ``clear``.
+Supported operations: ``create``, ``list``, ``read``, ``write`` (append,
+string replacement, or line insertion), and ``clear``.
 """
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
 from ...tools.decorator import tool
 from ...types.tools import ToolContext
-from .types import DEFAULT_NOTEBOOK_DESCRIPTION
+from .types import DEFAULT_NOTEBOOK_DESCRIPTION, NotebookState
 
 # Confinement caps: bound the memory footprint the model can accumulate so a
 # prompt injection cannot grow state without bound.
@@ -36,7 +36,7 @@ _GROWING_MODES = frozenset({"create", "write"})
 
 
 @tool(name="notebook", description=DEFAULT_NOTEBOOK_DESCRIPTION, context="tool_context")
-def notebook(
+async def notebook(
     mode: Literal["create", "list", "read", "write", "clear"],
     tool_context: ToolContext,
     name: str | None = None,
@@ -47,15 +47,14 @@ def notebook(
 ) -> str:
     """Manages text notebooks for note-taking and documentation.
 
-    Supports `create`, `list`, `read`, `write` (replace or insert), and `clear`
-    operations. Notebooks persist across invocations within a session, and across
-    sessions when the agent has a durable state store.
+    Supports `create`, `list`, `read`, `write` (append, replace, or insert), and `clear`
+    operations. Notebooks persist across invocations within a session.
 
     Args:
         mode: The operation to perform: `create`, `list`, `read`, `write`, `clear`.
         tool_context: Injected by the framework. Not user-facing.
         name: Name of the notebook to operate on. Defaults to "default".
-        new_str: New string for replacement or insertion operations.
+        new_str: Content for create (initial text), write/append (text to append), or write/replace and write/insert.
         old_str: String to replace in write mode when doing text replacement.
         insert_line: Line number (int) or search text (str) for insertion point in write mode.
             Supports negative indices.
@@ -64,10 +63,10 @@ def notebook(
     """
     state = tool_context.agent.state
 
-    notebooks_obj: Any = state.get(_STATE_KEY)
+    notebooks_obj: NotebookState | None = state.get(_STATE_KEY)
     # AgentState.get deep-copies; guard shape strictly to catch corruption from sibling tools.
     if notebooks_obj is None:
-        notebooks: dict[str, str] = {}
+        notebooks: NotebookState = {}
     elif isinstance(notebooks_obj, dict):
         for k, v in notebooks_obj.items():
             if not isinstance(k, str) or not isinstance(v, str):
@@ -147,19 +146,20 @@ def _validate_write_params(old_str: str | None, new_str: str | None, insert_line
     """
     has_replacement = old_str is not None and new_str is not None
     has_insertion = insert_line is not None and new_str is not None
-    if not (has_replacement or has_insertion):
+    has_append = old_str is None and insert_line is None and new_str is not None
+    if not (has_replacement or has_insertion or has_append):
         raise ValueError(
-            "Write operation requires either (old_str + new_str) for replacement "
+            "Write operation requires either new_str alone (append), "
+            "(old_str + new_str) for replacement, "
             "or (insert_line + new_str) for insertion"
         )
-    # Reject both anchors — silently preferring one would let a misprompted model corrupt the notebook.
     if old_str is not None and insert_line is not None:
         raise ValueError(
             "Write operation is ambiguous: pass either `old_str` (replace) or `insert_line` (insert), not both"
         )
 
 
-def _enforce_session_caps(notebooks: dict[str, str]) -> None:
+def _enforce_session_caps(notebooks: NotebookState) -> None:
     """Enforce per-session notebook count and size caps.
 
     Args:
@@ -181,13 +181,13 @@ def _enforce_session_caps(notebooks: dict[str, str]) -> None:
 # ---- Handlers ----
 
 
-def _handle_create(notebooks: dict[str, str], name: str, new_str: str | None) -> str:
+def _handle_create(notebooks: NotebookState, name: str, new_str: str | None) -> str:
     notebooks[name] = new_str if new_str is not None else ""
     suffix = " with specified content" if new_str else " (empty)"
     return f"Created notebook '{name}'{suffix}"
 
 
-def _handle_list(notebooks: dict[str, str]) -> str:
+def _handle_list(notebooks: NotebookState) -> str:
     lines = []
     for nb_name, content in notebooks.items():
         line_count = len(content.split("\n")) if content else 0
@@ -196,7 +196,7 @@ def _handle_list(notebooks: dict[str, str]) -> str:
     return "Available notebooks:\n" + "\n".join(lines)
 
 
-def _handle_read(notebooks: dict[str, str], name: str, read_range: list[int] | None) -> str:
+def _handle_read(notebooks: NotebookState, name: str, read_range: list[int] | None) -> str:
     if name not in notebooks:
         raise ValueError(f"Notebook '{name}' not found")
 
@@ -217,15 +217,18 @@ def _handle_read(notebooks: dict[str, str], name: str, read_range: list[int] | N
         end = len(lines) + end + 1
 
     selected: list[str] = []
-    for line_num in range(start, end + 1):
-        if 1 <= line_num <= len(lines):
-            selected.append(f"{line_num}: {lines[line_num - 1]}")
+    for line_num in range(max(start, 1), min(end, len(lines)) + 1):
+        selected.append(f"{line_num}: {lines[line_num - 1]}")
 
-    return "\n".join(selected) if selected else "No valid lines found in range"
+    if not selected:
+        return (
+            f"No lines found in range [{read_range[0]}, {read_range[1]}]. Notebook '{name}' has {len(lines)} line(s)."
+        )
+    return "\n".join(selected)
 
 
 def _handle_write(
-    notebooks: dict[str, str],
+    notebooks: NotebookState,
     name: str,
     old_str: str | None,
     new_str: str | None,
@@ -233,6 +236,15 @@ def _handle_write(
 ) -> str:
     if name not in notebooks:
         raise ValueError(f"Notebook '{name}' not found")
+
+    # Append mode: new_str alone, no replacement or insertion anchor.
+    if old_str is None and insert_line is None and new_str is not None:
+        if len(new_str) == 0:
+            return f"No changes made to notebook '{name}'"
+        content = notebooks[name]
+        separator = "\n" if content and not content.endswith("\n") else ""
+        notebooks[name] = f"{content}{separator}{new_str}"
+        return f"Appended text to notebook '{name}'"
 
     # String replacement mode.
     if old_str is not None and new_str is not None:
@@ -274,7 +286,7 @@ def _handle_write(
     raise ValueError("Invalid write operation")
 
 
-def _handle_clear(notebooks: dict[str, str], name: str) -> str:
+def _handle_clear(notebooks: NotebookState, name: str) -> str:
     if name not in notebooks:
         raise ValueError(f"Notebook '{name}' not found")
     notebooks[name] = ""

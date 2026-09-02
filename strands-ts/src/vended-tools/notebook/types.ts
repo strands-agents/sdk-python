@@ -5,6 +5,7 @@
 export interface NotebookState {
   /**
    * Map of notebook names to their content.
+   * Each notebook stores plain text content with newline-separated lines.
    */
   notebooks: Record<string, string>
 }

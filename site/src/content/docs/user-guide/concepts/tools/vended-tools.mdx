@@ -194,7 +194,8 @@ agent = Agent(tools=[notebook])
 agent('Create a notebook called "tasks" with "# Daily Tasks" and add "- [ ] Review code" to it')
 
 # Read the notebook contents directly off agent state.
-print(agent.state.get("notebooks")["tasks"])
+notebooks = agent.state.get("notebooks") or {}
+print(notebooks.get("tasks"))
 ```
 
 </Tab>

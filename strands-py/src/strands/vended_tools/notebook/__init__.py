@@ -2,7 +2,7 @@
 
 Notebooks are stored in the agent's :attr:`~strands.Agent.state` under the
 ``notebooks`` key and persist within an agent session. Supports create, list,
-read, write (replace/insert), and clear operations.
+read, write (append, replace, or insert), and clear operations.
 
 Example Usage:
     ```python
