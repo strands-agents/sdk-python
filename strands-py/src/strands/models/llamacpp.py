@@ -44,10 +44,10 @@ T = TypeVar("T", bound=BaseModel)
 
 
 def _apply_cache_config(request: dict[str, Any], cache_config: CacheConfig | None) -> None:
-    """Enable llama.cpp server-side prompt caching from a CacheConfig.
+    """Pin llama.cpp's server-side prompt caching on from a CacheConfig.
 
-    llama.cpp handles caching server side via ``cache_prompt``. It has no per-field cache
-    controls, so a ``CacheConfig`` only turns caching on and every other field is a no-op.
+    llama.cpp uses the shared prompt prefix server-side by default; setting ``cache_prompt`` keeps
+    caching on. It has no per-field cache controls, so every other CacheConfig field is ignored.
 
     Args:
         request: The llama.cpp request dict to mutate.
@@ -62,9 +62,6 @@ def _apply_cache_config(request: dict[str, Any], cache_config: CacheConfig | Non
 
 def _format_usage(data: Any) -> Usage:
     """Build a Usage from a llama.cpp usage payload.
-
-    llama.cpp reports KV-prefix reuse as cached prompt tokens; surface it as a cache read like the
-    other providers so it flows into usage metrics and telemetry.
 
     Args:
         data: The usage payload from the server's final stream chunk.
@@ -173,10 +170,10 @@ class LlamaCppModel(Model):
             use_native_token_count: Whether to use the native llama.cpp /tokenize endpoint.
                 When True, count_tokens() calls the server's tokenize endpoint for accurate counts.
                 When False (default), skips the API call and uses the local estimator.
-            cache_config: Enables llama.cpp's server-side caching. llama.cpp reuses the shared
-                prompt prefix across requests via a coarse ``cache_prompt`` boolean. Setting a CacheConfig
-                turns it on unless ``params["cache_prompt"]`` is set explicitly. llama.cpp has no per-field
-                cache controls, so every other CacheConfig field (ttl, cache_key, strategy, ...) is ignored.
+            cache_config: Prompt-caching configuration. llama.cpp uses the shared prompt prefix server-side 
+                by default. A CacheConfig pins ``cache_prompt: true`` on each request. An explicit 
+                ``params["cache_prompt"]`` takes precedence. llama.cpp has no per-field cache controls, so 
+                every other CacheConfig field is ignored.
         """
 
         model_id: str

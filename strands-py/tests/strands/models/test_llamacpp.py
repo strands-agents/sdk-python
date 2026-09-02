@@ -309,14 +309,32 @@ def test_cache_config_enables_cache_prompt_alongside_other_params(captured_warni
     assert not any("have no effect" in str(warning.message) for warning in captured_warnings)
 
 
-def test_cache_config_strategy_auto_enables_without_warning(captured_warnings) -> None:
-    """strategy="auto" is the default: it enables caching and warns about nothing, like a bare CacheConfig."""
+def test_cache_config_default_enables_without_warning(captured_warnings) -> None:
+    """A CacheConfig whose fields are all default (strategy="auto" is the default) warns about nothing."""
     model = LlamaCppModel(cache_config=CacheConfig(strategy="auto"))
 
     request = model._format_request([{"role": "user", "content": [{"text": "Test"}]}])
 
     assert request["cache_prompt"] is True
     assert not any("have no effect" in str(warning.message) for warning in captured_warnings)
+
+
+@pytest.mark.parametrize(
+    ("cache_config", "field"),
+    [
+        (CacheConfig(strategy="anthropic"), "strategy"),
+        (CacheConfig(system_prompt_ttl="1h"), "system_prompt_ttl"),
+        (CacheConfig(tools_ttl=True), "tools_ttl"),
+    ],
+)
+def test_cache_config_unsupported_field_warns_and_still_enables(cache_config, field) -> None:
+    """A non-default field llama.cpp cannot honor warns (naming the provider) and still enables caching."""
+    model = LlamaCppModel(cache_config=cache_config)
+
+    with pytest.warns(UserWarning, match=rf"fields \['{field}'\] have no effect on llama\.cpp"):
+        request = model._format_request([{"role": "user", "content": [{"text": "Test"}]}])
+
+    assert request["cache_prompt"] is True
 
 
 def test_explicit_cache_prompt_false_preserved() -> None:
@@ -355,7 +373,7 @@ def test_cache_config_unsupported_ttl_warns_and_still_enables() -> None:
     """llama.cpp has no retention control: ttl is a no-op that warns, and caching is still enabled."""
     model = LlamaCppModel(cache_config=CacheConfig(ttl="1h"))
 
-    with pytest.warns(UserWarning, match=r"fields \['ttl'\] have no effect"):
+    with pytest.warns(UserWarning, match=r"fields \['ttl'\] have no effect on llama\.cpp"):
         request = model._format_request([{"role": "user", "content": [{"text": "Test"}]}])
 
     assert request["cache_prompt"] is True
@@ -365,7 +383,7 @@ def test_cache_config_cache_key_warns_and_is_not_routed() -> None:
     """llama.cpp has no key-based cache routing: cache_key warns and is never placed on the request."""
     model = LlamaCppModel(cache_config=CacheConfig(cache_key="tenant-42"))
 
-    with pytest.warns(UserWarning, match=r"fields \['cache_key'\] have no effect"):
+    with pytest.warns(UserWarning, match=r"fields \['cache_key'\] have no effect on llama\.cpp"):
         request = model._format_request([{"role": "user", "content": [{"text": "Test"}]}])
 
     assert request["cache_prompt"] is True
@@ -448,19 +466,33 @@ async def test_stream_surfaces_cache_read_tokens() -> None:
             chunks.append(chunk)
 
     usage = next(chunk["metadata"]["usage"] for chunk in chunks if "metadata" in chunk)
-    assert usage["cacheReadInputTokens"] == 91
-    assert usage["inputTokens"] == 100
+    assert usage == {"inputTokens": 100, "outputTokens": 5, "totalTokens": 105, "cacheReadInputTokens": 91}
 
 
+_NO_REUSE_TOKENS = {"prompt_tokens": 100, "completion_tokens": 5, "total_tokens": 105}
+
+
+@pytest.mark.parametrize(
+    "usage_payload",
+    [
+        {**_NO_REUSE_TOKENS, "prompt_tokens_details": {"cached_tokens": 0}},
+        {**_NO_REUSE_TOKENS, "prompt_tokens_details": None},
+        _NO_REUSE_TOKENS,
+    ],
+    ids=["cached_zero", "details_null", "details_absent"],
+)
 @pytest.mark.asyncio
-async def test_stream_omits_cache_read_tokens_when_prefix_not_reused() -> None:
-    """With no cached prefix, cacheReadInputTokens is left absent rather than reported as zero."""
+async def test_stream_omits_cache_read_tokens_when_prefix_not_reused(usage_payload) -> None:
+    """No reuse — cached zero, a null details object, or the field absent — yields usage with no cache-read key.
+
+    The whole-dict assertion pins the ``or {}`` guard in stream() and the ``getattr(..., 0)`` default in
+    _format_usage: a fabricated non-zero default would add a phantom cacheReadInputTokens and fail here.
+    """
     model = LlamaCppModel()
 
     mock_response_lines = [
         'data: {"choices": [{"delta": {"content": "Hi"}, "finish_reason": "stop"}]}',
-        'data: {"usage": {"prompt_tokens": 100, "completion_tokens": 5, "total_tokens": 105, '
-        '"prompt_tokens_details": {"cached_tokens": 0}}}',
+        "data: " + json.dumps({"usage": usage_payload}),
         "data: [DONE]",
     ]
 
@@ -478,7 +510,7 @@ async def test_stream_omits_cache_read_tokens_when_prefix_not_reused() -> None:
             chunks.append(chunk)
 
     usage = next(chunk["metadata"]["usage"] for chunk in chunks if "metadata" in chunk)
-    assert "cacheReadInputTokens" not in usage
+    assert usage == {"inputTokens": 100, "outputTokens": 5, "totalTokens": 105}
 
 
 @pytest.mark.asyncio
