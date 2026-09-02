@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import sys
+import threading
 import time
 import traceback
 import unittest.mock
@@ -13,13 +14,23 @@ import pytest
 from botocore.exceptions import ClientError
 
 import strands
-from strands import _exception_notes
+from strands import _exception_notes, tool
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID
 from strands.models.bedrock_invoke import BedrockInvokeModel
 from strands.models.model import Model
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 
 CLAUDE_ID = "anthropic.claude-3-5-sonnet-20241022-v2:0"
+# An id with no native-schema prefix, so family detection settles on the openai dialect.
+IMPORTED_ID = "arn:aws:bedrock:us-east-1:123:imported-model/abc"
+# A foundation-model id whose native InvokeModel body shape this provider does not send.
+NATIVE_SCHEMA_ID = "meta.llama3-1-8b-instruct-v1:0"
+
+
+@tool
+def string_length(string_to_measure: str) -> str:
+    """Return the length of the string passed in."""
+    return str(len(string_to_measure))
 
 
 @pytest.fixture
@@ -147,7 +158,7 @@ def test_get_config_keeps_explicit_context_window_limit():
 
 
 def test_get_config_context_window_limit_none_for_unknown_model():
-    m = BedrockInvokeModel(model_id="arn:aws:bedrock:us-east-1:123:imported-model/abc")
+    m = BedrockInvokeModel(model_id=IMPORTED_ID)
     assert m.get_config().get("context_window_limit") is None
     assert m.context_window_limit is None
 
@@ -188,9 +199,8 @@ async def test_count_tokens_ignores_use_native_token_count(bedrock_client):
         (CLAUDE_ID, "anthropic"),
         ("global.anthropic.claude-sonnet-4-6", "anthropic"),
         ("us.anthropic.claude-3-haiku", "anthropic"),
-        ("arn:aws:bedrock:us-east-1:123:imported-model/abc", "openai"),
-        ("meta.llama3-1-8b-instruct-v1:0", "openai"),
-        ("mistral.mistral-large-2402-v1:0", "openai"),
+        (IMPORTED_ID, "openai"),
+        ("my-imported-model", "openai"),
     ],
 )
 def test_model_family_detection(model_id, expected):
@@ -198,8 +208,42 @@ def test_model_family_detection(model_id, expected):
 
 
 def test_model_family_override():
-    m = BedrockInvokeModel(model_id="arn:aws:bedrock:us-east-1:123:imported-model/abc", model_family="anthropic")
+    m = BedrockInvokeModel(model_id=IMPORTED_ID, model_family="anthropic")
     assert m._get_model_family() == "anthropic"
+
+
+@pytest.mark.parametrize(
+    "model_id",
+    [
+        "amazon.titan-text-express-v1",
+        NATIVE_SCHEMA_ID,
+        "mistral.mistral-large-2402-v1:0",
+        "cohere.command-r-v1:0",
+        "ai21.jamba-1-5-mini-v1:0",
+    ],
+)
+def test_model_family_detection_rejects_native_schema_model(model_id):
+    """A native foundation model takes a body shape this provider does not send, so detection refuses to guess."""
+    m = BedrockInvokeModel(model_id=model_id)
+    with pytest.raises(ValueError, match="model_family"):
+        m._get_model_family()
+
+
+@pytest.mark.parametrize("family", ["anthropic", "openai"])
+def test_model_family_override_allows_native_schema_model(family):
+    """An explicit override is an intentional choice, so it wins even over a native-schema model id."""
+    m = BedrockInvokeModel(model_id=NATIVE_SCHEMA_ID, model_family=family)
+    assert m._get_model_family() == family
+
+
+@pytest.mark.asyncio
+async def test_stream_native_schema_model_raises_before_invoking(bedrock_client):
+    """The guard surfaces to the caller rather than sending a body the model cannot parse."""
+    m = BedrockInvokeModel(model_id=NATIVE_SCHEMA_ID)
+    with pytest.raises(ValueError, match="model_family"):
+        await _collect(m, [{"role": "user", "content": [{"text": "hi"}]}])
+
+    bedrock_client.invoke_model_with_response_stream.assert_not_called()
 
 
 # ---- request formatting
@@ -242,21 +286,43 @@ def test_format_anthropic_request_tool_use_and_result(model):
 def test_format_anthropic_request_tool_choice(model):
     req = model._format_anthropic_request(
         [{"role": "user", "content": [{"text": "x"}]}],
-        [{"name": "t", "description": "d", "inputSchema": {"type": "object"}}],
+        [string_length.tool_spec],
         None,
         {"any": {}},
     )
     assert req["tool_choice"] == {"type": "any"}
-    assert req["tools"][0]["name"] == "t"
-    assert req["tools"][0]["input_schema"] == {"type": "object"}
+    assert req["tools"][0]["name"] == string_length.tool_name
+    assert req["tools"][0]["input_schema"] == string_length.tool_spec["inputSchema"]["json"]
+
+
+@pytest.mark.parametrize("family, schema_key", [("anthropic", "input_schema"), ("openai", "parameters")])
+def test_format_request_unwraps_tool_input_schema(model, family, schema_key):
+    """``ToolSpec.inputSchema`` is a ``{"json": ...}`` envelope; only the schema inside it goes on the wire."""
+    model.update_config(model_family=family)
+    req = model._format_invoke_request(
+        [{"role": "user", "content": [{"text": "x"}]}], [string_length.tool_spec], None, None
+    )
+    declared = req["tools"][0] if family == "anthropic" else req["tools"][0]["function"]
+
+    tru_schema = declared[schema_key]
+    exp_schema = string_length.tool_spec["inputSchema"]["json"]
+    assert tru_schema == exp_schema
+    assert "json" not in tru_schema
+
+
+@pytest.mark.parametrize("family", ["anthropic", "openai"])
+@pytest.mark.parametrize("config", [{}, {"max_tokens": None}], ids=["unset", "explicit_none"])
+def test_format_request_max_tokens_falls_back_to_default(family, config):
+    """The Anthropic Messages API requires ``max_tokens``, so neither an unset nor a ``None`` value reaches the wire."""
+    m = BedrockInvokeModel(model_id=CLAUDE_ID, model_family=family, **config)
+    req = m._format_invoke_request([{"role": "user", "content": [{"text": "x"}]}], None, None, None)
+    assert req["max_tokens"] == 4096
 
 
 def test_format_openai_request_basic():
-    m = BedrockInvokeModel(model_id="meta.llama3-1-8b-instruct-v1:0")
-    req = m._format_openai_request(
-        [{"role": "user", "content": [{"text": "Hello"}]}], None, [{"text": "sys"}], None
-    )
-    assert req["model"] == "meta.llama3-1-8b-instruct-v1:0"
+    m = BedrockInvokeModel(model_id=IMPORTED_ID)
+    req = m._format_openai_request([{"role": "user", "content": [{"text": "Hello"}]}], None, [{"text": "sys"}], None)
+    assert req["model"] == IMPORTED_ID
     assert req["messages"][0] == {"role": "system", "content": "sys"}
     assert req["messages"][1] == {"role": "user", "content": "Hello"}
 
@@ -265,7 +331,7 @@ def test_format_openai_request_tool_calls_and_results():
     m = BedrockInvokeModel(model_id="my-imported-model", model_family="openai")
     tu = {"toolUseId": "tu1", "name": "fn", "input": {"x": 1}}
     tr = {"toolUseId": "tu1", "status": "success", "content": [{"text": "ok"}]}
-    spec = [{"name": "fn", "description": "d", "inputSchema": {"type": "object"}}]
+    spec = [{"name": "fn", "description": "d", "inputSchema": {"json": {"type": "object"}}}]
     msgs = [
         {"role": "assistant", "content": [{"toolUse": tu}]},
         {"role": "user", "content": [{"toolResult": tr}]},
@@ -275,6 +341,7 @@ def test_format_openai_request_tool_calls_and_results():
     assert fn == {"name": "fn", "arguments": json.dumps({"x": 1})}
     assert req["messages"][1] == {"role": "tool", "tool_call_id": "tu1", "content": "ok"}
     assert req["tool_choice"] == {"type": "function", "function": {"name": "fn"}}
+    assert req["tools"][0]["function"]["parameters"] == {"type": "object"}
 
 
 def test_format_anthropic_request_tool_result_success_omits_is_error(model):
@@ -288,8 +355,8 @@ def test_format_anthropic_request_tool_result_success_omits_is_error(model):
 
 def test_format_openai_request_omits_tool_choice_when_unset():
     """Tools are declared without forcing a selection when the caller passes no tool_choice."""
-    spec = [{"name": "fn", "description": "d", "inputSchema": {"type": "object"}}]
-    m = BedrockInvokeModel(model_id="meta.llama3-1-8b-instruct-v1:0")
+    spec = [{"name": "fn", "description": "d", "inputSchema": {"json": {"type": "object"}}}]
+    m = BedrockInvokeModel(model_id=IMPORTED_ID)
     req = m._format_openai_request([{"role": "user", "content": [{"text": "hi"}]}], spec, None, None)
     assert "tool_choice" not in req
     assert req["tools"][0]["function"]["parameters"] == {"type": "object"}
@@ -327,9 +394,7 @@ def test_format_anthropic_request_sampling_params(model):
 
 def test_format_openai_request_sampling_params():
     """The OpenAI body names the stop list ``stop`` and drops top_k, which the API does not accept."""
-    m = BedrockInvokeModel(
-        model_id="meta.llama3-1-8b-instruct-v1:0", temperature=0.2, top_p=0.9, top_k=40, stop_sequences=["STOP"]
-    )
+    m = BedrockInvokeModel(model_id=IMPORTED_ID, temperature=0.2, top_p=0.9, top_k=40, stop_sequences=["STOP"])
     req = m._format_openai_request([{"role": "user", "content": [{"text": "hi"}]}], None, None, None)
     assert req["temperature"] == 0.2
     assert req["top_p"] == 0.9
@@ -350,7 +415,7 @@ def test_format_anthropic_request_merges_params(model):
 
 
 def test_format_openai_request_merges_params():
-    m = BedrockInvokeModel(model_id="meta.llama3-1-8b-instruct-v1:0", params={"logprobs": True})
+    m = BedrockInvokeModel(model_id=IMPORTED_ID, params={"logprobs": True})
     req = m._format_openai_request([{"role": "user", "content": [{"text": "hi"}]}], None, None, None)
     assert req["logprobs"] is True
 
@@ -389,7 +454,7 @@ def test_format_anthropic_request_rejects_unsupported_block(model, block):
     ],
 )
 def test_format_openai_request_rejects_unsupported_block(block):
-    m = BedrockInvokeModel(model_id="meta.llama3-1-8b-instruct-v1:0")
+    m = BedrockInvokeModel(model_id=IMPORTED_ID)
     with pytest.raises(TypeError, match="unsupported type"):
         m._format_openai_request([{"role": "user", "content": [{"text": "hi"}, block]}], None, None, None)
 
@@ -405,7 +470,7 @@ def test_format_anthropic_request_all_unsupported_blocks_does_not_drop_message(m
 
 
 def test_format_openai_request_all_unsupported_blocks_does_not_drop_message():
-    m = BedrockInvokeModel(model_id="meta.llama3-1-8b-instruct-v1:0")
+    m = BedrockInvokeModel(model_id=IMPORTED_ID)
     msgs = [
         {"role": "user", "content": [{"text": "hi"}]},
         {"role": "user", "content": [{"image": {"format": "png", "source": {"bytes": b"\x89PNG\r\n"}}}]},
@@ -519,12 +584,88 @@ async def test_stream_openai_text_and_tool(bedrock_client):
             {"choices": [], "usage": {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14}},
         ])
     }
-    m = BedrockInvokeModel(model_id="meta.llama3-1-8b-instruct-v1:0")
+    m = BedrockInvokeModel(model_id=IMPORTED_ID)
     events = await _collect(m, [{"role": "user", "content": [{"text": "go"}]}])
     assert _texts(events) == "Hello world"
     assert _tool_inputs(events) == '{"x":1}'
     assert _stop_reason(events) == "tool_use"
     assert _metadata(events)["usage"]["totalTokens"] == 14
+
+
+@pytest.mark.asyncio
+async def test_stream_openai_asks_for_usage_in_stream(bedrock_client):
+    """OpenAI streaming withholds the usage chunk unless asked, which would leave the turn reporting no tokens."""
+    bedrock_client.invoke_model_with_response_stream.return_value = {"body": _chunks([])}
+    await _collect(BedrockInvokeModel(model_id=IMPORTED_ID), [{"role": "user", "content": [{"text": "hi"}]}])
+
+    body = json.loads(bedrock_client.invoke_model_with_response_stream.call_args.kwargs["body"])
+    assert body["stream_options"] == {"include_usage": True}
+
+
+@pytest.mark.parametrize(
+    "model_id, config", [(CLAUDE_ID, {}), (IMPORTED_ID, {"streaming": False})], ids=["anthropic", "non_streaming"]
+)
+def test_format_request_omits_stream_options(model_id, config):
+    """``stream_options`` belongs to a streaming OpenAI Chat Completions request and nowhere else."""
+    m = BedrockInvokeModel(model_id=model_id, **config)
+    req = m._format_invoke_request([{"role": "user", "content": [{"text": "hi"}]}], None, None, None)
+    assert "stream_options" not in req
+
+
+@pytest.mark.asyncio
+async def test_stream_openai_reports_metadata_without_usage_chunk(bedrock_client):
+    """An endpoint that ignores ``stream_options`` still gets a metadata event, so latency is never lost."""
+    bedrock_client.invoke_model_with_response_stream.return_value = {
+        "body": _chunks([{"choices": [{"delta": {"content": "hi"}, "finish_reason": "stop"}]}])
+    }
+    events = await _collect(BedrockInvokeModel(model_id=IMPORTED_ID), [{"role": "user", "content": [{"text": "x"}]}])
+
+    tru_usage = _metadata(events)["usage"]
+    exp_usage = {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}
+    assert tru_usage == exp_usage
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "first_delta",
+    [
+        {"index": 0, "id": "call_0"},
+        {"index": 0, "id": "call_0", "function": {}},
+        {"index": 0, "id": "call_0", "function": {"arguments": '{"city":'}},
+    ],
+    ids=["id_only", "empty_function", "arguments_before_name"],
+)
+async def test_stream_openai_tool_call_name_after_id(bedrock_client, first_delta):
+    """A tool call whose name trails its id still opens a named block, since the consumer cannot fill it in later."""
+    tail = '"Paris"}' if "arguments" in first_delta.get("function", {}) else '{"city":"Paris"}'
+    bedrock_client.invoke_model_with_response_stream.return_value = {
+        "body": _chunks([
+            {"choices": [{"delta": {"tool_calls": [first_delta]}, "finish_reason": None}]},
+            {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"name": "weather"}}]}}]},
+            {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": tail}}]}}]},
+            {"choices": [{"delta": {}, "finish_reason": "tool_calls"}]},
+        ])
+    }
+    events = await _collect(BedrockInvokeModel(model_id=IMPORTED_ID), [{"role": "user", "content": [{"text": "?"}]}])
+
+    tru_blocks = _tool_use_blocks(events)
+    exp_blocks = [({"toolUseId": "call_0", "name": "weather"}, '{"city":"Paris"}')]
+    assert tru_blocks == exp_blocks
+
+
+@pytest.mark.asyncio
+async def test_stream_openai_drops_tool_call_that_never_names_itself(bedrock_client, caplog):
+    """A nameless tool call cannot be executed, so it is reported rather than emitted as an empty block."""
+    caplog.set_level(logging.WARNING, logger="strands.models.bedrock_invoke")
+    bedrock_client.invoke_model_with_response_stream.return_value = {
+        "body": _chunks([
+            {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_0"}]}, "finish_reason": "tool_calls"}]}
+        ])
+    }
+    events = await _collect(BedrockInvokeModel(model_id=IMPORTED_ID), [{"role": "user", "content": [{"text": "?"}]}])
+
+    assert _tool_use_blocks(events) == []
+    assert "dropping a tool call that never carried a name" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -543,7 +684,7 @@ async def test_stream_openai_parallel_tool_calls_stay_separate_blocks(bedrock_cl
             {"choices": [], "usage": {"prompt_tokens": 9, "completion_tokens": 8, "total_tokens": 17}},
         ])
     }
-    m = BedrockInvokeModel(model_id="meta.llama3-1-8b-instruct-v1:0")
+    m = BedrockInvokeModel(model_id=IMPORTED_ID)
     events = await _collect(m, [{"role": "user", "content": [{"text": "go"}]}])
 
     tru_blocks = _tool_use_blocks(events)
@@ -568,7 +709,7 @@ async def test_stream_openai_content_blocks_are_delimited(bedrock_client):
             {"choices": [{"delta": {"content": " done"}, "finish_reason": "tool_calls"}]},
         ])
     }
-    m = BedrockInvokeModel(model_id="meta.llama3-1-8b-instruct-v1:0")
+    m = BedrockInvokeModel(model_id=IMPORTED_ID)
     events = await _collect(m, [{"role": "user", "content": [{"text": "go"}]}])
 
     open_blocks = 0
@@ -616,7 +757,7 @@ async def test_stream_openai_drops_arguments_for_closed_tool_call(bedrock_client
             {"choices": [{"delta": {"tool_calls": [late_0]}, "finish_reason": "tool_calls"}]},
         ])
     }
-    m = BedrockInvokeModel(model_id="meta.llama3-1-8b-instruct-v1:0")
+    m = BedrockInvokeModel(model_id=IMPORTED_ID)
     events = await _collect(m, [{"role": "user", "content": [{"text": "go"}]}])
 
     tru_blocks = _tool_use_blocks(events)
@@ -687,7 +828,7 @@ async def test_stream_non_streaming_openai_text_and_tool(bedrock_client):
     }).encode("utf-8")
     bedrock_client.invoke_model.return_value = {"body": body}
 
-    m = BedrockInvokeModel(model_id="meta.llama3-1-8b-instruct-v1:0", streaming=False)
+    m = BedrockInvokeModel(model_id=IMPORTED_ID, streaming=False)
     events = await _collect(m, [{"role": "user", "content": [{"text": "hi"}]}])
     assert _texts(events) == "hi there"
     assert _tool_inputs(events) == '{"x":1}'
@@ -730,7 +871,7 @@ async def test_stream_openai_reports_measured_latency(bedrock_client):
 
     bedrock_client.invoke_model_with_response_stream.side_effect = slow_invoke
 
-    m = BedrockInvokeModel(model_id="meta.llama3-1-8b-instruct-v1:0")
+    m = BedrockInvokeModel(model_id=IMPORTED_ID)
     events = await _collect(m, [{"role": "user", "content": [{"text": "hi"}]}])
     assert _metadata(events)["metrics"]["latencyMs"] > 0
 
@@ -769,7 +910,7 @@ async def test_stream_non_streaming_openai_reports_measured_latency(bedrock_clie
 
     bedrock_client.invoke_model.side_effect = slow_invoke
 
-    m = BedrockInvokeModel(model_id="meta.llama3-1-8b-instruct-v1:0", streaming=False)
+    m = BedrockInvokeModel(model_id=IMPORTED_ID, streaming=False)
     events = await _collect(m, [{"role": "user", "content": [{"text": "hi"}]}])
     assert _metadata(events)["metrics"]["latencyMs"] > 0
 
@@ -827,6 +968,28 @@ async def test_stream_access_denied_adds_note_without_add_notes(bedrock_client):
     assert f"└ Model id: {CLAUDE_ID}" in error_str
 
 
+@pytest.mark.skipif(sys.version_info < (3, 11), reason="This test requires Python 3.11 or higher (need add_note)")
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "config, expected_family",
+    [({}, "openai (auto-detected from the model id)"), ({"model_family": "anthropic"}, "anthropic (explicitly")],
+    ids=["auto_detected", "explicit"],
+)
+async def test_stream_client_error_names_request_body_family(bedrock_client, config, expected_family):
+    """A rejected body usually means the dialect was guessed wrong, which the raw Bedrock error never says."""
+    bedrock_client.invoke_model_with_response_stream.side_effect = ClientError(
+        {"Error": {"Code": "ValidationException", "Message": "anthropic_version: Field required"}},
+        "InvokeModelWithResponseStream",
+    )
+    m = BedrockInvokeModel(model_id=IMPORTED_ID, **config)
+    with pytest.raises(ClientError) as err:
+        await _collect(m, [{"role": "user", "content": [{"text": "x"}]}])
+
+    notes = getattr(err.value, "__notes__", [])
+    assert any(f"Request body family: {expected_family}" in note for note in notes)
+    assert any('Override it with model_family="anthropic"' in note for note in notes)
+
+
 # ---- cancellation
 
 
@@ -838,6 +1001,64 @@ def _slow_then_raise(bedrock_client):
         raise RuntimeError("simulated boto3 timeout")
 
     bedrock_client.invoke_model_with_response_stream.side_effect = slow_invoke
+
+
+class _FakeEventStream:
+    """Stand-in for botocore's ``EventStream``: iterable, closable, one chunk per gate release."""
+
+    def __init__(self, chunks, gate):
+        self.chunks = list(chunks)
+        self.gate = gate
+        self.emitted = []
+        self.closed = False
+
+    def __iter__(self):
+        for chunk in self.chunks:
+            self.gate.wait()
+            self.gate.clear()
+            self.emitted.append(chunk)
+            yield chunk
+
+    def close(self):
+        self.closed = True
+
+
+async def _wait_until(predicate, timeout=5.0):
+    deadline = time.time() + timeout
+    while not predicate():
+        assert time.time() < deadline, "condition was not met before the timeout"
+        await asyncio.sleep(0.01)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "model_id, payload",
+    [
+        (CLAUDE_ID, {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "late"}}),
+        (IMPORTED_ID, {"choices": [{"delta": {"content": "late"}, "finish_reason": None}]}),
+    ],
+    ids=["anthropic", "openai"],
+)
+async def test_stream_cancel_signal_stops_reading_at_next_chunk(bedrock_client, model_id, payload):
+    """A cancelled run stops reading and closes the response rather than streaming — and billing — to the end."""
+    gate = threading.Event()
+    event_stream = _FakeEventStream(_chunks([payload] * 5), gate)
+    bedrock_client.invoke_model_with_response_stream.return_value = {"body": event_stream}
+    cancel_signal = threading.Event()
+
+    m = BedrockInvokeModel(model_id=model_id)
+    events = []
+    async for event in m.stream([{"role": "user", "content": [{"text": "x"}]}], cancel_signal=cancel_signal):
+        events.append(event)
+        cancel_signal.set()
+        gate.set()
+
+    await _wait_until(lambda: event_stream.closed)
+
+    assert events[0] == {"messageStart": {"role": "assistant"}}
+    # The chunk read at the cancellation boundary is dropped; the rest is never read.
+    assert len(event_stream.emitted) == 1
+    assert _texts(events) == ""
 
 
 @pytest.mark.asyncio

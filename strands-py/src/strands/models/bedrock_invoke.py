@@ -3,15 +3,20 @@
 Use in place of :class:`~strands.models.bedrock.BedrockModel` when the target model does not
 support Converse (Custom Model Import, etc.). Request format auto-detects from the model id:
 ``anthropic.*``/``*claude*`` use the Anthropic Messages API, everything else uses the OpenAI
-Chat Completions API. Override with ``model_family``.
+Chat Completions API. Ids belonging to a foundation-model family with its own native InvokeModel
+body shape (``amazon.*``, ``meta.*``, ``mistral.*``, ``cohere.*``, ``ai21.*``) are rejected rather
+than guessed — reach for :class:`~strands.models.bedrock.BedrockModel`, which serves them over
+Converse. Override the detection with ``model_family``.
 """
 
 import asyncio
 import base64
 import json
 import logging
+import threading
 import time
 from collections.abc import AsyncGenerator, Callable, Iterable, Mapping
+from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar, cast
 
 import boto3
@@ -20,6 +25,7 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
+from .._exception_notes import add_exception_note
 from ..event_loop import streaming
 from ..tools import convert_pydantic_to_tool_spec
 from ..types.content import Messages, SystemContentBlock
@@ -27,7 +33,7 @@ from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
 from ._defaults import resolve_config_metadata
 from ._validation import validate_config_keys
-from .bedrock import BedrockModel, _suppress_task_exception
+from .bedrock import BedrockModel, _next_stream_event, _poll_cancel_signal, _suppress_task_exception
 from .model import BaseModelConfig, Model
 
 logger = logging.getLogger(__name__)
@@ -35,6 +41,11 @@ logger = logging.getLogger(__name__)
 ModelFamily = Literal["anthropic", "openai"]
 T = TypeVar("T", bound=BaseModel)
 
+_DEFAULT_MAX_TOKENS = 4096
+
+# Foundation-model families whose InvokeModel body is neither Anthropic Messages nor OpenAI Chat
+# Completions shaped. BedrockModel already serves them over Converse.
+_NATIVE_SCHEMA_MODEL_PREFIXES = ("amazon.", "meta.", "mistral.", "cohere.", "ai21.")
 
 _BLOCK_STOP: StreamEvent = {"contentBlockStop": {}}
 _TEXT_START: StreamEvent = {"contentBlockStart": {"start": {}}}
@@ -77,6 +88,84 @@ def _metadata(in_tok: int, out_tok: int, latency_ms: int, total: int | None = No
     }
 
 
+@dataclass
+class _OpenAIToolCall:
+    """The pieces of one openai tool-call index seen so far, held until its block can open."""
+
+    tool_use_id: str | None = None
+    name: str | None = None
+    arguments: list[str] = field(default_factory=list)
+
+
+class _OpenAIBlockWriter:
+    """Emit Strands content blocks from openai-dialect stream deltas, one open block at a time.
+
+    The consumer keys its in-progress tool use off the most recent ``contentBlockStart``, so a block
+    is closed before the next one opens. A tool call's block is held back until both an id and a
+    non-empty function name have arrived: some OpenAI-compatible servers stream the id first, and the
+    consumer merges a field from a later ``toolUse`` delta only when the block does not already carry
+    it, so a block opened with a placeholder name could never pick up the real one.
+    """
+
+    def __init__(self, callback: Callable[..., None]) -> None:
+        self._callback = callback
+        self._active: str | None = None
+        self._active_index: int | None = None
+        self._pending: dict[int, _OpenAIToolCall] = {}
+        self._started: set[int] = set()
+
+    def write_text(self, text: str) -> None:
+        """Append text to the open text block, opening one if the active block is not text."""
+        if self._active != "text":
+            self._close_active()
+            self._callback(_TEXT_START)
+            self._active = "text"
+        self._callback(_text_delta(text))
+
+    def write_tool_call(self, tool_call: Mapping[str, Any]) -> None:
+        """Fold one streamed ``tool_calls`` entry into the block for its index."""
+        index = tool_call.get("index", 0)
+        function = tool_call.get("function") or {}
+        if index in self._started:
+            self._write_arguments(index, function.get("arguments"))
+            return
+
+        buffered = self._pending.setdefault(index, _OpenAIToolCall())
+        buffered.tool_use_id = tool_call.get("id") or buffered.tool_use_id
+        buffered.name = function.get("name") or buffered.name
+        if arguments := function.get("arguments"):
+            buffered.arguments.append(arguments)
+        if not buffered.name:
+            return
+
+        del self._pending[index]
+        self._close_active()
+        self._callback(_tool_use_start(buffered.tool_use_id or f"call_{index}", buffered.name))
+        self._started.add(index)
+        self._active, self._active_index = "tool_use", index
+        for arguments in buffered.arguments:
+            self._callback(_tool_use_delta(arguments))
+
+    def close(self) -> None:
+        """Close the open block and report any tool call whose name never arrived."""
+        self._close_active()
+        for index in self._pending:
+            logger.warning("tool_call_index=<%s> | dropping a tool call that never carried a name", index)
+
+    def _close_active(self) -> None:
+        if self._active is not None:
+            self._callback(_BLOCK_STOP)
+            self._active, self._active_index = None, None
+
+    def _write_arguments(self, index: int, arguments: str | None) -> None:
+        if not arguments:
+            return
+        if self._active == "tool_use" and index == self._active_index:
+            self._callback(_tool_use_delta(arguments))
+        else:
+            logger.warning("tool_call_index=<%s> | dropping arguments for a closed tool call", index)
+
+
 class BedrockInvokeModel(BedrockModel):
     """AWS Bedrock model provider using ``InvokeModel`` / ``InvokeModelWithResponseStream``.
 
@@ -86,10 +175,26 @@ class BedrockInvokeModel(BedrockModel):
     """
 
     class BedrockInvokeConfig(BaseModelConfig, total=False):
-        """Configuration options for ``BedrockInvokeModel``. ``model_family`` overrides id-based detection.
+        """Configuration options for ``BedrockInvokeModel``.
 
-        ``params`` is splatted onto the formatted request last, so it both reaches wire fields this config
-        does not model (``thinking``, ``anthropic_beta``, ...) and overrides any field computed above it.
+        Attributes:
+            model_id: Bedrock model id or ARN to invoke.
+            model_family: Wire dialect to emit, overriding id-based detection. This selects the request
+                shape this provider sends, not a capability, so set it only when the target model
+                genuinely speaks that format.
+            max_tokens: Cap on generated tokens, sent on both request families. Defaults to 4096 when
+                unset or ``None``, since the Anthropic Messages API requires the field.
+            streaming: Whether to call ``InvokeModelWithResponseStream``. Defaults to True.
+            temperature: Sampling temperature. Omitted from the request when unset.
+            top_p: Nucleus sampling cutoff. Omitted from the request when unset.
+            top_k: Top-k sampling cutoff, applied on the anthropic family only. OpenAI Chat Completions
+                has no equivalent parameter, so a value set here has no effect on an openai-family
+                request.
+            stop_sequences: Sequences that end generation, sent as ``stop_sequences`` on the anthropic
+                family and ``stop`` on the openai family.
+            params: Extra wire fields, splatted onto the formatted request last, so it both reaches
+                fields this config does not model (``thinking``, ``anthropic_beta``, ...) and overrides
+                any field computed above it.
         """
 
         model_id: str
@@ -102,6 +207,8 @@ class BedrockInvokeModel(BedrockModel):
         stop_sequences: list[str] | None
         params: dict[str, Any] | None
 
+    # ``BedrockModel.__init__`` is deliberately not called: it would create a second bedrock-runtime
+    # client and install a ``BedrockConfig``, which rejects this provider's own config keys.
     def __init__(
         self,
         *,
@@ -143,11 +250,26 @@ class BedrockInvokeModel(BedrockModel):
         return resolve_config_metadata(self.config, self.config.get("model_id", ""))
 
     def _get_model_family(self) -> ModelFamily:
-        """Detect the request/response format from the configured model id."""
+        """Detect the request/response format from the configured model id.
+
+        Raises:
+            ValueError: If the id belongs to a foundation-model family whose native InvokeModel body
+                shape this provider does not send, and no ``model_family`` override is configured.
+        """
         if family := self.config.get("model_family"):
             return family
+
         model_id = self.config["model_id"].lower()
-        return "anthropic" if "anthropic" in model_id or "claude" in model_id else "openai"
+        if "anthropic" in model_id or "claude" in model_id:
+            return "anthropic"
+        if model_id.startswith(_NATIVE_SCHEMA_MODEL_PREFIXES):
+            raise ValueError(
+                f"model_id=<{self.config['model_id']}> | this model family takes its own native "
+                "InvokeModel body shape, which BedrockInvokeModel does not send. Use BedrockModel, "
+                "which supports these models through the Converse API, or set the model_family config "
+                'key ("anthropic" or "openai") to force a dialect for a model that speaks it.'
+            )
+        return "openai"
 
     # ----- request formatting
 
@@ -158,6 +280,11 @@ class BedrockInvokeModel(BedrockModel):
     @staticmethod
     def _system_text(blocks: list[SystemContentBlock] | None) -> str:
         return " ".join(b.get("text", "") for b in (blocks or []) if "text" in b)
+
+    def _max_tokens(self) -> int:
+        """Return the configured generation cap, falling back to the default when unset or ``None``."""
+        max_tokens = self.config.get("max_tokens")
+        return _DEFAULT_MAX_TOKENS if max_tokens is None else max_tokens
 
     def _apply_sampling_params(self, request: dict[str, Any], stop_key: str, include_top_k: bool = False) -> None:
         """Copy configured temperature/top_p/(top_k)/stop_sequences onto ``request`` when set."""
@@ -197,7 +324,7 @@ class BedrockInvokeModel(BedrockModel):
         """
         request: dict[str, Any] = {
             "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": self.config.get("max_tokens", 4096),
+            "max_tokens": self._max_tokens(),
             "messages": [],
         }
         if system := self._system_text(system_prompt_content):
@@ -235,7 +362,7 @@ class BedrockInvokeModel(BedrockModel):
 
         if tool_specs:
             request["tools"] = [
-                {"name": s["name"], "description": s["description"], "input_schema": s["inputSchema"]}
+                {"name": s["name"], "description": s["description"], "input_schema": s["inputSchema"]["json"]}
                 for s in tool_specs
             ]
         if (tc := self._to_tool_choice(tool_choice, "anthropic")) is not None:
@@ -255,15 +382,20 @@ class BedrockInvokeModel(BedrockModel):
         """Build an OpenAI Chat Completions request body.
 
         Raises:
-            TypeError: If a message contains a content block type this provider cannot format. Images are
-                only formattable on the Anthropic path; use ``model_family="anthropic"`` for multimodal input.
+            TypeError: If a message contains a content block type this provider cannot format. There is no
+                image support on this path; images are formattable only when the target model understands
+                Anthropic Messages format, in which case set ``model_family="anthropic"``.
         """
         request: dict[str, Any] = {
             "model": self.config["model_id"],
             "messages": [],
-            "max_tokens": self.config.get("max_tokens", 4096),
+            "max_tokens": self._max_tokens(),
             "stream": self.config.get("streaming", True),
         }
+        if request["stream"]:
+            # Standard OpenAI streaming omits the usage chunk unless it is asked for, which would leave
+            # the turn reporting no tokens and no latency at all.
+            request["stream_options"] = {"include_usage": True}
         if system := self._system_text(system_prompt_content):
             request["messages"].append({"role": "system", "content": system})
 
@@ -298,7 +430,11 @@ class BedrockInvokeModel(BedrockModel):
             request["tools"] = [
                 {
                     "type": "function",
-                    "function": {"name": s["name"], "description": s["description"], "parameters": s["inputSchema"]},
+                    "function": {
+                        "name": s["name"],
+                        "description": s["description"],
+                        "parameters": s["inputSchema"]["json"],
+                    },
                 }
                 for s in tool_specs
             ]
@@ -343,7 +479,13 @@ class BedrockInvokeModel(BedrockModel):
     def _map_openai_stop(cls, reason: str | None) -> str:
         return cls._OPENAI_STOP.get(reason or "", "end_turn")
 
-    def _emit_anthropic_chunks(self, body: Any, callback: Callable[..., None], start_time: float) -> None:
+    def _emit_anthropic_chunks(
+        self,
+        body: Any,
+        callback: Callable[..., None],
+        start_time: float,
+        cancel_signal: threading.Event | None = None,
+    ) -> None:
         """Translate an Anthropic Messages stream into Strands ``StreamEvent``s."""
         callback({"messageStart": {"role": "assistant"}})
         stop_reason: str | None = None
@@ -351,6 +493,11 @@ class BedrockInvokeModel(BedrockModel):
         active: str | None = None
 
         for event in body:
+            if cancel_signal is not None and cancel_signal.is_set():
+                # Closing from this thread only: botocore's teardown is not safe against a read in
+                # flight, and this thread is the one reading.
+                body.close()
+                break
             chunk = json.loads(event["chunk"]["bytes"])
             t = chunk.get("type")
             logger.debug("anthropic_chunk_type=<%s>", t)
@@ -390,57 +537,47 @@ class BedrockInvokeModel(BedrockModel):
         callback({"messageStop": {"stopReason": self._map_anthropic_stop(stop_reason)}})
         callback(_metadata(in_toks, out_toks, _latency_ms(start_time)))
 
-    def _emit_openai_chunks(self, body: Any, callback: Callable[..., None], start_time: float) -> None:
+    def _emit_openai_chunks(
+        self,
+        body: Any,
+        callback: Callable[..., None],
+        start_time: float,
+        cancel_signal: threading.Event | None = None,
+    ) -> None:
         """Translate an OpenAI Chat Completions stream into Strands ``StreamEvent``s.
 
-        Tool calls are keyed by ``index`` and emitted lazily once an id or function name appears. At most
-        one content block is open at a time, since the consumer keys its in-progress tool use off the most
-        recent ``contentBlockStart``; a block must therefore be closed before the next one opens.
+        Content blocks are delimited by :class:`_OpenAIBlockWriter`. The metadata event is emitted even
+        when no usage chunk arrives, so an endpoint that ignores ``stream_options`` reports zeroes rather
+        than leaving the turn with no cost or latency at all.
         """
         callback({"messageStart": {"role": "assistant"}})
-        active: str | None = None
-        active_index: int | None = None
-        started: set[int] = set()
+        writer = _OpenAIBlockWriter(callback)
         stop_reason: str | None = None
-        usage: dict[str, Any] | None = None
+        usage: dict[str, Any] = {}
 
         for event in body:
+            if cancel_signal is not None and cancel_signal.is_set():
+                # Closing from this thread only: botocore's teardown is not safe against a read in
+                # flight, and this thread is the one reading.
+                body.close()
+                break
             chunk = json.loads(event["chunk"]["bytes"])
             if choices := chunk.get("choices"):
                 delta = choices[0].get("delta") or {}
                 if delta.get("content"):
-                    if active != "text":
-                        if active is not None:
-                            callback(_BLOCK_STOP)
-                        callback(_TEXT_START)
-                        active, active_index = "text", None
-                    callback(_text_delta(delta["content"]))
+                    writer.write_text(delta["content"])
                 for tool_call in delta.get("tool_calls") or []:
-                    index = tool_call.get("index", 0)
-                    fn = tool_call.get("function") or {}
-                    if index not in started and (tool_call.get("id") or fn.get("name")):
-                        if active is not None:
-                            callback(_BLOCK_STOP)
-                        callback(_tool_use_start(tool_call.get("id") or f"call_{index}", fn.get("name", "")))
-                        started.add(index)
-                        active, active_index = "tool_use", index
-                    if args := fn.get("arguments"):
-                        if active == "tool_use" and index == active_index:
-                            callback(_tool_use_delta(args))
-                        else:
-                            logger.warning("tool_call_index=<%s> | dropping arguments for a closed tool call", index)
+                    writer.write_tool_call(tool_call)
                 if finish := choices[0].get("finish_reason"):
                     stop_reason = finish
             if chunk.get("usage"):
                 usage = chunk["usage"]
 
-        if active is not None:
-            callback(_BLOCK_STOP)
+        writer.close()
         callback({"messageStop": {"stopReason": self._map_openai_stop(stop_reason)}})
-        if usage:
-            inp = usage.get("prompt_tokens", 0)
-            out = usage.get("completion_tokens", 0)
-            callback(_metadata(inp, out, _latency_ms(start_time), usage.get("total_tokens", inp + out)))
+        inp = usage.get("prompt_tokens", 0)
+        out = usage.get("completion_tokens", 0)
+        callback(_metadata(inp, out, _latency_ms(start_time), usage.get("total_tokens", inp + out)))
 
     def _emit_anthropic_non_streaming(
         self, body: dict[str, Any], callback: Callable[..., None], start_time: float
@@ -569,9 +706,31 @@ class BedrockInvokeModel(BedrockModel):
         *,
         tool_choice: ToolChoice | None = None,
         system_prompt_content: list[SystemContentBlock] | None = None,
+        cancel_signal: threading.Event | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
-        """Stream a turn through Bedrock InvokeModel."""
+        """Stream a turn through Bedrock InvokeModel.
+
+        Args:
+            messages: List of message objects to be processed by the model.
+            tool_specs: List of tool specifications to make available to the model.
+            system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation.
+            system_prompt_content: Structured system prompt content blocks.
+            cancel_signal: Event that aborts an in-flight streaming request. The caller stops receiving
+                events as soon as it is set, and the response is closed at the next chunk boundary. A
+                non-streaming request (``streaming=False``) is not abortable.
+            **kwargs: Additional keyword arguments for future extensibility.
+
+        Yields:
+            Model events.
+
+        Raises:
+            ContextWindowOverflowException: If the input exceeds the model's context window.
+            ModelThrottledException: If the model service is throttling requests.
+            ValueError: If the model id belongs to a foundation-model family whose native InvokeModel
+                body shape this provider does not send, and no ``model_family`` override is configured.
+        """
 
         def callback(event: StreamEvent | None = None) -> None:
             loop.call_soon_threadsafe(queue.put_nowait, event)
@@ -582,20 +741,33 @@ class BedrockInvokeModel(BedrockModel):
         if system_prompt and system_prompt_content is None:
             system_prompt_content = [{"text": system_prompt}]
 
-        thread = asyncio.to_thread(self._stream, callback, messages, tool_specs, system_prompt_content, tool_choice)
+        thread = asyncio.to_thread(
+            self._stream, callback, messages, tool_specs, system_prompt_content, tool_choice, cancel_signal
+        )
         task = asyncio.create_task(thread)
+        cancel_poll = asyncio.ensure_future(_poll_cancel_signal(cancel_signal)) if cancel_signal else None
 
         try:
             while True:
-                event = await queue.get()
+                event = await _next_stream_event(queue, cancel_poll)
                 if event is None:
                     break
                 yield event
+
+            if cancel_poll is not None and cancel_poll.done():
+                # The worker thread owns the event stream and closes it at its next chunk boundary.
+                # Detaching it rather than awaiting keeps a stalled read from delaying the caller.
+                task.add_done_callback(_suppress_task_exception)
+                return
+
             await task
         except BaseException:
             # Don't block cancellation on the in-flight blocking boto3 call; consume its exception later instead.
             task.add_done_callback(_suppress_task_exception)
             raise
+        finally:
+            if cancel_poll is not None:
+                cancel_poll.cancel()
 
     def _stream(  # type: ignore[override]
         self,
@@ -604,6 +776,7 @@ class BedrockInvokeModel(BedrockModel):
         tool_specs: list[ToolSpec] | None,
         system_prompt_content: list[SystemContentBlock] | None,
         tool_choice: ToolChoice | None,
+        cancel_signal: threading.Event | None = None,
     ) -> None:
         """Run the InvokeModel call on a worker thread and stream events."""
         try:
@@ -622,7 +795,7 @@ class BedrockInvokeModel(BedrockModel):
             if self.config.get("streaming", True):
                 response = self.client.invoke_model_with_response_stream(**common_kwargs)
                 emit = self._emit_anthropic_chunks if family == "anthropic" else self._emit_openai_chunks
-                emit(response["body"], callback, start_time)
+                emit(response["body"], callback, start_time, cancel_signal)
             else:
                 response = self.client.invoke_model(**common_kwargs)
                 body = json.loads(response["body"].read())
@@ -631,10 +804,23 @@ class BedrockInvokeModel(BedrockModel):
                 emit(body, callback, start_time)
 
         except ClientError as error:
+            self._add_model_family_note(error)
             self._raise_translated_client_error(error)
         finally:
             callback()
             logger.debug("finished streaming response from model")
+
+    def _add_model_family_note(self, error: ClientError) -> None:
+        """Note which dialect the request body used, a common cause of a rejected InvokeModel call.
+
+        An Anthropic model reached through a provisioned-throughput or inference-profile ARN carries no
+        ``anthropic``/``claude`` substring, so detection settles on ``openai`` and Bedrock rejects the body
+        without saying why.
+        """
+        explicit = self.config.get("model_family")
+        source = "explicitly set via model_family=" if explicit else "auto-detected from the model id"
+        add_exception_note(error, f"└ Request body family: {explicit or self._get_model_family()} ({source})")
+        add_exception_note(error, '└ Override it with model_family="anthropic" or model_family="openai"')
 
     @override
     async def structured_output(
