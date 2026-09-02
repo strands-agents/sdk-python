@@ -2,6 +2,8 @@
  * Configuration types for the ContextManager.
  */
 
+import type { Storage } from '../storage/storage.js'
+import type { Stash } from './stash.js'
 import type { LocalAgent } from '../types/agent.js'
 import type { Message } from '../types/messages.js'
 
@@ -20,7 +22,7 @@ export interface ContextStrategy {
    * Called once when the ContextManager is attached to an agent.
    * Strategies can use this to register hooks (e.g., eager offloading on message arrival).
    */
-  init?(agent: LocalAgent): void
+  init?(agent: LocalAgent, stash?: Stash): void
 
   /**
    * Attempt to reduce context. Returns true if it made changes, false if it
@@ -41,6 +43,24 @@ export interface ContextState {
 
   /** Current context utilization ratio (0-1+). Above 1.0 means overflow. */
   utilization: number
+
+  /** L1 stash for persisting offloaded content. Present when storage is configured. */
+  stash?: Stash
+}
+
+/**
+ * Configuration for the L1 stash (offloaded content persistence).
+ */
+export interface StashConfig {
+  /** Storage backend. Defaults to InMemoryStorage when omitted. */
+  storage?: Storage
+
+  /**
+   * Whether to register the `retrieve_context` tool for the agent.
+   * Set to `false` to keep stash persistence without exposing the retrieval tool.
+   * Defaults to `true`.
+   */
+  retrievalTool?: false
 }
 
 /**
@@ -54,4 +74,14 @@ export interface ContextManagerConfig {
    * threshold wins. When omitted, uses the default pipeline.
    */
   strategies?: ContextStrategy[]
+
+  /**
+   * L1 stash configuration. The stash persists offloaded content so the agent can
+   * retrieve it on demand via the `retrieve_context` tool.
+   *
+   * - Omit or `true` → stash enabled with InMemoryStorage (default)
+   * - `{ storage }` → stash enabled with the given backend
+   * - `false` → stash disabled (no persistence, no retrieval tool)
+   */
+  stash?: StashConfig | boolean
 }

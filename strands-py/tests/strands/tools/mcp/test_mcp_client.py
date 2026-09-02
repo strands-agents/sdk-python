@@ -20,6 +20,7 @@ from mcp.types import (
     ResourceTemplate,
     TextResourceContents,
 )
+from mcp.types import ImageContent as MCPImageContent
 from mcp.types import TextContent as MCPTextContent
 from mcp.types import Tool as MCPTool
 from pydantic import AnyUrl
@@ -141,6 +142,58 @@ def test_call_tool_sync_status(mock_transport, mock_session, is_error, expected_
         assert result.get("structuredContent") is None
         # isError mirrors the MCP server's explicit value; absent only for protocol/client exceptions
         assert result.get("isError") is is_error
+
+
+def test_call_tool_sync_without_error_flag(mock_transport, mock_session):
+    """A result whose error flag is unset maps to success without an isError key.
+
+    mcp 2.x models the flag as `bool | None` defaulting to None; the 1.x model
+    validates it to a bool, so the unset shape is built with `model_construct`.
+    """
+    mock_content = MCPTextContent(type="text", text="Test message")
+    mock_session.call_tool.return_value = MCPCallToolResult.model_construct(isError=None, content=[mock_content])
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
+
+        assert result == {
+            "status": "success",
+            "toolUseId": "test-123",
+            "content": [{"text": "Test message"}],
+        }
+
+
+def test_call_tool_sync_with_falsy_structured_content(mock_transport, mock_session):
+    """Test that an empty structured payload is forwarded, not dropped as falsy.
+
+    The 2026-07-28 spec allows any JSON value in `structuredContent`, so `0`,
+    `False`, `""`, `[]`, and `{}` are all valid payloads.
+    """
+    mock_content = MCPTextContent(type="text", text="Test message")
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[mock_content], structuredContent={})
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
+
+        assert result == {
+            "status": "success",
+            "toolUseId": "test-123",
+            "content": [{"text": "Test message"}],
+            "structuredContent": {},
+            "isError": False,
+        }
+
+
+def test_call_tool_sync_calls_the_tool_through_the_compat_shim(mock_transport, mock_session):
+    """Test that the direct tool-call path calls the tool through the version shim."""
+    mock_content = MCPTextContent(type="text", text="Test message")
+    shim = AsyncMock(return_value=MCPCallToolResult(isError=False, content=[mock_content]))
+
+    with patch("strands.tools.mcp.mcp_client.compat_call_tool", shim):
+        with MCPClient(mock_transport["transport_callable"]) as client:
+            client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
+
+    shim.assert_awaited_once_with(mock_session, "test_tool", {"param": "value"}, None, None, None)
 
 
 def test_call_tool_sync_session_not_active():
@@ -1042,6 +1095,25 @@ def test_mcp_client_state_reset_after_timeout():
     assert client._background_thread_session is None
     assert client._background_thread_event_loop is None
     assert not client._init_future.done()  # New future created
+
+
+def test_call_tool_sync_image_content(mock_transport, mock_session):
+    """A top-level ImageContent block should map to image content with decoded bytes."""
+    with open("tests_integ/resources/yellow.png", "rb") as image_file:
+        png_data = image_file.read()
+
+    image_content = MCPImageContent(type="image", data=base64.b64encode(png_data).decode(), mimeType="image/png")
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[image_content])
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="img-1", name="get_image", arguments={})
+
+        assert result == {
+            "status": "success",
+            "toolUseId": "img-1",
+            "content": [{"image": {"format": "png", "source": {"bytes": png_data}}}],
+            "isError": False,
+        }
 
 
 def test_call_tool_sync_embedded_nested_text(mock_transport, mock_session):

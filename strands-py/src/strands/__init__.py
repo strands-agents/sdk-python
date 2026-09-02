@@ -13,6 +13,7 @@ from .sandbox import (
 from .sandbox.errors import SandboxPathNotFoundError, SandboxTimeoutError
 from .tools.decorator import tool
 from .types._snapshot import Snapshot
+from .types.agent import LocalAgent
 from .types.tools import ToolContext
 from .vended_plugins.skills import AgentSkills, Skill
 
@@ -21,6 +22,7 @@ __all__ = [
     "AgentBase",
     "AgentSkills",
     "InterventionHandler",
+    "LocalAgent",
     "agent",
     "models",
     "ModelRetryStrategy",

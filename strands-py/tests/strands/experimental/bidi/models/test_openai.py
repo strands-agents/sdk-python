@@ -1,6 +1,6 @@
 """Unit tests for OpenAI Realtime bidirectional streaming model.
 
-Tests the unified BidiOpenAIRealtimeModel interface including:
+Tests the unified OpenAIRealtimeModel interface including:
 - Model initialization and configuration
 - Connection establishment with WebSocket
 - Unified send() method with different content types
@@ -8,6 +8,7 @@ Tests the unified BidiOpenAIRealtimeModel interface including:
 - Connection lifecycle management
 """
 
+import asyncio
 import base64
 import itertools
 import json
@@ -16,7 +17,12 @@ import unittest.mock
 import pytest
 
 from strands.experimental.bidi.models.model import BidiModelTimeoutError
-from strands.experimental.bidi.models.openai_realtime import BidiOpenAIRealtimeModel
+from strands.experimental.bidi.models.openai import (
+    _RECONNECT_INSTRUCTION,
+    OPENAI_MAX_TIMEOUT_S,
+    OPENAI_PROACTIVE_RECONNECT_MARGIN_S,
+    OpenAIRealtimeModel,
+)
 from strands.experimental.bidi.types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
@@ -47,7 +53,7 @@ def mock_websockets_connect(mock_websocket):
     async def async_connect(*args, **kwargs):
         return mock_websocket
 
-    with unittest.mock.patch("strands.experimental.bidi.models.openai_realtime.websockets.connect") as mock_connect:
+    with unittest.mock.patch("strands.experimental.bidi.models.openai.websockets.connect") as mock_connect:
         mock_connect.side_effect = async_connect
         yield mock_connect, mock_websocket
 
@@ -64,8 +70,8 @@ def api_key():
 
 @pytest.fixture
 def model(mock_websockets_connect, api_key, model_name):
-    """Create an BidiOpenAIRealtimeModel instance."""
-    return BidiOpenAIRealtimeModel(model=model_name, client_config={"api_key": api_key})
+    """Create an OpenAIRealtimeModel instance."""
+    return OpenAIRealtimeModel(model=model_name, client_config={"api_key": api_key})
 
 
 @pytest.fixture
@@ -93,25 +99,25 @@ def messages():
 def test_model_initialization(api_key, model_name, monkeypatch):
     """Test model initialization with various configurations."""
     # Test default config
-    model_default = BidiOpenAIRealtimeModel(client_config={"api_key": "test-key"})
+    model_default = OpenAIRealtimeModel(client_config={"api_key": "test-key"})
     assert model_default.model_id == "gpt-realtime"
     assert model_default.api_key == "test-key"
 
     # Test with custom model
-    model_custom = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
+    model_custom = OpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
     assert model_custom.model_id == model_name
     assert model_custom.api_key == api_key
 
     # Test with organization and project via environment variables
     monkeypatch.setenv("OPENAI_ORGANIZATION", "org-123")
     monkeypatch.setenv("OPENAI_PROJECT", "proj-456")
-    model_env = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
+    model_env = OpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
     assert model_env.organization == "org-123"
     assert model_env.project == "proj-456"
 
     # Test with env API key
     monkeypatch.setenv("OPENAI_API_KEY", "env-key")
-    model_env = BidiOpenAIRealtimeModel()
+    model_env = OpenAIRealtimeModel()
     assert model_env.api_key == "env-key"
 
 
@@ -120,7 +126,7 @@ def test_model_initialization(api_key, model_name, monkeypatch):
 
 def test_audio_config_defaults(api_key, model_name):
     """Test default audio configuration."""
-    model = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
+    model = OpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
 
     assert model.config["audio"]["input_rate"] == 24000
     assert model.config["audio"]["output_rate"] == 24000
@@ -132,7 +138,7 @@ def test_audio_config_defaults(api_key, model_name):
 def test_audio_config_partial_override(api_key, model_name):
     """Test partial audio configuration override."""
     provider_config = {"audio": {"output_rate": 48000, "voice": "echo"}}
-    model = BidiOpenAIRealtimeModel(
+    model = OpenAIRealtimeModel(
         model_id=model_name, client_config={"api_key": api_key}, provider_config=provider_config
     )
 
@@ -157,7 +163,7 @@ def test_audio_config_full_override(api_key, model_name):
             "voice": "shimmer",
         }
     }
-    model = BidiOpenAIRealtimeModel(
+    model = OpenAIRealtimeModel(
         model_id=model_name, client_config={"api_key": api_key}, provider_config=provider_config
     )
 
@@ -172,7 +178,7 @@ def test_audio_config_extracts_voice_from_provider_config(api_key, model_name):
     """Test that voice is extracted from provider_config when config audio not provided."""
     provider_config = {"audio": {"voice": "fable"}}
 
-    model = BidiOpenAIRealtimeModel(
+    model = OpenAIRealtimeModel(
         model_id=model_name, client_config={"api_key": api_key}, provider_config=provider_config
     )
 
@@ -184,7 +190,7 @@ def test_init_without_api_key_raises(monkeypatch):
     """Test that initialization without API key raises error."""
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     with pytest.raises(ValueError, match="OpenAI API key is required"):
-        BidiOpenAIRealtimeModel()
+        OpenAIRealtimeModel()
 
 
 # Connection Tests
@@ -248,7 +254,7 @@ async def test_connection_with_org_header(mock_websockets_connect, monkeypatch):
     mock_connect, mock_ws = mock_websockets_connect
 
     monkeypatch.setenv("OPENAI_ORGANIZATION", "org-123")
-    model_org = BidiOpenAIRealtimeModel(client_config={"api_key": "test-key"})
+    model_org = OpenAIRealtimeModel(client_config={"api_key": "test-key"})
     await model_org.start()
     call_kwargs = mock_connect.call_args.kwargs
     headers = call_kwargs.get("additional_headers", [])
@@ -328,7 +334,7 @@ async def test_connection_edge_cases(mock_websockets_connect, api_key, model_nam
     mock_connect, mock_ws = mock_websockets_connect
 
     # Test connection error
-    model1 = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
+    model1 = OpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
     mock_connect.side_effect = Exception("Connection failed")
     with pytest.raises(Exception, match="Connection failed"):
         await model1.start()
@@ -340,18 +346,18 @@ async def test_connection_edge_cases(mock_websockets_connect, api_key, model_nam
     mock_connect.side_effect = async_connect
 
     # Test double connection
-    model2 = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
+    model2 = OpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
     await model2.start()
     with pytest.raises(RuntimeError, match=r"call stop before starting again"):
         await model2.start()
     await model2.stop()
 
     # Test close when not connected
-    model3 = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
+    model3 = OpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
     await model3.stop()  # Should not raise
 
     # Test close error
-    model4 = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
+    model4 = OpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
     await model4.start()
     mock_ws.close.side_effect = Exception("Close failed")
     with pytest.raises(Exception, match=r"failed stop sequence"):
@@ -531,7 +537,7 @@ async def test_receive_lifecycle_events(mock_websocket, model):
     assert tru_events == exp_events
 
 
-@unittest.mock.patch("strands.experimental.bidi.models.openai_realtime.time.time")
+@unittest.mock.patch("strands.experimental.bidi.models.openai.time.time")
 @pytest.mark.asyncio
 async def test_receive_timeout(mock_time, model):
     mock_time.side_effect = itertools.count()
@@ -724,7 +730,7 @@ async def test_custom_audio_sample_rate(mock_websockets_connect, api_key):
     # Create model with custom sample rate
     custom_sample_rate = 48000
     provider_config = {"audio": {"output_rate": custom_sample_rate}}
-    model = BidiOpenAIRealtimeModel(client_config={"api_key": api_key}, provider_config=provider_config)
+    model = OpenAIRealtimeModel(client_config={"api_key": api_key}, provider_config=provider_config)
 
     await model.start()
 
@@ -752,7 +758,7 @@ async def test_default_audio_sample_rate(mock_websockets_connect, api_key):
     _, mock_ws = mock_websockets_connect
 
     # Create model without custom audio config
-    model = BidiOpenAIRealtimeModel(client_config={"api_key": api_key})
+    model = OpenAIRealtimeModel(client_config={"api_key": api_key})
 
     await model.start()
 
@@ -781,7 +787,7 @@ async def test_partial_audio_config(mock_websockets_connect, api_key):
 
     # Create model with partial audio config (missing format.rate)
     provider_config = {"audio": {"output": {"voice": "alloy"}}}
-    model = BidiOpenAIRealtimeModel(client_config={"api_key": api_key}, provider_config=provider_config)
+    model = OpenAIRealtimeModel(client_config={"api_key": api_key}, provider_config=provider_config)
 
     await model.start()
 
@@ -810,7 +816,7 @@ async def test_partial_audio_config(mock_websockets_connect, api_key):
 async def test_tool_result_single_text_content(mock_websockets_connect, api_key):
     """Test tool result with single text content block."""
     _, mock_ws = mock_websockets_connect
-    model = BidiOpenAIRealtimeModel(client_config={"api_key": api_key})
+    model = OpenAIRealtimeModel(client_config={"api_key": api_key})
     await model.start()
 
     tool_result: ToolResult = {
@@ -841,7 +847,7 @@ async def test_tool_result_single_text_content(mock_websockets_connect, api_key)
 async def test_tool_result_single_json_content(mock_websockets_connect, api_key):
     """Test tool result with single JSON content block."""
     _, mock_ws = mock_websockets_connect
-    model = BidiOpenAIRealtimeModel(client_config={"api_key": api_key})
+    model = OpenAIRealtimeModel(client_config={"api_key": api_key})
     await model.start()
 
     tool_result: ToolResult = {
@@ -871,7 +877,7 @@ async def test_tool_result_single_json_content(mock_websockets_connect, api_key)
 async def test_tool_result_multiple_content_blocks(mock_websockets_connect, api_key):
     """Test tool result with multiple content blocks (text and json)."""
     _, mock_ws = mock_websockets_connect
-    model = BidiOpenAIRealtimeModel(client_config={"api_key": api_key})
+    model = OpenAIRealtimeModel(client_config={"api_key": api_key})
     await model.start()
 
     tool_result: ToolResult = {
@@ -909,7 +915,7 @@ async def test_tool_result_multiple_content_blocks(mock_websockets_connect, api_
 async def test_tool_result_image_content_raises_error(mock_websockets_connect, api_key):
     """Test that tool result with image content raises ValueError."""
     _, mock_ws = mock_websockets_connect
-    model = BidiOpenAIRealtimeModel(client_config={"api_key": api_key})
+    model = OpenAIRealtimeModel(client_config={"api_key": api_key})
     await model.start()
 
     tool_result: ToolResult = {
@@ -928,7 +934,7 @@ async def test_tool_result_image_content_raises_error(mock_websockets_connect, a
 async def test_tool_result_document_content_raises_error(mock_websockets_connect, api_key):
     """Test that tool result with document content raises ValueError."""
     _, mock_ws = mock_websockets_connect
-    model = BidiOpenAIRealtimeModel(client_config={"api_key": api_key})
+    model = OpenAIRealtimeModel(client_config={"api_key": api_key})
     await model.start()
 
     tool_result: ToolResult = {
@@ -941,3 +947,170 @@ async def test_tool_result_document_content_raises_error(mock_websockets_connect
         await model.send(ToolResultEvent(tool_result))
 
     await model.stop()
+
+
+# Reconnect Tests
+
+
+def test_connection_config_defaults_and_override(api_key, mock_websockets_connect):
+    """Proactive reconnect fires a margin below the reactive timeout, and is overridable."""
+    default_model = OpenAIRealtimeModel(client_config={"api_key": api_key})
+    # Deadline sits below the reactive timeout so a mid-turn swap is not preempted by it.
+    assert default_model.connection_config == {
+        "restart_after_s": OPENAI_MAX_TIMEOUT_S - OPENAI_PROACTIVE_RECONNECT_MARGIN_S
+    }
+    assert default_model.connection_config["restart_after_s"] < default_model.timeout_s
+    # OpenAI reports per-response usage, so it must not be treated as cumulative.
+    assert default_model.usage_is_cumulative is False
+
+    # Lowering timeout_s keeps the headroom rather than recreating the tie.
+    lowered_model = OpenAIRealtimeModel(client_config={"api_key": api_key, "timeout_s": 1000})
+    assert lowered_model.connection_config["restart_after_s"] == 1000 - OPENAI_PROACTIVE_RECONNECT_MARGIN_S
+
+    tuned_model = OpenAIRealtimeModel(
+        client_config={"api_key": api_key},
+        provider_config={"connection": {"restart_after_s": 25}},
+    )
+    assert tuned_model.connection_config["restart_after_s"] == 25
+
+
+@pytest.mark.asyncio
+async def test_reconnect_reestablishes_and_replays_history(mock_websockets_connect, model, system_prompt, messages):
+    """reconnect() closes the old socket, opens a new one, and replays conversation history."""
+    mock_connect, mock_ws = mock_websockets_connect
+
+    await model.start()
+    first_connection_id = model._connection_id
+    mock_ws.send.reset_mock()
+
+    await model.reconnect(system_prompt=system_prompt, messages=messages)
+
+    # Old socket closed, a new connection opened, and the connection identity advanced.
+    mock_ws.close.assert_called_once()
+    assert mock_connect.call_count == 2
+    assert model._connection_id is not None
+    assert model._connection_id != first_connection_id
+
+    # Real history replay: the user turn is recreated on the new connection. Filtering on the user
+    # role ensures the re-anchor system message (also an item.create) cannot satisfy this alone.
+    user_items = [
+        json.loads(call[0][0])["item"]
+        for call in mock_ws.send.call_args_list
+        if json.loads(call[0][0]).get("type") == "conversation.item.create"
+        and json.loads(call[0][0])["item"].get("role") == "user"
+    ]
+    assert user_items == [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Hello"}]}]
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_reconnect_forwards_tools(mock_websockets_connect, model, tool_spec):
+    """Tools are re-sent on reconnect so the new session can still call them."""
+    _, mock_ws = mock_websockets_connect
+
+    await model.start()
+    mock_ws.send.reset_mock()
+
+    await model.reconnect(tools=[tool_spec])
+
+    tool_names = [
+        tool["name"]
+        for call in mock_ws.send.call_args_list
+        if json.loads(call[0][0]).get("type") == "session.update"
+        for tool in json.loads(call[0][0])["session"].get("tools", [])
+    ]
+    assert tool_spec["name"] in tool_names
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_reconnect_survives_reanchor_send_failure(mock_websockets_connect, model):
+    """A failed re-anchor send is logged, not fatal: the reconnected session stays healthy."""
+    _, mock_ws = mock_websockets_connect
+
+    await model.start()
+
+    async def fail_on_anchor(message):
+        payload = json.loads(message)
+        if payload.get("type") == "conversation.item.create" and payload.get("item", {}).get("role") == "system":
+            raise RuntimeError("re-anchor send failed")
+
+    mock_ws.send.side_effect = fail_on_anchor
+
+    # Must not raise even though the re-anchor send fails.
+    await model.reconnect()
+
+    assert model._connection_id is not None
+
+    mock_ws.send.side_effect = None
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_reconnect_sends_reanchor_system_message(mock_websockets_connect, model):
+    """reconnect() injects a system message so the fresh session continues rather than drifting."""
+    _, mock_ws = mock_websockets_connect
+
+    await model.start()
+    mock_ws.send.reset_mock()
+
+    await model.reconnect()
+
+    system_items = [
+        json.loads(call[0][0])["item"]
+        for call in mock_ws.send.call_args_list
+        if json.loads(call[0][0]).get("type") == "conversation.item.create"
+        and json.loads(call[0][0])["item"].get("role") == "system"
+    ]
+    assert system_items == [
+        {"type": "message", "role": "system", "content": [{"type": "input_text", "text": _RECONNECT_INSTRUCTION}]}
+    ]
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_receive_binds_websocket_per_reader(mock_websockets_connect, model):
+    """A superseded reader keeps reading its own socket after self._websocket is swapped.
+
+    Guards against a still-draining reader stealing messages from the connection that replaced it
+    on reconnect.
+    """
+    _, ws1 = mock_websockets_connect
+    await model.start()
+
+    audio_from_ws1 = json.dumps({"type": "response.output_audio.delta", "delta": "FROM_WS1"})
+    blocker = asyncio.Event()
+    call_count = itertools.count()
+
+    async def ws1_recv(*args, **kwargs):
+        # First read yields one audio delta; subsequent reads park so the reader stays on ws1.
+        if next(call_count) == 0:
+            return audio_from_ws1
+        await blocker.wait()
+        return audio_from_ws1
+
+    ws1.recv = unittest.mock.AsyncMock(side_effect=ws1_recv)
+
+    reader = model.receive()
+    await reader.__anext__()  # BidiConnectionStartEvent (reader not yet bound to a socket)
+    first = await reader.__anext__()  # binds to ws1, reads its message
+    assert isinstance(first, BidiAudioStreamEvent)
+    assert first.audio == "FROM_WS1"
+
+    # Swap in a replacement socket, as a reconnect would.
+    ws2 = unittest.mock.AsyncMock()
+    ws2.recv = unittest.mock.AsyncMock(
+        return_value=json.dumps({"type": "response.output_audio.delta", "delta": "FROM_WS2"})
+    )
+    model._websocket = ws2
+
+    # The bound reader stays parked on ws1 and never touches the replacement socket.
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(reader.__anext__(), timeout=0.2)
+    ws2.recv.assert_not_called()
+
+    blocker.set()
+    await reader.aclose()
