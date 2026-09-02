@@ -338,19 +338,27 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
   private async _includeStashData(agent: LocalAgent, snapshot: Snapshot): Promise<void> {
     const contextManager = agent.contextManager
     if (!contextManager?.stash) return
-    // Durable storage already persists stash entries — no need to duplicate in the snapshot.
-    if (contextManager.stashIsDurable) return
-    const stashData = await contextManager.stash.takeSnapshot()
-    if (Object.keys(stashData).length > 0) {
-      snapshot.data.stash = stashData as unknown as JSONValue
+
+    if (contextManager.stashIsDurable) {
+      snapshot.data.stash = { location: 'external' } as unknown as JSONValue
+      return
+    }
+
+    const entries = await contextManager.stash.takeSnapshot()
+    if (Object.keys(entries).length > 0) {
+      snapshot.data.stash = { location: 'inline', entries } as unknown as JSONValue
     }
   }
 
   private async _restoreStashData(agent: LocalAgent, snapshot: Snapshot): Promise<void> {
-    if ('stash' in snapshot.data && snapshot.data.stash) {
-      await agent.contextManager?.stash?.loadSnapshot(
-        snapshot.data.stash as unknown as Record<string, unknown>
-      )
+    if (!('stash' in snapshot.data) || !snapshot.data.stash) return
+    const stash = agent.contextManager?.stash
+    if (!stash) return
+
+    const stashData = snapshot.data.stash as unknown as Record<string, unknown>
+    if (stashData.location === 'external') return
+    if (stashData.location === 'inline') {
+      await stash.loadSnapshot(stashData.entries as Record<string, unknown>)
     }
   }
 

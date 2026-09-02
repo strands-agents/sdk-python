@@ -787,7 +787,10 @@ describe('SessionManager — stash integration', () => {
       expect(snapshot).not.toBeNull()
       expect(snapshot!.data.stash).toBeDefined()
       const stashData = snapshot!.data.stash as Record<string, unknown>
-      expect(stashData['tool-1_0']).toEqual({ text: 'hello' })
+      expect(stashData).toEqual({
+        location: 'inline',
+        entries: { 'tool-1_0': { text: 'hello' } },
+      })
     })
 
     it('omits stash key when agent has no context manager', async () => {
@@ -824,7 +827,7 @@ describe('SessionManager — stash integration', () => {
       expect('stash' in snapshot!.data).toBe(false)
     })
 
-    it('skips stash snapshot when storage is durable', async () => {
+    it('writes external ref when storage is durable', async () => {
       sessionManager = new SessionManager({
         sessionId: 'test-session',
         storage: { snapshot: snapshotStorage },
@@ -832,7 +835,7 @@ describe('SessionManager — stash integration', () => {
       sessionManager.initAgent(createMockAgentWithHooks())
 
       const stash = new Stash(rootStorage, 'test-session', 'agent')
-      const contextManager = { stash, stashIsDurable: true } as unknown as ContextManager
+      const contextManager = { stash, stashIsDurable: true, stashStorage: rootStorage } as unknown as ContextManager
       const agent = { ...createMockAgent('agent'), contextManager } as unknown as Agent
       await stash.store('tool-1', 0, new TextEncoder().encode(JSON.stringify({ text: 'hello' })))
 
@@ -842,7 +845,7 @@ describe('SessionManager — stash integration', () => {
         location: { sessionId: 'test-session', scope: 'agent', scopeId: 'agent' },
       })
       expect(snapshot).not.toBeNull()
-      expect('stash' in snapshot!.data).toBe(false)
+      expect(snapshot!.data.stash).toEqual({ location: 'external' })
     })
   })
 
@@ -869,6 +872,30 @@ describe('SessionManager — stash integration', () => {
       const restored2 = await freshStash.retrieve('tool-2_0')
       expect(restored1?.data).toEqual({ text: 'hello' })
       expect(restored2?.data).toEqual({ text: 'world' })
+    })
+
+    it('skips stash restore when location is external', async () => {
+      const snapshot = createTestSnapshot()
+      snapshot.data.stash = { location: 'external' } as unknown as typeof snapshot.data.stash
+      await snapshotStorage.saveSnapshot({
+        location: { sessionId: 'test-session', scope: 'agent', scopeId: 'agent' },
+        snapshotId: 'latest',
+        isLatest: true,
+        snapshot,
+      })
+
+      sessionManager = new SessionManager({
+        sessionId: 'test-session',
+        storage: { snapshot: snapshotStorage },
+      })
+      sessionManager.initAgent(createMockAgentWithHooks())
+
+      const { agent, stash } = createAgentWithStash('test-session')
+      const result = await sessionManager.restoreSnapshot({ target: agent })
+
+      expect(result).toBe(true)
+      const keys = await stash.list()
+      expect(keys).toHaveLength(0)
     })
 
     it('handles snapshot without stash data', async () => {
