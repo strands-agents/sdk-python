@@ -1,0 +1,88 @@
+import asyncio
+from typing import Any
+
+from strands_evals import Case, Experiment
+from strands_evals.evaluators import GoalSuccessRateEvaluator, HelpfulnessEvaluator
+from strands_evals.mappers import detect_otel_mapper, readable_spans_to_dicts
+
+# =============================================================================
+# 1. Agent Setup
+# =============================================================================
+
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+exporter = InMemorySpanExporter()
+provider = TracerProvider()
+provider.add_span_processor(SimpleSpanProcessor(exporter))
+trace.set_tracer_provider(provider)
+
+from openinference.instrumentation.openai_agents import OpenAIAgentsInstrumentor  # noqa: E402
+
+OpenAIAgentsInstrumentor().instrument(tracer_provider=provider)
+
+from agents import Agent, Runner  # noqa: E402
+
+
+commit_agent = Agent(
+    name="commit_agent",
+    model="gpt-4o-mini",
+    instructions=(
+        "Write a conventional commit message for the given diff. "
+        "Format: <type>(<scope>): <subject>. "
+        "Types: feat, fix, docs, style, refactor, perf, test, chore. "
+        "Imperative mood, lowercase, no period. Output only the commit message."
+    ),
+)
+
+
+async def run_commit_agent(diff: str) -> str:
+    result = await Runner.run(commit_agent, f"Generate a commit message for this diff:\n\n{diff}")
+    return result.final_output.strip()
+
+
+# =============================================================================
+# 2. Experiment Setup
+# =============================================================================
+
+
+def task(case: Case) -> dict[str, Any]:
+    exporter.clear()
+
+    loop = asyncio.new_event_loop()
+    try:
+        response = loop.run_until_complete(run_commit_agent(case.input))
+    finally:
+        loop.close()
+    provider.force_flush()
+
+    spans = readable_spans_to_dicts(exporter.get_finished_spans())
+    session = detect_otel_mapper(spans).map_to_session(spans, session_id=case.session_id)
+    return {"output": response, "trajectory": session}
+
+
+experiment = Experiment(
+    cases=[
+        Case(
+            name="fix-null-check",
+            input=(
+                "# src/user.py\n"
+                "-    return user['name'].upper()\n"
+                "+    if not user or 'name' not in user:\n"
+                "+        return 'Anonymous'\n"
+                "+    return user['name'].upper()\n"
+            ),
+            expected_output="fix(user): handle missing user or name field in get_display_name",
+        ),
+    ],
+    evaluators=[HelpfulnessEvaluator(), GoalSuccessRateEvaluator()],
+)
+
+report = experiment.run_evaluations(task)
+
+for case, score, passed, reason in zip(report.cases, report.scores, report.test_passes, report.reasons):
+    status = "PASS" if passed else "FAIL"
+    print(f"[{status}] {case['name']} ({case['evaluator']}): {score:.2f}")
+    print(f"  Reason: {reason}\n")
