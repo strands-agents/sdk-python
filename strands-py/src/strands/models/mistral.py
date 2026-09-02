@@ -25,7 +25,7 @@ from ._validation import (
     warn_on_cache_config_not_supported,
     warn_on_tool_choice_not_supported,
 )
-from .model import AgentInternalState, BaseModelConfig, CacheConfig, Model
+from .model import AgentMetadata, BaseModelConfig, CacheConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ T = TypeVar("T", bound=BaseModel)
 def _apply_cache_config(
     request: dict[str, Any],
     cache_config: CacheConfig | None,
-    agent_internal_state: AgentInternalState | None = None,
+    agent_metadata: AgentMetadata | None = None,
 ) -> None:
     """Map a CacheConfig onto a Mistral request.
 
@@ -47,11 +47,11 @@ def _apply_cache_config(
     Args:
         request: The Mistral request dict to mutate.
         cache_config: The provider's configured cache settings, if any.
-        agent_internal_state: The invoking agent's identity, used to derive a routing key when one is unset.
+        agent_metadata: The invoking agent's metadata, used to derive a routing key when one is unset.
     """
     if cache_config is None:
         return
-    cache_key = _resolve_cache_key(cache_config, agent_internal_state)
+    cache_key = _resolve_cache_key(cache_config, agent_metadata)
     if cache_key and "prompt_cache_key" not in request:
         request["prompt_cache_key"] = cache_key
     warn_on_cache_config_not_supported(cache_config, "Mistral", supported={"cache_key"})
@@ -292,7 +292,7 @@ class MistralModel(Model):
         messages: Messages,
         tool_specs: list[ToolSpec] | None = None,
         system_prompt: str | None = None,
-        agent_internal_state: AgentInternalState | None = None,
+        agent_metadata: AgentMetadata | None = None,
     ) -> dict[str, Any]:
         """Format a Mistral chat streaming request.
 
@@ -300,7 +300,7 @@ class MistralModel(Model):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
-            agent_internal_state: Stable identity of the invoking agent, used to derive a prompt-cache
+            agent_metadata: Stable identity of the invoking agent, used to derive a prompt-cache
                 routing key when ``cache_config.cache_key`` is unset.
 
         Returns:
@@ -337,7 +337,7 @@ class MistralModel(Model):
                 for tool_spec in tool_specs
             ]
 
-        _apply_cache_config(request, self.config.get("cache_config"), agent_internal_state)
+        _apply_cache_config(request, self.config.get("cache_config"), agent_metadata)
 
         return request
 
@@ -459,7 +459,7 @@ class MistralModel(Model):
         system_prompt: str | None = None,
         *,
         tool_choice: ToolChoice | None = None,
-        agent_internal_state: AgentInternalState | None = None,
+        agent_metadata: AgentMetadata | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the Mistral model.
@@ -470,7 +470,7 @@ class MistralModel(Model):
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation. **Note: This parameter is accepted for
                 interface consistency but is currently ignored for this model provider.**
-            agent_internal_state: Stable identity of the invoking agent, used to derive a prompt-cache
+            agent_metadata: Stable identity of the invoking agent, used to derive a prompt-cache
                 routing key when ``cache_config.cache_key`` is unset.
             **kwargs: Additional keyword arguments for future extensibility.
 
@@ -484,7 +484,7 @@ class MistralModel(Model):
         warn_on_tool_choice_not_supported(tool_choice)
 
         logger.debug("formatting request")
-        request = self.format_request(messages, tool_specs, system_prompt, agent_internal_state)
+        request = self.format_request(messages, tool_specs, system_prompt, agent_metadata)
         logger.debug("request=<%s>", request)
 
         logger.debug("invoking model")

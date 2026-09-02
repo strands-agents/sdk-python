@@ -1270,20 +1270,20 @@ describe('OpenAIModel', () => {
       expect(captured.request.prompt_cache_key).toBe('explicit')
     })
 
-    it('derives prompt_cache_key from the agent context session when cacheKey is unset', async () => {
+    it('derives prompt_cache_key from the agent metadata session when cacheKey is unset', async () => {
       const captured: { request: any } = { request: null }
       const provider = new OpenAIModel({ api: 'chat', client: createMockClientWithCapture(captured), cacheConfig: {} })
 
       await collectIterator(
         provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })], {
-          agentInternalState: { sessionId: 's1' },
+          agentMetadata: { sessionId: 's1' },
         })
       )
 
       expect(captured.request.prompt_cache_key).toBe('strands-s1')
     })
 
-    it('lets a configured cacheKey win over the agent context session', async () => {
+    it('lets a configured cacheKey win over the agent metadata session', async () => {
       const captured: { request: any } = { request: null }
       const provider = new OpenAIModel({
         api: 'chat',
@@ -1293,14 +1293,14 @@ describe('OpenAIModel', () => {
 
       await collectIterator(
         provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })], {
-          agentInternalState: { sessionId: 's1' },
+          agentMetadata: { sessionId: 's1' },
         })
       )
 
       expect(captured.request.prompt_cache_key).toBe('tenant-42')
     })
 
-    it('treats an empty cacheKey as an opt-out even with an agent context session', async () => {
+    it('treats an empty cacheKey as an opt-out even with an agent metadata session', async () => {
       const captured: { request: any } = { request: null }
       const provider = new OpenAIModel({
         api: 'chat',
@@ -1310,19 +1310,19 @@ describe('OpenAIModel', () => {
 
       await collectIterator(
         provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })], {
-          agentInternalState: { sessionId: 's1' },
+          agentMetadata: { sessionId: 's1' },
         })
       )
 
       expect(captured.request.prompt_cache_key).toBeUndefined()
     })
 
-    it('omits prompt_cache_key when the agent context carries no session', async () => {
+    it('omits prompt_cache_key when the agent metadata carries no session', async () => {
       const captured: { request: any } = { request: null }
       const provider = new OpenAIModel({ api: 'chat', client: createMockClientWithCapture(captured), cacheConfig: {} })
 
       await collectIterator(
-        provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })], { agentInternalState: {} })
+        provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })], { agentMetadata: {} })
       )
 
       expect(captured.request.prompt_cache_key).toBeUndefined()

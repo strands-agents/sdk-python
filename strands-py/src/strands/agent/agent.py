@@ -67,7 +67,7 @@ from ..interventions.handler import InterventionHandler
 from ..interventions.registry import InterventionRegistry
 from ..memory import MemoryManager, MemoryManagerConfig
 from ..models.bedrock import BedrockModel
-from ..models.model import AgentInternalState, Model, _ModelPlugin
+from ..models.model import AgentMetadata, Model, _ModelPlugin
 from ..models.routing import ModelRouter
 from ..plugins import Plugin
 from ..plugins.registry import _PluginRegistry
@@ -740,15 +740,10 @@ class Agent(AgentBase, LocalAgent):
         """
         return self._session_id
 
-    def _get_agent_internal_state(self) -> AgentInternalState:
-        """Build the per-request identity view passed to the model on stream().
-
-        Reads the session id live from the session manager so a manager that assigns it lazily is
-        reflected. Without a manager (or with an empty id), ``session_id`` is None: the agent's own id
-        is a random per-instance value, not a stable identity a provider should route a cache on.
-        """
+    def _get_agent_metadata(self) -> AgentMetadata:
+        """Build the agent metadata view passed to the model on stream()."""
         session_id = getattr(self._session_manager, "session_id", None) or None
-        return AgentInternalState(session_id=session_id)
+        return AgentMetadata(session_id=session_id)
 
     @property
     def system_prompt(self) -> str | None:

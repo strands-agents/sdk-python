@@ -8,7 +8,7 @@ import pydantic
 import pytest
 
 import strands
-from strands.models import AgentInternalState, CacheConfig
+from strands.models import AgentMetadata, CacheConfig
 from strands.models.openai import OpenAIModel
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 
@@ -737,45 +737,45 @@ def test_cache_key_absent_when_unset(openai_client, model_id, messages):
     assert "prompt_cache_key" not in model.format_request(messages)
 
 
-def test_cache_key_derived_from_agent_context_session(openai_client, model_id, messages):
+def test_cache_key_derived_from_agent_metadata_session(openai_client, model_id, messages):
     _ = openai_client
     model = OpenAIModel(model_id=model_id, cache_config=CacheConfig())
 
-    request = model.format_request(messages, agent_internal_state=AgentInternalState(session_id="s1"))
+    request = model.format_request(messages, agent_metadata=AgentMetadata(session_id="s1"))
 
     assert request["prompt_cache_key"] == "strands-s1"
 
 
-def test_configured_cache_key_wins_over_agent_context(openai_client, model_id, messages):
+def test_configured_cache_key_wins_over_agent_metadata(openai_client, model_id, messages):
     _ = openai_client
     model = OpenAIModel(model_id=model_id, cache_config=CacheConfig(cache_key="tenant-42"))
 
-    request = model.format_request(messages, agent_internal_state=AgentInternalState(session_id="s1"))
+    request = model.format_request(messages, agent_metadata=AgentMetadata(session_id="s1"))
 
     assert request["prompt_cache_key"] == "tenant-42"
 
 
-def test_empty_cache_key_opts_out_of_agent_context(openai_client, model_id, messages):
+def test_empty_cache_key_opts_out_of_agent_metadata(openai_client, model_id, messages):
     _ = openai_client
     model = OpenAIModel(model_id=model_id, cache_config=CacheConfig(cache_key=""))
 
-    request = model.format_request(messages, agent_internal_state=AgentInternalState(session_id="s1"))
+    request = model.format_request(messages, agent_metadata=AgentMetadata(session_id="s1"))
 
     assert "prompt_cache_key" not in request
 
 
-def test_agent_context_without_session_yields_no_cache_key(openai_client, model_id, messages):
+def test_agent_metadata_without_session_yields_no_cache_key(openai_client, model_id, messages):
     _ = openai_client
     model = OpenAIModel(model_id=model_id, cache_config=CacheConfig())
 
-    request = model.format_request(messages, agent_internal_state=AgentInternalState(session_id=None))
+    request = model.format_request(messages, agent_metadata=AgentMetadata(session_id=None))
 
     assert "prompt_cache_key" not in request
 
 
 @pytest.mark.asyncio
 async def test_stream_derives_prompt_cache_key_from_agent_session(openai_client, model_id, agenerator, alist):
-    """stream threads agent_internal_state so the outbound request carries the derived routing key."""
+    """stream threads agent_metadata so the outbound request carries the derived routing key."""
     model = OpenAIModel(model_id=model_id, cache_config=CacheConfig())
     mock_delta = unittest.mock.Mock(content=None, tool_calls=None, reasoning_content=None)
     mock_event_1 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="stop", delta=mock_delta)])
@@ -786,7 +786,7 @@ async def test_stream_derives_prompt_cache_key_from_agent_session(openai_client,
     )
 
     await alist(
-        model.stream([{"role": "user", "content": []}], agent_internal_state=AgentInternalState(session_id="s1"))
+        model.stream([{"role": "user", "content": []}], agent_metadata=AgentMetadata(session_id="s1"))
     )
 
     _, call_kwargs = openai_client.chat.completions.create.call_args

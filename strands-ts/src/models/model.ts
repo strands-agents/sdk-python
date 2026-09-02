@@ -121,20 +121,20 @@ export interface CacheConfig {
    * unset, it is derived per request as `strands-<sessionId>` whenever the agent has a session
    * manager, so repeat runs of a session share a cache prefix with no key management. Set it to pin
    * your own key; set it to `''` to opt out of routing entirely. The resolved key (whether set or
-   * derived from the session id) is transmitted to the provider, so avoid embedding secrets in the
-   * session id. Because the derived key is resolved per request, it is not reflected in `getConfig()`.
+   * derived from the session id) is transmitted to the provider. Because the derived key is resolved
+   * per request, it is not reflected in `getConfig()`.
    */
   cacheKey?: string
 }
 
 /**
- * Read-only view of stable agent identity passed to a model on `stream()`.
+ * Read-only view of agent metadata passed to a model on `stream()`.
  *
- * Populated by the agent per request; a provider may consult it (e.g. to derive a prompt-cache
- * routing key). Because it is rebuilt for every request, a single model instance shared across
- * agents sees each agent's own identity rather than a value baked in at construction.
+ * Populated by the agent per request. Because it is rebuilt for every request, a single
+ * model instance shared across agents sees each agent's own identity rather than a value
+ * baked in at construction.
  */
-export interface AgentInternalState {
+export interface AgentMetadata {
   /** The agent's persisted session id; present only when a session manager is attached. */
   sessionId?: string
 }
@@ -264,11 +264,8 @@ export interface StreamOptions {
   /** How many trailing blocks of the last user message are rebuilt on every call. */
   dynamicTrailingBlocks?: number
 
-  /**
-   * Stable identity of the invoking agent (e.g. its session id), supplied per request. A provider
-   * may consult it to derive a prompt-cache routing key; absent when the model is streamed directly.
-   */
-  agentInternalState?: AgentInternalState
+  /** Metadata of the invoking agent, supplied per request. */
+  agentMetadata?: AgentMetadata
 }
 
 /**

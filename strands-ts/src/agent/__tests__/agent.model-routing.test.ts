@@ -241,7 +241,7 @@ describe('Agent model routing', () => {
     )
   })
 
-  it('forwards the agent context to the routed alternate', async () => {
+  it('forwards the agent metadata to the routed alternate', async () => {
     // Request-time context reaches every candidate, not just the default model.
     const primary = responseModel('primary')
     const alternate = responseModel('alternate')
@@ -254,7 +254,7 @@ describe('Agent model routing', () => {
 
     await agent.invoke('hello')
 
-    expect(alternate.receivedOptions[0]?.agentInternalState).toEqual({ sessionId: 'routed' })
+    expect(alternate.receivedOptions[0]?.agentMetadata).toEqual({ sessionId: 'routed' })
     expect(primary.receivedOptions).toHaveLength(0)
   })
 })

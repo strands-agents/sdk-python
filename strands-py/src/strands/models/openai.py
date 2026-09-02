@@ -26,7 +26,7 @@ from ._openai_bedrock import BedrockMantleConfig, resolve_bedrock_client_args
 from ._openai_cache import apply_cache_config
 from ._openai_errors import classify_openai_error
 from ._validation import _has_location_source, validate_config_keys
-from .model import AgentInternalState, BaseModelConfig, CacheConfig, Model
+from .model import AgentMetadata, BaseModelConfig, CacheConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -486,7 +486,7 @@ class OpenAIModel(Model):
         tool_choice: ToolChoice | None = None,
         *,
         system_prompt_content: list[SystemContentBlock] | None = None,
-        agent_internal_state: AgentInternalState | None = None,
+        agent_metadata: AgentMetadata | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Format an OpenAI compatible chat streaming request.
@@ -497,7 +497,7 @@ class OpenAIModel(Model):
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
             system_prompt_content: System prompt content blocks to provide context to the model.
-            agent_internal_state: Invoking agent's identity, used to derive a prompt-cache routing key.
+            agent_metadata: Invoking agent's metadata.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
@@ -535,7 +535,7 @@ class OpenAIModel(Model):
         if stream:
             request["stream_options"] = stream_options
 
-        apply_cache_config(request, cast(CacheConfig | None, self.config.get("cache_config")), agent_internal_state)
+        apply_cache_config(request, cast(CacheConfig | None, self.config.get("cache_config")), agent_metadata)
 
         return request
 
@@ -691,7 +691,7 @@ class OpenAIModel(Model):
         system_prompt: str | None = None,
         *,
         tool_choice: ToolChoice | None = None,
-        agent_internal_state: AgentInternalState | None = None,
+        agent_metadata: AgentMetadata | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the OpenAI model.
@@ -701,7 +701,7 @@ class OpenAIModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
-            agent_internal_state: Invoking agent's identity, used to derive a prompt-cache routing key.
+            agent_metadata: Invoking agent's identity, used to derive a prompt-cache routing key.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
@@ -712,9 +712,7 @@ class OpenAIModel(Model):
             ModelThrottledException: If the request is throttled by OpenAI (rate limits).
         """
         logger.debug("formatting request")
-        request = self.format_request(
-            messages, tool_specs, system_prompt, tool_choice, agent_internal_state=agent_internal_state
-        )
+        request = self.format_request(messages, tool_specs, system_prompt, tool_choice, agent_metadata=agent_metadata)
         logger.debug("formatted request=<%s>", request)
 
         logger.debug("invoking model")

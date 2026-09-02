@@ -2333,9 +2333,7 @@ export class Agent implements LocalAgent, InvokableAgent {
             ...(ctx.toolChoice && { toolChoice: ctx.toolChoice }),
             // Omitted when zero, so an ordinary call's options are unchanged.
             ...(ctx.dynamicTrailingBlocks ? { dynamicTrailingBlocks: ctx.dynamicTrailingBlocks } : {}),
-            // Gated on the session manager, not sessionId: without a manager the id is a random
-            // per-instance value, not a stable identity a provider should route a cache on.
-            ...(self.sessionManager ? { agentInternalState: { sessionId: self.sessionId } } : {}),
+            ...(self.sessionManager ? { agentMetadata: { sessionId: self.sessionId } } : {}),
           }
           const gen = self._streamFromModel(ctx.model, ctx.messages as Message[], streamOptions, ctx.invocationState)
           let iterResult = await gen.next()

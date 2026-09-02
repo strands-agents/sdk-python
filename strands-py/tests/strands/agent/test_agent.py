@@ -420,7 +420,7 @@ def test_agent__call__(
                 invocation_state=unittest.mock.ANY,
                 model_state=unittest.mock.ANY,
                 cancel_signal=unittest.mock.ANY,
-                agent_internal_state=unittest.mock.ANY,
+                agent_metadata=unittest.mock.ANY,
             ),
             unittest.mock.call(
                 [
@@ -462,7 +462,7 @@ def test_agent__call__(
                 invocation_state=unittest.mock.ANY,
                 model_state=unittest.mock.ANY,
                 cancel_signal=unittest.mock.ANY,
-                agent_internal_state=unittest.mock.ANY,
+                agent_metadata=unittest.mock.ANY,
             ),
         ],
     )
@@ -587,7 +587,7 @@ def test_agent__call__retry_with_reduced_context(mock_model, agent, tool, agener
         invocation_state=unittest.mock.ANY,
         model_state=unittest.mock.ANY,
         cancel_signal=unittest.mock.ANY,
-        agent_internal_state=unittest.mock.ANY,
+        agent_metadata=unittest.mock.ANY,
     )
 
     conversation_manager_spy.reduce_context.assert_called_once()
@@ -742,7 +742,7 @@ def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool, agene
         invocation_state=unittest.mock.ANY,
         model_state=unittest.mock.ANY,
         cancel_signal=unittest.mock.ANY,
-        agent_internal_state=unittest.mock.ANY,
+        agent_metadata=unittest.mock.ANY,
     )
 
     assert conversation_manager_spy.reduce_context.call_count == 2
@@ -1659,20 +1659,20 @@ def test_session_id_delegates_to_session_manager():
     assert agent.session_id == "my-session"
 
 
-def test_get_agent_internal_state_carries_session_id_with_manager():
+def test_get_agent_metadata_carries_session_id_with_manager():
     session_manager = RepositorySessionManager(session_id="my-session", session_repository=MockedSessionRepository())
     agent = Agent(model=MockedModelProvider([]), session_manager=session_manager)
 
-    assert agent._get_agent_internal_state().session_id == "my-session"
+    assert agent._get_agent_metadata().session_id == "my-session"
 
 
-def test_get_agent_internal_state_omits_session_id_without_manager():
+def test_get_agent_metadata_omits_session_id_without_manager():
     agent = Agent(model=MockedModelProvider([]))
 
-    assert agent._get_agent_internal_state().session_id is None
+    assert agent._get_agent_metadata().session_id is None
 
 
-def test_get_agent_internal_state_shared_across_agents_on_same_session():
+def test_get_agent_metadata_shared_across_agents_on_same_session():
     agent1 = Agent(
         model=MockedModelProvider([]),
         session_manager=RepositorySessionManager(session_id="shared", session_repository=MockedSessionRepository()),
@@ -1682,7 +1682,7 @@ def test_get_agent_internal_state_shared_across_agents_on_same_session():
         session_manager=RepositorySessionManager(session_id="shared", session_repository=MockedSessionRepository()),
     )
 
-    assert agent1._get_agent_internal_state().session_id == agent2._get_agent_internal_state().session_id == "shared"
+    assert agent1._get_agent_metadata().session_id == agent2._get_agent_metadata().session_id == "shared"
 
 
 def _text_response(agenerator):
@@ -1696,23 +1696,23 @@ def _text_response(agenerator):
     )
 
 
-def test_agent_context_reaches_model_stream_with_session_manager(mock_model, agenerator):
+def test_agent_metadata_reaches_model_stream_with_session_manager(mock_model, agenerator):
     mock_model.mock_stream.return_value = _text_response(agenerator)
     session_manager = RepositorySessionManager(session_id="my-session", session_repository=MockedSessionRepository())
     agent = Agent(model=mock_model, session_manager=session_manager)
 
     agent("hi")
 
-    assert mock_model.mock_stream.call_args.kwargs["agent_internal_state"].session_id == "my-session"
+    assert mock_model.mock_stream.call_args.kwargs["agent_metadata"].session_id == "my-session"
 
 
-def test_agent_context_has_no_session_id_without_manager(mock_model, agenerator):
+def test_agent_metadata_has_no_session_id_without_manager(mock_model, agenerator):
     mock_model.mock_stream.return_value = _text_response(agenerator)
     agent = Agent(model=mock_model)
 
     agent("hi")
 
-    assert mock_model.mock_stream.call_args.kwargs["agent_internal_state"].session_id is None
+    assert mock_model.mock_stream.call_args.kwargs["agent_metadata"].session_id is None
 
 
 def test_shared_model_carries_each_agents_own_session(mock_model, agenerator):
@@ -1733,7 +1733,7 @@ def test_shared_model_carries_each_agents_own_session(mock_model, agenerator):
     agent_s1("hi")
     agent_s2("hi")
 
-    session_ids = [call.kwargs["agent_internal_state"].session_id for call in mock_model.mock_stream.call_args_list]
+    session_ids = [call.kwargs["agent_metadata"].session_id for call in mock_model.mock_stream.call_args_list]
     assert session_ids == ["s1", "s2"]
 
 

@@ -9,7 +9,7 @@ import warnings
 from typing import Any
 
 from ._validation import warn_on_cache_config_not_supported
-from .model import AgentInternalState, CacheConfig
+from .model import AgentMetadata, CacheConfig
 
 # OpenAI's prompt_cache_retention accepts only these literals. ttl maps through only on an exact
 # match - the SDK never guesses a conversion from an arbitrary duration string.
@@ -19,7 +19,7 @@ from .model import AgentInternalState, CacheConfig
 _RETENTION_LITERALS = frozenset({"in_memory", "24h"})
 
 
-def _resolve_cache_key(cache_config: CacheConfig, agent_internal_state: AgentInternalState | None) -> str | None:
+def _resolve_cache_key(cache_config: CacheConfig, agent_metadata: AgentMetadata | None) -> str | None:
     """Resolve the prompt-cache routing key: configured value wins, else derive from the session.
 
     Returns the configured ``cache_key`` whenever it is set (including ``""``, an explicit opt-out);
@@ -27,13 +27,13 @@ def _resolve_cache_key(cache_config: CacheConfig, agent_internal_state: AgentInt
     """
     if cache_config.cache_key is not None:
         return cache_config.cache_key
-    if agent_internal_state is not None and agent_internal_state.session_id is not None:
-        return f"strands-{agent_internal_state.session_id}"
+    if agent_metadata is not None and agent_metadata.session_id is not None:
+        return f"strands-{agent_metadata.session_id}"
     return None
 
 
 def apply_cache_config(
-    request: dict[str, Any], cache_config: CacheConfig | None, agent_internal_state: AgentInternalState | None = None
+    request: dict[str, Any], cache_config: CacheConfig | None, agent_metadata: AgentMetadata | None = None
 ) -> None:
     """Map a ``CacheConfig`` onto an OpenAI request in place.
 
@@ -50,12 +50,12 @@ def apply_cache_config(
     Args:
         request: The request dict being assembled; mutated in place.
         cache_config: The provider's configured cache settings, if any.
-        agent_internal_state: The invoking agent's identity, used to derive a routing key when one is unset.
+        agent_metadata: The invoking agent's metadata, used to derive a routing key when one is unset.
     """
     if cache_config is None:
         return
 
-    cache_key = _resolve_cache_key(cache_config, agent_internal_state)
+    cache_key = _resolve_cache_key(cache_config, agent_metadata)
     if cache_key and "prompt_cache_key" not in request:
         request["prompt_cache_key"] = cache_key
 
