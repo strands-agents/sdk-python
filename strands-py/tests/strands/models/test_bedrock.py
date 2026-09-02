@@ -4681,6 +4681,41 @@ async def test_non_streaming_reasoning_content_with_reasoning_text(bedrock_clien
 
 
 @pytest.mark.asyncio
+async def test_non_streaming_reasoning_content_without_signature(bedrock_client, model, alist):
+    """Test that convert_non_streaming_to_streaming handles reasoningContent without a signature."""
+    non_streaming_response = {
+        "output": {
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "reasoningContent": {
+                            "reasoningText": {
+                                "text": "Let me think about this...",
+                            }
+                        }
+                    }
+                ],
+            }
+        },
+        "stopReason": "end_turn",
+        "usage": {"inputTokens": 10, "outputTokens": 20},
+    }
+
+    events = list(model.convert_non_streaming_to_streaming(non_streaming_response))
+
+    reasoning_deltas = [
+        event
+        for event in events
+        if "contentBlockDelta" in event and "reasoningContent" in event.get("contentBlockDelta", {}).get("delta", {})
+    ]
+    assert len(reasoning_deltas) == 1
+    assert reasoning_deltas[0]["contentBlockDelta"]["delta"]["reasoningContent"] == {
+        "text": "Let me think about this..."
+    }
+
+
+@pytest.mark.asyncio
 async def test_non_streaming_reasoning_content_with_redacted_content(bedrock_client, model, alist):
     """Test that convert_non_streaming_to_streaming handles reasoningContent with redactedContent."""
     non_streaming_response = {
