@@ -330,17 +330,20 @@ result = agent("Summarize the changes in ./CHANGELOG.md")
 Fetches an HTTP(S) URL and returns its content. Two modes are available,
 configured at construction time via `make_web_fetch`:
 
-- **`agentic`** (default) — raw page content is passed to an analyst agent that
-  answers a `prompt`, so the full page never enters the main agent's context.
-  Use when targeted answers are needed about potentially large pages.
+- **`agentic`** (default) — HTML is converted to markdown and passed to an
+  analyst agent that answers a `prompt`, so the full page never enters the
+  main agent's context. Use when targeted answers are needed about potentially
+  large pages.
 - **`markdown`** — HTML is converted to clean markdown with scripts, styles,
   and noise stripped. Use when the agent needs full pages for reasoning.
 
 The tool delegates all networking to an `httpx.AsyncClient`. Use the
 `make_web_fetch` factory to supply a pre-configured client with custom
-timeouts, redirects, proxies, or caching. For `mode='agentic'`, the factory
-also accepts a `model` for the analyst; the agent's own model is used when
-none is supplied.
+timeouts, redirects, proxies, or caching. The `max_bytes` parameter caps the
+HTTP response size (default 5 MiB); `max_content_chars` caps the extracted
+content delivered to the model or analyst (default 50,000 characters). For
+`mode='agentic'`, the factory also accepts a `model` for the analyst; the
+agent's own model is used when none is supplied.
 
 _Supported in: Python (all platforms)._
 
@@ -395,6 +398,7 @@ tool = make_web_fetch(
     mode="agentic",
     client=httpx.AsyncClient(timeout=10.0),
     max_bytes=1 * 1024 * 1024,
+    max_content_chars=25_000,
     model=BedrockModel(model_id="us.amazon.nova-micro-v1:0"),
 )
 agent = Agent(tools=[tool])

@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+import strands.agent.agent as agent_module
 
 # The tool named ``web_fetch`` (re-exported by the package ``__init__``) shadows
 # the submodule of the same name in the package namespace. Load the submodule
@@ -62,6 +63,11 @@ class TestToolMetadata:
     def test_rejects_non_positive_max_bytes(self, max_bytes):
         with pytest.raises(ValueError, match="max_bytes"):
             make_web_fetch(max_bytes=max_bytes)
+
+    @pytest.mark.parametrize("max_content_chars", [0, -1])
+    def test_rejects_non_positive_max_content_chars(self, max_content_chars):
+        with pytest.raises(ValueError, match="max_content_chars"):
+            make_web_fetch(max_content_chars=max_content_chars)
 
     def test_invalid_mode_raises(self):
         with pytest.raises(ValueError, match="mode"):
@@ -122,6 +128,18 @@ class TestWebFetchToolCall:
         tool = make_web_fetch(client=_client(handler), mode="markdown")
         tru_result = await tool(url="https://example.com/page.xhtml")
         assert "xhtml" in tru_result
+
+    @pytest.mark.asyncio
+    async def test_markdown_content_is_truncated(self):
+        # max_content_chars limits what the main agent receives.
+        body = "x" * 200
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, headers={"content-type": "text/plain"}, text=body)
+
+        tool = make_web_fetch(client=_client(handler), mode="markdown", max_content_chars=50)
+        tru_result = await tool(url="https://example.com/")
+        assert len(tru_result) == 50
 
     @pytest.mark.asyncio
     async def test_rejects_non_http_scheme(self):
@@ -255,6 +273,36 @@ class TestAnalyst:
         return _client(handler)
 
     @pytest.mark.asyncio
+    async def test_agentic_content_is_truncated_before_analyst(self, monkeypatch):
+        # max_content_chars limits what the analyst receives.
+        body = "x" * 200
+
+        def page_handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, headers={"content-type": "text/plain"}, text=body)
+
+        received_prompt: list[str] = []
+
+        class _FakeAgent:
+            def __init__(self, **kwargs):
+                pass
+
+            async def stream_async(self, prompt: str):
+                received_prompt.append(prompt)
+                yield {"result": "answer"}
+
+
+        monkeypatch.setattr(agent_module, "Agent", _FakeAgent)
+        tool = make_web_fetch(
+            client=_client(page_handler),
+            model=SimpleNamespace(),
+            mode="agentic",
+            max_content_chars=50,
+        )
+        await tool(url="https://example.com/", prompt="Summarize")
+        assert "x" * 50 in received_prompt[0]
+        assert "x" * 51 not in received_prompt[0]
+
+    @pytest.mark.asyncio
     async def test_prompt_without_model_and_no_agent_raises(self):
         # No factory model and no host agent — agentic mode has nowhere to go.
         tool = make_web_fetch(client=self._page_client(), mode="agentic")
@@ -274,7 +322,6 @@ class TestAnalyst:
             async def stream_async(self, prompt: str):
                 yield {"result": "host answer"}
 
-        import strands.agent.agent as agent_module
 
         monkeypatch.setattr(agent_module, "Agent", _FakeAgent)
         from strands.types.tools import ToolContext, ToolUse
@@ -302,7 +349,6 @@ class TestAnalyst:
                 invoked.append(True)
                 yield {"result": "answer"}
 
-        import strands.agent.agent as agent_module
 
         monkeypatch.setattr(agent_module, "Agent", _FakeAgent)
         tool = make_web_fetch(client=self._page_client(), model=fake_model, mode="markdown")
@@ -333,7 +379,6 @@ class TestAnalyst:
             def cancel(self) -> None:
                 pass
 
-        import strands.agent.agent as agent_module
 
         monkeypatch.setattr(agent_module, "Agent", _FakeAgent)
         tool = make_web_fetch(client=self._page_client(), model=fake_model, mode="agentic")
@@ -341,7 +386,6 @@ class TestAnalyst:
         assert tru_result == "the answer"
         assert len(received_prompt) == 1
         assert "What is this about?" in received_prompt[0]
-        # agentic mode passes raw text, not markdown
         assert "page content" in received_prompt[0]
 
 

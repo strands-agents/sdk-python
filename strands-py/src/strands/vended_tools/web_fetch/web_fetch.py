@@ -4,9 +4,9 @@ Provides :func:`make_web_fetch` and the default :data:`web_fetch` instance.
 The factory's ``mode`` parameter selects the extraction strategy at
 construction time:
 
-* ``agentic`` (default): raw page content is passed to an analyst agent that answers
-  a ``prompt``, so the full page never enters the main agent's context. Use when
-  targeted answers are needed about potentially large pages.
+* ``agentic`` (default): HTML is converted to markdown and passed to an analyst
+  agent that answers ``prompt``; the full page never enters the main agent's
+  context.
 * ``markdown``: HTML is converted to clean markdown with scripts, styles, and
   noise stripped. Use when the agent needs full pages for reasoning.
 
@@ -43,6 +43,7 @@ _HEADERS = {
 }
 
 _DEFAULT_MAX_BYTES = 5 * 1024 * 1024  # 5 MiB
+_DEFAULT_MAX_CONTENT_CHARS = 50_000
 
 _ANALYST_PROMPT = (
     "You answer a request about a single fetched web page. Use only the provided "
@@ -57,6 +58,7 @@ def make_web_fetch(
     name: str = "web_fetch",
     description: str | None = None,
     max_bytes: int = _DEFAULT_MAX_BYTES,
+    max_content_chars: int = _DEFAULT_MAX_CONTENT_CHARS,
     client: httpx.AsyncClient | None = None,
     model: Model | None = None,
     mode: Literal["markdown", "agentic"] = "agentic",
@@ -70,6 +72,9 @@ def make_web_fetch(
         max_bytes: Maximum response body size in bytes. Responses larger than
             this are rejected without buffering the entire body. Defaults to
             5 MiB.
+        max_content_chars: Maximum characters of extracted content delivered to
+            the model or analyst. Content exceeding this is silently truncated.
+            Defaults to 50,000.
         client: Optional ``httpx.AsyncClient`` to use for requests. When
             provided, the tool uses it directly and will not close it.
             When ``None``, a new client is created per request with
@@ -82,13 +87,17 @@ def make_web_fetch(
     Returns:
         A decorated tool that fetches a URL and extracts content according to
         the configured mode:
-        - ``agentic`` (default): analyst agent answers a ``prompt`` about the
+        - ``agentic`` (default): HTML is converted to markdown and passed to an
+          analyst agent that answers a ``prompt``; the full page never enters
+          the main agent's context.
           content; the full page never enters the main agent's context.
         - ``markdown``: HTML converted to clean markdown; other content
           types returned as-is.
     """
     if max_bytes <= 0:
         raise ValueError(f"max_bytes must be positive, got {max_bytes}")
+    if max_content_chars <= 0:
+        raise ValueError(f"max_content_chars must be positive, got {max_content_chars}")
     if mode not in ("markdown", "agentic"):
         raise ValueError(f"mode must be 'markdown' or 'agentic', got {mode!r}")
     resolved_description = description or (
@@ -120,7 +129,8 @@ def make_web_fetch(
         )
 
         is_markup = "html" in content_type.lower() or "xml" in content_type.lower()
-        return html_to_markdown(raw) if is_markup else raw
+        content = html_to_markdown(raw) if is_markup else raw
+        return content[:max_content_chars]
 
     @tool(name=name, description=resolved_description, context=True)
     async def web_fetch_tool_agentic(
@@ -166,7 +176,9 @@ def make_web_fetch(
             system_prompt=_ANALYST_PROMPT,
             callback_handler=None,
         )
-        invoke_prompt = f"URL: {url}\n\nRequest: {prompt}\n\n--- Content ---\n{raw}"
+        is_markup = "html" in content_type.lower() or "xml" in content_type.lower()
+        content = html_to_markdown(raw) if is_markup else raw
+        invoke_prompt = f"URL: {url}\n\nRequest: {prompt}\n\n--- Content ---\n{content[:max_content_chars]}"
         return await _stream_agent(analyst, invoke_prompt, cancel_signal, url)
 
     return web_fetch_tool_markdown if mode == "markdown" else web_fetch_tool_agentic
