@@ -37,6 +37,7 @@ import {
 } from '../../multiagent/index.js'
 import { takeSnapshot, loadSnapshot } from '../../agent/snapshot.js'
 import type { Snapshot } from '../../types/snapshot.js'
+import type { JSONValue } from '../../types/json.js'
 import type { TakeSnapshotOptions } from '../../agent/snapshot.js'
 
 // Test fixtures
@@ -876,7 +877,7 @@ describe('SessionManager — stash integration', () => {
 
     it('skips stash restore when location is external', async () => {
       const snapshot = createTestSnapshot()
-      snapshot.data.stash = { location: 'external' } as unknown as typeof snapshot.data.stash
+      snapshot.data.stash = { location: 'external' } as JSONValue
       await snapshotStorage.saveSnapshot({
         location: { sessionId: 'test-session', scope: 'agent', scopeId: 'agent' },
         snapshotId: 'latest',
@@ -900,7 +901,7 @@ describe('SessionManager — stash integration', () => {
 
     it('warns when stash storage type changed since snapshot', async () => {
       const snapshot = createTestSnapshot()
-      snapshot.data.stash = { location: 'external', storageType: 'S3Storage' } as unknown as typeof snapshot.data.stash
+      snapshot.data.stash = { location: 'external', storageType: 'S3Storage' } as JSONValue
       await snapshotStorage.saveSnapshot({
         location: { sessionId: 'test-session', scope: 'agent', scopeId: 'agent' },
         snapshotId: 'latest',
@@ -974,7 +975,7 @@ describe('SessionManager — stash integration', () => {
         sessionId: 'test-session',
         storage: rootStorage,
       })
-      const mockAgent = createMockAgentWithHooks({ extra: { storage: rootStorage, contextManager: { stashStorage: customStashStorage } } as Partial<Agent> })
+      const mockAgent = createMockAgentWithHooks({ extra: { storage: rootStorage, contextManager: { stashStorage: customStashStorage } } as unknown as Partial<Agent> })
       sessionManager.initAgent(mockAgent)
 
       const prefix = `${STASH_PREFIX}/test-session/scopes/agent/agent`
