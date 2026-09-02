@@ -90,8 +90,7 @@ def make_notebook(
         state = tool_context.agent.state
 
         notebooks_obj: Any = state.get(_STATE_KEY)
-        # ``AgentState.get`` deep-copies, so we own the dict. Guard shape strictly —
-        # silent stringification would mask corruption from a sibling tool.
+        # AgentState.get deep-copies; guard shape strictly to catch corruption from sibling tools.
         if notebooks_obj is None:
             notebooks: dict[str, str] = {}
         elif isinstance(notebooks_obj, dict):
@@ -102,8 +101,7 @@ def make_notebook(
         else:
             raise ValueError("Malformed notebooks state: expected a dict")
 
-        # Ensure default notebook exists in-memory when state is empty (matches TS behavior).
-        # Only persisted if this mode actually mutates state.
+        # Ensure default notebook exists in-memory; only persisted if this mode mutates state.
         if not notebooks:
             notebooks[DEFAULT_NOTEBOOK_NAME] = ""
 
@@ -143,11 +141,6 @@ notebook = make_notebook()
 def _validate_notebook_name(candidate: str) -> str:
     """Validate a notebook name and return its normalized form.
 
-    Notebook names are opaque keys into agent state; they must not resemble
-    filesystem paths and must fit within a reasonable size. The state layer is
-    memory-only by default, so path traversal is not a direct risk, but a name
-    that looks like a path is a footgun for consumers who later persist state.
-
     Args:
         candidate: The proposed notebook name.
 
@@ -164,28 +157,18 @@ def _validate_notebook_name(candidate: str) -> str:
     candidate = unicodedata.normalize("NFKC", candidate)
     if len(candidate) > MAX_NOTEBOOK_NAME_LENGTH:
         raise ValueError(f"Notebook name exceeds maximum length of {MAX_NOTEBOOK_NAME_LENGTH} characters")
-    # Reject leading/trailing whitespace and whitespace-only names. Windows filename
-    # rules strip trailing spaces and dots before comparing against reserved device
-    # names, so `"CON "`, `"CON."`, or `"  CON"` would otherwise sneak past the
-    # reserved-name regex and land as an unpersistable key on any downstream
-    # consumer that normalizes with Windows semantics.
     if candidate != candidate.strip():
         raise ValueError("Notebook name must not have leading or trailing whitespace")
     if "\0" in candidate:
         raise ValueError("Notebook name must not contain NUL bytes")
-    # Reject invisible format characters (Unicode category ``Cf``, e.g. U+200B
-    # ZERO WIDTH SPACE, U+200C/D ZERO WIDTH (NON-)JOINER, U+FEFF ZERO WIDTH
-    # NO-BREAK SPACE, U+2060 WORD JOINER). A name like ``..​`` passes the
-    # ``in ("..", ".")`` check, but a downstream persister that strips
-    # invisibles then sees plain ``..``.
+    # Invisible Cf chars (zero-width spaces, joiners) let ".." sneak past the dot-check after a persister strips them.
     if any(unicodedata.category(c) == "Cf" for c in candidate):
         raise ValueError("Notebook name must not contain invisible format characters")
     if "/" in candidate or "\\" in candidate:
         raise ValueError("Notebook name must not contain path separators")
     if candidate in ("..", "."):
         raise ValueError("Notebook name is not allowed")
-    # Windows strips trailing dots and spaces before comparing against reserved
-    # device names — strip them here too so `"CON."` and `"CON . "` are caught.
+    # Strip trailing dots/spaces so "CON." and "CON . " are caught by the reserved-name regex.
     reserved_check = candidate.rstrip(". ")
     if _WINDOWS_RESERVED.match(reserved_check):
         raise ValueError(f"Notebook name '{candidate}' is a reserved device name")
@@ -194,9 +177,6 @@ def _validate_notebook_name(candidate: str) -> str:
 
 def _validate_write_params(old_str: str | None, new_str: str | None, insert_line: int | str | None) -> None:
     """Validate the parameter combination for a write operation.
-
-    A write must be either a replacement (``old_str`` + ``new_str``) or an
-    insertion (``insert_line`` + ``new_str``). Anything else is an error.
 
     Args:
         old_str: The string to replace, if this is a replacement.
@@ -213,9 +193,7 @@ def _validate_write_params(old_str: str | None, new_str: str | None, insert_line
             "Write operation requires either (old_str + new_str) for replacement "
             "or (insert_line + new_str) for insertion"
         )
-    # Reject ambiguous combos where both a replacement anchor and an insertion
-    # anchor are supplied. Silently preferring one mode over the other lets a
-    # misprompted model corrupt the notebook and get a success back.
+    # Reject both anchors — silently preferring one would let a misprompted model corrupt the notebook.
     if old_str is not None and insert_line is not None:
         raise ValueError(
             "Write operation is ambiguous: pass either `old_str` (replace) or `insert_line` (insert), not both"
@@ -226,7 +204,7 @@ def _enforce_session_caps(notebooks: dict[str, str]) -> None:
     """Enforce per-session notebook count and size caps.
 
     Args:
-        notebooks: The in-memory notebooks map about to be persisted.
+        notebooks: The notebooks map to validate.
 
     Raises:
         ValueError: If any cap is exceeded.
@@ -250,8 +228,6 @@ def _enforce_session_caps(notebooks: dict[str, str]) -> None:
 
 def _handle_create(notebooks: dict[str, str], name: str, new_str: str | None) -> str:
     notebooks[name] = new_str if new_str is not None else ""
-    # Match the TypeScript port byte-for-byte: an empty string still labels the notebook
-    # as "(empty)" because TS uses a truthiness check on newStr for the suffix.
     suffix = " with specified content" if new_str else " (empty)"
     return f"Created notebook '{name}'{suffix}"
 
@@ -307,9 +283,6 @@ def _handle_write(
     if old_str is not None and new_str is not None:
         if old_str not in notebooks[name]:
             raise ValueError(f"String '{old_str}' not found in notebook '{name}'")
-        # str.replace with count=1 replaces only the first occurrence — parity with the
-        # TypeScript port which uses a String replacement (not a RegExp), so dollar
-        # patterns in new_str are preserved literally.
         notebooks[name] = notebooks[name].replace(old_str, new_str, 1)
         return f"Replaced text in notebook '{name}'"
 
