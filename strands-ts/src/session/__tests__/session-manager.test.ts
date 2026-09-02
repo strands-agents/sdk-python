@@ -845,7 +845,7 @@ describe('SessionManager — stash integration', () => {
         location: { sessionId: 'test-session', scope: 'agent', scopeId: 'agent' },
       })
       expect(snapshot).not.toBeNull()
-      expect(snapshot!.data.stash).toEqual({ location: 'external' })
+      expect(snapshot!.data.stash).toEqual({ location: 'external', storageType: 'InMemoryStorage' })
     })
   })
 
@@ -896,6 +896,32 @@ describe('SessionManager — stash integration', () => {
       expect(result).toBe(true)
       const keys = await stash.list()
       expect(keys).toHaveLength(0)
+    })
+
+    it('warns when stash storage type changed since snapshot', async () => {
+      const snapshot = createTestSnapshot()
+      snapshot.data.stash = { location: 'external', storageType: 'S3Storage' } as unknown as typeof snapshot.data.stash
+      await snapshotStorage.saveSnapshot({
+        location: { sessionId: 'test-session', scope: 'agent', scopeId: 'agent' },
+        snapshotId: 'latest',
+        isLatest: true,
+        snapshot,
+      })
+
+      sessionManager = new SessionManager({
+        sessionId: 'test-session',
+        storage: { snapshot: snapshotStorage },
+      })
+      sessionManager.initAgent(createMockAgentWithHooks())
+
+      const { agent } = createAgentWithStash('test-session')
+      const warnSpy = vi.spyOn(logger, 'warn')
+      await sessionManager.restoreSnapshot({ target: agent })
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('stash storage type changed since snapshot was created')
+      )
+      warnSpy.mockRestore()
     })
 
     it('handles snapshot without stash data', async () => {

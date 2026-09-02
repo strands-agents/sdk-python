@@ -11,6 +11,7 @@
 import { resolveNamespace, type Storage } from '../storage/storage.js'
 import { Message, ToolResultBlock, ToolUseBlock, CachePointBlock, ReasoningBlock } from '../types/messages.js'
 import type { ContentBlock } from '../types/messages.js'
+import type { JSONValue } from '../types/json.js'
 import { logger } from '../logging/logger.js'
 
 /** @internal */
@@ -139,13 +140,13 @@ export class Stash {
    *
    * @returns Map of reference keys to their stored JSON values
    */
-  async takeSnapshot(): Promise<Record<string, unknown>> {
+  async takeSnapshot(): Promise<Record<string, JSONValue>> {
     const keys = await this.list()
     const results = await Promise.all(keys.map((key) => this.retrieve(key).then((result) => [key, result] as const)))
-    const entries: Record<string, unknown> = {}
+    const entries: Record<string, JSONValue> = {}
     for (const [key, result] of results) {
       if (result) {
-        entries[key] = result.data
+        entries[key] = result.data as JSONValue
       }
     }
     return entries
@@ -156,7 +157,7 @@ export class Stash {
    *
    * @param entries - Map of reference keys to their JSON values (from {@link takeSnapshot})
    */
-  async loadSnapshot(entries: Record<string, unknown>): Promise<void> {
+  async loadSnapshot(entries: Record<string, JSONValue>): Promise<void> {
     await Promise.all(Object.entries(entries).map(([key, data]) => this._storage.write(key, encode(data))))
   }
 

@@ -86,6 +86,15 @@ export interface SessionManagerConfig {
 }
 
 /**
+ * Stash data envelope stored in snapshot.data.stash.
+ *
+ * @internal
+ */
+type StashSnapshotData =
+  | { location: 'inline'; entries: Record<string, JSONValue> }
+  | { location: 'external'; storageType?: string }
+
+/**
  * Manages session persistence for agents, enabling conversation state
  * to be saved and restored across invocations using pluggable storage backends.
  *
@@ -340,13 +349,18 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
     if (!contextManager?.stash) return
 
     if (contextManager.stashIsDurable) {
-      snapshot.data.stash = { location: 'external' } as unknown as JSONValue
+      const storageType = contextManager.stashStorage?.constructor.name
+      const ref: StashSnapshotData = storageType
+        ? { location: 'external', storageType }
+        : { location: 'external' }
+      snapshot.data.stash = ref as unknown as JSONValue
       return
     }
 
     const entries = await contextManager.stash.takeSnapshot()
     if (Object.keys(entries).length > 0) {
-      snapshot.data.stash = { location: 'inline', entries } as unknown as JSONValue
+      const data: StashSnapshotData = { location: 'inline', entries }
+      snapshot.data.stash = data as unknown as JSONValue
     }
   }
 
@@ -355,10 +369,18 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
     const stash = agent.contextManager?.stash
     if (!stash) return
 
-    const stashData = snapshot.data.stash as unknown as Record<string, unknown>
-    if (stashData.location === 'external') return
+    const stashData = snapshot.data.stash as unknown as StashSnapshotData
+    if (stashData.location === 'external') {
+      const currentType = agent.contextManager?.stashStorage?.constructor.name
+      if (stashData.storageType && currentType && stashData.storageType !== currentType) {
+        logger.warn(
+          `session_id=<${this._sessionId}>, snapshot_storage=<${stashData.storageType}>, current_storage=<${currentType}> | stash storage type changed since snapshot was created, stash data may be inaccessible`
+        )
+      }
+      return
+    }
     if (stashData.location === 'inline') {
-      await stash.loadSnapshot(stashData.entries as Record<string, unknown>)
+      await stash.loadSnapshot(stashData.entries)
     }
   }
 
