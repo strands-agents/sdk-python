@@ -170,10 +170,10 @@ class LlamaCppModel(Model):
             use_native_token_count: Whether to use the native llama.cpp /tokenize endpoint.
                 When True, count_tokens() calls the server's tokenize endpoint for accurate counts.
                 When False (default), skips the API call and uses the local estimator.
-            cache_config: Prompt-caching configuration. llama.cpp uses the shared prompt prefix server-side 
-                by default. A CacheConfig pins ``cache_prompt: true`` on each request. An explicit 
-                ``params["cache_prompt"]`` takes precedence. llama.cpp has no per-field cache controls, so 
-                every other CacheConfig field is ignored.
+            cache_config: Prompt-caching configuration. llama.cpp reuses the shared prompt prefix
+                server-side by default. A CacheConfig pins ``cache_prompt: true`` on each request. An
+                explicit ``params["cache_prompt"]`` takes precedence. llama.cpp has no per-field cache
+                controls, so every other CacheConfig field is ignored.
         """
 
         model_id: str
