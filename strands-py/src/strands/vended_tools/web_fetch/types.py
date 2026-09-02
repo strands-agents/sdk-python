@@ -1,12 +1,15 @@
 """Shared types and constants for the web fetch tool."""
 
-WEB_FETCH_DESCRIPTION = (
-    "Fetches an HTTP(S) URL and returns its content. "
-    "Use mode='markdown' (default) to receive the page as clean markdown; "
-    "scripts, styles, and non-content noise are stripped; "
-    "if the page cannot be converted, the content is returned raw; "
-    "the prompt is ignored. "
-    "Use mode='agentic' with a prompt to get a targeted answer about the page; "
-    "the full page never enters the conversation."
+WEB_FETCH_DESCRIPTION_MARKDOWN = (
+    "Fetches an HTTP(S) URL and returns its content as clean markdown. "
+    "HTML pages are converted to markdown with scripts, styles, and noise stripped; "
+    "other content types are returned as-is."
 )
-"""Description for the web fetch tool."""
+"""Description for the markdown web fetch tool."""
+
+WEB_FETCH_DESCRIPTION_AGENTIC = (
+    "Fetches an HTTP(S) URL and answers a prompt about its content. "
+    "The analyst processes the page directly so the full content never enters "
+    "the main agent's context."
+)
+"""Description for the agentic web fetch tool."""

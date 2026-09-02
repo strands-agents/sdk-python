@@ -1,8 +1,14 @@
 """Web fetch tool: fetch a URL and return relevant content about it.
 
-Distinct from the http_request tool, which returns raw response bodies for API
-calls. This tool is intentionally narrow; it performs an HTTP(S) GET, decodes the
-body, and extracts the relevant content.
+Provides :func:`make_web_fetch` and the default :data:`web_fetch` instance.
+The factory's ``mode`` parameter selects the extraction strategy at
+construction time:
+
+* ``agentic`` (default): raw page content is passed to an analyst agent that answers
+  a ``prompt``, so the full page never enters the main agent's context. Use when
+  targeted answers are needed about potentially large pages.
+* ``markdown``: HTML is converted to clean markdown with scripts, styles, and
+  noise stripped. Use when the agent needs full pages for reasoning.
 
 The tool delegates all networking to the ``httpx.AsyncClient`` instance
 provided by the operator, giving full control over transport configuration,
@@ -20,7 +26,7 @@ import httpx
 from ...tools.decorator import tool
 from ...types.tools import ToolContext
 from ._extract import html_to_markdown
-from .types import WEB_FETCH_DESCRIPTION
+from .types import WEB_FETCH_DESCRIPTION_AGENTIC, WEB_FETCH_DESCRIPTION_MARKDOWN
 
 
 class WebFetchError(ValueError):
@@ -49,16 +55,18 @@ _ANALYST_PROMPT = (
 def make_web_fetch(
     *,
     name: str = "web_fetch",
-    description: str = WEB_FETCH_DESCRIPTION,
+    description: str | None = None,
     max_bytes: int = _DEFAULT_MAX_BYTES,
     client: httpx.AsyncClient | None = None,
     model: Model | None = None,
+    mode: Literal["markdown", "agentic"] = "agentic",
 ) -> DecoratedFunctionTool:
     """Create a web fetch tool.
 
     Args:
         name: Tool name. Defaults to ``"web_fetch"``.
-        description: Tool description shown to the model.
+        description: Tool description shown to the model. Defaults to a mode-appropriate
+            description when ``None``.
         max_bytes: Maximum response body size in bytes. Responses larger than
             this are rejected without buffering the entire body. Defaults to
             5 MiB.
@@ -66,94 +74,106 @@ def make_web_fetch(
             provided, the tool uses it directly and will not close it.
             When ``None``, a new client is created per request with
             ``follow_redirects=True`` and httpx's default timeout (5s).
-        model: Optional model for the analyst. Resolution order when
-            ``mode='agentic'``: this model, then the host agent's model,
+        model: Optional model for the analyst. Only used when ``mode='agentic'``.
+            Resolution order: this model, then the host agent's model,
             then ``WebFetchError`` if neither is available.
+        mode: Extraction mode. Defaults to ``agentic``.
 
     Returns:
         A decorated tool that fetches a URL and extracts content according to
-        the requested mode:
-        - ``markdown``: HTML converted to clean markdown. Conversion is best-effort,
-          so content that cannot be converted is returned as-is.
-        - ``agentic``: answer to a ``prompt`` about the page content;
-          the full page never enters the main agent's context.
+        the configured mode:
+        - ``agentic`` (default): analyst agent answers a ``prompt`` about the
+          content; the full page never enters the main agent's context.
+        - ``markdown``: HTML converted to clean markdown; other content
+          types returned as-is.
     """
     if max_bytes <= 0:
         raise ValueError(f"max_bytes must be positive, got {max_bytes}")
+    if mode not in ("markdown", "agentic"):
+        raise ValueError(f"mode must be 'markdown' or 'agentic', got {mode!r}")
+    resolved_description = description or (
+        WEB_FETCH_DESCRIPTION_MARKDOWN if mode == "markdown" else WEB_FETCH_DESCRIPTION_AGENTIC
+    )
     external_client = client
     analyst_model = model
 
-    @tool(name=name, description=description, context=True)
-    async def web_fetch_tool(
+    @tool(name=name, description=resolved_description, context=True)
+    async def web_fetch_tool_markdown(
         url: str,
-        mode: Literal["markdown", "agentic"] = "markdown",
-        prompt: str = "",
         tool_context: ToolContext | None = None,
     ) -> str:
-        """Fetches an HTTP(S) URL and returns readable content.
+        """Fetches an HTTP(S) URL and returns clean markdown.
 
-        Only ``http://`` and ``https://`` URLs are accepted. Raises
-        ``WebFetchError`` if the request fails or the client's timeout is exceeded.
+        Raises ``WebFetchError`` if the request fails or the client's timeout is exceeded.
 
         Args:
             url: The URL to fetch. Must be ``http://`` or ``https://``.
-            mode: Extraction mode. ``markdown`` converts HTML to markdown and
-                returns it directly. ``agentic`` passes the raw content to an
-                analyst agent that answers ``prompt`` — the full page never
-                enters the main agent's context.
-            prompt: Required when ``mode='agentic'``. The question or
-                instruction about the page content.
             tool_context: Framework-injected. Not model-visible. Carries the
                 agent so the tool can read its cancel signal.
         """
         cancel_signal = _extract_cancel_signal(tool_context)
+        content_type, raw = await _fetch_once(
+            url=url,
+            max_bytes=max_bytes,
+            client=external_client,
+            cancel_signal=cancel_signal,
+        )
+
+        is_markup = "html" in content_type.lower() or "xml" in content_type.lower()
+        return html_to_markdown(raw) if is_markup else raw
+
+    @tool(name=name, description=resolved_description, context=True)
+    async def web_fetch_tool_agentic(
+        url: str,
+        prompt: str,
+        tool_context: ToolContext | None = None,
+    ) -> str:
+        """Fetches an HTTP(S) URL and returns an analyst's answer about it.
+
+        Raises ``WebFetchError`` if the request fails or the client's timeout is exceeded.
+
+        Args:
+            url: The URL to fetch. Must be ``http://`` or ``https://``.
+            prompt: The question or instruction about the page content.
+            tool_context: Framework-injected. Not model-visible. Carries the
+                agent so the tool can read its cancel signal.
+        """
+        # Local import to avoid circular dependency
+        from ...agent.agent import Agent
+
+        if not prompt.strip():
+            raise WebFetchError("web_fetch: agentic mode requires a non-empty prompt.")
+
         host_model = getattr(tool_context.agent, "model", None) if tool_context else None
-        try:
-            content_type, raw = await _fetch_once(
-                url=url,
-                max_bytes=max_bytes,
-                client=external_client,
-                cancel_signal=cancel_signal,
+        effective_model = analyst_model or host_model
+        if effective_model is None:
+            raise WebFetchError(
+                "web_fetch: agentic mode requires a model. "
+                "Pass model= to make_web_fetch or call the tool from an agent."
             )
-        except httpx.TimeoutException as error:
-            raise WebFetchError(f"Fetch timed out: {url!r}") from error
-        except (httpx.RequestError, ValueError) as exc:
-            raise WebFetchError(f"Fetch failed: {exc}") from exc
 
-        if mode == "markdown":
-            is_markup = "html" in content_type.lower() or "xml" in content_type.lower()
-            return html_to_markdown(raw) if is_markup else raw
+        cancel_signal = _extract_cancel_signal(tool_context)
+        content_type, raw = await _fetch_once(
+            url=url,
+            max_bytes=max_bytes,
+            client=external_client,
+            cancel_signal=cancel_signal,
+        )
 
-        elif mode == "agentic":
-            from ...agent.agent import Agent  # local import to avoid circular dependency
+        # Fresh agent per call — no history from one fetch bleeds into the next.
+        analyst = Agent(
+            model=effective_model,
+            system_prompt=_ANALYST_PROMPT,
+            callback_handler=None,
+        )
+        invoke_prompt = f"URL: {url}\n\nRequest: {prompt}\n\n--- Content ---\n{raw}"
+        return await _stream_agent(analyst, invoke_prompt, cancel_signal, url)
 
-            if not prompt.strip():
-                raise WebFetchError("web_fetch: agentic mode requires a non-empty prompt.")
-
-            effective_model = analyst_model or host_model
-            if effective_model is None:
-                raise WebFetchError(
-                    "web_fetch: agentic mode requires a model. "
-                    "Pass model= to make_web_fetch or call the tool from an agent."
-                )
-
-            # Fresh agent per call — no history from one fetch bleeds into the next.
-            analyst = Agent(
-                model=effective_model,
-                system_prompt=_ANALYST_PROMPT,
-                callback_handler=None,
-            )
-            invoke_prompt = f"URL: {url}\n\nRequest: {prompt}\n\n--- Content ---\n{raw}"
-            return await _stream_agent(analyst, invoke_prompt, cancel_signal, url)
-
-        else:
-            raise WebFetchError(f"web_fetch: unknown mode {mode!r}.")
-
-    return web_fetch_tool
+    return web_fetch_tool_markdown if mode == "markdown" else web_fetch_tool_agentic
 
 
 web_fetch = make_web_fetch()
-"""Default web fetch tool."""
+"""Default web fetch tool (agentic mode)."""
 
 
 # ---- Internals ----
@@ -170,10 +190,8 @@ async def _fetch_once(
 
     Raises:
         asyncio.CancelledError: When the agent cancel signal is set.
-        httpx.TimeoutException: When the request times out.
-        httpx.RequestError: On any transport-level failure.
-        ValueError: When the response body exceeds ``max_bytes`` or the
-            status code is >= 400.
+        WebFetchError: On timeout, transport failure, HTTP error status, or
+            body exceeding ``max_bytes``.
     """
     _check_cancelled(cancel_signal)
 
@@ -181,18 +199,23 @@ async def _fetch_once(
     active_client = client if client is not None else httpx.AsyncClient(follow_redirects=True)
     try:
         request = active_client.build_request("GET", url, headers=_HEADERS)
-        response = await active_client.send(request, stream=True)
+        try:
+            response = await active_client.send(request, stream=True)
+        except httpx.TimeoutException as error:
+            raise WebFetchError(f"Fetch timed out: {url!r}") from error
+        except (httpx.RequestError, ValueError) as exc:
+            raise WebFetchError(f"Fetch failed: {exc}") from exc
         try:
             content_type = response.headers.get("content-type", "")
             if response.status_code >= 400:
-                raise ValueError(f"HTTP {response.status_code} {response.reason_phrase}")
+                raise WebFetchError(f"HTTP {response.status_code} {response.reason_phrase}")
             chunks: list[bytes] = []
             total = 0
             async for chunk in response.aiter_bytes():
                 _check_cancelled(cancel_signal)
                 total += len(chunk)
                 if total > max_bytes:
-                    raise ValueError(f"Response body exceeded {max_bytes} bytes. Refusing to buffer more.")
+                    raise WebFetchError(f"Response body exceeded {max_bytes} bytes. Refusing to buffer more.")
                 chunks.append(chunk)
             body = b"".join(chunks)
         finally:

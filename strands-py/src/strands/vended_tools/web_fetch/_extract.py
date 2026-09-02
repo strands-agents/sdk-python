@@ -41,6 +41,7 @@ _DROPPED_ELEMENTS = frozenset(
         "button",
         "select",
         "textarea",
+        "nav",
     ]
 )
 

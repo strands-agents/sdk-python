@@ -24,7 +24,10 @@ from strands.vended_tools.web_fetch import (  # noqa: E402
 )
 from strands.vended_tools.web_fetch import _extract as extract_module  # noqa: E402
 from strands.vended_tools.web_fetch._extract import _tag_attribute, html_to_markdown  # noqa: E402
-from strands.vended_tools.web_fetch.types import WEB_FETCH_DESCRIPTION  # noqa: E402
+from strands.vended_tools.web_fetch.types import (  # noqa: E402
+    WEB_FETCH_DESCRIPTION_AGENTIC,
+    WEB_FETCH_DESCRIPTION_MARKDOWN,
+)
 
 
 def _transport(handler):
@@ -47,7 +50,7 @@ class TestToolMetadata:
         assert web_fetch.tool_name == "web_fetch"
 
     def test_default_description(self):
-        assert web_fetch.tool_spec["description"] == WEB_FETCH_DESCRIPTION
+        assert web_fetch.tool_spec["description"] == WEB_FETCH_DESCRIPTION_AGENTIC
 
     def test_custom_name(self):
         assert make_web_fetch(name="fetch_page").tool_name == "fetch_page"
@@ -59,6 +62,13 @@ class TestToolMetadata:
     def test_rejects_non_positive_max_bytes(self, max_bytes):
         with pytest.raises(ValueError, match="max_bytes"):
             make_web_fetch(max_bytes=max_bytes)
+
+    def test_invalid_mode_raises(self):
+        with pytest.raises(ValueError, match="mode"):
+            make_web_fetch(mode="invalid")  # type: ignore[arg-type]
+
+    def test_markdown_mode_uses_markdown_description(self):
+        assert make_web_fetch(mode="markdown").tool_spec["description"] == WEB_FETCH_DESCRIPTION_MARKDOWN
 
 
 class TestLazyLoad:
@@ -86,7 +96,7 @@ class TestWebFetchToolCall:
         def handler(_request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, headers={"content-type": "text/html; charset=utf-8"}, text=html)
 
-        tool = make_web_fetch(client=_client(handler))
+        tool = make_web_fetch(client=_client(handler), mode="markdown")
         tru_result = await tool(url="https://example.com/")
         assert "# T" in tru_result
         assert "# Hi" in tru_result
@@ -96,7 +106,7 @@ class TestWebFetchToolCall:
         def handler(_request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, headers={"content-type": "text/plain"}, text="plain text response")
 
-        tool = make_web_fetch(client=_client(handler))
+        tool = make_web_fetch(client=_client(handler), mode="markdown")
         tru_result = await tool(url="https://example.com/robots.txt")
         assert tru_result == "plain text response"
 
@@ -109,21 +119,21 @@ class TestWebFetchToolCall:
                 text="<html><body><p>xhtml</p></body></html>",
             )
 
-        tool = make_web_fetch(client=_client(handler))
+        tool = make_web_fetch(client=_client(handler), mode="markdown")
         tru_result = await tool(url="https://example.com/page.xhtml")
         assert "xhtml" in tru_result
 
     @pytest.mark.asyncio
     async def test_rejects_non_http_scheme(self):
         with pytest.raises(WebFetchError, match="Fetch failed"):
-            await web_fetch(url="file:///etc/passwd")
+            await make_web_fetch(mode="markdown")(url="file:///etc/passwd")
 
     @pytest.mark.asyncio
     async def test_transport_error_is_wrapped_as_value_error(self):
         def handler(_request: httpx.Request) -> httpx.Response:
             raise httpx.ConnectError("connection refused")
 
-        tool = make_web_fetch(client=_client(handler))
+        tool = make_web_fetch(client=_client(handler), mode="markdown")
         with pytest.raises(WebFetchError, match="Fetch failed"):
             await tool(url="https://example.com/")
 
@@ -134,7 +144,7 @@ class TestWebFetchToolCall:
         def handler(_request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, headers={"content-type": "text/plain"}, content=big)
 
-        tool = make_web_fetch(client=_client(handler), max_bytes=50)
+        tool = make_web_fetch(client=_client(handler), max_bytes=50, mode="markdown")
         with pytest.raises(WebFetchError, match="exceeded"):
             await tool(url="https://example.com/")
 
@@ -143,7 +153,7 @@ class TestWebFetchToolCall:
         def handler(_request: httpx.Request) -> httpx.Response:
             return httpx.Response(404, text="Not Found")
 
-        tool = make_web_fetch(client=_client(handler))
+        tool = make_web_fetch(client=_client(handler), mode="markdown")
         with pytest.raises(WebFetchError, match="HTTP 404"):
             await tool(url="https://example.com/missing")
 
@@ -158,7 +168,7 @@ class TestWebFetchToolCall:
 
         # User-supplied client with follow_redirects=False: redirect is not followed.
         client = httpx.AsyncClient(transport=_transport(handler), follow_redirects=False)
-        tool = make_web_fetch(client=client)
+        tool = make_web_fetch(client=client, mode="markdown")
         tru_result = await tool(url="https://example.com/old")
         assert tru_result == "moved"
 
@@ -167,19 +177,19 @@ class TestWebFetchToolCall:
         async def handler(_request: httpx.Request) -> httpx.Response:
             raise httpx.TimeoutException("timed out")
 
-        tool = make_web_fetch(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+        tool = make_web_fetch(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)), mode="markdown")
         with pytest.raises(WebFetchError, match="timed out"):
             await tool(url="https://example.com/")
 
     @pytest.mark.asyncio
     async def test_html_extraction_failure_falls_back_to_raw(self, monkeypatch):
-        # When html_to_markdown returns "" (extraction failed), the tool falls
-        # back to raw text so the model receives content rather than nothing.
+        # html_to_markdown falls back to raw input on parser failure,
+        # so the model always receives readable content.
         def handler(_request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, headers={"content-type": "text/html"}, text="<p>raw content</p>")
 
         monkeypatch.setattr(extract_module, "BeautifulSoup", _raising_beautiful_soup)
-        tool = make_web_fetch(client=_client(handler))
+        tool = make_web_fetch(client=_client(handler), mode="markdown")
         tru_result = await tool(url="https://example.com/")
         assert tru_result == "<p>raw content</p>"
 
@@ -191,7 +201,7 @@ class TestWebFetchToolCall:
             received.update(request.headers)
             return httpx.Response(200, headers={"content-type": "text/plain"}, text="ok")
 
-        tool = make_web_fetch(client=_client(handler))
+        tool = make_web_fetch(client=_client(handler), mode="markdown")
         await tool(url="https://example.com/")
         assert "strands-agents-web-fetch" in received.get("user-agent", "")
 
@@ -208,7 +218,7 @@ class TestWebFetchToolCall:
         tool_use = ToolUse(toolUseId="wf_1", name="web_fetch", input={})
         ctx = ToolContext(tool_use=tool_use, agent=agent, invocation_state={})
 
-        tool = make_web_fetch(client=_client(handler))
+        tool = make_web_fetch(client=_client(handler), mode="markdown")
         with pytest.raises(asyncio.CancelledError):
             await tool(url="https://example.com/", tool_context=ctx)
 
@@ -230,7 +240,7 @@ class TestWebFetchToolCall:
         tool_use = ToolUse(toolUseId="wf_2", name="web_fetch", input={})
         ctx = ToolContext(tool_use=tool_use, agent=agent, invocation_state={})
 
-        tool = make_web_fetch(client=_client(handler))
+        tool = make_web_fetch(client=_client(handler), mode="markdown")
         with pytest.raises(asyncio.CancelledError):
             await tool(url="https://example.com/", tool_context=ctx)
 
@@ -247,9 +257,9 @@ class TestAnalyst:
     @pytest.mark.asyncio
     async def test_prompt_without_model_and_no_agent_raises(self):
         # No factory model and no host agent — agentic mode has nowhere to go.
-        tool = make_web_fetch(client=self._page_client())
+        tool = make_web_fetch(client=self._page_client(), mode="agentic")
         with pytest.raises(WebFetchError, match="agentic mode requires a model"):
-            await tool(url="https://example.com/", mode="agentic", prompt="What is this about?")
+            await tool(url="https://example.com/", prompt="What is this about?")
 
     @pytest.mark.asyncio
     async def test_prompt_uses_host_agent_model_when_no_factory_model(self, monkeypatch):
@@ -273,8 +283,8 @@ class TestAnalyst:
         host_agent = SimpleNamespace(_cancel_signal=None, model=host_model)
         ctx = ToolContext(tool_use=tool_use, agent=host_agent, invocation_state={})
 
-        tool = make_web_fetch(client=self._page_client())
-        tru_result = await tool(url="https://example.com/", mode="agentic", prompt="Summarize", tool_context=ctx)
+        tool = make_web_fetch(client=self._page_client(), mode="agentic")
+        tru_result = await tool(url="https://example.com/", prompt="Summarize", tool_context=ctx)
         assert tru_result == "host answer"
         assert received_model[0] is host_model
 
@@ -295,17 +305,17 @@ class TestAnalyst:
         import strands.agent.agent as agent_module
 
         monkeypatch.setattr(agent_module, "Agent", _FakeAgent)
-        tool = make_web_fetch(client=self._page_client(), model=fake_model)
-        tru_result = await tool(url="https://example.com/", mode="markdown")
+        tool = make_web_fetch(client=self._page_client(), model=fake_model, mode="markdown")
+        tru_result = await tool(url="https://example.com/")
         assert not invoked
         assert "page content" in tru_result
 
     @pytest.mark.parametrize("prompt", ["", "   "])
     @pytest.mark.asyncio
     async def test_agentic_mode_with_empty_prompt_raises(self, prompt):
-        tool = make_web_fetch(client=self._page_client(), model=SimpleNamespace())
+        tool = make_web_fetch(client=self._page_client(), model=SimpleNamespace(), mode="agentic")
         with pytest.raises(WebFetchError, match="agentic mode requires a non-empty prompt"):
-            await tool(url="https://example.com/", mode="agentic", prompt=prompt)
+            await tool(url="https://example.com/", prompt=prompt)
 
     @pytest.mark.asyncio
     async def test_prompt_with_model_invokes_analyst(self, monkeypatch):
@@ -326,8 +336,8 @@ class TestAnalyst:
         import strands.agent.agent as agent_module
 
         monkeypatch.setattr(agent_module, "Agent", _FakeAgent)
-        tool = make_web_fetch(client=self._page_client(), model=fake_model)
-        tru_result = await tool(url="https://example.com/", mode="agentic", prompt="What is this about?")
+        tool = make_web_fetch(client=self._page_client(), model=fake_model, mode="agentic")
+        tru_result = await tool(url="https://example.com/", prompt="What is this about?")
         assert tru_result == "the answer"
         assert len(received_prompt) == 1
         assert "What is this about?" in received_prompt[0]
@@ -353,9 +363,7 @@ class TestStreamAgent:
                 cancelled.append(True)
 
         with pytest.raises(asyncio.CancelledError):
-            await web_fetch_module._stream_agent(
-                _FakeAgent(), "prompt", cancel, "https://example.com/"
-            )
+            await web_fetch_module._stream_agent(_FakeAgent(), "prompt", cancel, "https://example.com/")
         assert cancelled
 
     @pytest.mark.asyncio
@@ -366,9 +374,7 @@ class TestStreamAgent:
                 yield  # make it an async generator
 
         with pytest.raises(WebFetchError, match="analyst failed"):
-            await web_fetch_module._stream_agent(
-                _FakeAgent(), "prompt", None, "https://example.com/"
-            )
+            await web_fetch_module._stream_agent(_FakeAgent(), "prompt", None, "https://example.com/")
 
 
 class TestParseCharset:
