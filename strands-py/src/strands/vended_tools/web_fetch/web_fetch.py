@@ -73,8 +73,8 @@ def make_web_fetch(
             this are rejected without buffering the entire body. Defaults to
             5 MiB.
         max_content_chars: Maximum characters of extracted content delivered to
-            the model or analyst. Content exceeding this is silently truncated.
-            Defaults to 50,000.
+            the model or analyst. Content exceeding this is truncated with a
+            visible marker. Defaults to 50,000.
         client: Optional ``httpx.AsyncClient`` to use for requests. When
             provided, the tool uses it directly and will not close it.
             When ``None``, a new client is created per request with

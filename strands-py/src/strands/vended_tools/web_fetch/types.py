@@ -3,8 +3,7 @@
 WEB_FETCH_DESCRIPTION_MARKDOWN = (
     "Fetches an HTTP(S) URL and returns its content as clean markdown. "
     "HTML pages are converted to markdown with scripts, styles, and noise stripped; "
-    "other content types are returned as-is. "
-    "The prompt parameter is ignored."
+    "other content types are returned as-is."
 )
 """Description for the markdown web fetch tool."""
 
