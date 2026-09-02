@@ -87,12 +87,10 @@ def make_web_fetch(
     Returns:
         A decorated tool that fetches a URL and extracts content according to
         the configured mode:
-        - ``agentic`` (default): HTML is converted to markdown and passed to an
-          analyst agent that answers a ``prompt``; the full page never enters
-          the main agent's context.
-          content; the full page never enters the main agent's context.
-        - ``markdown``: HTML converted to clean markdown; other content
-          types returned as-is.
+
+        * ``agentic`` (default) — HTML converted to markdown, passed to an
+          analyst agent that answers ``prompt``.
+        * ``markdown`` — HTML converted to clean markdown returned directly.
     """
     if max_bytes <= 0:
         raise ValueError(f"max_bytes must be positive, got {max_bytes}")
@@ -107,16 +105,19 @@ def make_web_fetch(
     analyst_model = model
 
     @tool(name=name, description=resolved_description, context=True)
-    async def web_fetch_tool_markdown(
+    async def web_fetch_tool(
         url: str,
+        prompt: str = "",
         tool_context: ToolContext | None = None,
     ) -> str:
-        """Fetches an HTTP(S) URL and returns clean markdown.
+        """Fetches an HTTP(S) URL and returns its relevant content.
 
         Raises ``WebFetchError`` if the request fails or the client's timeout is exceeded.
 
         Args:
             url: The URL to fetch. Must be ``http://`` or ``https://``.
+            prompt: Question or instruction about the page. Only used in
+                ``agentic`` mode; ignored in ``markdown`` mode.
             tool_context: Framework-injected. Not model-visible. Carries the
                 agent so the tool can read its cancel signal.
         """
@@ -129,59 +130,34 @@ def make_web_fetch(
         )
 
         is_markup = "html" in content_type.lower() or "xml" in content_type.lower()
-        content = html_to_markdown(raw) if is_markup else raw
-        return content[:max_content_chars]
+        content = (html_to_markdown(raw) if is_markup else raw)[:max_content_chars]
 
-    @tool(name=name, description=resolved_description, context=True)
-    async def web_fetch_tool_agentic(
-        url: str,
-        prompt: str,
-        tool_context: ToolContext | None = None,
-    ) -> str:
-        """Fetches an HTTP(S) URL and returns an analyst's answer about it.
+        if mode == "agentic":
+            from ...agent.agent import Agent  # local import to avoid circular dependency
 
-        Raises ``WebFetchError`` if the request fails or the client's timeout is exceeded.
+            if not prompt.strip():
+                raise WebFetchError("web_fetch: agentic mode requires a non-empty prompt.")
 
-        Args:
-            url: The URL to fetch. Must be ``http://`` or ``https://``.
-            prompt: The question or instruction about the page content.
-            tool_context: Framework-injected. Not model-visible. Carries the
-                agent so the tool can read its cancel signal.
-        """
-        # Local import to avoid circular dependency
-        from ...agent.agent import Agent
+            host_model = getattr(tool_context.agent, "model", None) if tool_context else None
+            effective_model = analyst_model or host_model
+            if effective_model is None:
+                raise WebFetchError(
+                    "web_fetch: agentic mode requires a model. "
+                    "Pass model= to make_web_fetch or call the tool from an agent."
+                )
 
-        if not prompt.strip():
-            raise WebFetchError("web_fetch: agentic mode requires a non-empty prompt.")
-
-        host_model = getattr(tool_context.agent, "model", None) if tool_context else None
-        effective_model = analyst_model or host_model
-        if effective_model is None:
-            raise WebFetchError(
-                "web_fetch: agentic mode requires a model. "
-                "Pass model= to make_web_fetch or call the tool from an agent."
+            # Fresh agent per call — no history from one fetch bleeds into the next.
+            analyst = Agent(
+                model=effective_model,
+                system_prompt=_ANALYST_PROMPT,
+                callback_handler=None,
             )
+            invoke_prompt = f"URL: {url}\n\nRequest: {prompt}\n\n--- Content ---\n{content}"
+            return await _stream_agent(analyst, invoke_prompt, cancel_signal, url)
 
-        cancel_signal = _extract_cancel_signal(tool_context)
-        content_type, raw = await _fetch_once(
-            url=url,
-            max_bytes=max_bytes,
-            client=external_client,
-            cancel_signal=cancel_signal,
-        )
+        return content
 
-        # Fresh agent per call — no history from one fetch bleeds into the next.
-        analyst = Agent(
-            model=effective_model,
-            system_prompt=_ANALYST_PROMPT,
-            callback_handler=None,
-        )
-        is_markup = "html" in content_type.lower() or "xml" in content_type.lower()
-        content = html_to_markdown(raw) if is_markup else raw
-        invoke_prompt = f"URL: {url}\n\nRequest: {prompt}\n\n--- Content ---\n{content[:max_content_chars]}"
-        return await _stream_agent(analyst, invoke_prompt, cancel_signal, url)
-
-    return web_fetch_tool_markdown if mode == "markdown" else web_fetch_tool_agentic
+    return web_fetch_tool
 
 
 web_fetch = make_web_fetch()

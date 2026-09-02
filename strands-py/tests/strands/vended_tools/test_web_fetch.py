@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+
 import strands.agent.agent as agent_module
 
 # The tool named ``web_fetch`` (re-exported by the package ``__init__``) shadows
@@ -290,7 +291,6 @@ class TestAnalyst:
                 received_prompt.append(prompt)
                 yield {"result": "answer"}
 
-
         monkeypatch.setattr(agent_module, "Agent", _FakeAgent)
         tool = make_web_fetch(
             client=_client(page_handler),
@@ -322,7 +322,6 @@ class TestAnalyst:
             async def stream_async(self, prompt: str):
                 yield {"result": "host answer"}
 
-
         monkeypatch.setattr(agent_module, "Agent", _FakeAgent)
         from strands.types.tools import ToolContext, ToolUse
 
@@ -348,7 +347,6 @@ class TestAnalyst:
             async def stream_async(self, prompt: str):
                 invoked.append(True)
                 yield {"result": "answer"}
-
 
         monkeypatch.setattr(agent_module, "Agent", _FakeAgent)
         tool = make_web_fetch(client=self._page_client(), model=fake_model, mode="markdown")
@@ -378,7 +376,6 @@ class TestAnalyst:
 
             def cancel(self) -> None:
                 pass
-
 
         monkeypatch.setattr(agent_module, "Agent", _FakeAgent)
         tool = make_web_fetch(client=self._page_client(), model=fake_model, mode="agentic")
