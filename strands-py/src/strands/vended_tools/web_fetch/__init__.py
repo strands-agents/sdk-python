@@ -1,7 +1,7 @@
 """Web fetch tool for retrieving a URL and returning clean markdown.
 
 Distinct from ``http_request`` (raw API calls): this tool fetches a page and
-extracts its readable content as markdown suitable for a model to read.
+extracts its relevant content suitable for the model to read.
 
 Example Usage:
     ```python

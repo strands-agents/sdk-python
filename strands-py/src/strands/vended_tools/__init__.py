@@ -10,7 +10,9 @@ calls. The :data:`sleep` tool pauses execution for a bounded, cancellable durati
 The :data:`http_request` tool makes raw HTTP calls; use
 :func:`make_http_request` to supply a pre-configured ``httpx.AsyncClient``
 with custom timeouts, redirects, authentication, or proxies.
-The :data:`web_fetch` tool fetches an HTTP(S) URL and returns clean markdown. It
+The :data:`web_fetch` tool fetches an HTTP(S) URL and by default returns an
+analyst's answer to a prompt about the page content (``mode='agentic'``); use
+``make_web_fetch(mode='markdown')`` for clean markdown output. It
 requires the optional ``web-fetch`` extra (``pip install 'strands-agents[web-fetch]'``)
 and is imported lazily, so accessing it without that extra raises :class:`ImportError`:
 
