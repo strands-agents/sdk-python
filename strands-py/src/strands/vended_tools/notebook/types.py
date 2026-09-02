@@ -23,9 +23,6 @@ DEFAULT_NOTEBOOK_DESCRIPTION = (
 DEFAULT_NOTEBOOK_NAME = "default"
 """Name of the default notebook used when no name is provided."""
 
-# Confinement caps: bound the memory footprint the model can accumulate. These match sane
-# defaults for a session-scoped scratchpad; the TypeScript port has no caps today, but a
-# model-driven store needs an upper bound so a prompt-injection cannot exhaust memory.
 MAX_NOTEBOOKS = 64
 """Maximum number of notebooks that may exist in a single session."""
 
