@@ -1601,21 +1601,29 @@ class BedrockModel(Model):
                     }
                 }
             elif "reasoningContent" in content:
-                # Then yield the reasoning content as a delta
-                yield {
-                    "contentBlockDelta": {
-                        "delta": {"reasoningContent": {"text": content["reasoningContent"]["reasoningText"]["text"]}}
-                    }
-                }
-
-                if "signature" in content["reasoningContent"]["reasoningText"]:
-                    yield {
-                        "contentBlockDelta": {
-                            "delta": {
-                                "reasoningContent": {
-                                    "signature": content["reasoningContent"]["reasoningText"]["signature"]
+                reasoning = content["reasoningContent"]
+                if "reasoningText" in reasoning:
+                    reasoning_text = reasoning["reasoningText"]
+                    if "text" in reasoning_text:
+                        yield {
+                            "contentBlockDelta": {
+                                "delta": {"reasoningContent": {"text": reasoning_text["text"]}}
+                            }
+                        }
+                    if reasoning_text.get("signature"):
+                        yield {
+                            "contentBlockDelta": {
+                                "delta": {
+                                    "reasoningContent": {
+                                        "signature": reasoning_text["signature"]
+                                    }
                                 }
                             }
+                        }
+                if "redactedContent" in reasoning:
+                    yield {
+                        "contentBlockDelta": {
+                            "delta": {"reasoningContent": {"redactedContent": reasoning["redactedContent"]}}
                         }
                     }
             elif "citationsContent" in content:

@@ -126,7 +126,6 @@ class TestNamespacedStorage:
         keys = await ns.list("")
         assert keys == ["key1"]
 
-
     @pytest.mark.asyncio
     async def test_search_scopes_to_prefix(self, storage):
         await storage.write("scope/a.md", b"dark mode toggle")
