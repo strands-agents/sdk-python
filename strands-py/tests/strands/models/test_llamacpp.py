@@ -420,6 +420,68 @@ async def test_stream_basic() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stream_surfaces_cache_read_tokens() -> None:
+    """A reused KV prefix is surfaced as cacheReadInputTokens, like the other cache-aware providers.
+
+    llama.cpp reports the reused prefix length in usage.prompt_tokens_details.cached_tokens.
+    """
+    model = LlamaCppModel()
+
+    mock_response_lines = [
+        'data: {"choices": [{"delta": {"content": "Hi"}, "finish_reason": "stop"}]}',
+        'data: {"usage": {"prompt_tokens": 100, "completion_tokens": 5, "total_tokens": 105, '
+        '"prompt_tokens_details": {"cached_tokens": 91}}}',
+        "data: [DONE]",
+    ]
+
+    async def mock_aiter_lines():
+        for line in mock_response_lines:
+            yield line
+
+    mock_response = AsyncMock()
+    mock_response.aiter_lines = mock_aiter_lines
+    mock_response.raise_for_status = MagicMock()
+
+    with patch.object(model.client, "post", return_value=mock_response):
+        chunks = []
+        async for chunk in model.stream([{"role": "user", "content": [{"text": "Hi"}]}]):
+            chunks.append(chunk)
+
+    usage = next(chunk["metadata"]["usage"] for chunk in chunks if "metadata" in chunk)
+    assert usage["cacheReadInputTokens"] == 91
+    assert usage["inputTokens"] == 100
+
+
+@pytest.mark.asyncio
+async def test_stream_omits_cache_read_tokens_when_prefix_not_reused() -> None:
+    """With no cached prefix, cacheReadInputTokens is left absent rather than reported as zero."""
+    model = LlamaCppModel()
+
+    mock_response_lines = [
+        'data: {"choices": [{"delta": {"content": "Hi"}, "finish_reason": "stop"}]}',
+        'data: {"usage": {"prompt_tokens": 100, "completion_tokens": 5, "total_tokens": 105, '
+        '"prompt_tokens_details": {"cached_tokens": 0}}}',
+        "data: [DONE]",
+    ]
+
+    async def mock_aiter_lines():
+        for line in mock_response_lines:
+            yield line
+
+    mock_response = AsyncMock()
+    mock_response.aiter_lines = mock_aiter_lines
+    mock_response.raise_for_status = MagicMock()
+
+    with patch.object(model.client, "post", return_value=mock_response):
+        chunks = []
+        async for chunk in model.stream([{"role": "user", "content": [{"text": "Hi"}]}]):
+            chunks.append(chunk)
+
+    usage = next(chunk["metadata"]["usage"] for chunk in chunks if "metadata" in chunk)
+    assert "cacheReadInputTokens" not in usage
+
+
+@pytest.mark.asyncio
 async def test_structured_output() -> None:
     """Test structured output functionality."""
 

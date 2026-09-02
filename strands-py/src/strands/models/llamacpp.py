@@ -26,6 +26,7 @@ from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
 from ..types.content import ContentBlock, Messages, SystemContentBlock
+from ..types.event_loop import Usage
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
@@ -57,6 +58,28 @@ def _apply_cache_config(request: dict[str, Any], cache_config: CacheConfig | Non
     if "cache_prompt" not in request:
         request["cache_prompt"] = True
     warn_on_cache_config_not_supported(cache_config, "llama.cpp", supported=set())
+
+
+def _format_usage(data: Any) -> Usage:
+    """Build a Usage from a llama.cpp usage payload.
+
+    llama.cpp reports KV-prefix reuse as cached prompt tokens; surface it as a cache read like the
+    other providers so it flows into usage metrics and telemetry.
+
+    Args:
+        data: The usage payload from the server's final stream chunk.
+
+    Returns:
+        The standardized token usage.
+    """
+    usage: Usage = {
+        "inputTokens": data.prompt_tokens,
+        "outputTokens": data.completion_tokens,
+        "totalTokens": data.total_tokens,
+    }
+    if cached_tokens := getattr(data, "cached_tokens", 0):
+        usage["cacheReadInputTokens"] = cached_tokens
+    return usage
 
 
 class LlamaCppModel(Model):
@@ -521,11 +544,7 @@ class LlamaCppModel(Model):
             case "metadata":
                 return {
                     "metadata": {
-                        "usage": {
-                            "inputTokens": event["data"].prompt_tokens,
-                            "outputTokens": event["data"].completion_tokens,
-                            "totalTokens": event["data"].total_tokens,
-                        },
+                        "usage": _format_usage(event["data"]),
                         "metrics": {
                             "latencyMs": event.get("latency_ms", 0),
                         },
@@ -752,6 +771,8 @@ class LlamaCppModel(Model):
             if usage_data:
                 # Calculate latency
                 latency_ms = int((time.perf_counter() - start_time) * 1000)
+                # cached_tokens is the length of the prompt prefix llama.cpp reused from its KV cache.
+                cached_tokens = (usage_data.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
                 yield self._format_chunk(
                     {
                         "chunk_type": "metadata",
@@ -762,6 +783,7 @@ class LlamaCppModel(Model):
                                 "prompt_tokens": usage_data.get("prompt_tokens", 0),
                                 "completion_tokens": usage_data.get("completion_tokens", 0),
                                 "total_tokens": usage_data.get("total_tokens", 0),
+                                "cached_tokens": cached_tokens,
                             },
                         )(),
                         "latency_ms": latency_ms,
