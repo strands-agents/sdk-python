@@ -64,12 +64,16 @@ from ...types.tools import AgentTool, ToolResultContent, ToolResultStatus
 from ..tool_provider import ToolProvider
 from ._compat import (
     MCPError,
+    is_error,
+    mime_type,
     negotiate_session,
     next_cursor,
     resource_templates,
     streamable_http_transport,
+    structured_content,
     task_support,
 )
+from ._compat import call_tool as compat_call_tool
 from .mcp_agent_tool import MCPAgentTool
 from .mcp_instrumentation import inject_trace_context, mcp_instrumentation
 from .mcp_tasks import DEFAULT_TASK_CONFIG, DEFAULT_TASK_POLL_TIMEOUT, DEFAULT_TASK_TTL, TasksConfig
@@ -815,7 +819,8 @@ class MCPClient(ToolProvider):
         Args:
             name: Name of the tool to call.
             arguments: Optional arguments to pass to the tool.
-            read_timeout_seconds: Optional timeout for the tool call.
+            read_timeout_seconds: Optional timeout for the tool call. On the mcp 2.x line, the timeout
+                bounds each request round of a multi round-trip tool call rather than the call as a whole.
             meta: Optional metadata to pass to the tool call per MCP spec (_meta).
             progress_callback: Optional callback to receive progress notifications.
                 If None, falls back to the instance-level callback set at construction time.
@@ -873,9 +878,15 @@ class MCPClient(ToolProvider):
                     request_id = getattr(session, "_request_id", None)
                     if isinstance(request_id, int):
                         cancellation_state["request_id"] = request_id
-                return await session.call_tool(
-                    name, arguments, read_timeout_seconds, progress_callback=effective_callback, meta=meta
+                result = await compat_call_tool(
+                    session,
+                    name,
+                    arguments,
+                    read_timeout_seconds,
+                    effective_callback,
+                    meta,
                 )
+                return cast(MCPCallToolResult, result)
 
             return _call_tool_direct()
 
@@ -899,7 +910,8 @@ class MCPClient(ToolProvider):
             tool_use_id: Unique identifier for this tool use
             name: Name of the tool to call
             arguments: Optional arguments to pass to the tool
-            read_timeout_seconds: Optional timeout for the tool call
+            read_timeout_seconds: Optional timeout for the tool call. On the mcp 2.x line, the timeout
+                bounds each request round of a multi round-trip tool call rather than the call as a whole.
             meta: Optional metadata to pass to the tool call per MCP spec (_meta)
             progress_callback: Optional callback to receive progress notifications for this
                 call. Overrides the instance-level callback set at construction time.
@@ -956,7 +968,8 @@ class MCPClient(ToolProvider):
             tool_use_id: Unique identifier for this tool use
             name: Name of the tool to call
             arguments: Optional arguments to pass to the tool
-            read_timeout_seconds: Optional timeout for the tool call
+            read_timeout_seconds: Optional timeout for the tool call. On the mcp 2.x line, the timeout
+                bounds each request round of a multi round-trip tool call rather than the call as a whole.
             meta: Optional metadata to pass to the tool call per MCP spec (_meta)
             progress_callback: Optional callback to receive progress notifications for this
                 call. Overrides the instance-level callback set at construction time.
@@ -1057,7 +1070,8 @@ class MCPClient(ToolProvider):
             if (mc := self.map_mcp_content_to_tool_result_content(content)) is not None
         ]
 
-        status: ToolResultStatus = "error" if call_tool_result.isError else "success"
+        tool_error = is_error(call_tool_result)
+        status: ToolResultStatus = "error" if tool_error else "success"
         self._log_debug_with_thread("tool execution completed with status: %s", status)
         result = MCPToolResult(
             status=status,
@@ -1065,12 +1079,15 @@ class MCPClient(ToolProvider):
             content=mapped_contents,
         )
 
-        if call_tool_result.structuredContent:
-            result["structuredContent"] = call_tool_result.structuredContent
+        # `is not None`, not truthiness: the 2026-07-28 spec allows any JSON
+        # value here, so 0, False, "", [], and {} are all valid payloads.
+        structured_payload = structured_content(call_tool_result)
+        if structured_payload is not None:
+            result["structuredContent"] = structured_payload
         if call_tool_result.meta:
             result["metadata"] = call_tool_result.meta
-        if call_tool_result.isError is not None:
-            result["isError"] = call_tool_result.isError
+        if tool_error is not None:
+            result["isError"] = tool_error
 
         return result
 
@@ -1197,10 +1214,11 @@ class MCPClient(ToolProvider):
             self._log_debug_with_thread("mapping MCP text content")
             return {"text": content.text}
         elif isinstance(content, MCPImageContent):
-            self._log_debug_with_thread("mapping MCP image content with mime type: %s", content.mimeType)
+            image_mime = cast(str, mime_type(content))
+            self._log_debug_with_thread("mapping MCP image content with mime type: %s", image_mime)
             return {
                 "image": {
-                    "format": MIME_TO_FORMAT[content.mimeType],
+                    "format": MIME_TO_FORMAT[image_mime],
                     "source": {"bytes": base64.b64decode(content.data)},
                 }
             }
@@ -1227,9 +1245,10 @@ class MCPClient(ToolProvider):
                     self._log_debug_with_thread("embedded resource blob could not be decoded - dropping")
                     return None
 
-                if resource.mimeType and (
-                    resource.mimeType.startswith("text/")
-                    or resource.mimeType
+                resource_mime = mime_type(resource)
+                if resource_mime and (
+                    resource_mime.startswith("text/")
+                    or resource_mime
                     in (
                         "application/json",
                         "application/xml",
@@ -1237,17 +1256,17 @@ class MCPClient(ToolProvider):
                         "application/yaml",
                         "application/x-yaml",
                     )
-                    or resource.mimeType.endswith(("+json", "+xml"))
+                    or resource_mime.endswith(("+json", "+xml"))
                 ):
                     try:
                         return {"text": raw_bytes.decode("utf-8", errors="replace")}
                     except Exception:
                         pass
 
-                if resource.mimeType in MIME_TO_FORMAT:
+                if resource_mime in MIME_TO_FORMAT:
                     return {
                         "image": {
-                            "format": MIME_TO_FORMAT[resource.mimeType],
+                            "format": MIME_TO_FORMAT[resource_mime],
                             "source": {"bytes": raw_bytes},
                         }
                     }

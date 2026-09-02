@@ -5,12 +5,17 @@
  */
 
 import type { Plugin } from '../plugins/plugin.js'
+import type { Tool } from '../tools/tool.js'
 import type { LocalAgent } from '../types/agent.js'
-import { AfterModelCallEvent, BeforeModelCallEvent } from '../hooks/events.js'
+import { AfterModelCallEvent, BeforeModelCallEvent, MessageAddedEvent } from '../hooks/events.js'
 import { ContextWindowOverflowError } from '../errors.js'
+import { InMemoryStorage } from '../storage/in-memory-storage.js'
+import type { Storage } from '../storage/storage.js'
 import { logger } from '../logging/logger.js'
 import type { ContextManagerConfig, ContextStrategy, ContextState } from './types.js'
 import { EmergencyTruncateStrategy, Offload } from './strategies/offload/index.js'
+import { Stash } from './stash.js'
+import { createRetrievalTool, trackRetrievalToolUseIds } from './retrieval-tool.js'
 
 /**
  * Manages context reduction for an agent's conversation.
@@ -30,6 +35,11 @@ export class ContextManager implements Plugin {
   readonly name = 'strands:context-manager'
 
   private readonly _strategies: ContextStrategy[]
+  private readonly _stashStorage: Storage | false
+  private readonly _enableRetrievalTool: boolean
+  private readonly _retrievalToolUseIds = new Set<string>()
+  private _stash: Stash | undefined
+  private _retrievalTool: Tool | undefined
 
   constructor(config?: ContextManagerConfig) {
     this._strategies = [
@@ -39,11 +49,37 @@ export class ContextManager implements Plugin {
       ]),
       new EmergencyTruncateStrategy(),
     ]
+    const stashConfig = config?.stash
+    const stashObj = typeof stashConfig === 'object' ? stashConfig : undefined
+    this._stashStorage = stashConfig === false ? false : (stashObj?.storage ?? new InMemoryStorage())
+    this._enableRetrievalTool = stashConfig !== false && stashObj?.retrievalTool !== false
+  }
+
+  getTools(): Tool[] {
+    if (!this._enableRetrievalTool) return []
+    if (!this._stash) return []
+    if (!this._retrievalTool) {
+      this._retrievalTool = createRetrievalTool(this._stash)
+    }
+    return [this._retrievalTool]
   }
 
   initAgent(agent: LocalAgent): void {
+    if (this._stashStorage !== false) {
+      this._stash = new Stash(this._stashStorage, agent.sessionId, agent.id)
+    }
+
+    if (this._stash) {
+      const stash = this._stash
+      const skipSet = this._retrievalToolUseIds
+      agent.addHook(MessageAddedEvent, async (event) => {
+        trackRetrievalToolUseIds(event.message, skipSet)
+        await stash.storeMessage(event.message, skipSet)
+      })
+    }
+
     for (const strategy of this._strategies) {
-      strategy.init?.(agent)
+      strategy.init?.(agent, this._stash)
     }
 
     agent.addHook(BeforeModelCallEvent, async (event) => {
@@ -83,6 +119,7 @@ export class ContextManager implements Plugin {
       messages,
       agent,
       utilization: agent.model.estimateUtilization(inputTokens),
+      ...(this._stash ? { stash: this._stash } : {}),
     }
 
     let anyActed = false
