@@ -141,9 +141,9 @@ export class Stash {
    */
   async takeSnapshot(): Promise<Record<string, unknown>> {
     const keys = await this.list()
+    const results = await Promise.all(keys.map((key) => this.retrieve(key).then((result) => [key, result] as const)))
     const entries: Record<string, unknown> = {}
-    for (const key of keys) {
-      const result = await this.retrieve(key)
+    for (const [key, result] of results) {
       if (result) {
         entries[key] = result.data
       }
@@ -157,9 +157,7 @@ export class Stash {
    * @param entries - Map of reference keys to their JSON values (from {@link takeSnapshot})
    */
   async loadSnapshot(entries: Record<string, unknown>): Promise<void> {
-    for (const [key, data] of Object.entries(entries)) {
-      await this._storage.write(key, encode(data))
-    }
+    await Promise.all(Object.entries(entries).map(([key, data]) => this._storage.write(key, encode(data))))
   }
 
   private async _storeToolResult(block: ToolResultBlock): Promise<void> {

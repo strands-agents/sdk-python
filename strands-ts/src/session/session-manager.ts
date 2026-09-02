@@ -8,7 +8,6 @@ import type { Snapshot } from '../types/snapshot.js'
 import type { JSONValue } from '../types/json.js'
 import type { Plugin } from '../plugins/plugin.js'
 import type { LocalAgent } from '../types/agent.js'
-import type { ContextManager } from '../context-manager/context-manager.js'
 import { STASH_PREFIX } from '../context-manager/stash.js'
 import { AfterInvocationEvent, AfterModelCallEvent, InitializedEvent, MessageAddedEvent } from '../hooks/events.js'
 import { v7 as uuidV7 } from 'uuid'
@@ -109,6 +108,7 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
   private _storage!: { snapshot: SnapshotStorage }
   private readonly _configStorage?: Storage | { snapshot: SnapshotStorage } | undefined
   private _rootStorage: Storage | undefined
+  private _stashStorage: Storage | undefined
   private readonly _saveLatestOn: SaveLatestStrategy
   private readonly _snapshotTrigger?: SnapshotTriggerCallback | undefined
   private readonly _multiAgentSaveLatestOn: MultiAgentSaveLatestStrategy
@@ -168,6 +168,7 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
       this._storage = { snapshot: this._resolveSnapshotStorage(agent.storage) }
     }
     this._rootStorage ??= agent.storage
+    this._stashStorage = agent.contextManager?.stashStorage
     agent.addHook(InitializedEvent, async (event) => {
       await this._onAgentInitialized(event)
     })
@@ -333,30 +334,32 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
   // Stash integration
   // ---------------------------------------------------------------------------
 
-  private static _contextManager(agent: LocalAgent): ContextManager | undefined {
-    return (agent as unknown as { contextManager?: ContextManager }).contextManager
-  }
 
   private async _includeStashData(agent: LocalAgent, snapshot: Snapshot): Promise<void> {
-    const stash = SessionManager._contextManager(agent)?.stash
-    if (!stash) return
-    const stashData = await stash.takeSnapshot()
-    snapshot.data.stash = stashData as unknown as JSONValue
+    const contextManager = agent.contextManager
+    if (!contextManager?.stash) return
+    // Durable storage already persists stash entries — no need to duplicate in the snapshot.
+    if (contextManager.stashIsDurable) return
+    const stashData = await contextManager.stash.takeSnapshot()
+    if (Object.keys(stashData).length > 0) {
+      snapshot.data.stash = stashData as unknown as JSONValue
+    }
   }
 
   private async _restoreStashData(agent: LocalAgent, snapshot: Snapshot): Promise<void> {
     if ('stash' in snapshot.data && snapshot.data.stash) {
-      await SessionManager._contextManager(agent)?.stash?.loadSnapshot(
+      await agent.contextManager?.stash?.loadSnapshot(
         snapshot.data.stash as unknown as Record<string, unknown>
       )
     }
   }
 
   private async _deleteStashData(): Promise<void> {
-    if (!this._rootStorage) return
+    const storage = this._stashStorage ?? this._rootStorage
+    if (!storage) return
     const prefix = `${STASH_PREFIX}/${this._sessionId}/`
-    const keys = await this._rootStorage.list(prefix)
-    await Promise.all(keys.map((key) => this._rootStorage!.delete(key)))
+    const keys = await storage.list(prefix)
+    await Promise.all(keys.map((key) => storage.delete(key)))
   }
 
   // ---------------------------------------------------------------------------

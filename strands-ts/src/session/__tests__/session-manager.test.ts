@@ -750,10 +750,12 @@ describe('SessionManager — stash integration', () => {
 
   function createAgentWithStash(
     sessionId: string,
-    agentId = 'agent'
+    agentId = 'agent',
+    stashStorage?: InMemoryStorage
   ): { agent: Agent; stash: Stash } {
-    const stash = new Stash(rootStorage, sessionId, agentId)
-    const contextManager = { stash } as unknown as ContextManager
+    const storage = stashStorage ?? rootStorage
+    const stash = new Stash(storage, sessionId, agentId)
+    const contextManager = { stash, stashStorage: storage } as unknown as ContextManager
     const agent = {
       ...createMockAgent(agentId),
       contextManager,
@@ -819,8 +821,28 @@ describe('SessionManager — stash integration', () => {
         location: { sessionId: 'test-session', scope: 'agent', scopeId: 'agent' },
       })
       expect(snapshot).not.toBeNull()
-      // Empty stash returns {} which is truthy, so the key is present but empty
-      expect(snapshot!.data.stash).toEqual({})
+      expect('stash' in snapshot!.data).toBe(false)
+    })
+
+    it('skips stash snapshot when storage is durable', async () => {
+      sessionManager = new SessionManager({
+        sessionId: 'test-session',
+        storage: { snapshot: snapshotStorage },
+      })
+      sessionManager.initAgent(createMockAgentWithHooks())
+
+      const stash = new Stash(rootStorage, 'test-session', 'agent')
+      const contextManager = { stash, stashIsDurable: true } as unknown as ContextManager
+      const agent = { ...createMockAgent('agent'), contextManager } as unknown as Agent
+      await stash.store('tool-1', 0, new TextEncoder().encode(JSON.stringify({ text: 'hello' })))
+
+      await sessionManager.saveSnapshot({ target: agent, isLatest: true })
+
+      const snapshot = await snapshotStorage.loadSnapshot({
+        location: { sessionId: 'test-session', scope: 'agent', scopeId: 'agent' },
+      })
+      expect(snapshot).not.toBeNull()
+      expect('stash' in snapshot!.data).toBe(false)
     })
   })
 
@@ -890,6 +912,27 @@ describe('SessionManager — stash integration', () => {
       await sessionManager.deleteSession()
 
       const keysAfter = await rootStorage.list(`${STASH_PREFIX}/test-session/`)
+      expect(keysAfter).toHaveLength(0)
+    })
+
+    it('deletes stash data from custom stash storage', async () => {
+      const customStashStorage = new InMemoryStorage()
+      sessionManager = new SessionManager({
+        sessionId: 'test-session',
+        storage: rootStorage,
+      })
+      const mockAgent = createMockAgentWithHooks({ extra: { storage: rootStorage, contextManager: { stashStorage: customStashStorage } } as Partial<Agent> })
+      sessionManager.initAgent(mockAgent)
+
+      const prefix = `${STASH_PREFIX}/test-session/scopes/agent/agent`
+      await customStashStorage.write(`${prefix}/tool-1_0`, new TextEncoder().encode('data1'))
+
+      const keysBefore = await customStashStorage.list(`${STASH_PREFIX}/test-session/`)
+      expect(keysBefore).toHaveLength(1)
+
+      await sessionManager.deleteSession()
+
+      const keysAfter = await customStashStorage.list(`${STASH_PREFIX}/test-session/`)
       expect(keysAfter).toHaveLength(0)
     })
 

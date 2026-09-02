@@ -39,6 +39,8 @@ export class ContextManager implements Plugin {
   private readonly _enableRetrievalTool: boolean
   private readonly _retrievalToolUseIds = new Set<string>()
   private _stash: Stash | undefined
+  private _stashIsDurable = false
+  private _resolvedStashStorage: Storage | undefined
   private _retrievalTool: Tool | undefined
 
   constructor(config?: ContextManagerConfig) {
@@ -67,6 +69,8 @@ export class ContextManager implements Plugin {
   initAgent(agent: LocalAgent): void {
     if (this._stashStorage !== false) {
       const storage = this._stashStorage ?? agent.storage ?? new InMemoryStorage()
+      this._resolvedStashStorage = storage
+      this._stashIsDurable = !(storage instanceof InMemoryStorage)
       this._stash = new Stash(storage, agent.sessionId, agent.id)
     }
 
@@ -112,8 +116,33 @@ export class ContextManager implements Plugin {
     })
   }
 
+  /**
+   * The L1 stash instance, if stash is enabled and the agent has been initialized.
+   *
+   * @returns The stash, or undefined if stash is disabled or initAgent has not run
+   */
   get stash(): Stash | undefined {
     return this._stash
+  }
+
+  /**
+   * Whether the stash is backed by durable storage that survives process restarts.
+   * When true, stash data does not need to be embedded in session snapshots.
+   *
+   * @returns true if the stash storage is not InMemoryStorage
+   */
+  get stashIsDurable(): boolean {
+    return this._stashIsDurable
+  }
+
+  /**
+   * The raw storage backend used by the stash, before namespace scoping.
+   * Used by SessionManager to clean up stash data on session delete.
+   *
+   * @returns The storage instance, or undefined if stash is disabled or not initialized
+   */
+  get stashStorage(): Storage | undefined {
+    return this._resolvedStashStorage
   }
 
   private async _runStrategies(agent: LocalAgent, precomputedInputTokens?: number): Promise<boolean> {
