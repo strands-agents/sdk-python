@@ -132,7 +132,7 @@ class TestWebFetchToolCall:
 
     @pytest.mark.asyncio
     async def test_markdown_content_is_truncated(self):
-        # max_content_chars limits what the main agent receives.
+        # max_content_chars limits what the main agent receives, with a marker.
         body = "x" * 200
 
         def handler(_request: httpx.Request) -> httpx.Response:
@@ -140,7 +140,8 @@ class TestWebFetchToolCall:
 
         tool = make_web_fetch(client=_client(handler), mode="markdown", max_content_chars=50)
         tru_result = await tool(url="https://example.com/")
-        assert len(tru_result) == 50
+        assert tru_result.startswith("x" * 50)
+        assert "[content truncated]" in tru_result
 
     @pytest.mark.asyncio
     async def test_rejects_non_http_scheme(self):
@@ -301,6 +302,7 @@ class TestAnalyst:
         await tool(url="https://example.com/", prompt="Summarize")
         assert "x" * 50 in received_prompt[0]
         assert "x" * 51 not in received_prompt[0]
+        assert "[content truncated]" in received_prompt[0]
 
     @pytest.mark.asyncio
     async def test_prompt_without_model_and_no_agent_raises(self):

@@ -116,7 +116,7 @@ def make_web_fetch(
 
         Args:
             url: The URL to fetch. Must be ``http://`` or ``https://``.
-            prompt: Question or instruction about the page. Only used in
+            prompt: Question or instruction about the page. Required in
                 ``agentic`` mode; ignored in ``markdown`` mode.
             tool_context: Framework-injected. Not model-visible. Carries the
                 agent so the tool can read its cancel signal.
@@ -130,7 +130,9 @@ def make_web_fetch(
         )
 
         is_markup = "html" in content_type.lower() or "xml" in content_type.lower()
-        content = (html_to_markdown(raw) if is_markup else raw)[:max_content_chars]
+        content = html_to_markdown(raw) if is_markup else raw
+        if len(content) > max_content_chars:
+            content = content[:max_content_chars] + "\n\n[content truncated]"
 
         if mode == "agentic":
             from ...agent.agent import Agent  # local import to avoid circular dependency
