@@ -13,7 +13,7 @@ import pytest
 
 from strands.agent.state import AgentState
 from strands.types.tools import ToolContext
-from strands.vended_tools.notebook import make_notebook, notebook
+from strands.vended_tools.notebook import notebook
 from strands.vended_tools.notebook.types import (
     DEFAULT_NOTEBOOK_DESCRIPTION,
     MAX_NOTEBOOK_NAME_LENGTH,
@@ -372,22 +372,9 @@ class TestNameConfinement:
             "..",
             ".",
             "notes\x00../etc/passwd",  # NUL-byte smuggling
-            "notes／nested",  # fullwidth solidus — must be normalized then rejected
-            "CON",  # Windows reserved
-            "com1",  # case-insensitive Windows reserved
-            "CON.txt",  # Windows strips extension before reserved-name check
-            "NUL.log",  # same
-            "lpt1.dat",  # lowercase + extension
-            "notes​",  # zero-width space — invisible bypass of `..` check would be `..​`
-            "..​",  # zero-width space after dot-dot
-            "..",  # BOM after dot-dot
-            "..⁠",  # word joiner
-            "notes‌",  # ZWNJ
-            "CON ",  # trailing space — Windows strips it before reserved-name check
-            "CON.",  # trailing dot — Windows strips it too
-            " CON",  # leading whitespace
-            "notes ",  # trailing whitespace
             "   ",  # whitespace-only
+            " leading",
+            "trailing ",
         ],
     )
     def test_rejects_path_like_names(self, bad_name):
@@ -441,14 +428,8 @@ class TestToolMetadata:
     def test_default_name(self):
         assert notebook.tool_name == "notebook"
 
-    def test_custom_name(self):
-        assert make_notebook(name="scratchpad").tool_name == "scratchpad"
-
     def test_default_description(self):
-        assert make_notebook().tool_spec["description"] == DEFAULT_NOTEBOOK_DESCRIPTION
-
-    def test_custom_description(self):
-        assert make_notebook(description="custom").tool_spec["description"] == "custom"
+        assert notebook.tool_spec["description"] == DEFAULT_NOTEBOOK_DESCRIPTION
 
     def test_schema_excludes_context(self):
         props = notebook.tool_spec["inputSchema"]["json"]["properties"]

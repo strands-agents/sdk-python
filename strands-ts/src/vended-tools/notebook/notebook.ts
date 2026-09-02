@@ -1,10 +1,13 @@
 import { tool } from '../../index.js'
 import { z } from 'zod'
 import type { NotebookState } from './types.js'
+import { MAX_NOTEBOOKS, MAX_NOTEBOOK_NAME_LENGTH, MAX_NOTEBOOK_SIZE_BYTES, MAX_TOTAL_SIZE_BYTES } from './types.js'
 
 /**
  * Zod schema for notebook input validation.
  */
+const MUTATING_MODES = new Set(['create', 'write', 'clear'])
+
 const notebookInputSchema = z
   .object({
     mode: z
@@ -42,6 +45,53 @@ const notebookInputSchema = z
       message: 'Write operation requires newStr, optionally with oldStr for replacement or insertLine for insertion',
     }
   )
+
+/**
+ * Validates a notebook name.
+ * @throws Error if the name is empty, too long, or contains disallowed characters.
+ */
+function validateNotebookName(name: string): void {
+  if (!name) {
+    throw new Error('Notebook name must be a non-empty string')
+  }
+  if (name.length > MAX_NOTEBOOK_NAME_LENGTH) {
+    throw new Error(`Notebook name exceeds maximum length of ${MAX_NOTEBOOK_NAME_LENGTH} characters`)
+  }
+  if (name !== name.trim()) {
+    throw new Error('Notebook name must not have leading or trailing whitespace')
+  }
+  if (name.includes('\0')) {
+    throw new Error('Notebook name must not contain NUL bytes')
+  }
+  if (name.includes('/') || name.includes('\\')) {
+    throw new Error('Notebook name must not contain path separators')
+  }
+  if (name === '..' || name === '.') {
+    throw new Error('Notebook name is not allowed')
+  }
+}
+
+/**
+ * Enforces per-session notebook count and size caps.
+ * @throws Error if any cap is exceeded.
+ */
+function enforceSessionCaps(notebooks: Record<string, string>): void {
+  if (Object.keys(notebooks).length > MAX_NOTEBOOKS) {
+    throw new Error(`Session notebook count exceeds maximum of ${MAX_NOTEBOOKS}`)
+  }
+  const encoder = new TextEncoder()
+  let total = 0
+  for (const [nbName, content] of Object.entries(notebooks)) {
+    const size = encoder.encode(content).byteLength
+    if (size > MAX_NOTEBOOK_SIZE_BYTES) {
+      throw new Error(`Notebook '${nbName}' size (${size} bytes) exceeds maximum of ${MAX_NOTEBOOK_SIZE_BYTES} bytes`)
+    }
+    total += size
+  }
+  if (total > MAX_TOTAL_SIZE_BYTES) {
+    throw new Error(`Total notebook size (${total} bytes) exceeds session maximum of ${MAX_TOTAL_SIZE_BYTES} bytes`)
+  }
+}
 
 /**
  * Notebook tool for managing persistent text notebooks.
@@ -85,11 +135,15 @@ export const notebook = tool({
       notebooks.default = ''
     }
 
+    const target = input.name ?? 'default'
+    validateNotebookName(target)
+
     let result: string
 
     switch (input.mode) {
       case 'create':
-        result = handleCreate(notebooks, input.name ?? 'default', input.newStr)
+        result = handleCreate(notebooks, target, input.newStr)
+        enforceSessionCaps(notebooks)
         break
 
       case 'list':
@@ -97,23 +151,25 @@ export const notebook = tool({
         break
 
       case 'read':
-        result = handleRead(notebooks, input.name ?? 'default', input.readRange)
+        result = handleRead(notebooks, target, input.readRange)
         break
 
       case 'write':
-        result = handleWrite(notebooks, input.name ?? 'default', input.oldStr, input.newStr, input.insertLine)
+        result = handleWrite(notebooks, target, input.oldStr, input.newStr, input.insertLine)
+        enforceSessionCaps(notebooks)
         break
 
       case 'clear':
-        result = handleClear(notebooks, input.name ?? 'default')
+        result = handleClear(notebooks, target)
         break
 
       default:
         throw new Error(`Unknown mode: ${input.mode}`)
     }
 
-    // Persist notebooks back to state
-    context.agent.appState.set('notebooks', notebooks)
+    if (MUTATING_MODES.has(input.mode)) {
+      context.agent.appState.set('notebooks', notebooks)
+    }
 
     return result
   },

@@ -12,9 +12,7 @@ replacement or line insertion), and ``clear``.
 
 from __future__ import annotations
 
-import re
-import unicodedata
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 from ...tools.decorator import tool
 from ...types.tools import ToolContext
@@ -27,9 +25,6 @@ from .types import (
     MAX_TOTAL_SIZE_BYTES,
 )
 
-if TYPE_CHECKING:
-    from ...tools.decorator import DecoratedFunctionTool
-
 _STATE_KEY = "notebooks"
 
 # Modes that alter ``notebooks`` state. Only these persist a write.
@@ -38,140 +33,103 @@ _MUTATING_MODES = frozenset({"create", "write", "clear"})
 # Modes that can grow the on-disk footprint. Only these need session-cap enforcement.
 _GROWING_MODES = frozenset({"create", "write"})
 
-# Windows-reserved device names — refuse them regardless of platform so a session
-# state written on Linux does not become un-persistable on Windows. Real Windows
-# strips any extension before comparing against the device-name list, so
-# ``CON.txt`` and ``NUL.log`` are just as broken as ``CON``.
-_WINDOWS_RESERVED = re.compile(r"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$", re.IGNORECASE)
 
+@tool(name="notebook", description=DEFAULT_NOTEBOOK_DESCRIPTION, context="tool_context")
+def notebook(
+    mode: Literal["create", "list", "read", "write", "clear"],
+    tool_context: ToolContext,
+    name: str | None = None,
+    new_str: str | None = None,
+    old_str: str | None = None,
+    insert_line: int | str | None = None,
+    read_range: list[int] | None = None,
+) -> str:
+    """Manages text notebooks for note-taking and documentation.
 
-def make_notebook(
-    *,
-    name: str = "notebook",
-    description: str = DEFAULT_NOTEBOOK_DESCRIPTION,
-) -> DecoratedFunctionTool:
-    """Create a notebook tool bound to the agent's state.
+    Supports `create`, `list`, `read`, `write` (replace or insert), and `clear`
+    operations. Notebooks persist across invocations within a session, and across
+    sessions when the agent has a durable state store.
 
     Args:
-        name: Tool name. Defaults to ``"notebook"``.
-        description: Tool description shown to the model.
-
-    Returns:
-        A decorated tool that reads and writes notebooks in ``agent.state``.
+        mode: The operation to perform: `create`, `list`, `read`, `write`, `clear`.
+        tool_context: Injected by the framework. Not user-facing.
+        name: Name of the notebook to operate on. Defaults to "default".
+        new_str: New string for replacement or insertion operations.
+        old_str: String to replace in write mode when doing text replacement.
+        insert_line: Line number (int) or search text (str) for insertion point in write mode.
+            Supports negative indices.
+        read_range: Optional parameter of `read` command. Line range to show [start, end].
+            Supports negative indices.
     """
+    state = tool_context.agent.state
 
-    @tool(name=name, description=description, context="tool_context")
-    def notebook_tool(
-        mode: Literal["create", "list", "read", "write", "clear"],
-        tool_context: ToolContext,
-        name: str | None = None,
-        new_str: str | None = None,
-        old_str: str | None = None,
-        insert_line: int | str | None = None,
-        read_range: list[int] | None = None,
-    ) -> str:
-        """Manages text notebooks for note-taking and documentation.
+    notebooks_obj: Any = state.get(_STATE_KEY)
+    # AgentState.get deep-copies; guard shape strictly to catch corruption from sibling tools.
+    if notebooks_obj is None:
+        notebooks: dict[str, str] = {}
+    elif isinstance(notebooks_obj, dict):
+        for k, v in notebooks_obj.items():
+            if not isinstance(k, str) or not isinstance(v, str):
+                raise ValueError("Malformed notebooks state: keys and values must be strings")
+        notebooks = notebooks_obj
+    else:
+        raise ValueError("Malformed notebooks state: expected a dict")
 
-        Supports `create`, `list`, `read`, `write` (replace or insert), and `clear`
-        operations. Notebooks persist across invocations within a session, and across
-        sessions when the agent has a durable state store.
+    # Ensure default notebook exists in-memory; only persisted if this mode mutates state.
+    if not notebooks:
+        notebooks[DEFAULT_NOTEBOOK_NAME] = ""
 
-        Args:
-            mode: The operation to perform: `create`, `list`, `read`, `write`, `clear`.
-            tool_context: Injected by the framework. Not user-facing.
-            name: Name of the notebook to operate on. Defaults to "default".
-            new_str: New string for replacement or insertion operations.
-            old_str: String to replace in write mode when doing text replacement.
-            insert_line: Line number (int) or search text (str) for insertion point in write mode.
-                Supports negative indices.
-            read_range: Optional parameter of `read` command. Line range to show [start, end].
-                Supports negative indices.
-        """
-        state = tool_context.agent.state
+    target = _validate_notebook_name(name if name is not None else DEFAULT_NOTEBOOK_NAME)
 
-        notebooks_obj: Any = state.get(_STATE_KEY)
-        # AgentState.get deep-copies; guard shape strictly to catch corruption from sibling tools.
-        if notebooks_obj is None:
-            notebooks: dict[str, str] = {}
-        elif isinstance(notebooks_obj, dict):
-            for k, v in notebooks_obj.items():
-                if not isinstance(k, str) or not isinstance(v, str):
-                    raise ValueError("Malformed notebooks state: keys and values must be strings")
-            notebooks = notebooks_obj
-        else:
-            raise ValueError("Malformed notebooks state: expected a dict")
+    if mode == "create":
+        result = _handle_create(notebooks, target, new_str)
+    elif mode == "list":
+        result = _handle_list(notebooks)
+    elif mode == "read":
+        result = _handle_read(notebooks, target, read_range)
+    elif mode == "write":
+        _validate_write_params(old_str, new_str, insert_line)
+        result = _handle_write(notebooks, target, old_str, new_str, insert_line)
+    elif mode == "clear":
+        result = _handle_clear(notebooks, target)
+    else:  # pragma: no cover - Literal narrows this at type-check time.
+        raise ValueError(f"Unknown mode: {mode}")
 
-        # Ensure default notebook exists in-memory; only persisted if this mode mutates state.
-        if not notebooks:
-            notebooks[DEFAULT_NOTEBOOK_NAME] = ""
+    if mode in _GROWING_MODES:
+        _enforce_session_caps(notebooks)
+    if mode in _MUTATING_MODES:
+        state.set(_STATE_KEY, notebooks)
 
-        target = _validate_notebook_name(name if name is not None else DEFAULT_NOTEBOOK_NAME)
-
-        if mode == "create":
-            result = _handle_create(notebooks, target, new_str)
-        elif mode == "list":
-            result = _handle_list(notebooks)
-        elif mode == "read":
-            result = _handle_read(notebooks, target, read_range)
-        elif mode == "write":
-            _validate_write_params(old_str, new_str, insert_line)
-            result = _handle_write(notebooks, target, old_str, new_str, insert_line)
-        elif mode == "clear":
-            result = _handle_clear(notebooks, target)
-        else:  # pragma: no cover - Literal narrows this at type-check time.
-            raise ValueError(f"Unknown mode: {mode}")
-
-        if mode in _GROWING_MODES:
-            _enforce_session_caps(notebooks)
-        if mode in _MUTATING_MODES:
-            state.set(_STATE_KEY, notebooks)
-
-        return result
-
-    return notebook_tool
-
-
-notebook = make_notebook()
-"""Default notebook tool bound to the agent's state at call time."""
+    return result
 
 
 # ---- Validation ----
 
 
 def _validate_notebook_name(candidate: str) -> str:
-    """Validate a notebook name and return its normalized form.
+    """Validate a notebook name.
 
     Args:
         candidate: The proposed notebook name.
 
     Returns:
-        The NFKC-normalized notebook name.
+        The notebook name, unchanged.
 
     Raises:
         ValueError: If the name is empty, too long, or contains disallowed characters.
     """
     if not isinstance(candidate, str) or not candidate:
         raise ValueError("Notebook name must be a non-empty string")
-    # Normalize BEFORE structural checks so fullwidth solidus (`／`), fullwidth
-    # backslash, etc. are treated as their canonical equivalents.
-    candidate = unicodedata.normalize("NFKC", candidate)
     if len(candidate) > MAX_NOTEBOOK_NAME_LENGTH:
         raise ValueError(f"Notebook name exceeds maximum length of {MAX_NOTEBOOK_NAME_LENGTH} characters")
     if candidate != candidate.strip():
         raise ValueError("Notebook name must not have leading or trailing whitespace")
     if "\0" in candidate:
         raise ValueError("Notebook name must not contain NUL bytes")
-    # Invisible Cf chars (zero-width spaces, joiners) let ".." sneak past the dot-check after a persister strips them.
-    if any(unicodedata.category(c) == "Cf" for c in candidate):
-        raise ValueError("Notebook name must not contain invisible format characters")
     if "/" in candidate or "\\" in candidate:
         raise ValueError("Notebook name must not contain path separators")
     if candidate in ("..", "."):
         raise ValueError("Notebook name is not allowed")
-    # Strip trailing dots/spaces so "CON." and "CON . " are caught by the reserved-name regex.
-    reserved_check = candidate.rstrip(". ")
-    if _WINDOWS_RESERVED.match(reserved_check):
-        raise ValueError(f"Notebook name '{candidate}' is a reserved device name")
     return candidate
 
 

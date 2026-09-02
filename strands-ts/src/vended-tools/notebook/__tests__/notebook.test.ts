@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { notebook } from '../notebook.js'
 import type { NotebookInput, NotebookState } from '../types.js'
+import { MAX_NOTEBOOKS, MAX_NOTEBOOK_NAME_LENGTH, MAX_NOTEBOOK_SIZE_BYTES, MAX_TOTAL_SIZE_BYTES } from '../types.js'
 import type { ToolContext } from '../../../index.js'
 import { StateStore } from '../../../state-store.js'
 import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
@@ -503,12 +504,75 @@ describe('notebook tool', () => {
       expect(notebooks!.notes).toBe('Initial\nAdded')
     })
 
-    it('initializes default notebook if state is empty', async () => {
+    it('does not persist state when listing on empty state', async () => {
       const { state, context } = createFreshContext()
       const result = await notebook.invoke({ mode: 'list' }, context)
       expect(result).toContain('default: Empty')
       const notebooks = state.get<NotebookState>('notebooks')
-      expect(notebooks!.default).toBe('')
+      expect(notebooks).toEqual({})
+    })
+  })
+
+  describe('name validation', () => {
+    it.each([
+      ['../etc/passwd', 'path separators'],
+      ['..\\evil', 'path separators'],
+      ['/absolute/path', 'path separators'],
+      ['nested/name', 'path separators'],
+      ['back\\slash', 'path separators'],
+      ['..', 'not allowed'],
+      ['.', 'not allowed'],
+      ['notes\x00nul', 'NUL bytes'],
+      ['   ', 'whitespace'],
+      [' leading', 'whitespace'],
+      ['trailing ', 'whitespace'],
+      ['a'.repeat(MAX_NOTEBOOK_NAME_LENGTH + 1), 'maximum length'],
+    ])('rejects %s (%s)', async (badName, _reason) => {
+      const { context } = createFreshContext()
+      await expect(notebook.invoke({ mode: 'create', name: badName }, context)).rejects.toThrow()
+    })
+
+    it('rejects empty name', async () => {
+      const { context } = createFreshContext()
+      await expect(notebook.invoke({ mode: 'create', name: '' }, context)).rejects.toThrow(
+        'Notebook name must be a non-empty string'
+      )
+    })
+  })
+
+  describe('session caps', () => {
+    it('rejects creating too many notebooks', async () => {
+      const { state, context } = createFreshContext()
+      const initial: Record<string, string> = {}
+      for (let i = 0; i < MAX_NOTEBOOKS; i++) {
+        initial[`nb-${i}`] = ''
+      }
+      state.set('notebooks', initial)
+      await expect(notebook.invoke({ mode: 'create', name: 'over-the-line' }, context)).rejects.toThrow(
+        'notebook count'
+      )
+    })
+
+    it('rejects notebook content over size limit', async () => {
+      const { context } = createFreshContext()
+      const oversized = 'a'.repeat(MAX_NOTEBOOK_SIZE_BYTES + 1)
+      await expect(notebook.invoke({ mode: 'create', name: 'big', newStr: oversized }, context)).rejects.toThrow(
+        'maximum of'
+      )
+    })
+
+    it('rejects total session size over limit', async () => {
+      const { state, context } = createFreshContext()
+      const perNotebook = MAX_NOTEBOOK_SIZE_BYTES
+      const count = Math.floor(MAX_TOTAL_SIZE_BYTES / perNotebook) + 1
+      const initial: Record<string, string> = {}
+      for (let i = 0; i < count - 1; i++) {
+        initial[`nb-${i}`] = 'a'.repeat(perNotebook)
+      }
+      state.set('notebooks', initial)
+      await expect(
+        notebook.invoke({ mode: 'create', name: 'last', newStr: 'a'.repeat(perNotebook) }, context)
+      ).rejects.toThrow('session maximum')
     })
   })
 
