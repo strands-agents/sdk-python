@@ -369,6 +369,39 @@ def test_call_tool_sync_cancel_signal_cancels_only_in_flight_call(mock_transport
     assert mock_session.call_tool.call_count == 2
 
 
+def test_call_tool_sync_cancel_on_v2_sends_no_hand_built_notification(mock_transport, mock_session):
+    """Test that cancelling on the 2.x path hand-sends nothing: cancelling the awaiting task is the mechanism."""
+    call_started = threading.Event()
+    call_cancelled = threading.Event()
+    cancel_signal = threading.Event()
+
+    async def call_tool(name, arguments, read_timeout_seconds, progress_callback=None, meta=None):
+        call_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            call_cancelled.set()
+            raise
+
+    mock_session.call_tool.side_effect = call_tool
+    mock_session._request_id = 0
+
+    with (
+        patch("strands.tools.mcp.mcp_client.MCP_V2", True),
+        MCPClient(mock_transport["transport_callable"]) as client,
+    ):
+        cancellation_thread = threading.Thread(target=lambda: (call_started.wait(timeout=1), cancel_signal.set()))
+        cancellation_thread.start()
+        cancelled_result = client.call_tool_sync(
+            tool_use_id="cancelled", name="slow_tool", arguments={}, cancel_signal=cancel_signal
+        )
+        cancellation_thread.join(timeout=1)
+
+    assert cancelled_result["cancelled"] is True
+    assert call_cancelled.wait(timeout=1)
+    mock_session.send_notification.assert_not_awaited()
+
+
 @pytest.mark.asyncio
 async def test_call_tool_async_cancel_signal_cancels_only_matching_call(mock_transport, mock_session):
     """Test each concurrent call observes only its own cancellation signal."""
