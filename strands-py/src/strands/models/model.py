@@ -150,11 +150,13 @@ class CacheConfig:
             the same static system prefix hit the cache. A TTL string (e.g. "1h") sets this section's own
             duration and is honored as written; True derives the duration from ``ttl``; False disables it.
             A hand-placed system cache point is honored rather than doubled.
-        cache_key: Stable identity a prompt-cache-routing provider (OpenAI, LiteLLM) uses as its cache key.
-            Left unset, it is derived per request as ``strands-<session_id>`` whenever the agent has a
-            session manager, so repeat runs of a session share a cache prefix with no key management. Set
-            it to pin your own key; set it to ``""`` to opt out of routing entirely. Because the derived
-            key is resolved per request, it is not reflected in ``get_config()``. Defaults to None.
+        cache_key: Stable identity a prompt-cache-routing provider (OpenAI, LiteLLM, Mistral) uses as its
+            cache key. Left unset, it is derived per request as ``strands-<session_id>`` whenever the agent
+            has a session manager, so repeat runs of a session share a cache prefix with no key management.
+            Set it to pin your own key; set it to ``""`` to opt out of routing entirely. The resolved key
+            (whether set or derived from the session id) is transmitted to the provider, so avoid embedding
+            secrets in the session id. Because the derived key is resolved per request, it is not reflected
+            in ``get_config()``. Defaults to None.
     """
 
     strategy: Literal["auto", "anthropic"] = "auto"
@@ -176,7 +178,7 @@ class CacheToolsConfig:
     ttl: str | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class AgentInternalState:
     """Read-only view of stable agent identity passed to a model on ``stream()``.
 

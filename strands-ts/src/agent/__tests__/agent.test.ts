@@ -2436,6 +2436,7 @@ describe('normalizeToolUseNames', () => {
 
       await agent.invoke('hi')
 
+      expect(model.receivedOptions).toHaveLength(1)
       expect(model.receivedOptions[0]?.agentInternalState).toBeUndefined()
     })
 

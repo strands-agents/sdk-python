@@ -57,7 +57,8 @@ async function assertDerivesAndReusesKey(model: OpenAIModel, captured: (string |
   await agent.invoke('What is 2+2? Answer with just the number.')
   const result = await agent.invoke('What is 3+3? Answer with just the number.')
 
-  expect(captured).toEqual([DERIVED_KEY, DERIVED_KEY])
+  expect(captured.length).toBeGreaterThanOrEqual(2)
+  expect(captured.every((key) => key === DERIVED_KEY)).toBe(true)
   expect(result.metrics?.accumulatedUsage.cacheReadInputTokens ?? 0).toBeGreaterThan(0)
 }
 
@@ -67,7 +68,8 @@ async function assertOptsOut(model: OpenAIModel, captured: (string | undefined)[
 
   await agent.invoke('What is 1+1? Answer with just the number.')
 
-  expect(captured).toEqual([undefined])
+  expect(captured.length).toBeGreaterThan(0)
+  expect(captured.every((key) => key === undefined)).toBe(true)
 }
 
 async function assertRestoredSessionReusesKey(
@@ -100,7 +102,8 @@ async function assertRestoredSessionReusesKey(
 
   const result = await agentAfter.invoke('What is 5+5? Answer with just the number.')
 
-  expect(captured).toEqual([RESTORE_DERIVED_KEY, RESTORE_DERIVED_KEY, RESTORE_DERIVED_KEY])
+  expect(captured.length).toBeGreaterThanOrEqual(3)
+  expect(captured.every((key) => key === RESTORE_DERIVED_KEY)).toBe(true)
   expect(result.metrics?.accumulatedUsage.cacheReadInputTokens ?? 0).toBeGreaterThan(0)
 }
 

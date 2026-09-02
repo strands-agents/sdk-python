@@ -575,6 +575,24 @@ def test_agent_context_without_session_yields_no_cache_key(openai_client, model_
     assert "prompt_cache_key" not in request
 
 
+@pytest.mark.asyncio
+async def test_stream_derives_prompt_cache_key_from_agent_session(openai_client, model_id, agenerator, alist):
+    """stream threads agent_internal_state so the outbound request carries the derived routing key."""
+    model = OpenAIResponsesModel(model_id=model_id, cache_config=CacheConfig())
+    mock_complete_event = unittest.mock.Mock(
+        type="response.completed",
+        response=unittest.mock.Mock(
+            usage=unittest.mock.Mock(input_tokens=1, output_tokens=1, total_tokens=2, input_tokens_details=None)
+        ),
+    )
+    openai_client.responses.create = unittest.mock.AsyncMock(return_value=agenerator([mock_complete_event]))
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    await alist(model.stream(messages, agent_internal_state=AgentInternalState(session_id="s1")))
+
+    assert openai_client.responses.create.call_args.kwargs["prompt_cache_key"] == "strands-s1"
+
+
 def test_explicit_prompt_cache_key_in_params_wins(openai_client, model_id, messages):
     _ = openai_client
     model = OpenAIResponsesModel(

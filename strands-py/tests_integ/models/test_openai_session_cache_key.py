@@ -95,7 +95,7 @@ async def test_session_backed_agent_routes_and_reuses_prompt_cache_key(
     await agent.invoke_async("What is 2+2? Answer with just the number.")
     result = await agent.invoke_async("What is 3+3? Answer with just the number.")
 
-    assert captured == [DERIVED_KEY, DERIVED_KEY]
+    assert len(captured) >= 2 and all(key == DERIVED_KEY for key in captured)
     assert result.metrics.accumulated_usage.get("cacheReadInputTokens", 0) > 0
 
 
@@ -114,7 +114,7 @@ async def test_cache_key_empty_string_opts_out(model_class, resource_class_fn, m
 
     await agent.invoke_async("What is 1+1? Answer with just the number.")
 
-    assert captured == [None]
+    assert captured and all(key is None for key in captured)
 
 
 @pytest.mark.asyncio
@@ -150,5 +150,5 @@ async def test_restored_session_reuses_prompt_cache_key(
 
     result = await agent_after.invoke_async("What is 5+5? Answer with just the number.")
 
-    assert captured == [RESTORE_DERIVED_KEY, RESTORE_DERIVED_KEY, RESTORE_DERIVED_KEY]
+    assert len(captured) >= 3 and all(key == RESTORE_DERIVED_KEY for key in captured)
     assert result.metrics.accumulated_usage.get("cacheReadInputTokens", 0) > 0

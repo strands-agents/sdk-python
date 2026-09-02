@@ -78,6 +78,24 @@ def test_cache_key_derived_from_agent_context_session(litellm_acompletion, model
     assert request["prompt_cache_key"] == "strands-s1"
 
 
+@pytest.mark.asyncio
+async def test_stream_derives_prompt_cache_key_from_agent_session(litellm_acompletion, model_id, agenerator, alist):
+    """stream threads agent_internal_state so the outbound request carries the derived routing key."""
+    model = LiteLLMModel(model_id=model_id, cache_config=CacheConfig())
+    mock_delta = unittest.mock.Mock(content=None, tool_calls=None, reasoning_content=None)
+    mock_event_1 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="stop", delta=mock_delta)])
+    mock_event_2 = unittest.mock.Mock(usage=None)
+    litellm_acompletion.side_effect = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_event_1, mock_event_2]),
+    )
+
+    await alist(
+        model.stream([{"role": "user", "content": []}], agent_internal_state=AgentInternalState(session_id="s1"))
+    )
+
+    assert litellm_acompletion.call_args.kwargs["prompt_cache_key"] == "strands-s1"
+
+
 @pytest.mark.parametrize(
     "client_args, model_id, expected_model_id",
     [

@@ -120,8 +120,9 @@ export interface CacheConfig {
    * Stable identity a prompt-cache-routing provider (OpenAI, LiteLLM) uses as its cache key. Left
    * unset, it is derived per request as `strands-<sessionId>` whenever the agent has a session
    * manager, so repeat runs of a session share a cache prefix with no key management. Set it to pin
-   * your own key; set it to `''` to opt out of routing entirely. Because the derived key is resolved
-   * per request, it is not reflected in `getConfig()`.
+   * your own key; set it to `''` to opt out of routing entirely. The resolved key (whether set or
+   * derived from the session id) is transmitted to the provider, so avoid embedding secrets in the
+   * session id. Because the derived key is resolved per request, it is not reflected in `getConfig()`.
    */
   cacheKey?: string
 }
