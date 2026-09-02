@@ -4642,6 +4642,77 @@ async def test_non_streaming_citations_with_only_location(bedrock_client, model,
     assert "sourceContent" not in citation
 
 
+@pytest.mark.asyncio
+async def test_non_streaming_reasoning_content_with_reasoning_text(bedrock_client, model, alist):
+    """Test that convert_non_streaming_to_streaming handles reasoningContent with reasoningText."""
+    non_streaming_response = {
+        "output": {
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "reasoningContent": {
+                            "reasoningText": {
+                                "text": "Let me think about this...",
+                                "signature": "sig-abc123",
+                            }
+                        }
+                    }
+                ],
+            }
+        },
+        "stopReason": "end_turn",
+        "usage": {"inputTokens": 10, "outputTokens": 20},
+    }
+
+    events = list(model.convert_non_streaming_to_streaming(non_streaming_response))
+
+    reasoning_deltas = [
+        event
+        for event in events
+        if "contentBlockDelta" in event and "reasoningContent" in event.get("contentBlockDelta", {}).get("delta", {})
+    ]
+    assert len(reasoning_deltas) == 2
+
+    assert reasoning_deltas[0]["contentBlockDelta"]["delta"]["reasoningContent"] == {
+        "text": "Let me think about this..."
+    }
+    assert reasoning_deltas[1]["contentBlockDelta"]["delta"]["reasoningContent"] == {"signature": "sig-abc123"}
+
+
+@pytest.mark.asyncio
+async def test_non_streaming_reasoning_content_with_redacted_content(bedrock_client, model, alist):
+    """Test that convert_non_streaming_to_streaming handles reasoningContent with redactedContent."""
+    non_streaming_response = {
+        "output": {
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "reasoningContent": {
+                            "redactedContent": b"redacted-bytes",
+                        }
+                    }
+                ],
+            }
+        },
+        "stopReason": "end_turn",
+        "usage": {"inputTokens": 5, "outputTokens": 10},
+    }
+
+    events = list(model.convert_non_streaming_to_streaming(non_streaming_response))
+
+    reasoning_deltas = [
+        event
+        for event in events
+        if "contentBlockDelta" in event and "reasoningContent" in event.get("contentBlockDelta", {}).get("delta", {})
+    ]
+    assert len(reasoning_deltas) == 1
+    assert reasoning_deltas[0]["contentBlockDelta"]["delta"]["reasoningContent"] == {
+        "redactedContent": b"redacted-bytes"
+    }
+
+
 class TestCountTokens:
     """Tests for BedrockModel.count_tokens native token counting."""
 
