@@ -1,7 +1,10 @@
 import { tool } from '../../index.js'
 import { z } from 'zod'
 import type { NotebookState } from './types.js'
-import { MAX_NOTEBOOKS, MAX_NOTEBOOK_NAME_LENGTH, MAX_NOTEBOOK_SIZE_BYTES, MAX_TOTAL_SIZE_BYTES } from './types.js'
+
+const MAX_NOTEBOOKS = 64
+const MAX_NOTEBOOK_NAME_LENGTH = 128
+const MAX_NOTEBOOK_SIZE_BYTES = 1_048_576 // 1 MiB
 
 /**
  * Zod schema for notebook input validation.
@@ -80,16 +83,11 @@ function enforceSessionCaps(notebooks: Record<string, string>): void {
     throw new Error(`Session notebook count exceeds maximum of ${MAX_NOTEBOOKS}`)
   }
   const encoder = new TextEncoder()
-  let total = 0
   for (const [nbName, content] of Object.entries(notebooks)) {
     const size = encoder.encode(content).byteLength
     if (size > MAX_NOTEBOOK_SIZE_BYTES) {
       throw new Error(`Notebook '${nbName}' size (${size} bytes) exceeds maximum of ${MAX_NOTEBOOK_SIZE_BYTES} bytes`)
     }
-    total += size
-  }
-  if (total > MAX_TOTAL_SIZE_BYTES) {
-    throw new Error(`Total notebook size (${total} bytes) exceeds session maximum of ${MAX_TOTAL_SIZE_BYTES} bytes`)
   }
 }
 

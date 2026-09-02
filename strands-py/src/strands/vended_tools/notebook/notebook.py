@@ -16,14 +16,15 @@ from typing import Any, Literal
 
 from ...tools.decorator import tool
 from ...types.tools import ToolContext
-from .types import (
-    DEFAULT_NOTEBOOK_DESCRIPTION,
-    DEFAULT_NOTEBOOK_NAME,
-    MAX_NOTEBOOK_NAME_LENGTH,
-    MAX_NOTEBOOK_SIZE_BYTES,
-    MAX_NOTEBOOKS,
-    MAX_TOTAL_SIZE_BYTES,
-)
+from .types import DEFAULT_NOTEBOOK_DESCRIPTION
+
+# Confinement caps: bound the memory footprint the model can accumulate so a
+# prompt injection cannot grow state without bound.
+_MAX_NOTEBOOKS = 64
+_MAX_NOTEBOOK_NAME_LENGTH = 128
+_MAX_NOTEBOOK_SIZE_BYTES = 1_048_576  # 1 MiB
+
+_DEFAULT_NOTEBOOK_NAME = "default"
 
 _STATE_KEY = "notebooks"
 
@@ -77,9 +78,9 @@ def notebook(
 
     # Ensure default notebook exists in-memory; only persisted if this mode mutates state.
     if not notebooks:
-        notebooks[DEFAULT_NOTEBOOK_NAME] = ""
+        notebooks[_DEFAULT_NOTEBOOK_NAME] = ""
 
-    target = _validate_notebook_name(name if name is not None else DEFAULT_NOTEBOOK_NAME)
+    target = _validate_notebook_name(name if name is not None else _DEFAULT_NOTEBOOK_NAME)
 
     if mode == "create":
         result = _handle_create(notebooks, target, new_str)
@@ -120,8 +121,8 @@ def _validate_notebook_name(candidate: str) -> str:
     """
     if not isinstance(candidate, str) or not candidate:
         raise ValueError("Notebook name must be a non-empty string")
-    if len(candidate) > MAX_NOTEBOOK_NAME_LENGTH:
-        raise ValueError(f"Notebook name exceeds maximum length of {MAX_NOTEBOOK_NAME_LENGTH} characters")
+    if len(candidate) > _MAX_NOTEBOOK_NAME_LENGTH:
+        raise ValueError(f"Notebook name exceeds maximum length of {_MAX_NOTEBOOK_NAME_LENGTH} characters")
     if candidate != candidate.strip():
         raise ValueError("Notebook name must not have leading or trailing whitespace")
     if "\0" in candidate:
@@ -167,18 +168,14 @@ def _enforce_session_caps(notebooks: dict[str, str]) -> None:
     Raises:
         ValueError: If any cap is exceeded.
     """
-    if len(notebooks) > MAX_NOTEBOOKS:
-        raise ValueError(f"Session notebook count exceeds maximum of {MAX_NOTEBOOKS}")
-    total = 0
+    if len(notebooks) > _MAX_NOTEBOOKS:
+        raise ValueError(f"Session notebook count exceeds maximum of {_MAX_NOTEBOOKS}")
     for nb_name, content in notebooks.items():
         size = len(content.encode("utf-8"))
-        if size > MAX_NOTEBOOK_SIZE_BYTES:
+        if size > _MAX_NOTEBOOK_SIZE_BYTES:
             raise ValueError(
-                f"Notebook '{nb_name}' size ({size} bytes) exceeds maximum of {MAX_NOTEBOOK_SIZE_BYTES} bytes"
+                f"Notebook '{nb_name}' size ({size} bytes) exceeds maximum of {_MAX_NOTEBOOK_SIZE_BYTES} bytes"
             )
-        total += size
-    if total > MAX_TOTAL_SIZE_BYTES:
-        raise ValueError(f"Total notebook size ({total} bytes) exceeds session maximum of {MAX_TOTAL_SIZE_BYTES} bytes")
 
 
 # ---- Handlers ----

@@ -14,13 +14,12 @@ import pytest
 from strands.agent.state import AgentState
 from strands.types.tools import ToolContext
 from strands.vended_tools.notebook import notebook
-from strands.vended_tools.notebook.types import (
-    DEFAULT_NOTEBOOK_DESCRIPTION,
-    MAX_NOTEBOOK_NAME_LENGTH,
-    MAX_NOTEBOOK_SIZE_BYTES,
-    MAX_NOTEBOOKS,
-    MAX_TOTAL_SIZE_BYTES,
+from strands.vended_tools.notebook.notebook import (
+    _MAX_NOTEBOOK_NAME_LENGTH,
+    _MAX_NOTEBOOK_SIZE_BYTES,
+    _MAX_NOTEBOOKS,
 )
+from strands.vended_tools.notebook.types import DEFAULT_NOTEBOOK_DESCRIPTION
 
 
 def _fresh_context(initial_notebooks: dict[str, str] | None = None) -> tuple[AgentState, ToolContext]:
@@ -297,7 +296,7 @@ class TestStatePersistence:
 
     def test_read_does_not_mutate_state(self):
         # If a sibling tool grew state past the cap, a pure read must not fail.
-        oversized = {f"nb-{i}": "a" * (MAX_NOTEBOOK_SIZE_BYTES // 2) for i in range(20)}
+        oversized = {f"nb-{i}": "a" * (_MAX_NOTEBOOK_SIZE_BYTES // 2) for i in range(20)}
         state, ctx = _fresh_context(oversized)
         notebooks_before = state.get("notebooks").copy()
         notebook(mode="read", name="nb-0", tool_context=ctx)
@@ -389,7 +388,7 @@ class TestNameConfinement:
 
     def test_rejects_overly_long_name(self):
         _, ctx = _fresh_context()
-        long_name = "a" * (MAX_NOTEBOOK_NAME_LENGTH + 1)
+        long_name = "a" * (_MAX_NOTEBOOK_NAME_LENGTH + 1)
         with pytest.raises(ValueError, match="maximum length"):
             notebook(mode="create", name=long_name, tool_context=ctx)
 
@@ -399,27 +398,16 @@ class TestSessionCaps:
 
     def test_rejects_too_many_notebooks(self):
         # Pre-fill state right up to the limit, then try to create one more.
-        initial = {f"nb-{i}": "" for i in range(MAX_NOTEBOOKS)}
+        initial = {f"nb-{i}": "" for i in range(_MAX_NOTEBOOKS)}
         _, ctx = _fresh_context(initial)
         with pytest.raises(ValueError, match="notebook count"):
             notebook(mode="create", name="over-the-line", tool_context=ctx)
 
     def test_rejects_notebook_content_over_size_limit(self):
         _, ctx = _fresh_context()
-        oversized = "a" * (MAX_NOTEBOOK_SIZE_BYTES + 1)
+        oversized = "a" * (_MAX_NOTEBOOK_SIZE_BYTES + 1)
         with pytest.raises(ValueError, match="maximum of"):
             notebook(mode="create", name="big", new_str=oversized, tool_context=ctx)
-
-    def test_rejects_total_session_over_size_limit(self):
-        # Each of these is a valid single notebook, but together they overflow the total cap.
-        per_notebook = MAX_NOTEBOOK_SIZE_BYTES
-        count = (MAX_TOTAL_SIZE_BYTES // per_notebook) + 1
-        # Cap ceiling at MAX_NOTEBOOKS to avoid tripping the count cap first.
-        assert count <= MAX_NOTEBOOKS, "Test assumption: total cap trips before count cap"
-        initial = {f"nb-{i}": "a" * per_notebook for i in range(count - 1)}
-        _, ctx = _fresh_context(initial)
-        with pytest.raises(ValueError, match="session maximum"):
-            notebook(mode="create", name="last", new_str="a" * per_notebook, tool_context=ctx)
 
 
 class TestToolMetadata:

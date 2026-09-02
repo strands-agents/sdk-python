@@ -9,18 +9,6 @@ export interface NotebookState {
   notebooks: Record<string, string>
 }
 
-/** Maximum number of notebooks that may exist in a single session. */
-export const MAX_NOTEBOOKS = 64
-
-/** Maximum length of a notebook name in characters. */
-export const MAX_NOTEBOOK_NAME_LENGTH = 128
-
-/** Maximum size of any single notebook's content in bytes (UTF-8). */
-export const MAX_NOTEBOOK_SIZE_BYTES = 1_048_576 // 1 MiB
-
-/** Maximum combined size across all notebooks in a session, in bytes (UTF-8). */
-export const MAX_TOTAL_SIZE_BYTES = 8 * 1_048_576 // 8 MiB
-
 /**
  * Input parameters for create operation.
  * - mode: Operation mode, must be 'create'
