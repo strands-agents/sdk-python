@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
     Any,
+    ClassVar,
     Literal,
     TypeVar,
     Union,
@@ -83,7 +84,7 @@ from ..tools.registry import ToolRegistry
 from ..tools.structured_output._structured_output_context import StructuredOutputContext
 from ..tools.watcher import ToolWatcher
 from ..types._events import AgentResultEvent, EventLoopStopEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
-from ..types.agent import AgentInput, ConcurrentInvocationMode, Limits
+from ..types.agent import AgentInput, ConcurrentInvocationMode, Limits, LocalAgent
 from ..types.content import (
     ContentBlock,
     Message,
@@ -187,7 +188,7 @@ class _PassProgress:
     event_loop_produced_result: bool = False
 
 
-class Agent(AgentBase):
+class Agent(AgentBase, LocalAgent):
     """Core Agent implementation.
 
     An agent orchestrates the following workflow:
@@ -199,6 +200,8 @@ class Agent(AgentBase):
     5. Continues reasoning with the new information
     6. Produces a final response
     """
+
+    _is_strands_local_agent: ClassVar[Literal[True]] = True
 
     # For backwards compatibility
     ToolCaller = _ToolCaller
