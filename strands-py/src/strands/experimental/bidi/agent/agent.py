@@ -70,7 +70,7 @@ class BidiAgent(LocalAgent):
         self,
         model: BidiModel | str | None = None,
         tools: list[str | AgentTool | ToolProvider] | None = None,
-        system_prompt: str | None = None,
+        system_prompt: str | list[SystemContentBlock] | None = None,
         messages: Messages | None = None,
         record_direct_tool_call: bool = True,
         load_tools_from_directory: bool = False,
@@ -88,7 +88,8 @@ class BidiAgent(LocalAgent):
         Args:
             model: BidiModel instance, string model_id, or None for default detection.
             tools: Optional list of tools with flexible format support.
-            system_prompt: Optional system prompt for conversations.
+            system_prompt: System prompt for conversations as a string or structured content blocks.
+                Structured blocks are retained, while their text is passed to Bidi models as a string.
             messages: Optional conversation history to initialize with.
             record_direct_tool_call: Whether to record direct tool calls in message history.
             load_tools_from_directory: Whether to load and automatically reload tools in the `./tools/` directory.
@@ -223,8 +224,8 @@ class BidiAgent(LocalAgent):
         return self._system_prompt
 
     @system_prompt.setter
-    def system_prompt(self, value: str | None) -> None:
-        """Set the system prompt and its structured content representation."""
+    def system_prompt(self, value: str | list[SystemContentBlock] | None) -> None:
+        """Set the system prompt and retain its structured content representation."""
         self._system_prompt, self._system_prompt_content = split_system_prompt(value)
 
     @property

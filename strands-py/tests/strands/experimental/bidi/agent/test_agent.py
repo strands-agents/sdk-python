@@ -19,6 +19,7 @@ from strands.experimental.bidi.types.events import (
     BidiTranscriptStreamEvent,
 )
 from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent
+from strands.types.content import SystemContentBlock
 
 
 class MockBidiModel(BidiModel):
@@ -146,11 +147,16 @@ def test_bidi_agent_init_with_various_configurations():
 def test_bidi_agent_system_prompt_setter(mock_model):
     """Test setting the system prompt updates its content blocks."""
     agent = BidiAgent(model=mock_model, system_prompt="initial prompt")
+    content_blocks: list[SystemContentBlock] = [
+        {"text": "updated prompt"},
+        {"cachePoint": {"type": "default"}},
+        {"text": "additional instructions"},
+    ]
 
-    agent.system_prompt = "updated prompt"
+    agent.system_prompt = content_blocks
 
-    assert agent.system_prompt == "updated prompt"
-    assert agent.system_prompt_content == [{"text": "updated prompt"}]
+    assert agent.system_prompt == "updated prompt\nadditional instructions"
+    assert agent.system_prompt_content == content_blocks
 
 
 def test_bidi_agent_tool_emits_shared_hook_events_and_retries(mock_model):
