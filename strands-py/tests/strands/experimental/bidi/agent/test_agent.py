@@ -8,6 +8,7 @@ from uuid import uuid4
 import pytest
 
 from strands.experimental.bidi.agent.agent import BidiAgent
+from strands.experimental.bidi.models.model import BidiModel
 from strands.experimental.bidi.types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
@@ -18,7 +19,7 @@ from strands.experimental.bidi.types.events import (
 )
 
 
-class MockBidiModel:
+class MockBidiModel(BidiModel):
     """Mock bidirectional model for testing."""
 
     def __init__(self, config=None, model_id="mock-model"):
@@ -136,6 +137,21 @@ def test_bidi_agent_init_with_various_configurations():
     assert config["audio"]["input_rate"] == 16000
     assert config["audio"]["output_rate"] == 24000
     assert config["audio"]["channels"] == 1
+
+
+def test_bidi_agent_init_with_unsupported_model():
+    """Test agent initialization rejects unsupported model types."""
+    with pytest.raises(TypeError, match="model must be a BidiModel, string, or None"):
+        BidiAgent(model=object())
+
+
+@pytest.mark.skipif(sys.version_info < (3, 12), reason="BedrockNovaSonicModel is only supported for Python 3.12+")
+def test_bidi_agent_init_with_default_model():
+    from strands.experimental.bidi.models.bedrock import BedrockNovaSonicModel
+
+    agent = BidiAgent(model=None)
+
+    assert isinstance(agent.model, BedrockNovaSonicModel)
 
 
 @pytest.mark.skipif(sys.version_info < (3, 12), reason="BedrockNovaSonicModel is only supported for Python 3.12+")

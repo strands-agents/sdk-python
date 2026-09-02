@@ -13,21 +13,24 @@ per-module `warn_unused_ignores` override in pyproject.toml silences the
 ignores the installed line doesn't need.
 """
 
+import asyncio
 from collections.abc import AsyncIterator
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from datetime import timedelta
 from typing import Any
 
 import httpx
 from mcp import ClientSession
-from mcp.types import ServerCapabilities
+from mcp.types import ServerCapabilities, ToolListChangedNotification
 
 __all__ = [
     "MCP_V2",
     "GetSessionIdCallback",
     "MCPError",
+    "call_tool",
     "input_schema",
     "is_error",
+    "is_tools_list_changed",
     "mime_type",
     "negotiate_session",
     "next_cursor",
@@ -37,12 +40,18 @@ __all__ = [
     "streamable_http_transport",
     "structured_content",
     "task_support",
+    "tools_changed_subscription",
 ]
 
 # Feature-probed rather than version-parsed so pre-releases and backports
 # resolve by capability: `ClientSession.discover` is the 2.x replacement for
 # the removed initialize handshake.
 MCP_V2: bool = hasattr(ClientSession, "discover")
+
+# The official SDKs' shared default for SEP-2322 multi round-trip retries.
+_INPUT_REQUIRED_MAX_ROUNDS = 10
+
+_STATE_ONLY_RETRY_DELAY_SECONDS = 0.05
 
 try:
     from mcp.shared.exceptions import MCPError  # type: ignore[attr-defined]
@@ -58,6 +67,96 @@ except ImportError:
     from collections.abc import Callable
 
     GetSessionIdCallback = Callable[[], str | None]  # type: ignore[misc, assignment]
+
+
+async def call_tool(
+    session: ClientSession,
+    name: str,
+    arguments: dict[str, Any] | None,
+    read_timeout_seconds: timedelta | None,
+    progress_callback: Any,
+    meta: Any,
+) -> Any:
+    """Call a tool on an active session, on either `mcp` major line.
+
+    The 2026-07-28 spec (SEP-2322) replaced server-initiated requests with
+    multi round-trip requests: instead of sending `elicitation/create` back
+    to the client mid-call, the server returns an `InputRequiredResult`, and
+    the client resolves the embedded input requests and retries the call
+    carrying the responses and the echoed opaque `request_state`. The 2.x
+    branch resolves each embedded request through
+    `session.dispatch_input_request`, the same callback table that serves
+    1.x server-initiated requests, so an `elicitation_callback` passed to
+    `ClientSession` behaves the same on both lines.
+
+    The retry loop below stands on public 2.x API only: the `call_tool`
+    keywords, `dispatch_input_request` (whose docstring names exactly this
+    use), and `ClientRequestContext` / `InputRequiredRoundsExceededError`
+    from `mcp.client`. The `mcp` package ships its own loop, but only inside
+    the high-level `mcp.client.Client` (which owns connection lifecycle that
+    `MCPClient` manages itself) and a private module. Embedded requests are
+    dispatched one at a time, so a callback's exception propagates as
+    itself.
+
+    Args:
+        session: An active, negotiated `ClientSession`.
+        name: The tool name as the server knows it.
+        arguments: Arguments to pass to the tool.
+        read_timeout_seconds: Timeout for each request round, if any.
+        progress_callback: Callback for progress notifications, if any.
+        meta: Request metadata (`_meta`) to send with the call, if any.
+
+    Returns:
+        The terminal `CallToolResult`.
+
+    Raises:
+        MCPError: An embedded input request's callback declined it.
+        InputRequiredRoundsExceededError: The server kept returning
+            `InputRequiredResult` past the round cap.
+    """
+    if not MCP_V2:
+        return await session.call_tool(
+            name, arguments, read_timeout_seconds, progress_callback=progress_callback, meta=meta
+        )
+
+    from mcp.client import ClientRequestContext, InputRequiredRoundsExceededError  # type: ignore[attr-defined]
+    from mcp.types import ErrorData, InputRequiredResult  # type: ignore[attr-defined]
+
+    timeout = read_timeout(read_timeout_seconds)
+
+    async def call_once(input_responses: Any, request_state: str | None) -> Any:
+        return await session.call_tool(  # type: ignore[call-arg]
+            name,
+            arguments,
+            timeout,  # type: ignore[arg-type]
+            progress_callback=progress_callback,
+            meta=meta,
+            input_responses=input_responses,
+            request_state=request_state,
+            allow_input_required=True,
+        )
+
+    result = await call_once(None, None)
+    for _ in range(_INPUT_REQUIRED_MAX_ROUNDS):
+        if not isinstance(result, InputRequiredResult):
+            return result
+        responses: dict[str, Any] = {}
+        for key, request in (result.input_requests or {}).items():
+            context = ClientRequestContext(
+                session=session, request_id=key, meta=request.params.meta if request.params else None
+            )
+            response = await session.dispatch_input_request(context, request)  # type: ignore[attr-defined]
+            if isinstance(response, ErrorData):
+                raise MCPError(code=response.code, message=response.message, data=response.data)
+            responses[key] = response
+        if not responses:
+            # A state-only result asks the client to poll: wait a beat so the
+            # retry loop cannot hammer the server.
+            await asyncio.sleep(_STATE_ONLY_RETRY_DELAY_SECONDS)
+        result = await call_once(responses or None, result.request_state)
+    if isinstance(result, InputRequiredResult):
+        raise InputRequiredRoundsExceededError(_INPUT_REQUIRED_MAX_ROUNDS)
+    return result
 
 
 def input_schema(tool: Any) -> dict[str, Any]:
@@ -90,6 +189,26 @@ def is_error(call_tool_result: Any) -> bool | None:
     """
     error: bool | None = call_tool_result.is_error if MCP_V2 else call_tool_result.isError
     return error
+
+
+def is_tools_list_changed(message: Any) -> bool:
+    """Return whether a message-handler message is a tools list-changed notification.
+
+    The 1.x session hands the message handler a `ServerNotification` wrapper
+    whose `root` holds the notification; the 2.x session hands it the
+    notification itself, including events it tees from a
+    `subscriptions/listen` stream on a 2026-07-28 connection. Both shapes are
+    accepted unconditionally, so no version branch is needed.
+
+    Args:
+        message: A message delivered to the session's `message_handler`.
+
+    Returns:
+        Whether the message announces a change to the server's tool list.
+    """
+    if isinstance(message, ToolListChangedNotification):
+        return True
+    return isinstance(getattr(message, "root", None), ToolListChangedNotification)
 
 
 def mime_type(content: Any) -> str | None:
@@ -140,7 +259,7 @@ def output_schema(tool: Any) -> dict[str, Any] | None:
     return schema
 
 
-def read_timeout(timeout: timedelta | None) -> Any:
+def read_timeout(timeout: timedelta | None) -> float | timedelta | None:
     """Convert a tool call read timeout to the form the installed `mcp` line takes.
 
     The session `call_tool` takes `read_timeout_seconds` as a `timedelta` on
@@ -240,6 +359,42 @@ async def negotiate_session(session: ClientSession) -> tuple[str | None, ServerC
 
     init_result = await session.initialize()
     return init_result.instructions, session.get_server_capabilities()  # type: ignore[attr-defined]
+
+
+@asynccontextmanager
+async def tools_changed_subscription(session: ClientSession) -> AsyncIterator[Any]:
+    """Hold open the subscription that makes a 2026-07-28 server publish tools list changes.
+
+    The 2026-07-28 spec (SEP-2575) consolidated server notifications into an
+    opt-in `subscriptions/listen` stream: a modern server emits a tools
+    list-changed event only while a subscriber holds the stream open. The 2.x
+    session tees each event to the `message_handler` as a
+    `ToolListChangedNotification`, so holding the stream open is all the
+    intake requires. The 1.x line and legacy-negotiated 2.x connections push
+    the notification without any subscription; those yield None and hold
+    nothing.
+
+    Args:
+        session: An active, negotiated `ClientSession`.
+
+    Yields:
+        The subscription handle, or None when the connection has no
+        subscription to hold.
+    """
+    if not MCP_V2:
+        yield None
+        return
+
+    from mcp.client.subscriptions import ListenNotSupportedError, listen  # type: ignore[import-not-found]
+
+    async with AsyncExitStack() as subscription_scope:
+        try:
+            subscription = await subscription_scope.enter_async_context(listen(session, tools_list_changed=True))
+        except ListenNotSupportedError:
+            # The connection negotiated a legacy protocol version, so the
+            # server pushes list-changed notifications unprompted.
+            subscription = None
+        yield subscription
 
 
 def streamable_http_transport(

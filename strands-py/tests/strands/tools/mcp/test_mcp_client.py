@@ -2,6 +2,7 @@ import asyncio
 import base64
 import threading
 import time
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -19,12 +20,14 @@ from mcp.types import (
     Resource,
     ResourceTemplate,
     TextResourceContents,
+    ToolListChangedNotification,
 )
 from mcp.types import ImageContent as MCPImageContent
 from mcp.types import TextContent as MCPTextContent
 from mcp.types import Tool as MCPTool
 from pydantic import AnyUrl
 
+import strands.tools.mcp.mcp_client as mcp_client_module
 from strands.tools.mcp import MCPClient
 from strands.tools.mcp.mcp_types import MCPToolResult
 from strands.types.exceptions import MCPClientInitializationError
@@ -156,9 +159,44 @@ def test_call_tool_sync_without_error_flag(mock_transport, mock_session):
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
 
-        assert result["status"] == "success"
-        assert result["content"][0]["text"] == "Test message"
-        assert "isError" not in result
+        assert result == {
+            "status": "success",
+            "toolUseId": "test-123",
+            "content": [{"text": "Test message"}],
+        }
+
+
+def test_call_tool_sync_with_falsy_structured_content(mock_transport, mock_session):
+    """Test that an empty structured payload is forwarded, not dropped as falsy.
+
+    The 2026-07-28 spec allows any JSON value in `structuredContent`, so `0`,
+    `False`, `""`, `[]`, and `{}` are all valid payloads.
+    """
+    mock_content = MCPTextContent(type="text", text="Test message")
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[mock_content], structuredContent={})
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
+
+        assert result == {
+            "status": "success",
+            "toolUseId": "test-123",
+            "content": [{"text": "Test message"}],
+            "structuredContent": {},
+            "isError": False,
+        }
+
+
+def test_call_tool_sync_calls_the_tool_through_the_compat_shim(mock_transport, mock_session):
+    """Test that the direct tool-call path calls the tool through the version shim."""
+    mock_content = MCPTextContent(type="text", text="Test message")
+    shim = AsyncMock(return_value=MCPCallToolResult(isError=False, content=[mock_content]))
+
+    with patch("strands.tools.mcp.mcp_client.compat_call_tool", shim):
+        with MCPClient(mock_transport["transport_callable"]) as client:
+            client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
+
+    shim.assert_awaited_once_with(mock_session, "test_tool", {"param": "value"}, None, None, None)
 
 
 def test_call_tool_sync_session_not_active():
@@ -1073,10 +1111,12 @@ def test_call_tool_sync_image_content(mock_transport, mock_session):
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.call_tool_sync(tool_use_id="img-1", name="get_image", arguments={})
 
-        assert result["status"] == "success"
-        assert len(result["content"]) == 1
-        assert result["content"][0]["image"]["format"] == "png"
-        assert result["content"][0]["image"]["source"]["bytes"] == png_data
+        assert result == {
+            "status": "success",
+            "toolUseId": "img-1",
+            "content": [{"image": {"format": "png", "source": {"bytes": png_data}}}],
+            "isError": False,
+        }
 
 
 def test_call_tool_sync_embedded_nested_text(mock_transport, mock_session):
@@ -1226,14 +1266,14 @@ def test_call_tool_sync_embedded_unknown_resource_type_dropped(mock_transport, m
 
 
 @pytest.mark.asyncio
-async def test_handle_error_message_non_fatal_error():
-    """Test that _handle_error_message ignores non-fatal errors and logs them."""
+async def test_handle_session_message_non_fatal_error():
+    """Test that _handle_session_message ignores non-fatal errors and logs them."""
     client = MCPClient(MagicMock())
 
     # Test the message handler directly with a non-fatal error
     with patch.object(client, "_log_debug_with_thread") as mock_log:
         # This should not raise an exception
-        await client._handle_error_message(Exception("unknown request id: abc123"))
+        await client._handle_session_message(Exception("unknown request id: abc123"))
 
         # Verify the non-fatal error was logged as ignored
         assert mock_log.called
@@ -1242,22 +1282,294 @@ async def test_handle_error_message_non_fatal_error():
 
 
 @pytest.mark.asyncio
-async def test_handle_error_message_fatal_error():
-    """Test that _handle_error_message raises fatal errors."""
+async def test_handle_session_message_fatal_error():
+    """Test that _handle_session_message raises fatal errors."""
     client = MCPClient(MagicMock())
 
     # This should raise the exception
     with pytest.raises(Exception, match="connection timeout"):
-        await client._handle_error_message(Exception("connection timeout"))
+        await client._handle_session_message(Exception("connection timeout"))
 
 
 @pytest.mark.asyncio
-async def test_handle_error_message_non_exception():
-    """Test that _handle_error_message handles non-exception messages."""
+async def test_handle_session_message_non_exception():
+    """Test that _handle_session_message handles non-exception messages."""
     client = MCPClient(MagicMock())
 
     # This should not raise an exception
-    await client._handle_error_message("normal message")
+    await client._handle_session_message("normal message")
+
+
+@pytest.mark.asyncio
+async def test_handle_session_message_tools_changed_schedules_a_refresh():
+    """Test that a tools list-changed notification schedules a refresh when the callback is set."""
+    client = MCPClient(MagicMock(), on_tools_changed=MagicMock())
+    notification = ToolListChangedNotification(method="notifications/tools/list_changed")
+
+    with patch.object(client, "_handle_tools_changed", new=AsyncMock()) as mock_refresh:
+        await client._handle_session_message(notification)
+        assert client._tools_refresh_tasks
+        await asyncio.gather(*client._tools_refresh_tasks)
+        # One more loop tick so the done-callback that discards the task runs.
+        await asyncio.sleep(0)
+
+    mock_refresh.assert_awaited_once()
+    assert not client._tools_refresh_tasks
+
+
+@pytest.mark.asyncio
+async def test_handle_session_message_tools_changed_ignored_without_callback():
+    """Test that a tools list-changed notification is a no-op when no callback is registered."""
+    client = MCPClient(MagicMock())
+    notification = ToolListChangedNotification(method="notifications/tools/list_changed")
+
+    await client._handle_session_message(notification)
+
+    assert not client._tools_refresh_tasks
+
+
+@pytest.mark.asyncio
+async def test_handle_tools_changed_coalesces_overlapping_notifications(monkeypatch):
+    """Test that a notification arriving mid-refresh folds into one trailing rerun."""
+    monkeypatch.setattr(mcp_client_module, "_TOOLS_CHANGED_DEBOUNCE_SECONDS", 0)
+    client = MCPClient(MagicMock(), on_tools_changed=MagicMock())
+    refresh_calls = []
+    first_refresh_started = threading.Event()
+    release_first_refresh = threading.Event()
+
+    def blocking_refresh():
+        refresh_calls.append(len(refresh_calls))
+        if len(refresh_calls) == 1:
+            first_refresh_started.set()
+            release_first_refresh.wait(timeout=5)
+
+    monkeypatch.setattr(client, "_refresh_loaded_tools", blocking_refresh)
+
+    first_notification = asyncio.create_task(client._handle_tools_changed())
+    deadline = time.time() + 5
+    while not first_refresh_started.is_set():
+        assert time.time() < deadline, "first refresh never started"
+        await asyncio.sleep(0.01)
+
+    await client._handle_tools_changed()
+    assert client._tools_refresh_pending
+
+    release_first_refresh.set()
+    await first_notification
+
+    assert refresh_calls == [0, 1]
+    assert not client._tools_refresh_in_progress
+
+
+@pytest.mark.asyncio
+async def test_handle_tools_changed_logs_and_recovers_when_the_refresh_raises(monkeypatch, caplog):
+    """Test that a failing refresh is logged as a warning and leaves the client ready for the next one."""
+    monkeypatch.setattr(mcp_client_module, "_TOOLS_CHANGED_DEBOUNCE_SECONDS", 0)
+    client = MCPClient(MagicMock(), on_tools_changed=MagicMock())
+    monkeypatch.setattr(client, "_refresh_loaded_tools", MagicMock(side_effect=RuntimeError("listing failed")))
+
+    await client._handle_tools_changed()
+
+    assert "failed to refresh tools after list-changed notification" in caplog.text
+    assert not client._tools_refresh_in_progress
+
+
+@pytest.mark.asyncio
+async def test_handle_tools_changed_failed_round_keeps_the_queued_rerun(monkeypatch, caplog):
+    """Test that a round that raises does not discard a rerun queued by a mid-refresh notification."""
+    monkeypatch.setattr(mcp_client_module, "_TOOLS_CHANGED_DEBOUNCE_SECONDS", 0)
+    client = MCPClient(MagicMock(), on_tools_changed=MagicMock())
+    refresh_calls = []
+
+    def failing_first_refresh():
+        refresh_calls.append(len(refresh_calls))
+        if len(refresh_calls) == 1:
+            # A notification landing mid-refresh queues the trailing rerun.
+            client._tools_refresh_pending = True
+            raise RuntimeError("listing failed")
+
+    monkeypatch.setattr(client, "_refresh_loaded_tools", failing_first_refresh)
+
+    await client._handle_tools_changed()
+
+    assert refresh_calls == [0, 1]
+    assert "failed to refresh tools after list-changed notification" in caplog.text
+    assert not client._tools_refresh_in_progress
+    assert not client._tools_refresh_pending
+
+
+def test_refresh_loaded_tools_updates_the_cache_and_invokes_the_callback():
+    """Test that a refresh replaces the cached tools and reports the change to the callback."""
+    on_tools_changed = MagicMock()
+    client = MCPClient(MagicMock(), on_tools_changed=on_tools_changed)
+    previous_tool = MagicMock()
+    previous_tool.tool_name = "previous_tool"
+    client._loaded_tools = [previous_tool]
+    refreshed_tools = [MagicMock()]
+
+    with patch.object(client, "_list_all_tools_sync", return_value=refreshed_tools):
+        client._refresh_loaded_tools()
+
+    assert client._loaded_tools is refreshed_tools
+    on_tools_changed.assert_called_once_with(["previous_tool"], refreshed_tools)
+
+
+def test_refresh_loaded_tools_raising_callback_keeps_the_refreshed_cache(caplog):
+    """Test that a raising callback is logged with its own message and the cache stays refreshed."""
+    on_tools_changed = MagicMock(side_effect=RuntimeError("consumer broke"))
+    client = MCPClient(MagicMock(), on_tools_changed=on_tools_changed)
+    refreshed_tools = [MagicMock()]
+
+    with patch.object(client, "_list_all_tools_sync", return_value=refreshed_tools):
+        client._refresh_loaded_tools()
+
+    assert client._loaded_tools is refreshed_tools
+    assert "on_tools_changed callback raised" in caplog.text
+    assert "failed to refresh tools" not in caplog.text
+
+
+def test_on_tools_changed_is_settable_after_construction():
+    """Test that the callback can be registered and removed through the property."""
+    client = MCPClient(MagicMock())
+    assert client.on_tools_changed is None
+
+    callback = MagicMock()
+    client.on_tools_changed = callback
+
+    assert client.on_tools_changed is callback
+
+
+def test_subscription_entered_before_ready_and_exited_on_stop(mock_transport, mock_session):
+    """Test that the tools list-changed subscription wraps the session lifetime when a callback is set."""
+    lifecycle_events = []
+
+    @asynccontextmanager
+    async def recording_subscription(session):
+        lifecycle_events.append("enter")
+        try:
+            yield None
+        finally:
+            lifecycle_events.append("exit")
+
+    with patch("strands.tools.mcp.mcp_client.tools_changed_subscription", new=recording_subscription):
+        client = MCPClient(mock_transport["transport_callable"], on_tools_changed=MagicMock())
+        with client:
+            assert lifecycle_events == ["enter"]
+        assert lifecycle_events == ["enter", "exit"]
+
+
+def test_subscription_not_entered_without_callback(mock_transport, mock_session):
+    """Test that no subscription is held when no callback is registered."""
+    lifecycle_events = []
+
+    @asynccontextmanager
+    async def recording_subscription(session):
+        lifecycle_events.append("enter")
+        yield None
+
+    with patch("strands.tools.mcp.mcp_client.tools_changed_subscription", new=recording_subscription):
+        with MCPClient(mock_transport["transport_callable"]):
+            pass
+
+    assert lifecycle_events == []
+
+
+def test_start_raises_when_the_subscription_never_acknowledges(mock_transport, mock_session):
+    """Test that a subscription the server never acknowledges bounds start() instead of hanging it."""
+
+    @asynccontextmanager
+    async def never_acknowledging_subscription(session):
+        await asyncio.Event().wait()
+        yield None
+
+    with patch("strands.tools.mcp.mcp_client.tools_changed_subscription", new=never_acknowledging_subscription):
+        client = MCPClient(mock_transport["transport_callable"], on_tools_changed=MagicMock(), startup_timeout=1)
+        started = time.time()
+        with pytest.raises(MCPClientInitializationError):
+            client.start()
+
+    assert time.time() - started < 10
+
+
+def test_stop_resets_tools_refresh_state_for_restart(mock_transport, mock_session):
+    """Test that a restarted client refreshes again after a stop that interrupted a refresh.
+
+    A refresh task destroyed with its event loop never runs the finally block
+    that clears the in-progress flag, so stop() must reset the refresh state
+    itself for the next start() to work.
+    """
+    client = MCPClient(mock_transport["transport_callable"], on_tools_changed=MagicMock())
+    with client:
+        client._tools_refresh_in_progress = True
+        client._tools_refresh_pending = True
+
+        # The stale entry must be a real future: stop() drains this set with
+        # asyncio.wait, which on Python 3.10 rejects a non-awaitable stand-in.
+        async def _seed_stale_refresh_task() -> None:
+            stale_refresh_task: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+            stale_refresh_task.set_result(None)
+            client._tools_refresh_tasks.add(stale_refresh_task)
+
+        asyncio.run_coroutine_threadsafe(_seed_stale_refresh_task(), client._background_thread_event_loop).result(
+            timeout=5
+        )
+
+    with client:
+        assert not client._tools_refresh_in_progress
+        assert not client._tools_refresh_pending
+        assert not client._tools_refresh_tasks
+
+
+def test_tools_changed_notification_end_to_end_refreshes_and_notifies(mock_transport, mock_session, monkeypatch):
+    """Test the composed chain: notification, refresh off the loop thread, callback with real tools."""
+    monkeypatch.setattr(mcp_client_module, "_TOOLS_CHANGED_DEBOUNCE_SECONDS", 0)
+    callback_called = threading.Event()
+    callback_args = {}
+
+    def on_tools_changed(previous_names, refreshed_tools):
+        callback_args["previous_names"] = previous_names
+        callback_args["refreshed_tools"] = refreshed_tools
+        callback_called.set()
+
+    refreshed_tool = MCPTool(name="echo", description="test tool", inputSchema={"type": "object", "properties": {}})
+    mock_session.list_tools.return_value = ListToolsResult(tools=[refreshed_tool])
+    notification = ToolListChangedNotification(method="notifications/tools/list_changed")
+
+    client = MCPClient(mock_transport["transport_callable"], on_tools_changed=on_tools_changed)
+    with client:
+        asyncio.run_coroutine_threadsafe(
+            client._handle_session_message(notification), client._background_thread_event_loop
+        ).result(timeout=5)
+        assert callback_called.wait(timeout=5)
+
+        assert callback_args["previous_names"] == []
+        assert [tool.tool_name for tool in callback_args["refreshed_tools"]] == ["echo"]
+        assert client._loaded_tools == callback_args["refreshed_tools"]
+
+
+def test_stop_with_refresh_in_flight_unwinds_the_worker(mock_transport, mock_session, monkeypatch):
+    """Test that stop() lets an in-flight refresh unwind instead of stranding its worker thread."""
+    monkeypatch.setattr(mcp_client_module, "_TOOLS_CHANGED_DEBOUNCE_SECONDS", 0)
+    refresh_started = threading.Event()
+
+    async def hanging_list_tools(*args, **kwargs):
+        refresh_started.set()
+        await asyncio.Event().wait()
+
+    mock_session.list_tools.side_effect = hanging_list_tools
+    notification = ToolListChangedNotification(method="notifications/tools/list_changed")
+
+    client = MCPClient(mock_transport["transport_callable"], on_tools_changed=MagicMock())
+    with client:
+        asyncio.run_coroutine_threadsafe(
+            client._handle_session_message(notification), client._background_thread_event_loop
+        ).result(timeout=5)
+        assert refresh_started.wait(timeout=5)
+
+    # Exiting the block proves stop() drained the refresh; a restart proves nothing leaked.
+    mock_session.list_tools.side_effect = None
+    with client:
+        assert not client._tools_refresh_tasks
 
 
 def test_call_tool_sync_with_meta_and_structured_content(mock_transport, mock_session):
@@ -1427,8 +1739,8 @@ def test_list_resource_templates_sync_session_not_active():
 
 
 @pytest.mark.asyncio
-async def test_handle_error_message_with_percent_in_message():
-    """Test that _handle_error_message handles messages containing % characters without string formatting errors.
+async def test_handle_session_message_with_percent_in_message():
+    """Test that _handle_session_message handles messages containing % characters without string formatting errors.
 
     This is a regression test for issue #1244 where MCP error messages containing '%' characters
     (e.g., from URLs like "https://example.com/path?param=value%20encoded") would cause a
@@ -1441,7 +1753,7 @@ async def test_handle_error_message_with_percent_in_message():
     error_with_percent = Exception("unknown request id: abc%20123%30def")
 
     # This should not raise TypeError and should not raise the exception (since it's non-fatal)
-    await client._handle_error_message(error_with_percent)
+    await client._handle_session_message(error_with_percent)
 
 
 def test_call_tool_sync_elicitation_error(mock_transport, mock_session):
