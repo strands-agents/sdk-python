@@ -1283,20 +1283,43 @@ describe('VercelModel', () => {
         expect(bedrockToolCachePoint(callArgs())).toBeUndefined()
       })
 
-      it('warns once that a configured toolsTTL has no effect', async () => {
+      it('warns once that a configured toolsTTL has no effect, naming the value', async () => {
         const config = { cacheConfig: { toolsTTL: '1h' as const } }
         const { collect } = setupCaptureTest(minimalParts, config, 'amazon-bedrock', CACHING_MODEL_ID)
         await collect(userMessages, { toolSpecs })
 
         expect(warnOnce).toHaveBeenCalledWith(
           expect.objectContaining({ warn: expect.any(Function) }),
-          expect.stringContaining('toolsTTL has no effect on the amazon-bedrock vercel adapter')
+          expect.stringContaining('toolsTTL=<1h> | toolsTTL has no effect on the amazon-bedrock vercel adapter')
+        )
+      })
+
+      // toolsTTL:false reads as "do not cache tools", but tools ride the system/messages prefix
+      // regardless, so the request cannot honor it — warn rather than silently invert the intent.
+      it('warns that toolsTTL:false cannot opt tools out of prefix caching', async () => {
+        const config = { cacheConfig: { toolsTTL: false as const } }
+        const { collect } = setupCaptureTest(minimalParts, config, 'amazon-bedrock', CACHING_MODEL_ID)
+        await collect(userMessages, { toolSpecs })
+
+        expect(warnOnce).toHaveBeenCalledWith(
+          expect.objectContaining({ warn: expect.any(Function) }),
+          expect.stringContaining('toolsTTL=<false> | toolsTTL has no effect on the amazon-bedrock vercel adapter')
         )
       })
 
       it('does not warn when toolsTTL is left at its enabled default', async () => {
         const config = { cacheConfig: { toolsTTL: true as const } }
         const { collect } = setupCaptureTest(minimalParts, config, 'amazon-bedrock', CACHING_MODEL_ID)
+        await collect(userMessages, { toolSpecs })
+
+        expect(warnOnce).not.toHaveBeenCalledWith(
+          expect.objectContaining({ warn: expect.any(Function) }),
+          expect.stringContaining('toolsTTL has no effect')
+        )
+      })
+
+      it('does not warn when toolsTTL is unset', async () => {
+        const { collect } = setupCaptureTest(minimalParts, { cacheConfig: {} }, 'amazon-bedrock', CACHING_MODEL_ID)
         await collect(userMessages, { toolSpecs })
 
         expect(warnOnce).not.toHaveBeenCalledWith(

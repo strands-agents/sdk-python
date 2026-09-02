@@ -349,7 +349,7 @@ function applyBedrockCache(
   if (cacheConfig.toolsTTL !== undefined && cacheConfig.toolsTTL !== true) {
     warnOnce(
       logger,
-      'toolsTTL=<${toolsTTL}> | toolsTTL has no effect on the amazon-bedrock vercel adapter, it accepts no tool-level cache point'
+      `toolsTTL=<${cacheConfig.toolsTTL}> | toolsTTL has no effect on the amazon-bedrock vercel adapter, it accepts no tool-level cache point`
     )
   }
 
