@@ -198,12 +198,12 @@ async def _fetch_once(
     owns_client = client is None
     active_client = client if client is not None else httpx.AsyncClient(follow_redirects=True)
     try:
-        request = active_client.build_request("GET", url, headers=_HEADERS)
         try:
+            request = active_client.build_request("GET", url, headers=_HEADERS)
             response = await active_client.send(request, stream=True)
         except httpx.TimeoutException as error:
             raise WebFetchError(f"Fetch timed out: {url!r}") from error
-        except (httpx.RequestError, ValueError) as exc:
+        except (httpx.InvalidURL, httpx.RequestError, ValueError) as exc:
             raise WebFetchError(f"Fetch failed: {exc}") from exc
         try:
             content_type = response.headers.get("content-type", "")
