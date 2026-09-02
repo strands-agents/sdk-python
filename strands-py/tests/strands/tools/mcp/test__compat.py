@@ -553,6 +553,110 @@ async def test_call_tool_v2_returns_a_terminal_result_from_the_last_allowed_roun
     assert session.call_tool.await_count == 11
 
 
+@pytest.mark.asyncio
+async def test_get_prompt_v1_sends_a_single_request(monkeypatch):
+    """Test that the 1.x branch calls the session once, with no retry keywords."""
+    monkeypatch.setattr(_compat, "MCP_V2", False)
+    terminal_result = MagicMock()
+    session = MagicMock()
+    session.get_prompt = AsyncMock(return_value=terminal_result)
+
+    result = await _compat.get_prompt(session, "greet", {"name": "x"})
+
+    assert result is terminal_result
+    session.get_prompt.assert_awaited_once_with("greet", arguments={"name": "x"})
+
+
+@pytest.mark.asyncio
+async def test_read_resource_v1_sends_a_single_request(monkeypatch):
+    """Test that the 1.x branch calls the session once, passing the URI object through untouched."""
+    monkeypatch.setattr(_compat, "MCP_V2", False)
+    terminal_result = MagicMock()
+    session = MagicMock()
+    session.read_resource = AsyncMock(return_value=terminal_result)
+    resource_uri = MagicMock()
+
+    result = await _compat.read_resource(session, resource_uri)
+
+    assert result is terminal_result
+    session.read_resource.assert_awaited_once_with(resource_uri)
+
+
+@requires_mcp_v2
+@pytest.mark.asyncio
+async def test_get_prompt_v2_resolves_input_required_through_the_callback_table():
+    """Test that the 2.x branch resolves an `InputRequiredResult` from `prompts/get` and retries."""
+    from mcp.types import (
+        ElicitRequest,
+        ElicitRequestFormParams,
+        ElicitResult,
+        GetPromptResult,
+        InputRequiredResult,
+    )
+
+    elicit_request = ElicitRequest(
+        method="elicitation/create",
+        params=ElicitRequestFormParams(
+            mode="form",
+            message="need a value",
+            requested_schema={"type": "object", "properties": {"value": {"type": "string"}}},
+        ),
+    )
+    input_required = InputRequiredResult(input_requests={"q1": elicit_request}, request_state="state-1")
+    terminal_result = GetPromptResult(messages=[])
+    elicit_result = ElicitResult(action="accept", content={"value": "x"})
+    session = MagicMock()
+    session.get_prompt = AsyncMock(side_effect=[input_required, terminal_result])
+    session.dispatch_input_request = AsyncMock(return_value=elicit_result)
+
+    result = await _compat.get_prompt(session, "greet", {"name": "x"})
+
+    assert result is terminal_result
+    first_kwargs = session.get_prompt.await_args_list[0].kwargs
+    assert first_kwargs["allow_input_required"] is True
+    retry_kwargs = session.get_prompt.await_args_list[1].kwargs
+    assert retry_kwargs["input_responses"] == {"q1": elicit_result}
+    assert retry_kwargs["request_state"] == "state-1"
+
+
+@requires_mcp_v2
+@pytest.mark.asyncio
+async def test_read_resource_v2_resolves_input_required_and_sends_a_string_uri():
+    """Test that the 2.x branch retries an `InputRequiredResult` from `resources/read` with a plain-string URI."""
+    from mcp.types import (
+        ElicitRequest,
+        ElicitRequestFormParams,
+        ElicitResult,
+        InputRequiredResult,
+        ReadResourceResult,
+    )
+    from pydantic import AnyUrl
+
+    elicit_request = ElicitRequest(
+        method="elicitation/create",
+        params=ElicitRequestFormParams(
+            mode="form", message="need a value", requested_schema={"type": "object", "properties": {}}
+        ),
+    )
+    input_required = InputRequiredResult(input_requests={"q1": elicit_request}, request_state="state-1")
+    terminal_result = ReadResourceResult(contents=[])
+    elicit_result = ElicitResult(action="accept", content={})
+    session = MagicMock()
+    session.read_resource = AsyncMock(side_effect=[input_required, terminal_result])
+    session.dispatch_input_request = AsyncMock(return_value=elicit_result)
+    resource_uri = AnyUrl("resource://server/thing")
+
+    result = await _compat.read_resource(session, resource_uri)
+
+    assert result is terminal_result
+    first_call = session.read_resource.await_args_list[0]
+    assert first_call.args[0] == str(resource_uri)
+    assert first_call.kwargs["allow_input_required"] is True
+    retry_kwargs = session.read_resource.await_args_list[1].kwargs
+    assert retry_kwargs["input_responses"] == {"q1": elicit_result}
+    assert retry_kwargs["request_state"] == "state-1"
+
+
 def test_mcp_error_resolves_to_installed_exception():
     """Test that MCPError is the mcp package's error type regardless of its spelling."""
     import mcp.shared.exceptions as mcp_exceptions
