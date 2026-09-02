@@ -119,7 +119,7 @@ def make_web_fetch(
             tool_context: Framework-injected. Not model-visible. Carries the
                 agent so the tool can read its cancel signal.
         """
-        cancel_signal = _extract_cancel_signal(tool_context)
+        cancel_signal = tool_context.cancel_signal if tool_context else None
         content_type, raw = await _fetch_once(
             url=url,
             max_bytes=max_bytes,
@@ -163,7 +163,7 @@ def make_web_fetch(
                 "Pass model= to make_web_fetch or call the tool from an agent."
             )
 
-        cancel_signal = _extract_cancel_signal(tool_context)
+        cancel_signal = tool_context.cancel_signal if tool_context else None
         content_type, raw = await _fetch_once(
             url=url,
             max_bytes=max_bytes,
@@ -288,15 +288,6 @@ def _parse_charset(content_type: str) -> str:
             if value:
                 return value
     return "utf-8"
-
-
-def _extract_cancel_signal(tool_context: ToolContext | None) -> threading.Event | None:
-    """Return the agent's cancellation event when available."""
-    if tool_context is None:
-        return None
-    agent: Any = getattr(tool_context, "agent", None)
-    signal: Any = getattr(agent, "_cancel_signal", None)
-    return signal if isinstance(signal, threading.Event) else None
 
 
 def _check_cancelled(cancel_signal: threading.Event | None) -> None:

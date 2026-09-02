@@ -3,33 +3,26 @@
 from __future__ import annotations
 
 import asyncio
-import importlib
 import threading
 from types import SimpleNamespace
 
 import httpx
 import pytest
+from bs4 import BeautifulSoup
 
 import strands.agent.agent as agent_module
-
-# The tool named ``web_fetch`` (re-exported by the package ``__init__``) shadows
-# the submodule of the same name in the package namespace. Load the submodule
-# explicitly so monkeypatch can rebind attributes on it.
-web_fetch_module = importlib.import_module("strands.vended_tools.web_fetch.web_fetch")
-
-from bs4 import BeautifulSoup  # noqa: E402
-
-from strands.vended_tools.web_fetch import (  # noqa: E402
-    WebFetchError,  # noqa: E402
+from strands.vended_tools.web_fetch import (
+    WebFetchError,
     make_web_fetch,
     web_fetch,
 )
-from strands.vended_tools.web_fetch import _extract as extract_module  # noqa: E402
-from strands.vended_tools.web_fetch._extract import _tag_attribute, html_to_markdown  # noqa: E402
-from strands.vended_tools.web_fetch.types import (  # noqa: E402
+from strands.vended_tools.web_fetch import _extract as extract_module
+from strands.vended_tools.web_fetch._extract import _tag_attribute, html_to_markdown
+from strands.vended_tools.web_fetch.types import (
     WEB_FETCH_DESCRIPTION_AGENTIC,
     WEB_FETCH_DESCRIPTION_MARKDOWN,
 )
+from strands.vended_tools.web_fetch.web_fetch import _parse_charset, _stream_agent
 
 
 def _transport(handler):
@@ -236,7 +229,7 @@ class TestWebFetchToolCall:
         from strands.types.tools import ToolContext, ToolUse
 
         tool_use = ToolUse(toolUseId="wf_1", name="web_fetch", input={})
-        ctx = ToolContext(tool_use=tool_use, agent=agent, invocation_state={})
+        ctx = ToolContext(tool_use=tool_use, agent=agent, invocation_state={}, cancel_signal=cancel)
 
         tool = make_web_fetch(client=_client(handler), mode="markdown")
         with pytest.raises(asyncio.CancelledError):
@@ -258,7 +251,7 @@ class TestWebFetchToolCall:
         from strands.types.tools import ToolContext, ToolUse
 
         tool_use = ToolUse(toolUseId="wf_2", name="web_fetch", input={})
-        ctx = ToolContext(tool_use=tool_use, agent=agent, invocation_state={})
+        ctx = ToolContext(tool_use=tool_use, agent=agent, invocation_state={}, cancel_signal=cancel)
 
         tool = make_web_fetch(client=_client(handler), mode="markdown")
         with pytest.raises(asyncio.CancelledError):
@@ -406,7 +399,7 @@ class TestStreamAgent:
                 cancelled.append(True)
 
         with pytest.raises(asyncio.CancelledError):
-            await web_fetch_module._stream_agent(_FakeAgent(), "prompt", cancel, "https://example.com/")
+            await _stream_agent(_FakeAgent(), "prompt", cancel, "https://example.com/")
         assert cancelled
 
     @pytest.mark.asyncio
@@ -417,23 +410,23 @@ class TestStreamAgent:
                 yield  # make it an async generator
 
         with pytest.raises(WebFetchError, match="analyst failed"):
-            await web_fetch_module._stream_agent(_FakeAgent(), "prompt", None, "https://example.com/")
+            await _stream_agent(_FakeAgent(), "prompt", None, "https://example.com/")
 
 
 class TestParseCharset:
     """_parse_charset extracts charset from Content-Type values, defaulting to utf-8."""
 
     def test_plain_charset(self):
-        assert web_fetch_module._parse_charset("text/html; charset=utf-8") == "utf-8"
+        assert _parse_charset("text/html; charset=utf-8") == "utf-8"
 
     def test_quoted_charset(self):
-        assert web_fetch_module._parse_charset('text/html; charset="iso-8859-1"') == "iso-8859-1"
+        assert _parse_charset('text/html; charset="iso-8859-1"') == "iso-8859-1"
 
     def test_missing_charset_defaults_to_utf8(self):
-        assert web_fetch_module._parse_charset("text/plain") == "utf-8"
+        assert _parse_charset("text/plain") == "utf-8"
 
     def test_empty_charset_defaults_to_utf8(self):
-        assert web_fetch_module._parse_charset("text/html; charset=") == "utf-8"
+        assert _parse_charset("text/html; charset=") == "utf-8"
 
 
 class TestHtmlToMarkdown:
