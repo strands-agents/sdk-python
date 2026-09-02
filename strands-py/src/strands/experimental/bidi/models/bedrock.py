@@ -105,6 +105,10 @@ _MAX_HISTORY_TOTAL_BYTES = 200 * 1024  # 200KB total history
 
 _STRANDS_USER_AGENT_EXTRA = "strands-agents"
 
+# Nova reports its server-assigned sessionId on more than one event type; read it from
+# whichever of these arrives first.
+_SESSION_ID_EVENT_NAMES = ("completionStart", "usageEvent")
+
 
 class BedrockNovaSonicModel(BidiModel):
     """Amazon Bedrock Nova Sonic implementation for bidirectional streaming.
@@ -192,6 +196,7 @@ class BedrockNovaSonicModel(BidiModel):
         self._connection_id: str | None = None
         self._audio_content_name: str | None = None
         self._current_completion_id: str | None = None
+        self._session_id: str | None = None
 
         # Indicates if model is done generating transcript
         self._generation_stage: str | None = None
@@ -200,6 +205,21 @@ class BedrockNovaSonicModel(BidiModel):
         self._send_lock = asyncio.Lock()
 
         logger.debug("model_id=<%s> | nova sonic model initialized", model_id)
+
+    @property
+    def session_id(self) -> str | None:
+        """Nova Sonic's server-assigned session ID for the current connection.
+
+        This is the identifier Bedrock uses for the connection on its side. Reference it in AWS
+        support cases or to correlate client-side logs with Bedrock-side telemetry. It is unrelated
+        to Strands session management, which identifies a persisted conversation.
+
+        `None` until Nova reports it, which happens on the first model response of a connection. It
+        is cleared by `start` (and therefore by `reconnect`) so the value always belongs to the
+        current connection, and retained after `stop` so it stays readable for post-mortem
+        debugging.
+        """
+        return self._session_id
 
     def _resolve_client_config(self, config: dict[str, Any]) -> dict[str, Any]:
         """Resolve AWS client config (creates boto session if needed)."""
@@ -265,6 +285,7 @@ class BedrockNovaSonicModel(BidiModel):
         logger.debug("nova connection starting")
 
         self._connection_id = str(uuid.uuid4())
+        self._session_id = None
 
         # Get credentials from boto3 session (full credential chain)
         credentials = self._session.get_credentials()
@@ -378,6 +399,18 @@ class BedrockNovaSonicModel(BidiModel):
             else:
                 logger.debug("event_payload=<%s> | nova sonic event details", json.dumps(nova_event, indent=2)[:500])
 
+    def _track_session_id(self, nova_event: dict[str, Any]) -> None:
+        """Record Nova's server-assigned session ID the first time an event carries it."""
+        if self._session_id:
+            return
+
+        for event_name in _SESSION_ID_EVENT_NAMES:
+            session_id = nova_event.get(event_name, {}).get("sessionId")
+            if session_id:
+                self._session_id = session_id
+                logger.info("session_id=<%s> | nova sonic session id received", session_id)
+                return
+
     async def receive(self) -> AsyncGenerator[BidiOutputEvent, None]:
         """Receive Nova Sonic events and convert to provider-agnostic format.
 
@@ -418,6 +451,7 @@ class BedrockNovaSonicModel(BidiModel):
 
             nova_event = json.loads(raw_bytes)["event"]
             self._log_event_type(nova_event)
+            self._track_session_id(nova_event)
 
             model_event = self._convert_nova_event(nova_event)
             if model_event:
