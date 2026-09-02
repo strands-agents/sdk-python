@@ -631,6 +631,72 @@ class TestRedirectCredentialSafety:
         redirected = captured["https://example.com/page"]
         assert redirected["x-api-key"] == "secret"
 
+    @pytest.mark.asyncio
+    async def test_https_downgrade_strips_headers(self):
+        captured: dict[str, dict[str, str]] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured[str(request.url)] = dict(request.headers)
+            if request.url.scheme == "https":
+                return httpx.Response(302, headers={"location": "http://example.com/page"})
+            return httpx.Response(200, text="ok")
+
+        client = httpx.AsyncClient(
+            transport=_make_transport(handler),
+            headers={"X-API-Key": "secret"},
+            follow_redirects=True,
+        )
+        tool = make_http_request(client=client)
+        result = await tool(method="GET", url="https://example.com/page")
+
+        assert result["status"] == 200
+        redirected = captured["http://example.com/page"]
+        assert "x-api-key" not in redirected
+
+    @pytest.mark.asyncio
+    async def test_port_change_strips_headers(self):
+        captured: dict[str, dict[str, str]] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured[str(request.url)] = dict(request.headers)
+            if request.url.port is None or request.url.port == 443:
+                return httpx.Response(302, headers={"location": "https://example.com:8443/page"})
+            return httpx.Response(200, text="ok")
+
+        client = httpx.AsyncClient(
+            transport=_make_transport(handler),
+            headers={"X-API-Key": "secret"},
+            follow_redirects=True,
+        )
+        tool = make_http_request(client=client)
+        result = await tool(method="GET", url="https://example.com/page")
+
+        assert result["status"] == 200
+        redirected = captured["https://example.com:8443/page"]
+        assert "x-api-key" not in redirected
+
+    @pytest.mark.asyncio
+    async def test_cross_origin_preserves_body_headers(self):
+        captured: dict[str, dict[str, str]] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured[str(request.url)] = dict(request.headers)
+            if request.url.host == "example.com":
+                return httpx.Response(307, headers={"location": "https://other.com/page"})
+            return httpx.Response(200, text="ok")
+
+        client = httpx.AsyncClient(
+            transport=_make_transport(handler),
+            headers={"X-API-Key": "secret"},
+            follow_redirects=True,
+        )
+        tool = make_http_request(client=client)
+        await tool(method="POST", url="https://example.com/start", body="payload")
+
+        redirected = captured["https://other.com/page"]
+        assert "x-api-key" not in redirected
+        assert "content-length" in redirected
+
 
 class TestEncodingFallback:
     """Response body decoding falls back to UTF-8 on unknown encodings."""

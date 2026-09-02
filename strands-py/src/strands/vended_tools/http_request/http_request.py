@@ -9,7 +9,7 @@ control over transport configuration, authentication, proxies, timeouts,
 redirects, and connection pooling.
 
 When redirects are enabled, the tool follows them manually and strips
-non-standard headers on cross-host hops to prevent credential leakage.
+non-standard headers on cross-origin hops to prevent credential leakage.
 
 The parent agent's cancel signal (``Agent._cancel_signal``) is propagated so
 an in-flight fetch aborts when the agent is cancelled.
@@ -30,7 +30,15 @@ from .types import DEFAULT_HTTP_REQUEST_DESCRIPTION, HttpMethod, HttpRequestOutp
 if TYPE_CHECKING:
     from ...tools.decorator import DecoratedFunctionTool
 
-_SAFE_REDIRECT_HEADERS: frozenset[str] = frozenset({"accept", "accept-encoding", "connection", "host", "user-agent"})
+_SAFE_REDIRECT_HEADERS: frozenset[str] = frozenset({
+    "accept",
+    "accept-encoding",
+    "connection",
+    "content-length",
+    "content-type",
+    "host",
+    "user-agent",
+})
 
 
 class HttpRequestError(RuntimeError):
@@ -106,7 +114,17 @@ http_request = make_http_request()
 # ---- Internals ----
 
 
-def _strip_headers_for_cross_host(headers: httpx.Headers) -> httpx.Headers:
+def _is_cross_origin(src: httpx.URL, dst: httpx.URL) -> bool:
+    """Return True when a redirect crosses an origin boundary.
+
+    Same-host http-to-https upgrades are treated as same-origin.
+    """
+    if (src.scheme, src.host, src.port) == (dst.scheme, dst.host, dst.port):
+        return False
+    return not (src.host == dst.host and src.scheme == "http" and dst.scheme == "https")
+
+
+def _strip_credential_headers(headers: httpx.Headers) -> httpx.Headers:
     """Keep only safe transport headers, dropping everything else."""
     return httpx.Headers({k: v for k, v in headers.items() if k.lower() in _SAFE_REDIRECT_HEADERS})
 
@@ -154,7 +172,7 @@ async def _perform_request(
     client: httpx.AsyncClient | None,
     cancel_signal: threading.Event | None = None,
 ) -> HttpRequestOutput:
-    """Perform the HTTP request, stripping non-standard headers on cross-host redirects."""
+    """Perform the HTTP request, stripping non-standard headers on cross-origin redirects."""
     owns_client = client is None
 
     active_client: httpx.AsyncClient
@@ -208,8 +226,8 @@ async def _perform_request(
                 if next_request is None:
                     break
 
-                if request.url.host != next_request.url.host:
-                    next_request.headers = _strip_headers_for_cross_host(next_request.headers)
+                if _is_cross_origin(request.url, next_request.url):
+                    next_request.headers = _strip_credential_headers(next_request.headers)
 
                 request = next_request
 
