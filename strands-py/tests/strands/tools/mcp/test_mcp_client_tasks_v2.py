@@ -1,8 +1,10 @@
 """Tests for finalized SEP-2663 Tasks support on mcp 2.x."""
 
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from mcp.types import CallToolResult, TextContent
@@ -16,6 +18,7 @@ from strands.tools.mcp import (
     MCPUpdateTaskResult,
 )
 from strands.tools.mcp._compat import MCP_V2
+from strands.types.exceptions import MCPClientInitializationError
 
 pytestmark = pytest.mark.skipif(not MCP_V2, reason="requires mcp 2.x")
 
@@ -29,7 +32,7 @@ TASK_BASE = {
 
 
 class FakeTaskSession:
-    """Minimal modern session fake for task protocol tests."""
+    """Minimal MCP 2.x session fake for task protocol tests."""
 
     protocol_version = "2026-07-28"
 
@@ -63,7 +66,7 @@ class FakeTaskSession:
 
 
 def task_client(session: FakeTaskSession) -> MCPClient:
-    """Create a disconnected client wired directly to a fake modern session."""
+    """Create a disconnected client wired directly to a fake MCP 2.x session."""
     client = MCPClient(lambda: None, tasks_config={"poll_interval": timedelta(microseconds=1)})
     client._background_thread_session = session
     client._server_task_capable = True
@@ -336,7 +339,7 @@ async def test_task_completion_handles_input_and_returns_nested_tool_result() ->
     )
     client = task_client(session)
 
-    result = await client._complete_modern_task(
+    result = await client._complete_v2_task(
         create_task("input_required"),
         cancellation_state={},
     )
@@ -348,6 +351,42 @@ async def test_task_completion_handles_input_and_returns_nested_tool_result() ->
         "action": "accept",
         "content": {"approved": True},
     }
+
+
+@pytest.mark.asyncio
+async def test_task_completion_answers_each_input_request_key_once() -> None:
+    """Test a re-reported input request key is deduplicated, not re-dispatched."""
+    input_request = {
+        "method": "elicitation/create",
+        "params": {
+            "mode": "form",
+            "message": "Approve?",
+            "requestedSchema": {"type": "object"},
+        },
+    }
+    input_required = {
+        **TASK_BASE,
+        "resultType": "complete",
+        "status": "input_required",
+        "inputRequests": {"request-1": input_request},
+    }
+    session = FakeTaskSession(
+        {
+            "tasks/get": [
+                input_required,
+                {**input_required, "lastUpdatedAt": "2026-09-01T00:00:02Z"},
+                completed_state(lastUpdatedAt="2026-09-01T00:00:03Z"),
+            ],
+            "tasks/update": [{"resultType": "complete"}],
+        }
+    )
+    client = task_client(session)
+
+    result = await client._complete_v2_task(create_task("input_required"), None)
+
+    assert result.content[0].text == "done"
+    assert len(session.input_requests) == 1
+    assert sum(1 for request in session.requests if request["method"] == "tasks/update") == 1
 
 
 @pytest.mark.asyncio
@@ -382,7 +421,7 @@ async def test_task_completion_ignores_stale_detailed_state() -> None:
     )
     client = task_client(session)
 
-    result = await client._complete_modern_task(create_task(), cancellation_state={})
+    result = await client._complete_v2_task(create_task(), cancellation_state={})
 
     assert result == completed_result
     assert [request["method"] for request in session.requests] == ["tasks/get", "tasks/get", "tasks/get"]
@@ -401,7 +440,7 @@ async def test_task_completion_maps_terminal_errors(state: dict[str, Any], messa
     session = FakeTaskSession({"tasks/get": [{**TASK_BASE, "resultType": "complete", **state}]})
     client = task_client(session)
 
-    result = await client._complete_modern_task(create_task(), None)
+    result = await client._complete_v2_task(create_task(), None)
 
     assert result.is_error is True
     assert result.content[0].text == message
@@ -430,3 +469,223 @@ async def test_task_timeout_requests_remote_cancellation() -> None:
     assert result.is_error is True
     assert "timed out" in result.content[0].text
     assert any(request["method"] == "tasks/cancel" for request in session.requests)
+
+
+def completed_state(**overrides: Any) -> dict[str, Any]:
+    """Build a completed tasks/get payload."""
+    result = CallToolResult(content=[TextContent(type="text", text="done")], is_error=False)
+    return {
+        **TASK_BASE,
+        "resultType": "complete",
+        "status": "completed",
+        "result": result.model_dump(by_alias=True, mode="json"),
+        **overrides,
+    }
+
+
+@pytest.mark.asyncio
+async def test_task_completion_accepts_equivalent_timestamp_spellings() -> None:
+    """Test reconciliation treats the same instant spelled differently as unchanged."""
+    session = FakeTaskSession(
+        {
+            "tasks/get": [
+                completed_state(
+                    createdAt="2026-09-01T00:00:00+00:00",
+                    lastUpdatedAt="2026-09-01T00:00:01.000+00:00",
+                )
+            ]
+        }
+    )
+    client = task_client(session)
+
+    result = await client._complete_v2_task(create_task(), None)
+
+    assert result.is_error is False
+    assert result.content[0].text == "done"
+
+
+@pytest.mark.asyncio
+async def test_task_completion_rejects_changed_created_at() -> None:
+    """Test a poll response reporting a different creation instant is contradictory."""
+    session = FakeTaskSession(
+        {"tasks/get": [completed_state(createdAt="2026-09-01T00:00:59Z", lastUpdatedAt="2026-09-01T00:01:00Z")]}
+    )
+    client = task_client(session)
+
+    with pytest.raises(ValueError, match="changed createdAt"):
+        await client._complete_v2_task(create_task(), None)
+
+
+@pytest.mark.asyncio
+async def test_task_completion_retries_stale_first_read() -> None:
+    """Test a first read older than the task handle is re-polled, not fatal."""
+    session = FakeTaskSession(
+        {
+            "tasks/get": [
+                {
+                    **TASK_BASE,
+                    "resultType": "complete",
+                    "status": "working",
+                    "lastUpdatedAt": "2026-09-01T00:00:00.500Z",
+                },
+                completed_state(lastUpdatedAt="2026-09-01T00:00:02Z"),
+            ]
+        }
+    )
+    client = task_client(session)
+
+    result = await client._complete_v2_task(create_task(), None)
+
+    assert result.content[0].text == "done"
+    assert [request["method"] for request in session.requests] == ["tasks/get", "tasks/get"]
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_failure_cancels_server_task() -> None:
+    """Test a poll-loop exit other than a timeout still cancels the created task."""
+    session = FakeTaskSession(
+        {
+            "tools/call": [create_task()],
+            "tasks/get": [completed_state(createdAt="2026-09-01T00:00:59Z", lastUpdatedAt="2026-09-01T00:01:00Z")],
+            "tasks/cancel": [{"resultType": "complete"}],
+        }
+    )
+    client = task_client(session)
+
+    with pytest.raises(ValueError, match="changed createdAt"):
+        await client._call_tool_with_task_and_poll_async("slow-tool", cancellation_state={})
+
+    assert any(request["method"] == "tasks/cancel" for request in session.requests)
+
+
+@pytest.mark.asyncio
+async def test_external_cancellation_cancels_server_task() -> None:
+    """Test cancelling the poll mid-flight sends tasks/cancel for the live task."""
+    session = FakeTaskSession(
+        {
+            "tools/call": [create_task()],
+            "tasks/get": [{**TASK_BASE, "resultType": "complete", "status": "working"} for _ in range(50)],
+            "tasks/cancel": [{"resultType": "complete"}],
+        }
+    )
+    client = task_client(session)
+
+    poll_task = asyncio.create_task(client._call_tool_with_task_and_poll_async("slow-tool", cancellation_state={}))
+    while not any(request["method"] == "tasks/get" for request in session.requests):
+        await asyncio.sleep(0.001)
+    poll_task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await poll_task
+    assert any(request["method"] == "tasks/cancel" for request in session.requests)
+
+
+@pytest.mark.asyncio
+async def test_cancellation_during_create_round_cancels_late_task_handle() -> None:
+    """Test a task handle arriving after cancellation is still cancelled."""
+    release_create = asyncio.Event()
+    session = FakeTaskSession({"tasks/cancel": [{"resultType": "complete"}]})
+
+    async def slow_call_tool(name: str, arguments: Any, timeout: Any, **kwargs: Any) -> Any:
+        await release_create.wait()
+        return create_task()
+
+    session.call_tool = slow_call_tool  # type: ignore[method-assign]
+    client = task_client(session)
+
+    poll_task = asyncio.create_task(client._call_tool_with_task_and_poll_async("slow-tool", cancellation_state={}))
+    await asyncio.sleep(0.01)
+    poll_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await poll_task
+
+    release_create.set()
+    for _ in range(100):
+        if any(request["method"] == "tasks/cancel" for request in session.requests):
+            break
+        await asyncio.sleep(0.01)
+    assert any(request["method"] == "tasks/cancel" for request in session.requests)
+
+
+@pytest.mark.asyncio
+async def test_poll_validates_lifecycle_before_sending_the_create_request() -> None:
+    """Test a protocol mismatch is rejected before any request reaches the server."""
+    session = FakeTaskSession({})
+    session.protocol_version = "2025-11-25"
+    client = task_client(session)
+
+    with pytest.raises(RuntimeError, match="negotiated MCP protocol"):
+        await client._call_tool_with_task_and_poll_async("slow-tool", cancellation_state={})
+
+    assert session.tool_calls == []
+    assert session.requests == []
+
+
+def active_task_client(session: FakeTaskSession, tasks_config: Any = None) -> MCPClient:
+    """Create a client that passes the session-active guard without a background thread."""
+    client = MCPClient(lambda: None, tasks_config=tasks_config)
+    client._background_thread_session = session
+    client._background_thread = MagicMock(is_alive=MagicMock(return_value=True))
+    return client
+
+
+class TestPublicTaskMethodGuards:
+    """The documented Raises contract of the public task lifecycle methods."""
+
+    def test_methods_require_active_session(self) -> None:
+        client = MCPClient(lambda: None, tasks_config={})
+        with pytest.raises(MCPClientInitializationError):
+            client.call_tool_with_task_sync("tool")
+        with pytest.raises(MCPClientInitializationError):
+            client.get_task_sync("task-1")
+        with pytest.raises(MCPClientInitializationError):
+            client.update_task_sync("task-1", {})
+        with pytest.raises(MCPClientInitializationError):
+            client.cancel_task_sync("task-1")
+
+    @pytest.mark.asyncio
+    async def test_async_methods_require_active_session(self) -> None:
+        client = MCPClient(lambda: None, tasks_config={})
+        with pytest.raises(MCPClientInitializationError):
+            await client.call_tool_with_task_async("tool")
+        with pytest.raises(MCPClientInitializationError):
+            await client.get_task_async("task-1")
+        with pytest.raises(MCPClientInitializationError):
+            await client.update_task_async("task-1", {})
+        with pytest.raises(MCPClientInitializationError):
+            await client.cancel_task_async("task-1")
+
+    def test_call_tool_with_task_requires_tasks_config(self) -> None:
+        client = active_task_client(FakeTaskSession({}), tasks_config=None)
+        with pytest.raises(RuntimeError, match="tasks_config"):
+            client.call_tool_with_task_sync("tool")
+
+    def test_call_tool_with_task_requires_advertised_extension(self) -> None:
+        client = active_task_client(FakeTaskSession({}), tasks_config={})
+        client._server_task_capable = False
+        with pytest.raises(RuntimeError, match="did not advertise"):
+            client.call_tool_with_task_sync("tool")
+
+    @pytest.mark.asyncio
+    async def test_task_id_must_not_be_empty(self) -> None:
+        client = active_task_client(FakeTaskSession({}), tasks_config={})
+        with pytest.raises(ValueError, match="task_id"):
+            client.get_task_sync("")
+        with pytest.raises(ValueError, match="task_id"):
+            client.update_task_sync("", {})
+        with pytest.raises(ValueError, match="task_id"):
+            client.cancel_task_sync("")
+        with pytest.raises(ValueError, match="task_id"):
+            await client.get_task_async("")
+        with pytest.raises(ValueError, match="task_id"):
+            await client.update_task_async("", {})
+        with pytest.raises(ValueError, match="task_id"):
+            await client.cancel_task_async("")
+
+    @pytest.mark.asyncio
+    async def test_input_responses_must_be_a_dictionary(self) -> None:
+        client = active_task_client(FakeTaskSession({}), tasks_config={})
+        with pytest.raises(TypeError, match="dictionary"):
+            client.update_task_sync("task-1", [("request-1", "yes")])  # type: ignore[arg-type]
+        with pytest.raises(TypeError, match="dictionary"):
+            await client.update_task_async("task-1", [("request-1", "yes")])  # type: ignore[arg-type]

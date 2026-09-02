@@ -9,6 +9,7 @@ servers.
 from .mcp_agent_tool import MCPAgentTool
 from .mcp_client import MCPClient, MCPServerConfig, ToolFilters
 from .mcp_tasks import (
+    MCPCallToolResult,
     MCPCancelTaskResult,
     MCPCreateTaskResult,
     MCPGetTaskResult,
@@ -30,6 +31,7 @@ __all__ = [
     "MCPClientCredentials",
     "MCPServerConfig",
     "MCPTransport",
+    "MCPCallToolResult",
     "MCPCancelTaskResult",
     "MCPCreateTaskResult",
     "MCPGetTaskResult",
