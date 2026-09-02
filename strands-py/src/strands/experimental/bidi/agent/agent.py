@@ -245,12 +245,31 @@ class BidiAgent(LocalAgent):
         *,
         order: float = HookOrder.DEFAULT,
     ) -> None:
-        """Register a callback function for one or more event types.
+        """Register a callback function for a specific event type.
+
+        This method supports multiple call patterns:
+        1. ``add_hook(callback)`` - Event type inferred from callback's type hint
+        2. ``add_hook(callback, event_type)`` - Event type specified explicitly
+        3. ``add_hook(callback, [TypeA, TypeB])`` - Register for multiple event types
+
+        When the callback's type hint is a union type (``A | B`` or ``Union[A, B]``),
+        the callback is automatically registered for each event type in the union.
+
+        Callbacks can be either synchronous or asynchronous functions.
 
         Args:
-            callback: The callback function to invoke.
-            event_type: The event type or types to handle. If omitted, the type is inferred from the callback.
+            callback: The callback function to invoke when events of this type occur.
+            event_type: The class type(s) of events this callback should handle.
+                Can be a single type, a list of types, or None to infer from
+                the callback's first parameter type hint. If a list is provided,
+                the callback is registered for each type in the list.
             order: Execution priority. Lower values execute first.
+                Use a HookOrder constant such as SDK_FIRST (-100), DEFAULT (0),
+                MODEL_ROUTING (50), or SDK_LAST (100).
+
+        Raises:
+            ValueError: If event_type is not provided and cannot be inferred from
+                the callback's type hints, or if the event_type list is empty.
         """
         self.hooks.add_callback(event_type, callback, order=order)
 
