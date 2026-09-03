@@ -45,13 +45,16 @@ export class BackgroundTasks implements Plugin {
   private readonly _manageTool: Tool
   private readonly _tasks = new Map<string, BackgroundTask>()
   /**
-   * The `invocationState` of the invocation that dispatched each task, by task id.
-   * Compared by reference against the delivering event's `invocationState` to mark
-   * results that belong to an earlier request (`startedBy` on the synthetic tool use),
-   * so the model does not fold an old task's result into its answer to a new caller.
+   * The id of the invocation that dispatched each task, by task id. Compared
+   * against the delivering invocation's id to mark results that belong to an
+   * earlier request (`startedBy` on the synthetic tool use), so the model does
+   * not fold an old task's result into its answer to a new caller. Invocation
+   * ids are minted by the agent per logical request - unlike the caller-supplied
+   * `invocationState` object, which callers (e.g. `AgentAsTool`, or a serving
+   * layer reusing one options object) may share across distinct invocations.
    * Recovered tasks (loaded from app state) have no entry and are treated as earlier.
    */
-  private readonly _taskDispatchState = new Map<string, InvocationState>()
+  private readonly _taskDispatchInvocation = new Map<string, number>()
   private _agent!: Agent
   private _manager!: BackgroundTaskManager
 
@@ -193,7 +196,7 @@ export class BackgroundTasks implements Plugin {
 
     try {
       const task = await this._manager.submit(toolUse, invocationState, passId, tool)
-      this._taskDispatchState.set(task.taskId, invocationState)
+      this._taskDispatchInvocation.set(task.taskId, this._agent._invocationId)
       return new ToolResultBlock({
         toolUseId: toolUse.toolUseId,
         status: 'success',
@@ -332,8 +335,10 @@ export class BackgroundTasks implements Plugin {
         ]
         // A result delivered in a different invocation than the one that dispatched it
         // carries provenance, so the model attributes it to the earlier request rather
-        // than folding it into its answer to the current caller.
-        const dispatchedHere = this._taskDispatchState.get(task.taskId) === event.invocationState
+        // than folding it into its answer to the current caller. Keyed on the
+        // agent-minted invocation id, not the caller-supplied `invocationState`
+        // reference, which is not unique per invocation.
+        const dispatchedHere = this._taskDispatchInvocation.get(task.taskId) === this._agent._invocationId
         return [
           new Message({
             role: 'assistant',
@@ -366,7 +371,7 @@ export class BackgroundTasks implements Plugin {
         await this._manager.remove(managerTaskIds)
         for (const taskId of taskIds) {
           this._tasks.delete(taskId)
-          this._taskDispatchState.delete(taskId)
+          this._taskDispatchInvocation.delete(taskId)
         }
         this._persistTasks()
       },
@@ -375,7 +380,7 @@ export class BackgroundTasks implements Plugin {
 
   _loadAppState(): void {
     this._tasks.clear()
-    this._taskDispatchState.clear()
+    this._taskDispatchInvocation.clear()
     const storedTasks =
       (this._agent.appState.get(BACKGROUND_TASKS_STATE_KEY) as unknown as BackgroundTask[] | undefined) ?? []
     const recoveredInterruptIds = new Set<string>()

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { MockMessageModel } from '../../__fixtures__/mock-message-model.js'
+import { AfterInvocationEvent } from '../../hooks/events.js'
 import { ExecuteToolStage } from '../../middleware/index.js'
 import { tool } from '../../tools/tool-factory.js'
 import { InterruptResponseContent } from '../../types/interrupt.js'
@@ -410,6 +411,168 @@ describe('concurrentInvocationMode enqueue × backgroundTasks', () => {
     ])
     expect(resumed.stopReason).toBe('endTurn')
     expect(messageIndex(agent, hasBackgroundDelivery)).toBeGreaterThan(-1)
+    expect(persistedTasks(agent)).toBeUndefined()
+  })
+  it('marks a cross-invocation delivery even when both invocations share one options object', async () => {
+    const work = createGate('work')
+    const firstGate = createGate('first_gate')
+    const secondGate = createGate('second_gate')
+    const model = new MockMessageModel()
+      .addTurn([
+        { type: 'toolUseBlock', name: 'work', toolUseId: 'work-use', input: {} },
+        { type: 'toolUseBlock', name: 'first_gate', toolUseId: 'first-gate-use', input: {} },
+      ])
+      .addTurn({ type: 'textBlock', text: 'first done' })
+      .addTurn({ type: 'toolUseBlock', name: 'second_gate', toolUseId: 'second-gate-use', input: {} })
+      .addTurn({ type: 'textBlock', text: 'second done' })
+    const agent = new Agent({
+      model,
+      tools: [work.tool, firstGate.tool, secondGate.tool],
+      backgroundTasks: { always: [work.tool], never: [firstGate.tool, secondGate.tool], waitForCompletion: false },
+      concurrentInvocationMode: 'enqueue',
+      printer: false,
+    })
+
+    // One options object reused verbatim across invocations - exactly what
+    // AgentAsTool does when it forwards the outer invocation's state into a
+    // sub-agent, and what a serving layer reusing one options literal does.
+    // Provenance must be keyed on the invocation, not this object's identity.
+    const sharedOptions = { invocationState: {} }
+
+    const first = agent.invoke('first', sharedOptions)
+    await firstGate.started
+    const second = agent.invoke('second', sharedOptions)
+    expect(agent.pendingInvocations).toHaveLength(1)
+
+    firstGate.release()
+    const firstResult = await first
+    expect(resultText(firstResult)).toBe('first done')
+    expect(persistedTasks(agent)?.map((task) => task.status)).toEqual(['working'])
+
+    await secondGate.started
+    work.release()
+    await until(() => persistedTasks(agent)?.[0]?.status === 'completed', 'background task settled')
+    secondGate.release()
+
+    const secondResult = await second
+    expect(resultText(secondResult)).toBe('second done')
+    // The delivery is genuinely cross-invocation, so it must carry provenance
+    // even though both invocations shared one invocationState reference.
+    expect(deliveryInput(agent)).toEqual({ toolName: 'work', startedBy: 'an earlier request in this conversation' })
+    expect(persistedTasks(agent)).toBeUndefined()
+  })
+
+  it('does not mark a delivery in the resume of an interrupted invocation as an earlier request', async () => {
+    const approval = tool({
+      name: 'approval',
+      description: 'Wait for approval.',
+      inputSchema: z.object({}),
+      callback: () => 'approved',
+    })
+    const holdGate = createGate('hold_gate')
+    const model = new MockMessageModel()
+      .addTurn([
+        { type: 'toolUseBlock', name: 'approval', toolUseId: 'approval-use', input: {} },
+        { type: 'toolUseBlock', name: 'hold_gate', toolUseId: 'hold-gate-use', input: {} },
+      ])
+      .addTurn({ type: 'textBlock', text: 'resumed' })
+      .addTurn({ type: 'textBlock', text: 'delivered' })
+    const agent = new Agent({
+      model,
+      tools: [approval, holdGate.tool],
+      backgroundTasks: { always: [approval], never: [holdGate.tool] },
+      printer: false,
+    })
+    agent.addMiddleware(ExecuteToolStage, async function* (context, next) {
+      if (context.toolUse.name === 'approval') {
+        context.interrupt<string>({ name: 'approve', reason: 'Approve work?' })
+      }
+      return yield* next(context)
+    })
+
+    const first = agent.invoke('first')
+    await holdGate.started
+    await until(() => (persistedTasks(agent) ?? []).some((task) => task.status === 'input_required'), 'input_required')
+    holdGate.release()
+    const firstResult = await first
+    expect(firstResult.stopReason).toBe('interrupt')
+
+    // The resume continues the interrupted invocation - it is the same logical
+    // request that dispatched the task, so its delivery carries no provenance
+    // marker (labeling it "an earlier request" would misattribute the user's
+    // own resumed work).
+    const resumed = await agent.invoke([
+      new InterruptResponseContent({
+        interruptId: firstResult.interrupts![0]!.id,
+        response: 'yes',
+      }),
+    ])
+    expect(resumed.stopReason).toBe('endTurn')
+    expect(deliveryInput(agent)).toEqual({ toolName: 'approval' })
+    expect(persistedTasks(agent)).toBeUndefined()
+  })
+
+  it('surfaces an interrupt raised during the settlement wait even when a hook cancels after resume is set', async () => {
+    const approval = tool({
+      name: 'approval',
+      description: 'Wait for approval.',
+      inputSchema: z.object({}),
+      callback: () => 'approved',
+    })
+    let releaseApproval!: () => void
+    const approvalGate = new Promise<void>((resolve) => (releaseApproval = resolve))
+    const model = new MockMessageModel()
+      .addTurn({ type: 'toolUseBlock', name: 'approval', toolUseId: 'approval-use', input: {} })
+      .addTurn({ type: 'textBlock', text: 'first done' })
+      .addTurn({ type: 'textBlock', text: 'resumed' })
+      .addTurn({ type: 'textBlock', text: 'delivered' })
+    const agent = new Agent({
+      model,
+      tools: [approval],
+      backgroundTasks: { always: [approval] },
+      printer: false,
+    })
+    agent.addMiddleware(ExecuteToolStage, async function* (context, next) {
+      if (context.toolUse.name === 'approval') {
+        await approvalGate
+        context.interrupt<string>({ name: 'approve', reason: 'Approve work?' })
+      }
+      return yield* next(context)
+    })
+    // A cleanup hook that cancels at end of invocation. AfterInvocation callbacks
+    // run in reverse registration order, so this pre-plugin registration fires
+    // AFTER the background-tasks plugin has set `event.resume` - the abort is
+    // visible when stream() reads its cancellation gate, unlike a cancel landing
+    // mid-pass (which the per-pass controller reset wipes before the gate read).
+    // This is the scenario that distinguishes the deliberate non-gating of
+    // `resume` from gating it: gated, the interrupt would be silently dropped
+    // and the caller would get a plain result it cannot resume from.
+    agent.addHook(AfterInvocationEvent, (event) => {
+      if (event.resume !== undefined) agent.cancel()
+    })
+
+    const first = agent.invoke('first')
+    // Let the invocation finish its final model pass, then let the task interrupt
+    // land during the end-of-invocation settlement wait.
+    await until(() => agent.messages.some((message) => hasText(message.content, 'first done')), 'first final turn')
+    releaseApproval()
+
+    const firstResult = await first
+    expect(firstResult.stopReason).toBe('interrupt')
+    expect(firstResult.interrupts).toHaveLength(1)
+    // The resume pass raised the interrupt before any model call.
+    expect(model.callCount).toBe(2)
+
+    // The interrupt remains resumable, and the resumed delivery belongs to the
+    // same logical request (no provenance marker).
+    const resumed = await agent.invoke([
+      new InterruptResponseContent({
+        interruptId: firstResult.interrupts![0]!.id,
+        response: 'yes',
+      }),
+    ])
+    expect(resumed.stopReason).toBe('endTurn')
+    expect(deliveryInput(agent)).toEqual({ toolName: 'approval' })
     expect(persistedTasks(agent)).toBeUndefined()
   })
 })

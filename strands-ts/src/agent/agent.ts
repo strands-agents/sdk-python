@@ -597,6 +597,17 @@ export class Agent implements LocalAgent, InvokableAgent {
   private _mcpClients: McpClient[]
   private _initialized: boolean
   private _isInvoking: boolean = false
+  /** Monotonic sequence backing {@link _invocationId}. */
+  private _invocationSeq: number = 0
+  /**
+   * Identity of the logical request currently holding the turn. Minted per
+   * invocation; a resume from an interrupted state keeps the interrupted
+   * invocation's id, because it continues the same logical request. The
+   * caller-supplied `invocationState` object is NOT an invocation identity -
+   * callers may reuse one object across invocations (as `AgentAsTool` does).
+   * @internal
+   */
+  _invocationId: number = 0
   private readonly _concurrentInvocationMode: ConcurrentInvocationMode
   /** Invocations waiting for the lock. Only populated under 'enqueue'/'interrupt' concurrency. */
   private readonly _invocationQueue: InvocationQueue
@@ -1384,6 +1395,13 @@ export class Agent implements LocalAgent, InvokableAgent {
     let continuationEvent: AfterInvocationEvent | undefined
     try {
       await this.initialize()
+
+      // Mint this request's identity. A resume from an interrupted state keeps the
+      // interrupted invocation's id - it continues that request, not a new one -
+      // so work dispatched before the interrupt still classifies as "this request".
+      if (!this._interruptState.activated) {
+        this._invocationId = ++this._invocationSeq
+      }
 
       // Thread the resolved invocationState so all layers share the same reference.
       const invocationState = options?.invocationState ?? {}
