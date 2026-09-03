@@ -161,12 +161,6 @@ describe('S3Storage', () => {
       expect(storage).toBeDefined()
     })
 
-    it('throws when embeddings is true without an embedder', () => {
-      expect(() => new S3Storage('my-bucket', { embeddings: true })).toThrow(
-        'S3Storage embeddings: true requires an embedder'
-      )
-    })
-
     it('searchStrategy takes precedence over embeddings', async () => {
       const mockStrategy = {
         search: vi.fn().mockResolvedValue([{ key: 'x', score: 1 }]),

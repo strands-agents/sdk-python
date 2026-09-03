@@ -1,10 +1,19 @@
 import type { Sandbox } from '../sandbox/base.js'
 import type { Storage, StorageSearchResult } from './storage.js'
-import type { SearchStrategy } from './search/types.js'
+import type { EmbeddingsConfig, SearchStrategy } from './search/types.js'
 
 import { StorageError } from '../errors.js'
 import { NAMESPACED, normalizeKey, normalizePrefix } from './storage.js'
 import { KeywordSearchStrategy } from './search/keyword.js'
+import { LocalVectorSearchStrategy } from './search/local-vector.js'
+
+/** Configuration for {@link LocalFileStorage}. */
+export interface LocalFileStorageConfig {
+  /** Search strategy to use instead of the default keyword search. Takes precedence over `embeddings`. */
+  searchStrategy?: SearchStrategy
+  /** Shorthand for enabling vector search. Automatically wires up a {@link LocalVectorSearchStrategy}. */
+  embeddings?: EmbeddingsConfig
+}
 
 /**
  * Returns true if the error represents a missing or non-directory path (ENOENT or ENOTDIR).
@@ -48,12 +57,24 @@ export class LocalFileStorage implements Storage {
   /**
    * @param baseDir - Root directory under which keys are stored. Defaults to `./.strands/`.
    * @param sandbox - Optional sandbox to route I/O through. Usually set via {@link forSandbox}.
-   * @param searchStrategy - Optional search strategy. Defaults to keyword token-overlap scoring.
+   * @param config - Optional configuration for search strategy or embeddings.
    */
-  constructor(baseDir: string = './.strands/', sandbox?: Sandbox, searchStrategy?: SearchStrategy) {
+  constructor(baseDir: string = './.strands/', sandbox?: Sandbox, config?: LocalFileStorageConfig) {
     this._baseDir = baseDir.replace(/\/{2,}/g, '/').replace(/(.)\/$/, '$1')
     this._sandbox = sandbox
-    this._searchStrategy = searchStrategy ?? KeywordSearchStrategy
+    this._searchStrategy =
+      config?.searchStrategy ?? this._resolveEmbeddings(config?.embeddings) ?? KeywordSearchStrategy
+  }
+
+  private _resolveEmbeddings(embeddings: EmbeddingsConfig | undefined): SearchStrategy | undefined {
+    if (!embeddings) return undefined
+    return new LocalVectorSearchStrategy(
+      {
+        embedder: embeddings.embedder,
+        ...(embeddings.maxResults != null && { maxResults: embeddings.maxResults }),
+      },
+      this._baseDir
+    )
   }
 
   /**
@@ -66,7 +87,7 @@ export class LocalFileStorage implements Storage {
    */
   forSandbox(sandbox: Sandbox): LocalFileStorage {
     if (this._sandbox) return this
-    return new LocalFileStorage(this._baseDir, sandbox, this._searchStrategy)
+    return new LocalFileStorage(this._baseDir, sandbox, { searchStrategy: this._searchStrategy })
   }
 
   /**
@@ -257,7 +278,7 @@ export class LocalFileStorage implements Storage {
   namespace(prefix: string): LocalFileStorage {
     const normalized = normalizePrefix(prefix)
     const subDir = normalized ? `${this._baseDir.replace(/\/$/, '')}/${normalized}` : this._baseDir
-    const scoped = new LocalFileStorage(subDir, this._sandbox, this._searchStrategy)
+    const scoped = new LocalFileStorage(subDir, this._sandbox, { searchStrategy: this._searchStrategy })
     Object.defineProperty(scoped, NAMESPACED, { value: true })
     return scoped
   }

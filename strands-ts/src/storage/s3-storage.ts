@@ -1,29 +1,17 @@
 import type { Storage, StorageSearchResult } from './storage.js'
-import type { Embedder, SearchStrategy } from './search/types.js'
+import type { EmbeddingsConfig, SearchStrategy } from './search/types.js'
 
 import { StorageError } from '../errors.js'
 import { namespace, normalizeKey, normalizePrefix } from './storage.js'
 import { KeywordSearchStrategy } from './search/keyword.js'
 import { S3VectorSearchStrategy } from './search/s3-vector.js'
 
-/**
- * Shorthand for enabling native S3 Vector search.
- *
- * Pass `true` to use defaults (requires `vectorBucketName` and `indexName` on the
- * storage config), or a config object for fine-grained control.
- */
-export type S3Embeddings = true | S3EmbeddingsConfig
-
-/** Configuration for the {@link S3Embeddings} shorthand. */
-export interface S3EmbeddingsConfig {
-  /** Function that produces embedding vectors from text. */
-  embedder: Embedder
+/** S3-specific embeddings configuration extending the shared {@link EmbeddingsConfig}. */
+export interface S3EmbeddingsConfig extends EmbeddingsConfig {
   /** S3 Vectors bucket name. Defaults to the storage bucket name suffixed with `-vectors`. */
   vectorBucketName?: string
   /** Vector index name. Defaults to `'default'`. */
   indexName?: string
-  /** Maximum number of results to return. Defaults to 10. */
-  maxResults?: number
 }
 
 /** Configuration for {@link S3Storage}. */
@@ -42,7 +30,7 @@ export interface S3StorageConfig {
    * Pass a config object with an `embedder` to automatically wire up an
    * {@link S3VectorSearchStrategy}. Ignored if `searchStrategy` is also provided.
    */
-  embeddings?: S3Embeddings
+  embeddings?: S3EmbeddingsConfig
 }
 
 const S3_PAGE_SIZE = 1000
@@ -86,11 +74,8 @@ export class S3Storage implements Storage {
       config?.searchStrategy ?? this._resolveEmbeddings(config?.embeddings) ?? KeywordSearchStrategy
   }
 
-  private _resolveEmbeddings(embeddings: S3Embeddings | undefined): SearchStrategy | undefined {
+  private _resolveEmbeddings(embeddings: S3EmbeddingsConfig | undefined): SearchStrategy | undefined {
     if (!embeddings) return undefined
-    if (embeddings === true) {
-      throw new StorageError('S3Storage embeddings: true requires an embedder — pass { embedder: fn } instead')
-    }
     return new S3VectorSearchStrategy({
       embedder: embeddings.embedder,
       vectorBucketName: embeddings.vectorBucketName ?? `${this._bucket}-vectors`,
