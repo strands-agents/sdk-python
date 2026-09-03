@@ -44,7 +44,7 @@ from ..types.events import (
     BidiUsageEvent,
 )
 from ..types.model import BidiConnectionConfig
-from ._reconnect_timer import _BidiReconnectTimer, resolve_deadline_s
+from ._reconnect_timer import BidiReconnectTimer, resolve_deadline_s
 
 if TYPE_CHECKING:
     from .agent import BidiAgent
@@ -52,13 +52,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Bound on awaiting a superseded reader after its stream is closed before cancelling it.
-_READER_REAP_TIMEOUT_S = 2.0
+_MODEL_RESTART_STOP_TIMEOUT_S = 2
 
 # Fixed advance notice, in seconds before a scheduled reconnect, for the warning event.
-_WARNING_LEAD_S = 10.0
+_MODEL_RESTART_WARNING_S = 10
 
 # Max seconds a proactive reconnect waits for a turn boundary before forcing the swap.
-_TURN_ALIGN_WAIT_S = 10.0
+_MODEL_RESTART_TURN_TIMEOUT_S = 10
 
 
 @dataclass(frozen=True)
@@ -123,7 +123,7 @@ class _BidiAgentLoop:
         self._baseline_total_tokens = 0
         self._baseline_cache_read_tokens = 0
 
-        self._reconnect_timer = _BidiReconnectTimer(
+        self._reconnect_timer = BidiReconnectTimer(
             on_warning=self._on_reconnect_warning,
             on_deadline=self._on_reconnect_deadline,
         )
@@ -367,9 +367,9 @@ class _BidiAgentLoop:
         deadline_s = resolve_deadline_s(self._connection_config())
         if deadline_s is None:
             return
-        self._reconnect_timer.arm(deadline_s, _WARNING_LEAD_S)
+        self._reconnect_timer.arm(deadline_s, _MODEL_RESTART_WARNING_S)
 
-    async def _on_reconnect_warning(self, time_left_s: float) -> None:
+    async def _on_reconnect_warning(self, time_left_s: int) -> None:
         """Timer callback: surface an approaching-reconnect warning to the receiver.
 
         Emitted on the lifecycle queue: non-blocking (so it never stalls the timer's run to the
@@ -408,15 +408,18 @@ class _BidiAgentLoop:
         """Wait for the current turn to finish, bounded so the reconnect beats the limit.
 
         Returns immediately at a turn boundary (including for a provider that emits no turn
-        events). Otherwise waits up to ``_TURN_ALIGN_WAIT_S`` for the turn to complete, then
+        events). Otherwise waits up to ``_MODEL_RESTART_TURN_TIMEOUT_S`` for the turn to complete, then
         proceeds so the swap does not overrun the headroom below the provider limit.
         """
         if self._turn_complete.is_set():
             return
         try:
-            await asyncio.wait_for(self._turn_complete.wait(), timeout=_TURN_ALIGN_WAIT_S)
+            await asyncio.wait_for(self._turn_complete.wait(), timeout=_MODEL_RESTART_TURN_TIMEOUT_S)
         except asyncio.TimeoutError:
-            logger.debug("no turn boundary within %.1fs | forcing reconnect", _TURN_ALIGN_WAIT_S)
+            logger.debug(
+                "no turn boundary within %.1fs | forcing reconnect",
+                _MODEL_RESTART_TURN_TIMEOUT_S,
+            )
 
     def _reset_turn_state(self) -> None:
         """Reset turn tracking to the idle boundary state."""
@@ -505,7 +508,7 @@ class _BidiAgentLoop:
             previous_reader = self._model_task
             self._generation += 1
             await self._reconnect_model(restart_kwargs)
-            await self._await_superseded_reader(previous_reader)
+            await self._wait_for_model_task(previous_reader)
             self._model_task = self._task_pool.create(self._run_model(self._generation))
         except Exception as exception:
             restart_exception = exception
@@ -539,7 +542,7 @@ class _BidiAgentLoop:
 
         await model.reconnect(system_prompt, tools, messages, **restart_kwargs)
 
-    async def _await_superseded_reader(self, task: asyncio.Task | None) -> None:
+    async def _wait_for_model_task(self, task: asyncio.Task | None) -> None:
         """Await a superseded reader after its stream is closed; cancel only as a backstop.
 
         The reader is expected to fall out of receive() when its connection is closed. It is
@@ -549,7 +552,7 @@ class _BidiAgentLoop:
         if task is None or task.done():
             return
         try:
-            await asyncio.wait_for(task, timeout=_READER_REAP_TIMEOUT_S)
+            await asyncio.wait_for(task, timeout=_MODEL_RESTART_STOP_TIMEOUT_S)
         except Exception as error:
             # Expected: the reader's stream-close error, or the reap timeout. Logged, not
             # forwarded — the current reader is the only one that surfaces errors to the consumer.
