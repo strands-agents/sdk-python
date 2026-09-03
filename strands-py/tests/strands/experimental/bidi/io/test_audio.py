@@ -421,7 +421,7 @@ def test_audio_config_is_keyword_only():
 
 
 # ---------------------------------------------------------------------------
-# _BidiAudioProcessor startup — sample rate gate and native processor construction
+# _BidiAudioProcessor startup and native processor construction
 # ---------------------------------------------------------------------------
 
 
@@ -446,10 +446,12 @@ def test_processor_construction_builds_audio_processor_with_config():
 
 
 @pytest.mark.parametrize("rate", [8000, 16000, 24000, 44100, 48000, 96000, 384000])
-def test_processor_construction_accepts_supported_rates(rate):
-    processor_patch, _, _ = _fake_audio_processor()
+def test_processor_construction_passes_input_rate_to_audio_processor(rate):
+    processor_patch, processor_class, _ = _fake_audio_processor()
     with processor_patch:
         _create_processor(input_rate=rate, output_rate=rate)
+
+    assert processor_class.call_args.kwargs["sample_rate"] == rate
 
 
 # ---------------------------------------------------------------------------
