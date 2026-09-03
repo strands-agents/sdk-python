@@ -1144,6 +1144,45 @@ async def test_stream_yields_tool_input_deltas_while_the_turn_is_in_flight(opena
 
 
 @pytest.mark.asyncio
+async def test_stream_groups_tool_fragments_when_the_opening_fragment_has_no_identity(openai_client, model, messages):
+    """Guards against starting a tool block from a fragment that carries no tool id or name (#3946)."""
+    events = [
+        _tool_call_fragment(0, '{"expression"'),
+        _tool_call_fragment(0, ': "2+2"}', tool_use_id="c1", tool_name="calculator"),
+    ]
+    events = [_tool_call_event([events[0]]), _tool_call_event([events[1]]), _tool_call_event([], "tool_calls")]
+
+    consumed = 0
+
+    async def source():
+        nonlocal consumed
+        for event in events:
+            consumed += 1
+            yield event
+
+    openai_client.chat.completions.create = unittest.mock.AsyncMock(return_value=source())
+
+    consumed_at_first_input_delta = None
+    streamed_events = []
+    async for chunk in model.stream(messages):
+        streamed_events.append(chunk)
+        if consumed_at_first_input_delta is None and "toolUse" in chunk.get("contentBlockDelta", {}).get("delta", {}):
+            consumed_at_first_input_delta = consumed
+
+    tru_consumed_at_first_input_delta = consumed_at_first_input_delta
+    exp_consumed_at_first_input_delta = len(events)
+    assert tru_consumed_at_first_input_delta == exp_consumed_at_first_input_delta
+
+    tru_inputs = [
+        chunk["contentBlockDelta"]["delta"]["toolUse"]["input"]
+        for chunk in streamed_events
+        if "toolUse" in chunk.get("contentBlockDelta", {}).get("delta", {})
+    ]
+    exp_inputs = ['{"expression"', ': "2+2"}']
+    assert tru_inputs == exp_inputs
+
+
+@pytest.mark.asyncio
 async def test_stream_closes_tool_block_when_the_stream_ends_without_finish_reason(openai_client, model, messages):
     """Guards against an inline tool block being left open when no finish_reason arrives (#3946)."""
     events = [
