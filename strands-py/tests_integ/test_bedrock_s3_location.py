@@ -109,6 +109,23 @@ def s3_video(s3_client, test_bucket, blue_video):
     return f"s3://{test_bucket}/{video_key}"
 
 
+@pytest.fixture
+def s3_audio(s3_client, test_bucket, yellow_audio):
+    """Upload a test audio file to S3 and return its URI."""
+    audio_key = "test-audio/yellow.mp3"
+
+    # Upload the audio using existing yellow_audio fixture
+    s3_client.put_object(
+        Bucket=test_bucket,
+        Key=audio_key,
+        Body=yellow_audio,
+        ContentType="audio/mpeg",
+    )
+    print(f"Uploaded test audio to s3://{test_bucket}/{audio_key}")
+
+    return f"s3://{test_bucket}/{audio_key}"
+
+
 def test_document_s3_location(s3_document, account_id):
     """Test that Bedrock correctly formats a document with S3 location."""
     messages = [
@@ -171,6 +188,28 @@ def test_video_s3_location(s3_video):
     ]
 
     agent = Agent(model=BedrockModel(model_id="us.amazon.nova-pro-v1:0", region_name="us-west-2"))
+    result = agent(messages)
+
+    # The actual recognition capabilities of these models is not great, so just asserting that the call actually worked.
+    assert len(str(result)) > 0
+
+
+def test_audio_s3_location(s3_audio):
+    """Test that Bedrock correctly formats audio with S3 location."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "What is said in this audio?"},
+                {"audio": {"format": "mp3", "source": {"location": {"type": "s3", "uri": s3_audio}}}},
+            ],
+        },
+    ]
+
+    # Voxtral Mini 3B is used here because the Nova models above do not accept audio input.
+    # It is an in-region model with no geo or global inference profile, and is available in
+    # us-west-2 where this module's test bucket lives.
+    agent = Agent(model=BedrockModel(model_id="mistral.voxtral-mini-3b-2507", region_name="us-west-2"))
     result = agent(messages)
 
     # The actual recognition capabilities of these models is not great, so just asserting that the call actually worked.

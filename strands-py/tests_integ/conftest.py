@@ -164,6 +164,14 @@ def blue_video(pytestconfig):
         return fp.read()
 
 
+@pytest.fixture
+def yellow_audio(pytestconfig):
+    """Short spoken clip of the sentence: The color is yellow."""
+    path = pytestconfig.rootdir / "tests_integ/resources/yellow.mp3"
+    with open(path, "rb") as fp:
+        return fp.read()
+
+
 ## Async
 
 

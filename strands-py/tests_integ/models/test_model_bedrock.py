@@ -18,6 +18,15 @@ from strands.types.content import ContentBlock
 # supports CachePoint TTL.
 _CACHE_TTL_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 
+# Model ID used for audio input integration tests. The Nova models used elsewhere
+# in this file list audio as an unsupported input modality; Voxtral Mini 3B accepts
+# speech over Converse. Per
+# https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-mistral-ai-voxtral-mini-3b-2507.html
+# it is offered as an in-region model only, with no geo or global inference
+# profile, so the region is pinned to one where it is available.
+_AUDIO_MODEL_ID = "mistral.voxtral-mini-3b-2507"
+_AUDIO_REGION = "us-east-1"
+
 
 @pytest.fixture
 def system_prompt():
@@ -52,6 +61,14 @@ def non_streaming_agent(non_streaming_model, system_prompt):
     return Agent(
         model=non_streaming_model,
         system_prompt=system_prompt,
+        load_tools_from_directory=False,
+    )
+
+
+@pytest.fixture
+def audio_agent():
+    return Agent(
+        model=BedrockModel(model_id=_AUDIO_MODEL_ID, region_name=_AUDIO_REGION),
         load_tools_from_directory=False,
     )
 
@@ -222,6 +239,24 @@ def test_invoke_multi_modal_input(streaming_agent, yellow_img):
     ]
     result = streaming_agent(content)
     text = result.message["content"][0]["text"].lower()
+
+    assert "yellow" in text
+
+
+def test_invoke_audio_input(audio_agent, yellow_audio):
+    content: list[ContentBlock] = [
+        {"text": "What color is named in this audio? Answer with the color only."},
+        {
+            "audio": {
+                "format": "mp3",
+                "source": {
+                    "bytes": yellow_audio,
+                },
+            },
+        },
+    ]
+    result = audio_agent(content)
+    text = str(result).lower()
 
     assert "yellow" in text
 
