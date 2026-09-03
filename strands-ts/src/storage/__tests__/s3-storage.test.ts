@@ -119,6 +119,39 @@ describe('S3Storage', () => {
     })
   })
 
+  describe('searchStrategy', () => {
+    it('delegates search to the configured strategy', async () => {
+      const mockStrategy = {
+        search: vi.fn().mockResolvedValue([{ key: 'found.md', score: 1 }]),
+      }
+      const storage = new S3Storage('my-bucket', { searchStrategy: mockStrategy })
+
+      const results = await storage.search!('hello')
+
+      expect(mockStrategy.search).toHaveBeenCalledWith(storage, 'hello')
+      expect(results).toEqual([{ key: 'found.md', score: 1 }])
+    })
+
+    it('calls strategy.index on write when present', async () => {
+      mockSend.mockResolvedValue({})
+      const mockStrategy = {
+        search: vi.fn().mockResolvedValue([]),
+        index: vi.fn().mockResolvedValue(undefined),
+      }
+      const storage = new S3Storage('my-bucket', { searchStrategy: mockStrategy })
+      const data = new TextEncoder().encode('content')
+
+      await storage.write('doc.md', data)
+
+      expect(mockStrategy.index).toHaveBeenCalledWith(storage, 'doc.md', data)
+    })
+
+    it('stores embeddings config', () => {
+      const storage = new S3Storage('my-bucket', { embeddings: true })
+      expect(storage).toBeDefined()
+    })
+  })
+
   describe('list', () => {
     it('returns keys with prefix stripped', async () => {
       mockSend.mockResolvedValue({

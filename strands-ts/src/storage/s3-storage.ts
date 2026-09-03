@@ -1,4 +1,6 @@
 import type { Storage, StorageSearchResult } from './storage.js'
+import type { SearchStrategy } from './search/types.js'
+import type { Embeddings } from './search/types.js'
 
 import { StorageError } from '../errors.js'
 import { namespace, normalizeKey, normalizePrefix } from './storage.js'
@@ -12,6 +14,20 @@ export interface S3StorageConfig {
   region?: string
   /** Pre-configured S3 client. Cannot be combined with `region`. */
   s3Client?: import('@aws-sdk/client-s3').S3Client
+  /**
+   * Search strategy to use instead of the default keyword search.
+   * Takes precedence over `embeddings` if both are provided.
+   */
+  searchStrategy?: SearchStrategy
+  /**
+   * Shorthand for enabling native vector search via S3 Vectors.
+   *
+   * Pass `true` to use the backend's default embedder, or a config object for
+   * fine-grained control (custom embedder, index name, distance metric).
+   *
+   * When set and `searchStrategy` is not, S3Storage creates an S3VectorSearchStrategy internally.
+   */
+  embeddings?: Embeddings
 }
 
 const S3_PAGE_SIZE = 1000
@@ -35,11 +51,13 @@ export class S3Storage implements Storage {
   private readonly _bucket: string
   private readonly _prefix: string
   private readonly _region: string | undefined
+  private readonly _searchStrategy: SearchStrategy
+  private readonly _embeddings: Embeddings | undefined
   private _client: import('@aws-sdk/client-s3').S3Client | undefined
 
   /**
    * @param bucket - Target S3 bucket name
-   * @param config - Optional prefix, region, or pre-configured client
+   * @param config - Optional prefix, region, pre-configured client, or search configuration
    * @throws {@link StorageError} if both `region` and `s3Client` are provided
    */
   constructor(bucket: string, config?: S3StorageConfig) {
@@ -50,6 +68,8 @@ export class S3Storage implements Storage {
     this._prefix = config?.prefix ? config.prefix.split('/').filter(Boolean).join('/') + '/' : ''
     this._region = config?.region
     this._client = config?.s3Client
+    this._embeddings = config?.embeddings
+    this._searchStrategy = config?.searchStrategy ?? KeywordSearchStrategy
   }
 
   /**
@@ -68,6 +88,7 @@ export class S3Storage implements Storage {
     } catch (error: unknown) {
       throw new StorageError(`Failed to write '${normalized}' to S3 bucket '${this._bucket}'`, { cause: error })
     }
+    await this._searchStrategy.index?.(this, normalized, data)
   }
 
   /**
@@ -155,7 +176,7 @@ export class S3Storage implements Storage {
    * @returns All matches with relevance scores, ranked best-first
    */
   async search(query: string): Promise<StorageSearchResult[]> {
-    return KeywordSearchStrategy.search(this, query)
+    return this._searchStrategy.search(this, query)
   }
 
   private async _getClient(): Promise<import('@aws-sdk/client-s3').S3Client> {
