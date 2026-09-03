@@ -409,12 +409,9 @@ class BaseOffloadStrategy(ABC):
         messages = context.messages
         agent = context.agent
         tool_name_map = build_tool_name_map(messages)
-        if self._preserve_recent > 0:
-            eligible = get_oldest_matches(
-                messages, self._target, self._preserve_recent, tool_name_map, self._include_filter, self._exclude_filter
-            )
-        else:
-            eligible = list(messages)
+        eligible = get_oldest_matches(
+            messages, self._target, self._preserve_recent, tool_name_map, self._include_filter, self._exclude_filter
+        )
 
         acted = False
         for message in eligible:

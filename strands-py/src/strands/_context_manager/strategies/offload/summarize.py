@@ -19,8 +19,8 @@ from .base import (
     BaseOffloadStrategy,
     OffloadConditions,
     OffloadTarget,
-    collect_removable_with_pair,
     repair_alternation,
+    splice_with_pairs,
 )
 
 if TYPE_CHECKING:
@@ -89,49 +89,27 @@ class SummarizeStrategy(BaseOffloadStrategy):
         summarize_count = max(1, int(len(eligible) * self._removal_ratio))
         to_summarize = eligible[:summarize_count]
 
-        # Expand to include paired messages so we don't orphan tool pairs
-        identity_map = {id(msg): idx for idx, msg in enumerate(messages)}
-        safe_set: set[int] = set()
-        for message in to_summarize:
-            index = identity_map.get(id(message))
-            if index is None:
-                continue
-            for removable in collect_removable_with_pair(messages, index):
-                removable_index = identity_map.get(id(removable))
-                if removable_index is not None:
-                    safe_set.add(removable_index)
-
-        safe = [messages[idx] for idx in sorted(safe_set)]
-        if not safe:
-            return False
-
-        content_blocks = flatten_messages_to_content(safe)
+        content_blocks = flatten_messages_to_content(to_summarize)
         summary = await summarize_content(content_blocks, model, self._config)
         if not summary:
             return False
 
-        total_tokens = await model.count_tokens(safe)
-        prefix = f"{SUMMARIZED_PREFIX} {len(safe)} messages, ~{total_tokens:,} tokens]"
+        total_tokens = await model.count_tokens(to_summarize)
+        prefix = f"{SUMMARIZED_PREFIX} {len(to_summarize)} messages, ~{total_tokens:,} tokens]"
         summary_message = Message(
             role="user",
             content=[ContentBlock(text=f"{prefix}\n\n{summary}")],
         )
 
-        # Remove summarized messages (rebuild identity map since safe_set mutation is done)
-        lowest_index = len(messages)
-        for message in safe:
-            idx = next((index for index, msg in enumerate(messages) if msg is message), None)
-            if idx is None:
-                continue
-            if idx < lowest_index:
-                lowest_index = idx
-            messages.pop(idx)
+        removed, lowest_index = splice_with_pairs(messages, to_summarize)
+        if removed == 0:
+            return False
 
         insert_index = max(1, min(lowest_index, len(messages)))
         messages.insert(insert_index, summary_message)
 
         repair_alternation(messages)
-        logger.debug("summarized=<%s>, tokens=<%s> | batched summarization complete", len(safe), total_tokens)
+        logger.debug("summarized=<%s>, tokens=<%s> | batched summarization complete", removed, total_tokens)
         return True
 
     async def _replace_block(
