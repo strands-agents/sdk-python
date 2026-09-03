@@ -197,6 +197,8 @@ def get_oldest_matches(
         for msg in messages
         if message_matches_target(msg, target, tool_name_map, tool_include_filter, tool_exclude_filter)
     ]
+    if count <= 0:
+        return matching
     if count >= len(matching):
         return []
     return matching[:-count]
@@ -309,16 +311,14 @@ def resolve_tool_filter(target: OffloadTarget | None) -> tuple[set[str] | None, 
     if not isinstance(target, list):
         return None, None
 
-    tool_prefix = "tool::"
     includes: list[str] = []
     excludes: list[str] = []
 
     for entry in target:
         if entry.startswith("!"):
-            name = entry[1:]
-            excludes.append(name[len(tool_prefix):] if name.startswith(tool_prefix) else name)
+            excludes.append(entry[1:].removeprefix("tool::"))
         else:
-            includes.append(entry[len(tool_prefix):] if entry.startswith(tool_prefix) else entry)
+            includes.append(entry.removeprefix("tool::"))
 
     if excludes and includes:
         logger.warning(
@@ -503,46 +503,26 @@ class BaseOffloadStrategy(ABC):
     async def _get_eligible_messages(self, context: ContextState) -> list[Message]:
         """Collect eligible messages for message-level operations."""
         messages = context.messages
-        agent = context.agent
         tool_name_map = build_tool_name_map(messages)
 
+        oldest = get_oldest_matches(
+            messages, self._target, self._preserve_recent, tool_name_map, self._include_filter, self._exclude_filter
+        )
         head_id = id(messages[0]) if messages else None
-        if self._preserve_recent > 0:
-            candidates = [
-                msg
-                for msg in get_oldest_matches(
-                    messages,
-                    self._target,
-                    self._preserve_recent,
-                    tool_name_map,
-                    self._include_filter,
-                    self._exclude_filter,
-                )
-                if id(msg) != head_id
-            ]
-        else:
-            candidates = [
-                msg
-                for idx, msg in enumerate(messages)
-                if idx > 0
-                and message_matches_target(msg, self._target, tool_name_map, self._include_filter, self._exclude_filter)
-            ]
+        candidates = [msg for msg in oldest if id(msg) != head_id]
 
         if self._threshold is None:
             return candidates
 
         eligible: list[Message] = []
         for message in candidates:
-            has_oversize = False
             for block in message["content"]:
                 if not self._block_matches_target(block, message, tool_name_map):
                     continue
-                tokens = await agent.model.count_tokens([Message(role=message["role"], content=[block])])
+                tokens = await context.agent.model.count_tokens([Message(role=message["role"], content=[block])])
                 if tokens > self._threshold:
-                    has_oversize = True
+                    eligible.append(message)
                     break
-            if has_oversize:
-                eligible.append(message)
         return eligible
 
     @abstractmethod
