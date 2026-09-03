@@ -46,6 +46,7 @@ from ..types._snapshot import (
 )
 
 if TYPE_CHECKING:
+    from .._context_manager.context_manager import ContextManager as _ContextManagerPlugin
     from ..tools import ToolProvider
 from .._middleware import MiddlewareRegistry
 from .._middleware.stages import AgentStreamContext, AgentStreamStage
@@ -153,11 +154,13 @@ _DEFAULT_AGENT_NAME = "Strands Agents"
 _DEFAULT_AGENT_ID = "default"
 
 ContextManagerStrategy = Literal["auto", "agentic"]
-"""Supported values for the ``context_manager`` parameter.
+"""Supported string preset values for the ``context_manager`` parameter.
 
 - ``"auto"``: SummarizingConversationManager with proactive compression + ContextOffloader.
 - ``"agentic"``: (Experimental) Lets the model drive context management via injected tools.
   This mode may change in future versions.
+- ``ContextManager`` instance: Strategy-driven offloading with overflow recovery.
+- ``False``: Explicitly disable all context management.
 """
 
 _CONTEXT_MANAGER_MAX_RESULT_TOKENS = 1_500
@@ -223,7 +226,7 @@ class Agent(AgentBase, LocalAgent):
         name: str | None = None,
         description: str | None = None,
         state: AgentState | dict | None = None,
-        context_manager: ContextManagerStrategy | None = None,
+        context_manager: "ContextManagerStrategy | _ContextManagerPlugin | Literal[False] | None" = None,
         plugins: list[Plugin] | None = None,
         hooks: list[HookProvider | HookCallback] | None = None,
         interventions: list[InterventionHandler] | None = None,
@@ -579,13 +582,15 @@ class Agent(AgentBase, LocalAgent):
 
     @staticmethod
     def _resolve_context_manager(
-        context_manager: "ContextManagerStrategy | None",
+        context_manager: "ContextManagerStrategy | _ContextManagerPlugin | Literal[False] | None",
         conversation_manager: ConversationManager | None,
         plugins: list[Plugin] | None,
     ) -> tuple[ConversationManager | None, list[Plugin] | None]:
         """Resolve context_manager facade into concrete conversation_manager and plugins.
 
         When context_manager is None, returns (None, None) and no resolution occurs.
+        When False, uses NullConversationManager (or user-provided).
+        When a ContextManager instance, uses NullConversationManager and registers the plugin.
         When "auto", constructs a SummarizingConversationManager with proactive compression
         plus a ContextOffloader, using benchmark-validated defaults.
         When "agentic", constructs a SummarizingConversationManager *without* proactive
@@ -594,7 +599,7 @@ class Agent(AgentBase, LocalAgent):
         offload threshold. In both cases a user-provided conversation_manager / offloader wins.
 
         Args:
-            context_manager: The facade value ("auto", "agentic", or None).
+            context_manager: The facade value ("auto", "agentic", ContextManager, False, or None).
             conversation_manager: User-provided conversation manager, takes precedence if set.
             plugins: User-provided plugin list; offloader is appended if not already present.
 
@@ -608,8 +613,18 @@ class Agent(AgentBase, LocalAgent):
         if context_manager is None:
             return None, None
 
+        from .._context_manager.context_manager import ContextManager as _CMPlugin
         from ..vended_plugins.context_offloader import ContextOffloader
-        from .conversation_manager import SummarizingConversationManager
+        from .conversation_manager import NullConversationManager, SummarizingConversationManager
+
+        if context_manager is False:
+            resolved_cm = conversation_manager if conversation_manager is not None else NullConversationManager()
+            return resolved_cm, list(plugins) if plugins else None
+
+        if isinstance(context_manager, _CMPlugin):
+            resolved_plugins = list(plugins) if plugins else []
+            resolved_plugins.append(context_manager)
+            return NullConversationManager(), resolved_plugins
 
         if context_manager == "auto":
             offloader_max_result_tokens = _CONTEXT_MANAGER_MAX_RESULT_TOKENS
@@ -626,7 +641,7 @@ class Agent(AgentBase, LocalAgent):
         else:
             raise ValueError(
                 f"Unsupported context_manager value: {context_manager!r}. "
-                f"Supported values: {get_args(ContextManagerStrategy)}"
+                f"Supported values: {get_args(ContextManagerStrategy)}, ContextManager instance, or False"
             )
 
         resolved_plugins = list(plugins) if plugins else []
