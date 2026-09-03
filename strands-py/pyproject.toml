@@ -34,7 +34,7 @@ dependencies = [
     "docstring_parser>=0.15,<1.0",
     "httpx>=0.28.1,<1.0.0",
     "jsonschema>=4.0.0,<5.0.0",
-    "mcp>=1.23.0,<2.0.0",
+    "mcp>=1.23.0,<2.2",
     "pydantic>=2.4.0,<3.0.0",
     "typing-extensions>=4.13.2,<5.0.0",
     "pyyaml>=6.0.0,<7.0.0",
@@ -249,6 +249,14 @@ ignore_missing_imports = true
 # one, so each branch's ignores are "unused" when checked against the other.
 module = ["strands.tools.mcp._compat"]
 warn_unused_ignores = false
+
+[[tool.mypy.overrides]]
+# The task workflow and transport plumbing here are written against the mcp
+# 1.x types, and the default environment now resolves mcp 2.x. Remove this
+# exemption when the SEP-2663 task implementation replaces the 1.x-typed
+# code (#4125).
+module = ["strands.tools.mcp.mcp_client", "strands.tools.mcp.mcp_instrumentation"]
+ignore_errors = true
 
 [tool.ruff]
 line-length = 120
