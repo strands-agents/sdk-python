@@ -12,17 +12,19 @@ string replacement, or line insertion), and ``clear``.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from ...tools.decorator import tool
 from ...types.tools import ToolContext
 from .types import DEFAULT_NOTEBOOK_DESCRIPTION, NotebookState
 
-# Confinement caps: bound the memory footprint the model can accumulate so a
-# prompt injection cannot grow state without bound.
-_MAX_NOTEBOOKS = 64
-_MAX_NOTEBOOK_NAME_LENGTH = 128
-_MAX_NOTEBOOK_SIZE_BYTES = 1_048_576  # 1 MiB
+if TYPE_CHECKING:
+    from ...tools.decorator import DecoratedFunctionTool
+
+# Defaults for the confinement caps. Bound the memory footprint the model can
+# accumulate so a prompt injection cannot grow state without bound.
+_DEFAULT_MAX_NOTEBOOKS = 64
+_DEFAULT_MAX_NOTEBOOK_SIZE_BYTES = 1_048_576  # 1 MiB
 
 _DEFAULT_NOTEBOOK_NAME = "default"
 
@@ -31,106 +33,122 @@ _STATE_KEY = "notebooks"
 # Modes that alter ``notebooks`` state. Only these persist a write.
 _MUTATING_MODES = frozenset({"create", "write", "clear"})
 
-# Modes that can grow the on-disk footprint. Only these need session-cap enforcement.
+# Modes that can grow state. Only these need session-cap enforcement.
 _GROWING_MODES = frozenset({"create", "write"})
 
 
-@tool(name="notebook", description=DEFAULT_NOTEBOOK_DESCRIPTION, context="tool_context")
-async def notebook(
-    mode: Literal["create", "list", "read", "write", "clear"],
-    tool_context: ToolContext,
-    name: str | None = None,
-    new_str: str | None = None,
-    old_str: str | None = None,
-    insert_line: int | str | None = None,
-    read_range: list[int] | None = None,
-) -> str:
-    """Manages text notebooks for note-taking and documentation.
-
-    Supports `create`, `list`, `read`, `write` (append, replace, or insert), and `clear`
-    operations. Notebooks persist across invocations within a session.
+def make_notebook(
+    *,
+    name: str = "notebook",
+    description: str = DEFAULT_NOTEBOOK_DESCRIPTION,
+    max_notebooks: int = _DEFAULT_MAX_NOTEBOOKS,
+    max_notebook_size_bytes: int = _DEFAULT_MAX_NOTEBOOK_SIZE_BYTES,
+) -> DecoratedFunctionTool:
+    """Create a notebook tool.
 
     Args:
-        mode: The operation to perform: `create`, `list`, `read`, `write`, `clear`.
-        tool_context: Injected by the framework. Not user-facing.
-        name: Name of the notebook to operate on. Defaults to "default".
-        new_str: Content for create (initial text), write/append (text to append), or write/replace and write/insert.
-        old_str: String to replace in write mode when doing text replacement.
-        insert_line: Line number (int) or search text (str) for insertion point in write mode.
-            Supports negative indices.
-        read_range: Optional parameter of `read` command. Line range to show [start, end].
-            Supports negative indices.
-    """
-    state = tool_context.agent.state
-
-    notebooks_obj: NotebookState | None = state.get(_STATE_KEY)
-    # AgentState.get deep-copies; guard shape strictly to catch corruption from sibling tools.
-    if notebooks_obj is None:
-        notebooks: NotebookState = {}
-    elif isinstance(notebooks_obj, dict):
-        for k, v in notebooks_obj.items():
-            if not isinstance(k, str) or not isinstance(v, str):
-                raise ValueError("Malformed notebooks state: keys and values must be strings")
-        notebooks = notebooks_obj
-    else:
-        raise ValueError("Malformed notebooks state: expected a dict")
-
-    # Ensure default notebook exists in-memory; only persisted if this mode mutates state.
-    if not notebooks:
-        notebooks[_DEFAULT_NOTEBOOK_NAME] = ""
-
-    target = _validate_notebook_name(name if name is not None else _DEFAULT_NOTEBOOK_NAME)
-
-    if mode == "create":
-        result = _handle_create(notebooks, target, new_str)
-    elif mode == "list":
-        result = _handle_list(notebooks)
-    elif mode == "read":
-        result = _handle_read(notebooks, target, read_range)
-    elif mode == "write":
-        _validate_write_params(old_str, new_str, insert_line)
-        result = _handle_write(notebooks, target, old_str, new_str, insert_line)
-    elif mode == "clear":
-        result = _handle_clear(notebooks, target)
-    else:  # pragma: no cover - Literal narrows this at type-check time.
-        raise ValueError(f"Unknown mode: {mode}")
-
-    if mode in _GROWING_MODES:
-        _enforce_session_caps(notebooks)
-    if mode in _MUTATING_MODES:
-        state.set(_STATE_KEY, notebooks)
-
-    return result
-
-
-# ---- Validation ----
-
-
-def _validate_notebook_name(candidate: str) -> str:
-    """Validate a notebook name.
-
-    Args:
-        candidate: The proposed notebook name.
+        name: Tool name exposed to the model. Defaults to ``"notebook"``.
+        description: Tool description shown to the model.
+        max_notebooks: Maximum number of notebooks allowed per session.
+            Defaults to 64.
+        max_notebook_size_bytes: Maximum size of a single notebook's content
+            in bytes (UTF-8 encoded). Defaults to 1 MiB.
 
     Returns:
-        The notebook name, unchanged.
+        A decorated tool that manages text notebooks in agent state.
 
     Raises:
-        ValueError: If the name is empty, too long, or contains disallowed characters.
+        ValueError: If ``name`` is empty, or any cap is not a positive integer.
     """
-    if not isinstance(candidate, str) or not candidate:
-        raise ValueError("Notebook name must be a non-empty string")
-    if len(candidate) > _MAX_NOTEBOOK_NAME_LENGTH:
-        raise ValueError(f"Notebook name exceeds maximum length of {_MAX_NOTEBOOK_NAME_LENGTH} characters")
-    if candidate != candidate.strip():
-        raise ValueError("Notebook name must not have leading or trailing whitespace")
-    if "\0" in candidate:
-        raise ValueError("Notebook name must not contain NUL bytes")
-    if "/" in candidate or "\\" in candidate:
-        raise ValueError("Notebook name must not contain path separators")
-    if candidate in ("..", "."):
-        raise ValueError("Notebook name is not allowed")
-    return candidate
+    if not name:
+        raise ValueError("name must be a non-empty string")
+    if not isinstance(max_notebooks, int) or isinstance(max_notebooks, bool) or max_notebooks < 1:
+        raise ValueError("max_notebooks must be a positive integer")
+    if (
+        not isinstance(max_notebook_size_bytes, int)
+        or isinstance(max_notebook_size_bytes, bool)
+        or max_notebook_size_bytes < 1
+    ):
+        raise ValueError("max_notebook_size_bytes must be a positive integer")
+
+    @tool(name=name, description=description, context="tool_context")
+    async def notebook_tool(
+        mode: Literal["create", "list", "read", "write", "clear"],
+        tool_context: ToolContext,
+        name: str | None = None,
+        new_str: str | None = None,
+        old_str: str | None = None,
+        insert_line: int | str | None = None,
+        read_range: list[int] | None = None,
+    ) -> str:
+        """Manages text notebooks for note-taking and documentation.
+
+        Supports `create`, `list`, `read`, `write` (append, replace, or insert), and `clear`
+        operations. Notebooks persist across invocations within a session.
+
+        Args:
+            mode: The operation to perform: `create`, `list`, `read`, `write`, `clear`.
+            tool_context: Injected by the framework. Not user-facing.
+            name: Name of the notebook to operate on. Defaults to "default".
+            new_str: Content for create (initial text), write/append (text to append),
+                or write/replace and write/insert.
+            old_str: String to replace in write mode when doing text replacement.
+            insert_line: Line number (int) or search text (str) for insertion point in write mode.
+                Supports negative indices.
+            read_range: Optional parameter of `read` command. Line range to show [start, end].
+                Supports negative indices.
+        """
+        state = tool_context.agent.state
+
+        notebooks_obj: NotebookState | None = state.get(_STATE_KEY)
+        # AgentState.get deep-copies; guard shape strictly to catch corruption from sibling tools.
+        if notebooks_obj is None:
+            notebooks: NotebookState = {}
+        elif isinstance(notebooks_obj, dict):
+            for k, v in notebooks_obj.items():
+                if not isinstance(k, str) or not isinstance(v, str):
+                    raise ValueError("Malformed notebooks state: keys and values must be strings")
+            notebooks = notebooks_obj
+        else:
+            raise ValueError("Malformed notebooks state: expected a dict")
+
+        # Ensure default notebook exists in-memory; only persisted if this mode mutates state.
+        if not notebooks:
+            notebooks[_DEFAULT_NOTEBOOK_NAME] = ""
+
+        target = name if name is not None else _DEFAULT_NOTEBOOK_NAME
+        if not isinstance(target, str):
+            raise ValueError("Notebook name must be a string")
+
+        if mode == "create":
+            result = _handle_create(notebooks, target, new_str)
+        elif mode == "list":
+            result = _handle_list(notebooks)
+        elif mode == "read":
+            result = _handle_read(notebooks, target, read_range)
+        elif mode == "write":
+            _validate_write_params(old_str, new_str, insert_line)
+            result = _handle_write(notebooks, target, old_str, new_str, insert_line)
+        elif mode == "clear":
+            result = _handle_clear(notebooks, target)
+        else:  # pragma: no cover - Literal narrows this at type-check time.
+            raise ValueError(f"Unknown mode: {mode}")
+
+        if mode in _GROWING_MODES:
+            _enforce_session_caps(notebooks, max_notebooks, max_notebook_size_bytes)
+        if mode in _MUTATING_MODES:
+            state.set(_STATE_KEY, notebooks)
+
+        return result
+
+    return notebook_tool
+
+
+notebook = make_notebook()
+"""Default notebook tool."""
+
+
+# ---- Internals ----
 
 
 def _validate_write_params(old_str: str | None, new_str: str | None, insert_line: int | str | None) -> None:
@@ -159,26 +177,29 @@ def _validate_write_params(old_str: str | None, new_str: str | None, insert_line
         )
 
 
-def _enforce_session_caps(notebooks: NotebookState) -> None:
+def _enforce_session_caps(
+    notebooks: NotebookState,
+    max_notebooks: int,
+    max_notebook_size_bytes: int,
+) -> None:
     """Enforce per-session notebook count and size caps.
 
     Args:
         notebooks: The notebooks map to validate.
+        max_notebooks: Maximum allowed notebook count.
+        max_notebook_size_bytes: Maximum allowed size per notebook in bytes.
 
     Raises:
         ValueError: If any cap is exceeded.
     """
-    if len(notebooks) > _MAX_NOTEBOOKS:
-        raise ValueError(f"Session notebook count exceeds maximum of {_MAX_NOTEBOOKS}")
+    if len(notebooks) > max_notebooks:
+        raise ValueError(f"Session notebook count exceeds maximum of {max_notebooks}")
     for nb_name, content in notebooks.items():
         size = len(content.encode("utf-8"))
-        if size > _MAX_NOTEBOOK_SIZE_BYTES:
+        if size > max_notebook_size_bytes:
             raise ValueError(
-                f"Notebook '{nb_name}' size ({size} bytes) exceeds maximum of {_MAX_NOTEBOOK_SIZE_BYTES} bytes"
+                f"Notebook '{nb_name}' size ({size} bytes) exceeds maximum of {max_notebook_size_bytes} bytes"
             )
-
-
-# ---- Handlers ----
 
 
 def _handle_create(notebooks: NotebookState, name: str, new_str: str | None) -> str:

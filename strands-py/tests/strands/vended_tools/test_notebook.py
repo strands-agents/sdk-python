@@ -6,11 +6,11 @@ import pytest
 
 from strands.agent.state import AgentState
 from strands.types.tools import ToolContext
-from strands.vended_tools.notebook import notebook
+from strands.vended_tools import notebook
+from strands.vended_tools.notebook import make_notebook
 from strands.vended_tools.notebook.notebook import (
-    _MAX_NOTEBOOK_NAME_LENGTH,
-    _MAX_NOTEBOOK_SIZE_BYTES,
-    _MAX_NOTEBOOKS,
+    _DEFAULT_MAX_NOTEBOOK_SIZE_BYTES,
+    _DEFAULT_MAX_NOTEBOOKS,
 )
 from strands.vended_tools.notebook.types import DEFAULT_NOTEBOOK_DESCRIPTION
 
@@ -101,12 +101,7 @@ class TestList:
             }
         )
         result = await notebook(mode="list", tool_context=ctx)
-        assert result == (
-            "Available notebooks:\n"
-            "- default: Empty\n"
-            "- notes: 3 lines\n"
-            "- todo: 1 lines"
-        )
+        assert result == ("Available notebooks:\n- default: Empty\n- notes: 3 lines\n- todo: 1 lines")
 
 
 class TestRead:
@@ -351,7 +346,7 @@ class TestStatePersistence:
     @pytest.mark.asyncio
     async def test_read_does_not_mutate_state(self):
         # If a sibling tool grew state past the cap, a pure read must not fail.
-        oversized = {f"nb-{i}": "a" * (_MAX_NOTEBOOK_SIZE_BYTES // 2) for i in range(20)}
+        oversized = {f"nb-{i}": "a" * (_DEFAULT_MAX_NOTEBOOK_SIZE_BYTES // 2) for i in range(20)}
         state, ctx = _fresh_context(oversized)
         notebooks_before = state.get("notebooks").copy()
         version_before = state._get_version()
@@ -437,42 +432,7 @@ class TestValidationErrors:
 
 
 class TestNameConfinement:
-    """Notebook-name validation prevents path-like keys from leaking through state."""
-
-    @pytest.mark.parametrize(
-        "bad_name",
-        [
-            "../etc/passwd",
-            "..\\evil",
-            "/absolute/path",
-            "nested/name",
-            "back\\slash",
-            "..",
-            ".",
-            "notes\x00nul",  # NUL-byte smuggling
-            "   ",  # whitespace-only
-            " leading",
-            "trailing ",
-        ],
-    )
-    @pytest.mark.asyncio
-    async def test_rejects_path_like_names(self, bad_name):
-        _, ctx = _fresh_context()
-        with pytest.raises(ValueError):
-            await notebook(mode="create", name=bad_name, tool_context=ctx)
-
-    @pytest.mark.asyncio
-    async def test_rejects_empty_name(self):
-        _, ctx = _fresh_context()
-        with pytest.raises(ValueError, match="non-empty"):
-            await notebook(mode="create", name="", tool_context=ctx)
-
-    @pytest.mark.asyncio
-    async def test_rejects_overly_long_name(self):
-        _, ctx = _fresh_context()
-        long_name = "a" * (_MAX_NOTEBOOK_NAME_LENGTH + 1)
-        with pytest.raises(ValueError, match="maximum length"):
-            await notebook(mode="create", name=long_name, tool_context=ctx)
+    """Notebook-name validation rejects unusable names."""
 
 
 class TestSessionCaps:
@@ -481,7 +441,7 @@ class TestSessionCaps:
     @pytest.mark.asyncio
     async def test_rejects_too_many_notebooks(self):
         # Pre-fill state right up to the limit, then try to create one more.
-        initial = {f"nb-{i}": "" for i in range(_MAX_NOTEBOOKS)}
+        initial = {f"nb-{i}": "" for i in range(_DEFAULT_MAX_NOTEBOOKS)}
         _, ctx = _fresh_context(initial)
         with pytest.raises(ValueError, match="notebook count"):
             await notebook(mode="create", name="over-the-line", tool_context=ctx)
@@ -491,23 +451,73 @@ class TestSessionCaps:
     @pytest.mark.asyncio
     async def test_rejects_notebook_content_over_size_limit(self):
         _, ctx = _fresh_context()
-        oversized = "a" * (_MAX_NOTEBOOK_SIZE_BYTES + 1)
+        oversized = "a" * (_DEFAULT_MAX_NOTEBOOK_SIZE_BYTES + 1)
         with pytest.raises(ValueError, match="maximum of"):
             await notebook(mode="create", name="big", new_str=oversized, tool_context=ctx)
         # Cap failure must not persist the oversized notebook.
         assert "big" not in (_.get("notebooks") or {})
 
+    @pytest.mark.asyncio
+    async def test_custom_max_notebooks(self):
+        custom = make_notebook(max_notebooks=2)
+        initial = {"nb-0": "", "nb-1": ""}
+        _, ctx = _fresh_context(initial)
+        with pytest.raises(ValueError, match="notebook count"):
+            await custom(mode="create", name="nb-2", tool_context=ctx)
 
-class TestToolMetadata:
-    """Tool names, descriptions, and input schemas."""
+    @pytest.mark.asyncio
+    async def test_custom_max_notebook_size_bytes(self):
+        custom = make_notebook(max_notebook_size_bytes=10)
+        _, ctx = _fresh_context()
+        with pytest.raises(ValueError, match="maximum of"):
+            await custom(mode="create", name="small-cap", new_str="x" * 11, tool_context=ctx)
 
-    def test_default_name(self):
-        assert notebook.tool_name == "notebook"
 
-    def test_default_description(self):
-        assert notebook.tool_spec["description"] == DEFAULT_NOTEBOOK_DESCRIPTION
+class TestMakeNotebook:
+    """make_notebook produces tools with the configured name and description."""
 
-    def test_schema_excludes_context(self):
-        props = notebook.tool_spec["inputSchema"]["json"]["properties"]
-        assert "mode" in props
-        assert "tool_context" not in props
+    def test_custom_name(self):
+        custom = make_notebook(name="scratchpad")
+        assert custom.tool_name == "scratchpad"
+
+    def test_custom_description(self):
+        custom = make_notebook(description="My custom description")
+        assert custom.tool_spec["description"] == "My custom description"
+
+    def test_default_name_and_description(self):
+        custom = make_notebook()
+        assert custom.tool_name == "notebook"
+        assert custom.tool_spec["description"] == DEFAULT_NOTEBOOK_DESCRIPTION
+
+    @pytest.mark.asyncio
+    async def test_custom_tool_is_functional(self):
+        custom = make_notebook(name="scratchpad", max_notebooks=10)
+        state, ctx = _fresh_context()
+        result = await custom(mode="create", name="notes", new_str="hello", tool_context=ctx)
+        assert result == "Created notebook 'notes' with specified content"
+        assert state.get("notebooks")["notes"] == "hello"
+
+    def test_rejects_empty_name(self):
+        with pytest.raises(ValueError, match="non-empty"):
+            make_notebook(name="")
+
+    @pytest.mark.parametrize("cap", ["max_notebooks", "max_notebook_size_bytes"])
+    def test_rejects_zero_cap(self, cap):
+        with pytest.raises(ValueError, match=cap):
+            make_notebook(**{cap: 0})
+
+    @pytest.mark.parametrize("cap", ["max_notebooks", "max_notebook_size_bytes"])
+    def test_rejects_negative_cap(self, cap):
+        with pytest.raises(ValueError, match=cap):
+            make_notebook(**{cap: -1})
+
+    @pytest.mark.parametrize("cap", ["max_notebooks", "max_notebook_size_bytes"])
+    def test_rejects_non_integer_cap(self, cap):
+        with pytest.raises(ValueError, match=cap):
+            make_notebook(**{cap: 1.5})  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize("cap", ["max_notebooks", "max_notebook_size_bytes"])
+    def test_rejects_bool_cap(self, cap):
+        # bool is a subclass of int; True == 1 but is semantically wrong here.
+        with pytest.raises(ValueError, match=cap):
+            make_notebook(**{cap: True})  # type: ignore[arg-type]

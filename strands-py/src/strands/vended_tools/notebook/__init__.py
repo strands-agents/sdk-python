@@ -13,8 +13,9 @@ Example Usage:
     ```
 """
 
-from .notebook import notebook
+from .notebook import make_notebook, notebook
 
 __all__ = [
+    "make_notebook",
     "notebook",
 ]
