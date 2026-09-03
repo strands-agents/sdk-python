@@ -105,6 +105,8 @@ def message_matches_target(
     """Check if a message matches the target (text-level or tool result)."""
     if target_matches_message(target, message):
         return True
+    if target is None:
+        return False
 
     if message["role"] != "user":
         return False
