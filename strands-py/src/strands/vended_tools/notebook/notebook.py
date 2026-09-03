@@ -21,9 +21,6 @@ from .types import DEFAULT_NOTEBOOK_DESCRIPTION, NotebookState
 if TYPE_CHECKING:
     from ...tools.decorator import DecoratedFunctionTool
 
-# Defaults for the confinement caps. Bound the memory footprint the model can
-# accumulate so a prompt injection cannot grow state without bound.
-_DEFAULT_MAX_NOTEBOOKS = 64
 _DEFAULT_MAX_NOTEBOOK_SIZE_BYTES = 1_048_576  # 1 MiB
 
 _DEFAULT_NOTEBOOK_NAME = "default"
@@ -33,7 +30,7 @@ _STATE_KEY = "notebooks"
 # Modes that alter ``notebooks`` state. Only these persist a write.
 _MUTATING_MODES = frozenset({"create", "write", "clear"})
 
-# Modes that can grow state. Only these need session-cap enforcement.
+# Modes that can grow state. Only these need size-cap enforcement.
 _GROWING_MODES = frozenset({"create", "write"})
 
 
@@ -41,7 +38,6 @@ def make_notebook(
     *,
     name: str = "notebook",
     description: str = DEFAULT_NOTEBOOK_DESCRIPTION,
-    max_notebooks: int = _DEFAULT_MAX_NOTEBOOKS,
     max_notebook_size_bytes: int = _DEFAULT_MAX_NOTEBOOK_SIZE_BYTES,
 ) -> DecoratedFunctionTool:
     """Create a notebook tool.
@@ -49,8 +45,6 @@ def make_notebook(
     Args:
         name: Tool name exposed to the model. Defaults to ``"notebook"``.
         description: Tool description shown to the model.
-        max_notebooks: Maximum number of notebooks allowed per session.
-            Defaults to 64.
         max_notebook_size_bytes: Maximum size of a single notebook's content
             in bytes (UTF-8 encoded). Defaults to 1 MiB.
 
@@ -58,12 +52,11 @@ def make_notebook(
         A decorated tool that manages text notebooks in agent state.
 
     Raises:
-        ValueError: If ``name`` is empty, or any cap is not a positive integer.
+        ValueError: If ``name`` is empty, or ``max_notebook_size_bytes`` is not
+            a positive integer.
     """
     if not name:
         raise ValueError("name must be a non-empty string")
-    if not isinstance(max_notebooks, int) or isinstance(max_notebooks, bool) or max_notebooks < 1:
-        raise ValueError("max_notebooks must be a positive integer")
     if (
         not isinstance(max_notebook_size_bytes, int)
         or isinstance(max_notebook_size_bytes, bool)
@@ -135,7 +128,12 @@ def make_notebook(
             raise ValueError(f"Unknown mode: {mode}")
 
         if mode in _GROWING_MODES:
-            _enforce_session_caps(notebooks, max_notebooks, max_notebook_size_bytes)
+            size = len(notebooks[target].encode("utf-8"))
+            if size > max_notebook_size_bytes:
+                raise ValueError(
+                    f"Notebook '{target}' content ({size} bytes) would exceed"
+                    f" maximum of {max_notebook_size_bytes} bytes"
+                )
         if mode in _MUTATING_MODES:
             state.set(_STATE_KEY, notebooks)
 
@@ -175,31 +173,6 @@ def _validate_write_params(old_str: str | None, new_str: str | None, insert_line
         raise ValueError(
             "Write operation is ambiguous: pass either `old_str` (replace) or `insert_line` (insert), not both"
         )
-
-
-def _enforce_session_caps(
-    notebooks: NotebookState,
-    max_notebooks: int,
-    max_notebook_size_bytes: int,
-) -> None:
-    """Enforce per-session notebook count and size caps.
-
-    Args:
-        notebooks: The notebooks map to validate.
-        max_notebooks: Maximum allowed notebook count.
-        max_notebook_size_bytes: Maximum allowed size per notebook in bytes.
-
-    Raises:
-        ValueError: If any cap is exceeded.
-    """
-    if len(notebooks) > max_notebooks:
-        raise ValueError(f"Session notebook count exceeds maximum of {max_notebooks}")
-    for nb_name, content in notebooks.items():
-        size = len(content.encode("utf-8"))
-        if size > max_notebook_size_bytes:
-            raise ValueError(
-                f"Notebook '{nb_name}' size ({size} bytes) exceeds maximum of {max_notebook_size_bytes} bytes"
-            )
 
 
 def _handle_create(notebooks: NotebookState, name: str, new_str: str | None) -> str:
@@ -286,9 +259,6 @@ def _handle_write(
                     break
             if line_num == -1:
                 raise ValueError(f"Text '{insert_line}' not found in notebook '{name}'")
-        elif isinstance(insert_line, bool):
-            # bool is a subclass of int; reject explicitly to avoid silent coercion.
-            raise ValueError("`insert_line` must be an integer or string")
         elif isinstance(insert_line, int):
             if insert_line < 0:
                 line_num = len(lines) + insert_line

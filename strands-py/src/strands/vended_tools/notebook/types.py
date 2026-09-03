@@ -9,7 +9,8 @@ DEFAULT_NOTEBOOK_DESCRIPTION = (
     "write (append, replace, or insert), and clear operations. "
     "In write mode: new_str alone appends to the end; new_str with old_str replaces matching text; "
     "new_str with insert_line inserts at a position. "
-    "Write operations only succeed on notebooks that already exist; use list to check or create to initialize one. "
+    "Write operations only succeed on notebooks that already exist; use list to check or create to initialize one "
+    "(create overwrites any existing content). "
     "Notebooks persist across invocations within a session."
 )
 """Description for the notebook tool."""

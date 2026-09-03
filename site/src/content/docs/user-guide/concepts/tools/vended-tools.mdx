@@ -201,6 +201,25 @@ print(notebooks.get("tasks"))
 </Tab>
 </Tabs>
 
+**Example - Custom configuration (Python):**
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.vended_tools import make_notebook
+
+notes = make_notebook(
+    name="notes",
+    max_notebook_size_bytes=64 * 1024,  # 64 KiB
+)
+agent = Agent(tools=[notes])
+```
+
+</Tab>
+</Tabs>
+
 📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/notebook/README.md)
 
 ---

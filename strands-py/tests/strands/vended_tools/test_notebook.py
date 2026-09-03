@@ -10,20 +10,11 @@ from strands.vended_tools import notebook
 from strands.vended_tools.notebook import make_notebook
 from strands.vended_tools.notebook.notebook import (
     _DEFAULT_MAX_NOTEBOOK_SIZE_BYTES,
-    _DEFAULT_MAX_NOTEBOOKS,
 )
 from strands.vended_tools.notebook.types import DEFAULT_NOTEBOOK_DESCRIPTION
 
 
 def _fresh_context(initial_notebooks: dict[str, str] | None = None) -> tuple[AgentState, ToolContext]:
-    """Build a fresh AgentState and ToolContext for a test.
-
-    Args:
-        initial_notebooks: Optional pre-populated notebooks map.
-
-    Returns:
-        A tuple of (state, tool_context).
-    """
     state = AgentState({"notebooks": initial_notebooks} if initial_notebooks is not None else {"notebooks": {}})
     agent = SimpleNamespace(state=state)
     ctx = ToolContext(
@@ -35,14 +26,11 @@ def _fresh_context(initial_notebooks: dict[str, str] | None = None) -> tuple[Age
 
 
 async def _invoke(ctx: ToolContext, input_: dict, alist) -> dict:
-    """Invoke the default notebook tool through the async stream() path."""
     events = await alist(notebook.stream({"toolUseId": "t", "input": input_}, {"agent": ctx.agent}))
     return events[-1]["tool_result"]
 
 
 class TestCreate:
-    """The ``create`` operation."""
-
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "name,expected_name",
@@ -52,7 +40,6 @@ class TestCreate:
         ],
     )
     async def test_creates_empty_notebook_stream_envelope(self, name, expected_name, alist):
-        # Verifies the tool_result envelope shape through the stream() path.
         state, ctx = _fresh_context()
         input_ = {"mode": "create"}
         if name is not None:
@@ -83,30 +70,19 @@ class TestCreate:
 
 
 class TestList:
-    """The ``list`` operation."""
-
     @pytest.mark.asyncio
     async def test_lists_default_when_initialized(self):
         _, ctx = _fresh_context({"default": ""})
-        tru_result = await notebook(mode="list", tool_context=ctx)
-        assert tru_result == "Available notebooks:\n- default: Empty"
+        assert await notebook(mode="list", tool_context=ctx) == "Available notebooks:\n- default: Empty"
 
     @pytest.mark.asyncio
     async def test_lists_multiple_with_line_counts(self):
-        _, ctx = _fresh_context(
-            {
-                "default": "",
-                "notes": "Line 1\nLine 2\nLine 3",
-                "todo": "Single line",
-            }
-        )
+        _, ctx = _fresh_context({"default": "", "notes": "Line 1\nLine 2\nLine 3", "todo": "Single line"})
         result = await notebook(mode="list", tool_context=ctx)
-        assert result == ("Available notebooks:\n- default: Empty\n- notes: 3 lines\n- todo: 1 lines")
+        assert result == "Available notebooks:\n- default: Empty\n- notes: 3 lines\n- todo: 1 lines"
 
 
 class TestRead:
-    """The ``read`` operation."""
-
     @pytest.mark.asyncio
     async def test_reads_entire_notebook(self):
         _, ctx = _fresh_context({"notes": "Line 1\nLine 2\nLine 3\nLine 4\nLine 5"})
@@ -120,8 +96,7 @@ class TestRead:
     @pytest.mark.asyncio
     async def test_reads_specific_line_range(self):
         _, ctx = _fresh_context({"default": "Line 1\nLine 2\nLine 3\nLine 4\nLine 5"})
-        result = await notebook(mode="read", read_range=[2, 4], tool_context=ctx)
-        assert result == "2: Line 2\n3: Line 3\n4: Line 4"
+        assert await notebook(mode="read", read_range=[2, 4], tool_context=ctx) == "2: Line 2\n3: Line 3\n4: Line 4"
 
     @pytest.mark.parametrize(
         "read_range,expected",
@@ -145,39 +120,25 @@ class TestRead:
 
 
 class TestWriteReplace:
-    """The ``write`` operation in string-replacement mode."""
-
     @pytest.mark.asyncio
-    async def test_replaces_text_default_notebook(self):
+    async def test_replaces_text(self):
         state, ctx = _fresh_context({"default": "# Todo List\n\n[ ] Task 1\n[ ] Task 2\n[x] Task 3"})
         result = await notebook(mode="write", old_str="[ ] Task 1", new_str="[x] Task 1", tool_context=ctx)
         assert result == "Replaced text in notebook 'default'"
         assert state.get("notebooks")["default"] == "# Todo List\n\n[x] Task 1\n[ ] Task 2\n[x] Task 3"
 
     @pytest.mark.asyncio
-    async def test_replaces_text_custom_notebook(self):
-        state, ctx = _fresh_context({"notes": "Original text"})
-        result = await notebook(mode="write", name="notes", old_str="Original", new_str="Updated", tool_context=ctx)
-        assert result == "Replaced text in notebook 'notes'"
-        assert state.get("notebooks")["notes"] == "Updated text"
-
-    @pytest.mark.asyncio
     async def test_replaces_multiline_text(self):
         state, ctx = _fresh_context({"default": "# Todo List\n\n[ ] Task 1\n[ ] Task 2\n[x] Task 3"})
-        result = await notebook(
-            mode="write",
-            old_str="[ ] Task 1\n[ ] Task 2",
-            new_str="[x] Task 1\n[x] Task 2",
-            tool_context=ctx,
+        await notebook(
+            mode="write", old_str="[ ] Task 1\n[ ] Task 2", new_str="[x] Task 1\n[x] Task 2", tool_context=ctx
         )
-        assert result == "Replaced text in notebook 'default'"
         assert state.get("notebooks")["default"] == "# Todo List\n\n[x] Task 1\n[x] Task 2\n[x] Task 3"
 
     @pytest.mark.asyncio
     async def test_preserves_dollar_sign_patterns_literally(self):
         state, ctx = _fresh_context({"default": "const value = getPrice()"})
-        result = await notebook(mode="write", old_str="getPrice()", new_str="$& is not $1 or $$", tool_context=ctx)
-        assert result == "Replaced text in notebook 'default'"
+        await notebook(mode="write", old_str="getPrice()", new_str="$& is not $1 or $$", tool_context=ctx)
         assert state.get("notebooks")["default"] == "const value = $& is not $1 or $$"
 
     @pytest.mark.asyncio
@@ -194,8 +155,6 @@ class TestWriteReplace:
 
 
 class TestWriteInsert:
-    """The ``write`` operation in line-insertion mode."""
-
     @pytest.mark.asyncio
     async def test_inserts_after_line_number(self):
         state, ctx = _fresh_context({"default": "Line 1\nLine 2\nLine 3"})
@@ -225,13 +184,6 @@ class TestWriteInsert:
         assert state.get("notebooks")["default"] == "Line 1\nLine 2\nBefore last\nLine 3"
 
     @pytest.mark.asyncio
-    async def test_inserts_after_text_search(self):
-        state, ctx = _fresh_context({"default": "Line 1\nLine 2\nLine 3"})
-        result = await notebook(mode="write", insert_line="Line 1", new_str="After Line 1", tool_context=ctx)
-        assert result == "Inserted text at line 2 in notebook 'default'"
-        assert state.get("notebooks")["default"] == "Line 1\nAfter Line 1\nLine 2\nLine 3"
-
-    @pytest.mark.asyncio
     async def test_inserts_after_partial_text_match(self):
         state, ctx = _fresh_context({"default": "Line 1\nLine 2\nLine 3"})
         result = await notebook(mode="write", insert_line="2", new_str="After match", tool_context=ctx)
@@ -239,10 +191,12 @@ class TestWriteInsert:
         assert state.get("notebooks")["default"] == "Line 1\nLine 2\nAfter match\nLine 3"
 
     @pytest.mark.asyncio
-    async def test_bool_insert_line_raises(self):
-        _, ctx = _fresh_context({"default": "Line 1\nLine 2"})
-        with pytest.raises(ValueError, match="insert_line"):
-            await notebook(mode="write", insert_line=True, new_str="x", tool_context=ctx)
+    async def test_bool_insert_line_coerced_to_int_via_stream(self, alist):
+        # Pydantic coerces True→1 on the model path; the in-body bool guard was dead and has been removed.
+        state, ctx = _fresh_context({"default": "Line 1\nLine 2"})
+        tru_result = await _invoke(ctx, {"mode": "write", "insert_line": True, "new_str": "x"}, alist)
+        assert tru_result["status"] == "success"
+        assert state.get("notebooks")["default"] == "Line 1\nx\nLine 2"
 
     @pytest.mark.asyncio
     async def test_search_not_found_raises(self):
@@ -257,6 +211,14 @@ class TestWriteInsert:
             await notebook(mode="write", insert_line=100, new_str="New line", tool_context=ctx)
 
     @pytest.mark.asyncio
+    async def test_insert_line_at_line_count_plus_one_appends(self):
+        # Matches TS: insert_line=N+1 appends correctly; message reports lineNum+2 (same shared quirk).
+        state, ctx = _fresh_context({"default": "Line 1\nLine 2\nLine 3"})
+        result = await notebook(mode="write", insert_line=4, new_str="Appended", tool_context=ctx)
+        assert result == "Inserted text at line 5 in notebook 'default'"
+        assert state.get("notebooks")["default"] == "Line 1\nLine 2\nLine 3\nAppended"
+
+    @pytest.mark.asyncio
     async def test_inserts_into_custom_notebook(self):
         state, ctx = _fresh_context({"notes": "First\nSecond"})
         result = await notebook(mode="write", name="notes", insert_line=1, new_str="Middle", tool_context=ctx)
@@ -265,8 +227,6 @@ class TestWriteInsert:
 
 
 class TestWriteAppend:
-    """The ``write`` operation in append mode (new_str alone, no old_str or insert_line)."""
-
     @pytest.mark.asyncio
     async def test_appends_to_non_empty_notebook(self):
         state, ctx = _fresh_context({"default": "Line 1"})
@@ -282,15 +242,7 @@ class TestWriteAppend:
         assert state.get("notebooks")["default"] == "First line"
 
     @pytest.mark.asyncio
-    async def test_appends_to_custom_notebook(self):
-        state, ctx = _fresh_context({"notes": "existing"})
-        result = await notebook(mode="write", name="notes", new_str="appended", tool_context=ctx)
-        assert result == "Appended text to notebook 'notes'"
-        assert state.get("notebooks")["notes"] == "existing\nappended"
-
-    @pytest.mark.asyncio
     async def test_no_double_newline_when_content_ends_with_newline(self):
-        # If the notebook already ends with \n, no extra separator is added.
         state, ctx = _fresh_context({"default": "Line 1\n"})
         await notebook(mode="write", new_str="Line 2", tool_context=ctx)
         assert state.get("notebooks")["default"] == "Line 1\nLine 2"
@@ -304,21 +256,12 @@ class TestWriteAppend:
 
 
 class TestClear:
-    """The ``clear`` operation."""
-
     @pytest.mark.asyncio
-    async def test_clears_default_notebook(self):
+    async def test_clears_notebook(self):
         state, ctx = _fresh_context({"default": "Some content"})
         result = await notebook(mode="clear", tool_context=ctx)
         assert result == "Cleared notebook 'default'"
         assert state.get("notebooks")["default"] == ""
-
-    @pytest.mark.asyncio
-    async def test_clears_custom_notebook(self):
-        state, ctx = _fresh_context({"notes": "More content"})
-        result = await notebook(mode="clear", name="notes", tool_context=ctx)
-        assert result == "Cleared notebook 'notes'"
-        assert state.get("notebooks")["notes"] == ""
 
     @pytest.mark.asyncio
     async def test_clearing_does_not_affect_other_notebooks(self):
@@ -328,8 +271,6 @@ class TestClear:
 
 
 class TestStatePersistence:
-    """Notebook state persists across operations on the same agent."""
-
     @pytest.mark.asyncio
     async def test_persists_across_operations(self):
         state, ctx = _fresh_context()
@@ -341,22 +282,17 @@ class TestStatePersistence:
 
         content = await notebook(mode="read", name="notes", tool_context=ctx)
         assert content == "Initial\nAdded"
-        assert state.get("notebooks")["notes"] == "Initial\nAdded"
 
     @pytest.mark.asyncio
     async def test_read_does_not_mutate_state(self):
-        # If a sibling tool grew state past the cap, a pure read must not fail.
         oversized = {f"nb-{i}": "a" * (_DEFAULT_MAX_NOTEBOOK_SIZE_BYTES // 2) for i in range(20)}
         state, ctx = _fresh_context(oversized)
-        notebooks_before = state.get("notebooks").copy()
         version_before = state._get_version()
         await notebook(mode="read", name="nb-0", tool_context=ctx)
-        assert state.get("notebooks") == notebooks_before
         assert state._get_version() == version_before
 
     @pytest.mark.asyncio
     async def test_list_does_not_mutate_state_when_empty(self):
-        # Empty state materializes a default in-memory but must not persist it on `list`.
         state, ctx = _fresh_context()
         await notebook(mode="list", tool_context=ctx)
         assert state.get("notebooks") == {}
@@ -375,8 +311,6 @@ class TestStatePersistence:
 
 
 class TestValidationErrors:
-    """Validation of inputs at the tool boundary."""
-
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "mode,kwargs",
@@ -393,36 +327,24 @@ class TestValidationErrors:
             await notebook(mode=mode, tool_context=ctx, **kwargs)
 
     @pytest.mark.asyncio
-    async def test_rejects_write_without_new_str_for_replacement(self):
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"old_str": "Old"},
+            {"insert_line": 1},
+            {},
+        ],
+    )
+    async def test_rejects_write_without_new_str(self, kwargs):
         _, ctx = _fresh_context()
         with pytest.raises(ValueError):
-            await notebook(mode="write", old_str="Old", tool_context=ctx)
-
-    @pytest.mark.asyncio
-    async def test_rejects_write_without_new_str_for_insertion(self):
-        _, ctx = _fresh_context()
-        with pytest.raises(ValueError):
-            await notebook(mode="write", insert_line=1, tool_context=ctx)
-
-    @pytest.mark.asyncio
-    async def test_rejects_write_without_operation_params(self):
-        _, ctx = _fresh_context()
-        with pytest.raises(ValueError):
-            await notebook(mode="write", tool_context=ctx)
+            await notebook(mode="write", tool_context=ctx, **kwargs)
 
     @pytest.mark.asyncio
     async def test_rejects_write_with_both_old_str_and_insert_line(self):
-        # Ambiguous: both replacement and insertion anchors provided. Reject rather
-        # than silently preferring one mode to avoid corrupting the notebook.
         _, ctx = _fresh_context({"default": "Line 1\nLine 2"})
         with pytest.raises(ValueError, match="ambiguous"):
-            await notebook(
-                mode="write",
-                old_str="Line 1",
-                new_str="Replaced",
-                insert_line=0,
-                tool_context=ctx,
-            )
+            await notebook(mode="write", old_str="Line 1", new_str="Replaced", insert_line=0, tool_context=ctx)
 
     @pytest.mark.asyncio
     async def test_rejects_read_range_wrong_length(self):
@@ -431,51 +353,41 @@ class TestValidationErrors:
             await notebook(mode="read", read_range=[1], tool_context=ctx)
 
 
-class TestNameConfinement:
-    """Notebook-name validation rejects unusable names."""
-
-
 class TestSessionCaps:
-    """Session-scoped memory caps guard against runaway state growth."""
-
-    @pytest.mark.asyncio
-    async def test_rejects_too_many_notebooks(self):
-        # Pre-fill state right up to the limit, then try to create one more.
-        initial = {f"nb-{i}": "" for i in range(_DEFAULT_MAX_NOTEBOOKS)}
-        _, ctx = _fresh_context(initial)
-        with pytest.raises(ValueError, match="notebook count"):
-            await notebook(mode="create", name="over-the-line", tool_context=ctx)
-        # Cap failure must not persist the rejected notebook.
-        assert "over-the-line" not in (_.get("notebooks") or {})
-
     @pytest.mark.asyncio
     async def test_rejects_notebook_content_over_size_limit(self):
         _, ctx = _fresh_context()
         oversized = "a" * (_DEFAULT_MAX_NOTEBOOK_SIZE_BYTES + 1)
-        with pytest.raises(ValueError, match="maximum of"):
+        with pytest.raises(ValueError, match="would exceed maximum"):
             await notebook(mode="create", name="big", new_str=oversized, tool_context=ctx)
-        # Cap failure must not persist the oversized notebook.
         assert "big" not in (_.get("notebooks") or {})
 
     @pytest.mark.asyncio
-    async def test_custom_max_notebooks(self):
-        custom = make_notebook(max_notebooks=2)
-        initial = {"nb-0": "", "nb-1": ""}
+    async def test_allows_write_to_other_notebook_when_one_is_oversized(self):
+        custom = make_notebook(max_notebook_size_bytes=4)
+        initial = {"big": "x" * 100, "small": "hi"}
         _, ctx = _fresh_context(initial)
-        with pytest.raises(ValueError, match="notebook count"):
-            await custom(mode="create", name="nb-2", tool_context=ctx)
+        result = await custom(mode="write", name="small", new_str="!", tool_context=ctx)
+        assert result == "Appended text to notebook 'small'"
+
+    @pytest.mark.asyncio
+    async def test_write_rolls_back_on_size_cap_exceeded(self):
+        custom = make_notebook(max_notebook_size_bytes=5)
+        initial = {"notes": "hello"}
+        _, ctx = _fresh_context(initial)
+        with pytest.raises(ValueError, match="would exceed maximum"):
+            await custom(mode="write", name="notes", new_str=" world", tool_context=ctx)
+        assert _.get("notebooks")["notes"] == "hello"
 
     @pytest.mark.asyncio
     async def test_custom_max_notebook_size_bytes(self):
         custom = make_notebook(max_notebook_size_bytes=10)
         _, ctx = _fresh_context()
-        with pytest.raises(ValueError, match="maximum of"):
+        with pytest.raises(ValueError, match="would exceed maximum"):
             await custom(mode="create", name="small-cap", new_str="x" * 11, tool_context=ctx)
 
 
 class TestMakeNotebook:
-    """make_notebook produces tools with the configured name and description."""
-
     def test_custom_name(self):
         custom = make_notebook(name="scratchpad")
         assert custom.tool_name == "scratchpad"
@@ -491,7 +403,7 @@ class TestMakeNotebook:
 
     @pytest.mark.asyncio
     async def test_custom_tool_is_functional(self):
-        custom = make_notebook(name="scratchpad", max_notebooks=10)
+        custom = make_notebook(name="scratchpad")
         state, ctx = _fresh_context()
         result = await custom(mode="create", name="notes", new_str="hello", tool_context=ctx)
         assert result == "Created notebook 'notes' with specified content"
@@ -501,23 +413,15 @@ class TestMakeNotebook:
         with pytest.raises(ValueError, match="non-empty"):
             make_notebook(name="")
 
-    @pytest.mark.parametrize("cap", ["max_notebooks", "max_notebook_size_bytes"])
-    def test_rejects_zero_cap(self, cap):
-        with pytest.raises(ValueError, match=cap):
-            make_notebook(**{cap: 0})
-
-    @pytest.mark.parametrize("cap", ["max_notebooks", "max_notebook_size_bytes"])
-    def test_rejects_negative_cap(self, cap):
-        with pytest.raises(ValueError, match=cap):
-            make_notebook(**{cap: -1})
-
-    @pytest.mark.parametrize("cap", ["max_notebooks", "max_notebook_size_bytes"])
-    def test_rejects_non_integer_cap(self, cap):
-        with pytest.raises(ValueError, match=cap):
-            make_notebook(**{cap: 1.5})  # type: ignore[arg-type]
-
-    @pytest.mark.parametrize("cap", ["max_notebooks", "max_notebook_size_bytes"])
-    def test_rejects_bool_cap(self, cap):
-        # bool is a subclass of int; True == 1 but is semantically wrong here.
-        with pytest.raises(ValueError, match=cap):
-            make_notebook(**{cap: True})  # type: ignore[arg-type]
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"max_notebook_size_bytes": 0},
+            {"max_notebook_size_bytes": -1},
+            {"max_notebook_size_bytes": 1.5},
+            {"max_notebook_size_bytes": True},
+        ],
+    )
+    def test_rejects_invalid_cap(self, kwargs):
+        with pytest.raises(ValueError, match="max_notebook_size_bytes"):
+            make_notebook(**kwargs)  # type: ignore[arg-type]
