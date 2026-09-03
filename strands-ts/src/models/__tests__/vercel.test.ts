@@ -900,6 +900,32 @@ describe('VercelModel', () => {
         expect(warnSpy).toHaveBeenCalled()
         warnSpy.mockRestore()
       })
+
+      it('keeps the tool result adjacent to its tool call when the answering turn also carries text', async () => {
+        // An everyTurn context injector folds rendered text onto the tool-result turn, so its content
+        // is [toolResult, text]. The tool message must still lead the split so it stays adjacent to the
+        // assistant tool call it answers; the injected text follows as a separate user message.
+        const { collect, callArgs } = setupCaptureTest()
+        await collect([
+          new Message({ role: 'user', content: [new TextBlock('task')] }),
+          new Message({
+            role: 'assistant',
+            content: [new ToolUseBlock({ name: 'calc', toolUseId: 'tu1', input: {} })],
+          }),
+          new Message({
+            role: 'user',
+            content: [
+              new ToolResultBlock({ toolUseId: 'tu1', status: 'success', content: [new TextBlock('42')] }),
+              new TextBlock('\n\nNOTE'),
+            ],
+          }),
+        ])
+
+        const prompt = callArgs().prompt
+        expect(prompt.map((message) => message.role)).toEqual(['user', 'assistant', 'tool', 'user'])
+        expect((prompt[2] as any).content[0]).toMatchObject({ type: 'tool-result', toolCallId: 'tu1' })
+        expect((prompt[3] as any).content[0]).toEqual({ type: 'text', text: '\n\nNOTE' })
+      })
     })
   })
 
