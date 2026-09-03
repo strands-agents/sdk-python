@@ -68,6 +68,7 @@ import { ensureDefined } from '../types/validation.js'
 import { logger } from '../logging/logger.js'
 import { warnOnce } from '../logging/warn-once.js'
 import { NOOP_TOOL_SPEC } from '../tools/noop-tool.js'
+import { ensureStrictJsonSchema } from './_strict-schema.js'
 import { MODEL_DEFAULTS, defaultModelWarningMessage } from './defaults.js'
 
 const DEFAULT_BEDROCK_REGION_SUPPORTS_FIP = false
@@ -801,7 +802,9 @@ export class BedrockModel extends Model<BedrockModelConfig> {
             toolSpec: {
               name: spec.name,
               description: spec.description,
-              inputSchema: { json: spec.inputSchema },
+              inputSchema: {
+                json: strictTools && spec.inputSchema ? ensureStrictJsonSchema(spec.inputSchema) : spec.inputSchema,
+              },
               ...(strictTools ? { strict: true } : {}),
             },
           }) as Tool
