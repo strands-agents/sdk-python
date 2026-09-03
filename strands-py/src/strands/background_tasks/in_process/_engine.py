@@ -84,16 +84,16 @@ class InProcessTaskEngine:
         self._tasks[stored["task_id"]] = stored
         self._notify_task_updated(stored)
         self._schedule_task(stored["task_id"])
-        return _snapshot(stored)
+        return copy.deepcopy(stored)
 
     def get(self, task_id: str) -> InProcessTaskRecord | None:
         """Return a task snapshot if it exists."""
         task = self._tasks.get(task_id)
-        return _snapshot(task) if task is not None else None
+        return copy.deepcopy(task) if task is not None else None
 
     def list(self) -> list[InProcessTaskRecord]:
         """Return all task snapshots."""
-        return [_snapshot(task) for task in self._tasks.values()]
+        return [copy.deepcopy(task) for task in self._tasks.values()]
 
     def remove(self, task_id: str) -> None:
         """Remove a terminal task."""
@@ -106,7 +106,7 @@ class InProcessTaskEngine:
         """Cancel a non-terminal task."""
         current = self._require_task(task_id)
         if is_task_status_terminal(current["status"]):
-            return _snapshot(current)
+            return copy.deepcopy(current)
         task = self._update_task(task_id, _cancel_task)
         assert task is not None
         self._queue.pop(task_id, None)
@@ -127,18 +127,28 @@ class InProcessTaskEngine:
             await self._wait_for_idle_change(cancel_signal)
 
     async def _wait_for_idle_change(self, cancel_signal: CancelSignal | None) -> None:
-        waiter = asyncio.get_running_loop().create_future()
+        loop = asyncio.get_running_loop()
+        waiter = loop.create_future()
         self._idle_waiters.add(waiter)
+
+        def wake_waiter() -> None:
+            if not waiter.done():
+                waiter.set_result(None)
+
+        def on_abort() -> None:
+            # Abort may arrive from another thread, and possibly after the loop closed.
+            try:
+                loop.call_soon_threadsafe(wake_waiter)
+            except RuntimeError:
+                pass
+
+        if cancel_signal is not None:
+            cancel_signal.add_abort_callback(on_abort)
         try:
-            while not waiter.done():
-                if cancel_signal is not None and cancel_signal.aborted:
-                    raise _exception_from_reason(cancel_signal.reason)
-                try:
-                    # Cancellation may arrive from another thread, so periodically recheck the thread-safe signal.
-                    await asyncio.wait_for(asyncio.shield(waiter), timeout=0.01)
-                except asyncio.TimeoutError:
-                    pass
+            await waiter
         finally:
+            if cancel_signal is not None:
+                cancel_signal.remove_abort_callback(on_abort)
             self._idle_waiters.discard(waiter)
             if not waiter.done():
                 waiter.cancel()
@@ -272,14 +282,14 @@ class InProcessTaskEngine:
         update: Callable[[InProcessTaskRecord], bool],
     ) -> InProcessTaskRecord | None:
         current = self._require_task(task_id)
-        next_task = _snapshot(current)
+        next_task = copy.deepcopy(current)
         if not update(next_task):
             return None
         next_task["last_updated_at"] = _timestamp()
-        stored = _snapshot(next_task)
+        stored = copy.deepcopy(next_task)
         self._tasks[task_id] = stored
         self._notify_task_updated(stored)
-        return _snapshot(stored)
+        return copy.deepcopy(stored)
 
     def _require_task(self, task_id: str) -> InProcessTaskRecord:
         task = self._tasks.get(task_id)
@@ -288,7 +298,7 @@ class InProcessTaskEngine:
         return task
 
     def _notify_task_updated(self, task: InProcessTaskRecord) -> None:
-        asyncio.get_running_loop().call_soon(self._run_notification, _snapshot(task))
+        asyncio.get_running_loop().call_soon(self._run_notification, copy.deepcopy(task))
 
     def _run_notification(self, task: InProcessTaskRecord) -> None:
         try:
@@ -357,10 +367,6 @@ def _exception_from_reason(reason: object | None) -> BaseException:
     if isinstance(reason, BaseException):
         return reason
     return RuntimeError(str(reason) if reason is not None else "Operation cancelled")
-
-
-def _snapshot(task: InProcessTaskRecord) -> InProcessTaskRecord:
-    return copy.deepcopy(task)
 
 
 def _timestamp() -> str:

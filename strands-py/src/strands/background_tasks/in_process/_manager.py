@@ -327,18 +327,35 @@ async def _await_origin_result(
     future: concurrent.futures.Future[ToolResult],
     cancel_signal: CancelSignal,
 ) -> ToolResult:
+    loop = asyncio.get_running_loop()
     wrapped = asyncio.wrap_future(future)
+    aborted: asyncio.Future[None] = loop.create_future()
+
+    def wake_aborted() -> None:
+        if not aborted.done():
+            aborted.set_result(None)
+
+    def on_abort() -> None:
+        # Abort may arrive from another thread, and possibly after the loop closed.
+        try:
+            loop.call_soon_threadsafe(wake_aborted)
+        except RuntimeError:
+            pass
+
+    cancel_signal.add_abort_callback(on_abort)
     try:
-        while True:
-            if cancel_signal.aborted:
-                raise asyncio.CancelledError
-            try:
-                return await asyncio.wait_for(asyncio.shield(wrapped), timeout=0.01)
-            except asyncio.TimeoutError:
-                pass
+        pending: set[asyncio.Future[Any]] = {wrapped, aborted}
+        await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+        if wrapped.done():
+            return wrapped.result()
+        raise asyncio.CancelledError
     except BaseException:
         future.cancel()
         raise
+    finally:
+        cancel_signal.remove_abort_callback(on_abort)
+        if not aborted.done():
+            aborted.cancel()
 
 
 def _request_interrupt(

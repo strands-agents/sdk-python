@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal, TypeAlias
 
@@ -36,6 +37,8 @@ class CancelSignal(threading.Event):
         """Initialize an unset signal."""
         super().__init__()
         self.reason: object | None = None
+        self._abort_callbacks: list[Callable[[], None]] = []
+        self._callback_lock = threading.Lock()
 
     @property
     def aborted(self) -> bool:
@@ -44,10 +47,32 @@ class CancelSignal(threading.Event):
 
     def abort(self, reason: object | None = None) -> None:
         """Request cancellation once."""
-        if self.is_set():
-            return
-        self.reason = reason
-        self.set()
+        with self._callback_lock:
+            if self.is_set():
+                return
+            self.reason = reason
+            self.set()
+            callbacks = self._abort_callbacks
+            self._abort_callbacks = []
+        for callback in callbacks:
+            callback()
+
+    def add_abort_callback(self, callback: Callable[[], None]) -> None:
+        """Invoke callback on abort, immediately if already aborted.
+
+        The callback runs on the aborting thread and must be thread-safe.
+        """
+        with self._callback_lock:
+            if not self.is_set():
+                self._abort_callbacks.append(callback)
+                return
+        callback()
+
+    def remove_abort_callback(self, callback: Callable[[], None]) -> None:
+        """Unregister a previously added callback."""
+        with self._callback_lock:
+            if callback in self._abort_callbacks:
+                self._abort_callbacks.remove(callback)
 
 
 @dataclass(frozen=True)
