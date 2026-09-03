@@ -3,6 +3,7 @@ from typing import Any
 from typing_extensions import assert_type
 
 from strands import Agent, LocalAgent, ToolContext, tool
+from strands.experimental.bidi import BidiAgent
 from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent
 
 
@@ -40,14 +41,20 @@ def local_tool_call(event: BeforeToolCallEvent[LocalAgent] | AfterToolCallEvent[
     assert_type(event.agent, LocalAgent)
 
 
-def register_hooks(agent: Agent, local_agent: LocalAgent) -> None:
+def register_hooks(agent: Agent, bidi_agent: BidiAgent, local_agent: LocalAgent) -> None:
     shared_agent: LocalAgent = agent
     assert_type(shared_agent, LocalAgent)
+    shared_bidi_agent: LocalAgent = bidi_agent
+    assert_type(shared_bidi_agent, LocalAgent)
 
     agent.add_hook(before_tool_call)
     agent.add_hook(before_local_tool_call)
     agent.add_hook(after_local_tool_call)
     agent.add_hook(local_tool_call)
+
+    bidi_agent.add_hook(before_local_tool_call)
+    bidi_agent.add_hook(after_local_tool_call)
+    bidi_agent.add_hook(local_tool_call)
 
     local_agent.add_hook(before_local_tool_call)
     local_agent.add_hook(after_local_tool_call)
