@@ -36,6 +36,10 @@ on:
         default: false
         type: boolean
 
+concurrency:
+  group: typescript-integration-test-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ inputs.ref == '' && github.event_name == 'pull_request_target' }}
+
 jobs:
   validate-call-ref:
     name: Validate workflow_call ref
