@@ -14,7 +14,8 @@ import { warnOnce } from '../../logging/warn-once.js'
 
 // OpenAI's prompt_cache_retention accepts only these literals. ttl maps through only on an exact
 // match — the SDK never guesses a conversion from an arbitrary duration string.
-const RETENTION_LITERALS: ReadonlySet<string> = new Set(['in_memory', '24h'])
+const RETENTION_LITERALS = ['in_memory', '24h'] as const
+type RetentionLiteral = (typeof RETENTION_LITERALS)[number]
 
 /**
  * The `CacheConfig`-derived fields both OpenAI request shapes share.
@@ -23,7 +24,19 @@ interface CacheableRequest {
   prompt_cache_key?: string
   // Deprecated in openai 6.45.0 in favor of prompt_cache_options.ttl, whose only accepted value today
   // is '30m' — so '24h'/'in_memory' remain expressible only through this field.
-  prompt_cache_retention?: 'in_memory' | '24h' | null
+  prompt_cache_retention?: RetentionLiteral | null
+}
+
+/**
+ * The OpenAI caching values to write, derived from a `CacheConfig`.
+ *
+ * @internal
+ */
+interface ResolvedOpenAICache {
+  /** Stable identity OpenAI routes cache reads on (wire `prompt_cache_key`). */
+  cacheKey?: string
+  /** Retention literal to write, set only when the configured `ttl` names one. */
+  retention?: RetentionLiteral
 }
 
 /**
@@ -42,6 +55,43 @@ function hasPlacementConfig(cacheConfig: CacheConfig): boolean {
 }
 
 /**
+ * Resolves a `CacheConfig` into OpenAI caching values.
+ *
+ * @internal
+ */
+export function resolveOpenAICache(cacheConfig: CacheConfig): ResolvedOpenAICache {
+  const openaiCache: ResolvedOpenAICache = {}
+
+  if (cacheConfig.cacheKey !== undefined) {
+    openaiCache.cacheKey = cacheConfig.cacheKey
+  }
+
+  if (cacheConfig.ttl !== undefined && (RETENTION_LITERALS as readonly string[]).includes(cacheConfig.ttl)) {
+    openaiCache.retention = cacheConfig.ttl as RetentionLiteral
+  }
+
+  if (hasPlacementConfig(cacheConfig)) {
+    warnOnce(
+      logger,
+      'openai caches prefixes automatically server-side | strategy, toolsTTL, systemPromptTTL and messagesTTL have no effect'
+    )
+  }
+
+  return openaiCache
+}
+
+/**
+ * Warns once that a `ttl` is not an OpenAI retention literal and was ignored.
+ *
+ * @param ttl - The unsupported ttl value; included in the message so `warnOnce`, which dedupes on the
+ * exact string, does not collapse distinct misconfigurations into a single warning.
+ * @internal
+ */
+export function warnUnsupportedRetention(ttl: string): void {
+  warnOnce(logger, `ttl=<${ttl}> | cacheConfig.ttl is not an openai retention value, ignoring`)
+}
+
+/**
  * Maps a `CacheConfig` onto an OpenAI request in place.
  *
  * An explicit value already present in `request` (carried in from the user's `params`) always wins;
@@ -54,23 +104,14 @@ function hasPlacementConfig(cacheConfig: CacheConfig): boolean {
  */
 export function applyCacheConfig(request: CacheableRequest, cacheConfig: CacheConfig | undefined): void {
   if (!cacheConfig) return
+  const openaiCache = resolveOpenAICache(cacheConfig)
 
-  if (cacheConfig.cacheKey !== undefined && request.prompt_cache_key === undefined) {
-    request.prompt_cache_key = cacheConfig.cacheKey
+  if (openaiCache.cacheKey !== undefined && request.prompt_cache_key === undefined) {
+    request.prompt_cache_key = openaiCache.cacheKey
   }
 
-  if (cacheConfig.ttl !== undefined && request.prompt_cache_retention === undefined) {
-    if (RETENTION_LITERALS.has(cacheConfig.ttl)) {
-      request.prompt_cache_retention = cacheConfig.ttl as 'in_memory' | '24h'
-    } else {
-      warnOnce(logger, `ttl=<${cacheConfig.ttl}> | cacheConfig.ttl is not an openai retention value, ignoring`)
-    }
-  }
-
-  if (hasPlacementConfig(cacheConfig)) {
-    warnOnce(
-      logger,
-      'openai caches prefixes automatically server-side | strategy, toolsTTL, systemPromptTTL and messagesTTL have no effect'
-    )
+  if (request.prompt_cache_retention === undefined) {
+    if (openaiCache.retention !== undefined) request.prompt_cache_retention = openaiCache.retention
+    else if (cacheConfig.ttl !== undefined) warnUnsupportedRetention(cacheConfig.ttl)
   }
 }
