@@ -2,15 +2,9 @@ import { tool } from '../../index.js'
 import { z } from 'zod'
 import type { NotebookState } from './types.js'
 
-const MAX_NOTEBOOKS = 64
-const MAX_NOTEBOOK_NAME_LENGTH = 128
-const MAX_NOTEBOOK_SIZE_BYTES = 1_048_576 // 1 MiB
-
 /**
  * Zod schema for notebook input validation.
  */
-const MUTATING_MODES = new Set(['create', 'write', 'clear'])
-
 const notebookInputSchema = z
   .object({
     mode: z
@@ -48,48 +42,6 @@ const notebookInputSchema = z
       message: 'Write operation requires newStr, optionally with oldStr for replacement or insertLine for insertion',
     }
   )
-
-/**
- * Validates a notebook name.
- * @throws Error if the name is empty, too long, or contains disallowed characters.
- */
-function validateNotebookName(name: string): void {
-  if (!name) {
-    throw new Error('Notebook name must be a non-empty string')
-  }
-  if (name.length > MAX_NOTEBOOK_NAME_LENGTH) {
-    throw new Error(`Notebook name exceeds maximum length of ${MAX_NOTEBOOK_NAME_LENGTH} characters`)
-  }
-  if (name !== name.trim()) {
-    throw new Error('Notebook name must not have leading or trailing whitespace')
-  }
-  if (name.includes('\0')) {
-    throw new Error('Notebook name must not contain NUL bytes')
-  }
-  if (name.includes('/') || name.includes('\\')) {
-    throw new Error('Notebook name must not contain path separators')
-  }
-  if (name === '..' || name === '.') {
-    throw new Error('Notebook name is not allowed')
-  }
-}
-
-/**
- * Enforces per-session notebook count and size caps.
- * @throws Error if any cap is exceeded.
- */
-function enforceSessionCaps(notebooks: Record<string, string>): void {
-  if (Object.keys(notebooks).length > MAX_NOTEBOOKS) {
-    throw new Error(`Session notebook count exceeds maximum of ${MAX_NOTEBOOKS}`)
-  }
-  const encoder = new TextEncoder()
-  for (const [nbName, content] of Object.entries(notebooks)) {
-    const size = encoder.encode(content).byteLength
-    if (size > MAX_NOTEBOOK_SIZE_BYTES) {
-      throw new Error(`Notebook '${nbName}' size (${size} bytes) exceeds maximum of ${MAX_NOTEBOOK_SIZE_BYTES} bytes`)
-    }
-  }
-}
 
 /**
  * Notebook tool for managing persistent text notebooks.
@@ -133,15 +85,11 @@ export const notebook = tool({
       notebooks.default = ''
     }
 
-    const target = input.name ?? 'default'
-    validateNotebookName(target)
-
     let result: string
 
     switch (input.mode) {
       case 'create':
-        result = handleCreate(notebooks, target, input.newStr)
-        enforceSessionCaps(notebooks)
+        result = handleCreate(notebooks, input.name ?? 'default', input.newStr)
         break
 
       case 'list':
@@ -149,25 +97,23 @@ export const notebook = tool({
         break
 
       case 'read':
-        result = handleRead(notebooks, target, input.readRange)
+        result = handleRead(notebooks, input.name ?? 'default', input.readRange)
         break
 
       case 'write':
-        result = handleWrite(notebooks, target, input.oldStr, input.newStr, input.insertLine)
-        enforceSessionCaps(notebooks)
+        result = handleWrite(notebooks, input.name ?? 'default', input.oldStr, input.newStr, input.insertLine)
         break
 
       case 'clear':
-        result = handleClear(notebooks, target)
+        result = handleClear(notebooks, input.name ?? 'default')
         break
 
       default:
         throw new Error(`Unknown mode: ${input.mode}`)
     }
 
-    if (MUTATING_MODES.has(input.mode)) {
-      context.agent.appState.set('notebooks', notebooks)
-    }
+    // Persist notebooks back to state
+    context.agent.appState.set('notebooks', notebooks)
 
     return result
   },
@@ -230,8 +176,10 @@ function handleRead(notebooks: Record<string, string>, name: string, readRange?:
   }
 
   const selectedLines: string[] = []
-  for (let lineNum = Math.max(start, 1); lineNum <= Math.min(end, lines.length); lineNum++) {
-    selectedLines.push(`${lineNum}: ${lines[lineNum - 1]}`)
+  for (let lineNum = start; lineNum <= end; lineNum++) {
+    if (lineNum >= 1 && lineNum <= lines.length) {
+      selectedLines.push(`${lineNum}: ${lines[lineNum - 1]}`)
+    }
   }
 
   return selectedLines.length > 0 ? selectedLines.join('\n') : 'No valid lines found in range'

@@ -503,61 +503,12 @@ describe('notebook tool', () => {
       expect(notebooks!.notes).toBe('Initial\nAdded')
     })
 
-    it('does not persist state when listing on empty state', async () => {
+    it('initializes default notebook if state is empty', async () => {
       const { state, context } = createFreshContext()
       const result = await notebook.invoke({ mode: 'list' }, context)
       expect(result).toContain('default: Empty')
       const notebooks = state.get<NotebookState>('notebooks')
-      expect(notebooks).toEqual({})
-    })
-  })
-
-  describe('name validation', () => {
-    it.each([
-      ['../etc/passwd', 'path separators'],
-      ['..\\evil', 'path separators'],
-      ['/absolute/path', 'path separators'],
-      ['nested/name', 'path separators'],
-      ['back\\slash', 'path separators'],
-      ['..', 'not allowed'],
-      ['.', 'not allowed'],
-      ['notes\x00nul', 'NUL bytes'],
-      ['   ', 'whitespace'],
-      [' leading', 'whitespace'],
-      ['trailing ', 'whitespace'],
-      ['a'.repeat(129), 'maximum length'],
-    ])('rejects %s (%s)', async (badName, _reason) => {
-      const { context } = createFreshContext()
-      await expect(notebook.invoke({ mode: 'create', name: badName }, context)).rejects.toThrow()
-    })
-
-    it('rejects empty name', async () => {
-      const { context } = createFreshContext()
-      await expect(notebook.invoke({ mode: 'create', name: '' }, context)).rejects.toThrow(
-        'Notebook name must be a non-empty string'
-      )
-    })
-  })
-
-  describe('session caps', () => {
-    it('rejects creating too many notebooks', async () => {
-      const { state, context } = createFreshContext()
-      const initial: Record<string, string> = {}
-      for (let i = 0; i < 64; i++) {
-        initial[`nb-${i}`] = ''
-      }
-      state.set('notebooks', initial)
-      await expect(notebook.invoke({ mode: 'create', name: 'over-the-line' }, context)).rejects.toThrow(
-        'notebook count'
-      )
-    })
-
-    it('rejects notebook content over size limit', async () => {
-      const { context } = createFreshContext()
-      const oversized = 'a'.repeat(1_048_577)
-      await expect(notebook.invoke({ mode: 'create', name: 'big', newStr: oversized }, context)).rejects.toThrow(
-        'maximum of'
-      )
+      expect(notebooks!.default).toBe('')
     })
   })
 
