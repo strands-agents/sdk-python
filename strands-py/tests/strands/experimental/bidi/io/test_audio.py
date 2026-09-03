@@ -261,6 +261,20 @@ def test_bidi_audio_io_output_configs(pyaudio_module, py_audio, audio_output):
     )
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("direction", ["input", "output"])
+async def test_bidi_audio_io_start_rejects_model_without_audio_capability(pyaudio_module, direction):
+    agent = unittest.mock.MagicMock()
+    agent.model = object()
+    audio_io = BidiAudioIO()
+    io = audio_io.input() if direction == "input" else audio_io.output()
+
+    with pytest.raises(TypeError, match="BidiAudioIO requires a model that implements AudioCapable"):
+        await io.start(agent)
+
+    pyaudio_module.PyAudio.assert_not_called()
+
+
 # ===========================================================================
 # Audio processing (echo cancellation, noise suppression, AGC)
 # ===========================================================================
