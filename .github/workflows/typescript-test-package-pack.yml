@@ -31,7 +31,7 @@ jobs:
     name: Pack Install
     permissions:
       contents: read
-    runs-on: ubuntu-latest
+    runs-on: strands-agents_ubuntu-latest_4-core
 
     steps:
       - name: Checkout code
