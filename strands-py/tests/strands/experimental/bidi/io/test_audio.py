@@ -68,7 +68,6 @@ def agent():
 
 @pytest.fixture
 def aec_agent():
-    # Audio processing requires a supported input rate (16k/32k/48k) and mono.
     mock = unittest.mock.MagicMock()
     mock.model.config = {
         "audio": {
@@ -446,16 +445,10 @@ def test_processor_construction_builds_audio_processor_with_config():
     )
 
 
-@pytest.mark.parametrize("rate", [16000, 32000, 48000])
+@pytest.mark.parametrize("rate", [8000, 16000, 24000, 44100, 48000, 96000, 384000])
 def test_processor_construction_accepts_supported_rates(rate):
     processor_patch, _, _ = _fake_audio_processor()
     with processor_patch:
-        _create_processor(input_rate=rate, output_rate=rate)
-
-
-@pytest.mark.parametrize("rate", [8000, 24000, 44100])
-def test_processor_construction_rejects_unsupported_rates(rate):
-    with pytest.raises(ValueError, match="audio processing supports sample rates"):
         _create_processor(input_rate=rate, output_rate=rate)
 
 
