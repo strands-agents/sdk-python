@@ -42,6 +42,28 @@ class BidiModelConfig(TypedDict, total=False):
     connection: BidiConnectionConfig
 
 
+@runtime_checkable
+class Restartable(Protocol):
+    """A bidirectional model that can replace its active connection while preserving context."""
+
+    async def restart(
+        self,
+        system_prompt: str | None = None,
+        tools: list[ToolSpec] | None = None,
+        messages: Messages | None = None,
+        **restart_kwargs: Any,
+    ) -> None:
+        """Replace the active connection while preserving conversation context.
+
+        Args:
+            system_prompt: System instructions for the new connection.
+            tools: Tool specifications for the new connection.
+            messages: Conversation history to replay when required by the provider.
+            **restart_kwargs: Provider-specific restart options.
+        """
+        ...
+
+
 class BidiModel(Model, abc.ABC):
     """Abstract base class for bidirectional streaming models.
 
@@ -165,30 +187,6 @@ class BidiModel(Model, abc.ABC):
             ```
         """
         pass
-
-    async def reconnect(
-        self,
-        system_prompt: str | None = None,
-        tools: list[ToolSpec] | None = None,
-        messages: Messages | None = None,
-        **restart_kwargs: Any,
-    ) -> None:
-        """Close the current connection and establish a new one, preserving context.
-
-        Equivalent to ``stop()`` then ``start()``, but implemented by the provider so it
-        can apply its own resume mechanism (e.g. a session handle).
-
-        Args:
-            system_prompt: System instructions to configure model behavior.
-            tools: Tool specifications that the model can invoke during the conversation.
-            messages: Conversation history to replay for providers that resume via replay.
-            **restart_kwargs: Provider-specific restart options (e.g. from a timeout error).
-
-        Raises:
-            NotImplementedError: If the model does not implement reconnection.
-        """
-        # TODO: Make reconnect abstract after Google and OpenAI implement it.
-        raise NotImplementedError("reconnect is not implemented by this bidirectional model")
 
 
 class BidiModelTimeoutError(Exception):

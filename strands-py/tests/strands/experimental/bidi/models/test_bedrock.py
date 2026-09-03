@@ -331,8 +331,8 @@ async def test_connection_config_overrides_merge_over_defaults(model_id, boto_se
 
 
 @pytest.mark.asyncio
-async def test_reconnect_replays_history_through_start_path(nova_model, mock_stream):
-    """reconnect() stops the old connection and re-initializes with the same context."""
+async def test_restart_replays_history_through_start_path(nova_model, mock_stream):
+    """restart() stops the old connection and re-initializes with the same context."""
     tools = [
         {
             "name": "get_weather",
@@ -349,7 +349,7 @@ async def test_reconnect_replays_history_through_start_path(nova_model, mock_str
     first_connection_id = nova_model._connection_id
     mock_stream.input_stream.send.reset_mock()
 
-    await nova_model.reconnect(system_prompt="You are helpful", tools=tools, messages=messages)
+    await nova_model.restart(system_prompt="You are helpful", tools=tools, messages=messages)
 
     # Old stream was closed and a fresh connection established with a new id.
     assert mock_stream.close.called
@@ -368,11 +368,11 @@ async def test_reconnect_replays_history_through_start_path(nova_model, mock_str
 
 
 @pytest.mark.asyncio
-async def test_reconnect_twice_does_not_raise(nova_model):
-    """Two reconnects in succession are safe (relies on idempotent stop())."""
+async def test_restart_twice_does_not_raise(nova_model):
+    """Two restarts in succession are safe because stop() is idempotent."""
     await nova_model.start(system_prompt="You are helpful")
-    await nova_model.reconnect(system_prompt="You are helpful")
-    await nova_model.reconnect(system_prompt="You are helpful")
+    await nova_model.restart(system_prompt="You are helpful")
+    await nova_model.restart(system_prompt="You are helpful")
     assert nova_model._connection_id is not None
     await nova_model.stop()
 
@@ -383,7 +383,7 @@ async def test_proactive_reconnect_end_to_end_through_agent(model_id, boto_sessi
 
     Drives the full chain against the real BedrockNovaSonicModel (mocked Bedrock transport):
     the loop reads Nova's connection_config, arms the proactive timer, emits a warning,
-    and reconnects through Nova's own reconnect() before the session deadline, replaying
+    and restarts through Nova's own restart() before the session deadline, replaying
     history via Nova's initialization path. No live AWS calls are made.
     """
     from strands.experimental.bidi.agent.agent import BidiAgent
@@ -433,7 +433,7 @@ async def test_proactive_reconnect_end_to_end_through_agent(model_id, boto_sessi
 
     assert warning_seen
     assert model._connection_id != first_connection_id
-    assert mock_stream.close.called  # old connection was torn down via reconnect -> stop
+    assert mock_stream.close.called  # old connection was torn down by restart()
 
     await agent.stop()
 

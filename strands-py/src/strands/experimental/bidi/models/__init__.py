@@ -3,7 +3,7 @@
 from typing import Any
 
 from ..types.model import AudioConfig
-from .model import AudioCapable, BidiModel, BidiModelConfig, BidiModelTimeoutError
+from .model import AudioCapable, BidiModel, BidiModelConfig, BidiModelTimeoutError, Restartable
 
 __all__ = [
     "AudioCapable",
@@ -11,6 +11,7 @@ __all__ = [
     "BidiModel",
     "BidiModelConfig",
     "BidiModelTimeoutError",
+    "Restartable",
 ]
 
 

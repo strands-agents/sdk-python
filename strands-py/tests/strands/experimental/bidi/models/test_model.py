@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
+from strands.experimental.bidi import Restartable
 from strands.experimental.bidi.models.model import AudioCapable, AudioConfig, BidiModel
 from strands.experimental.bidi.types.events import BidiInputEvent, BidiOutputEvent
 from strands.models import Model
@@ -58,6 +59,17 @@ class _AudioBidiModel(_TestBidiModel):
         }
 
 
+class _TestRestartableBidiModel(_TestBidiModel):
+    async def restart(
+        self,
+        system_prompt: str | None = None,
+        tools: list[ToolSpec] | None = None,
+        messages: Messages | None = None,
+        **restart_kwargs: Any,
+    ) -> None:
+        pass
+
+
 def test_model_is_model():
     assert isinstance(_TestBidiModel(), Model)
 
@@ -84,12 +96,12 @@ def test_get_config_returns_copy():
     assert model.config == {"model_id": "test-model"}
 
 
-@pytest.mark.asyncio
-async def test_reconnect_raises_not_implemented():
-    model = _TestBidiModel()
+def test_model_without_restart_is_not_restartable():
+    assert not isinstance(_TestBidiModel(), Restartable)
 
-    with pytest.raises(NotImplementedError, match="reconnect is not implemented"):
-        await model.reconnect()
+
+def test_model_with_restart_is_restartable():
+    assert isinstance(_TestRestartableBidiModel(), Restartable)
 
 
 def test_stream_raises_not_implemented():

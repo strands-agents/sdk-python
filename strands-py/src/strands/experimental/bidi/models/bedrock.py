@@ -535,14 +535,14 @@ class BedrockNovaSonicModel(BidiModel, AudioCapable):
 
         logger.debug("nova connection closed")
 
-    async def reconnect(
+    async def restart(
         self,
         system_prompt: str | None = None,
         tools: list[ToolSpec] | None = None,
         messages: Messages | None = None,
         **restart_kwargs: Any,
     ) -> None:
-        """Reconnect by closing the connection and starting a new one, replaying messages.
+        """Restart by closing the connection and starting a new one, replaying messages.
 
         Args:
             system_prompt: System instructions for the new connection.
@@ -550,10 +550,10 @@ class BedrockNovaSonicModel(BidiModel, AudioCapable):
             messages: Conversation history to replay into the new connection.
             **restart_kwargs: Reserved for provider-specific restart options.
         """
-        logger.debug("nova reconnect starting")
+        logger.debug("nova restart starting")
         await self.stop()
         await self.start(system_prompt, tools, messages, **restart_kwargs)
-        logger.debug("connection_id=<%s> | nova reconnect complete", self._connection_id)
+        logger.debug("connection_id=<%s> | nova restart complete", self._connection_id)
 
     def _convert_nova_event(self, nova_event: dict[str, Any]) -> BidiOutputEvent | None:
         """Convert Nova Sonic events to TypedEvent format."""

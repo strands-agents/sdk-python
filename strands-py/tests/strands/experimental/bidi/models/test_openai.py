@@ -18,7 +18,7 @@ import pytest
 
 from strands.experimental.bidi.models.model import BidiModelTimeoutError
 from strands.experimental.bidi.models.openai import (
-    _RECONNECT_INSTRUCTION,
+    _RESTART_INSTRUCTION,
     OPENAI_MAX_TIMEOUT_S,
     OPENAI_PROACTIVE_RECONNECT_MARGIN_S,
     OpenAIRealtimeModel,
@@ -950,7 +950,7 @@ async def test_tool_result_document_content_raises_error(mock_websockets_connect
     await model.stop()
 
 
-# Reconnect Tests
+# Restart Tests
 
 
 def test_connection_config_defaults_and_override(api_key, mock_websockets_connect):
@@ -976,15 +976,15 @@ def test_connection_config_defaults_and_override(api_key, mock_websockets_connec
 
 
 @pytest.mark.asyncio
-async def test_reconnect_reestablishes_and_replays_history(mock_websockets_connect, model, system_prompt, messages):
-    """reconnect() closes the old socket, opens a new one, and replays conversation history."""
+async def test_restart_reestablishes_and_replays_history(mock_websockets_connect, model, system_prompt, messages):
+    """restart() closes the old socket, opens a new one, and replays conversation history."""
     mock_connect, mock_ws = mock_websockets_connect
 
     await model.start()
     first_connection_id = model._connection_id
     mock_ws.send.reset_mock()
 
-    await model.reconnect(system_prompt=system_prompt, messages=messages)
+    await model.restart(system_prompt=system_prompt, messages=messages)
 
     # Old socket closed, a new connection opened, and the connection identity advanced.
     mock_ws.close.assert_called_once()
@@ -1006,14 +1006,14 @@ async def test_reconnect_reestablishes_and_replays_history(mock_websockets_conne
 
 
 @pytest.mark.asyncio
-async def test_reconnect_forwards_tools(mock_websockets_connect, model, tool_spec):
-    """Tools are re-sent on reconnect so the new session can still call them."""
+async def test_restart_forwards_tools(mock_websockets_connect, model, tool_spec):
+    """Tools are re-sent on restart so the new session can still call them."""
     _, mock_ws = mock_websockets_connect
 
     await model.start()
     mock_ws.send.reset_mock()
 
-    await model.reconnect(tools=[tool_spec])
+    await model.restart(tools=[tool_spec])
 
     tool_names = [
         tool["name"]
@@ -1027,7 +1027,7 @@ async def test_reconnect_forwards_tools(mock_websockets_connect, model, tool_spe
 
 
 @pytest.mark.asyncio
-async def test_reconnect_survives_reanchor_send_failure(mock_websockets_connect, model):
+async def test_restart_survives_reanchor_send_failure(mock_websockets_connect, model):
     """A failed re-anchor send is logged, not fatal: the reconnected session stays healthy."""
     _, mock_ws = mock_websockets_connect
 
@@ -1041,7 +1041,7 @@ async def test_reconnect_survives_reanchor_send_failure(mock_websockets_connect,
     mock_ws.send.side_effect = fail_on_anchor
 
     # Must not raise even though the re-anchor send fails.
-    await model.reconnect()
+    await model.restart()
 
     assert model._connection_id is not None
 
@@ -1050,14 +1050,14 @@ async def test_reconnect_survives_reanchor_send_failure(mock_websockets_connect,
 
 
 @pytest.mark.asyncio
-async def test_reconnect_sends_reanchor_system_message(mock_websockets_connect, model):
-    """reconnect() injects a system message so the fresh session continues rather than drifting."""
+async def test_restart_sends_reanchor_system_message(mock_websockets_connect, model):
+    """restart() injects a system message so the fresh session continues rather than drifting."""
     _, mock_ws = mock_websockets_connect
 
     await model.start()
     mock_ws.send.reset_mock()
 
-    await model.reconnect()
+    await model.restart()
 
     system_items = [
         json.loads(call[0][0])["item"]
@@ -1066,7 +1066,7 @@ async def test_reconnect_sends_reanchor_system_message(mock_websockets_connect, 
         and json.loads(call[0][0])["item"].get("role") == "system"
     ]
     assert system_items == [
-        {"type": "message", "role": "system", "content": [{"type": "input_text", "text": _RECONNECT_INSTRUCTION}]}
+        {"type": "message", "role": "system", "content": [{"type": "input_text", "text": _RESTART_INSTRUCTION}]}
     ]
 
     await model.stop()
