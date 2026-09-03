@@ -794,6 +794,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
     }
 
     if (toolSpecs.length > 0) {
+      const strictTools = this._config.strictTools === true
       const tools: Tool[] = toolSpecs.map(
         (spec) =>
           ({
@@ -801,6 +802,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
               name: spec.name,
               description: spec.description,
               inputSchema: { json: spec.inputSchema },
+              ...(strictTools ? { strict: true } : {}),
             },
           }) as Tool
       )
