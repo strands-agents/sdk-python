@@ -10,7 +10,7 @@ export const NAMESPACED: unique symbol = Symbol.for('strands.storage.namespaced'
 
 /**
  * Symbol marking storage backends whose data does not survive process restarts.
- * Propagated through {@link namespace} so namespaced views of ephemeral storage
+ * Propagated through {@link "namespace"} so namespaced views of ephemeral storage
  * remain detectable.
  *
  * @internal
