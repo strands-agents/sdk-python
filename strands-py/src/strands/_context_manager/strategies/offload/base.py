@@ -36,9 +36,6 @@ class OffloadConditions(TypedDict, total=False):
     preserve_recent: int
 
 
-# --- Block type helpers ---
-
-
 def _is_tool_result_block(block: ContentBlock) -> bool:
     return "toolResult" in block
 
@@ -49,9 +46,6 @@ def _is_tool_use_block(block: ContentBlock) -> bool:
 
 def _is_text_block(block: ContentBlock) -> bool:
     return "text" in block and "toolResult" not in block and "toolUse" not in block
-
-
-# --- Shared helpers ---
 
 
 def _finite_or_none(value: int | float | None) -> int | float | None:
@@ -159,8 +153,6 @@ def message_matches_target(
     """
     if target_matches_message(target, message):
         return True
-    if target is None:
-        return False
 
     if message["role"] != "user":
         return False
@@ -224,7 +216,7 @@ def collect_removable_with_pair(messages: Messages, index: int) -> list[Message]
     result: list[Message] = [message]
 
     has_tool_result = any(_is_tool_result_block(b) for b in message["content"])
-    if has_tool_result and index > 0:
+    if has_tool_result:
         prev = messages[index - 1]
         if any(_is_tool_use_block(b) for b in prev["content"]):
             if index - 1 > 0:
@@ -262,15 +254,13 @@ def splice_with_pairs(messages: Messages, to_remove: list[Message]) -> tuple[int
             if removable_index is not None:
                 to_splice.add(removable_index)
 
-    removed = 0
-    lowest_index = len(messages)
-    for index in sorted(to_splice, reverse=True):
-        if index < lowest_index:
-            lowest_index = index
-        messages.pop(index)
-        removed += 1
+    if not to_splice:
+        return 0, len(messages)
 
-    return removed, lowest_index
+    for index in sorted(to_splice, reverse=True):
+        messages.pop(index)
+
+    return len(to_splice), min(to_splice)
 
 
 def repair_alternation(messages: Messages) -> None:
@@ -333,9 +323,6 @@ def resolve_tool_filter(target: OffloadTarget | None) -> tuple[set[str] | None, 
         return set(includes), None
 
     return None, None
-
-
-# --- Base strategy class ---
 
 
 class BaseOffloadStrategy(ABC):
@@ -532,9 +519,6 @@ class BaseOffloadStrategy(ABC):
     ) -> ContentBlock | None:
         """Transform a block. Return the replacement, or None to skip."""
         ...
-
-
-# --- Emergency truncation strategy ---
 
 
 class EmergencyTruncateStrategy(BaseOffloadStrategy):
