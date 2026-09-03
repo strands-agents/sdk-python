@@ -2892,6 +2892,103 @@ def test_format_request_maps_3gp_video_formats(model, model_id, video_format):
     assert video_block == {"format": "three_gp", "source": {"bytes": b"video_data"}}
 
 
+def test_format_request_audio_bytes(model, model_id):
+    """Test that audio with a bytes source is formatted as a Converse AudioBlock."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "audio": {
+                        "format": "mp3",
+                        "source": {"bytes": b"audio_data"},
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+
+    audio_block = formatted_request["messages"][0]["content"][0]["audio"]
+    assert audio_block == {"format": "mp3", "source": {"bytes": b"audio_data"}}
+
+
+def test_format_request_audio_s3_location(model, model_id):
+    """Test that audio with s3Location is properly formatted."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "audio": {
+                        "format": "wav",
+                        "source": {
+                            "location": {"type": "s3", "uri": "s3://my-bucket/audio.wav"},
+                        },
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+    audio_block = formatted_request["messages"][0]["content"][0]["audio"]
+
+    assert audio_block == {"format": "wav", "source": {"s3Location": {"uri": "s3://my-bucket/audio.wav"}}}
+
+
+def test_format_request_audio_non_s3_location_skipped(model, model_id, caplog):
+    """Test that audio with a non-S3 location is skipped rather than sent to Bedrock."""
+    caplog.set_level(logging.WARNING, logger="strands.models.bedrock")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "Transcribe this recording"},
+                {
+                    "audio": {
+                        "format": "mp3",
+                        "source": {
+                            "location": {"type": "other"},
+                        },
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+
+    assert formatted_request["messages"][0]["content"] == [{"text": "Transcribe this recording"}]
+    assert "Non s3 location sources are not supported by Bedrock | skipping content block" in caplog.text
+
+
+def test_format_request_filters_audio_content_blocks(model, model_id):
+    """Test that format_request filters extra fields from audio content blocks."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "audio": {
+                        "format": "flac",
+                        "source": {"bytes": b"audio_data"},
+                        "duration": 30,  # Extra field that should be filtered
+                        "sampleRate": 44100,  # Extra field that should be filtered
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+
+    audio_block = formatted_request["messages"][0]["content"][0]["audio"]
+    assert audio_block == {"format": "flac", "source": {"bytes": b"audio_data"}}
+
+
 def test_format_request_filters_document_content_blocks(model, model_id):
     """Test that format_request filters extra fields from document content blocks."""
     messages = [
