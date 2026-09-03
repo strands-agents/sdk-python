@@ -55,19 +55,7 @@ async def summarize_content(
     model: Model,
     config: SummarizeConfig | None = None,
 ) -> str | None:
-    """Summarize content blocks via an LLM call.
-
-    Passes content blocks directly to the model. If the call fails with an exception,
-    retries with text-only blocks. A successful call that produces no text is not retried.
-
-    Args:
-        content: Content blocks to summarize.
-        model: Model to use for the summarization call.
-        config: Optional summarization configuration.
-
-    Returns:
-        The summarized text, or None if summarization failed.
-    """
+    """Summarize content blocks via an LLM call, falling back to text-only on failure."""
     result, succeeded = await _call_summarizer(content, model, config)
     if result is not None:
         return result
@@ -83,16 +71,7 @@ async def summarize_content(
 
 
 def tool_result_to_content_blocks(content: list[ToolResultContent]) -> list[ContentBlock]:
-    """Convert ToolResultContent list to ContentBlock list for model consumption.
-
-    JSON blocks are serialized to text since they are not valid ContentBlocks.
-
-    Args:
-        content: Tool result content list.
-
-    Returns:
-        List of ContentBlocks suitable for passing to a model.
-    """
+    """Convert ToolResultContent list to ContentBlocks, serializing JSON to text."""
     blocks: list[ContentBlock] = []
     for item in content:
         if "json" in item:
@@ -105,16 +84,7 @@ def tool_result_to_content_blocks(content: list[ToolResultContent]) -> list[Cont
 
 
 def flatten_messages_to_content(messages: Messages) -> list[ContentBlock]:
-    """Flatten a range of messages into a single ContentBlock list for multimodal summarization.
-
-    Inserts role markers so the summarizer understands message boundaries.
-
-    Args:
-        messages: Messages to flatten.
-
-    Returns:
-        Flat list of ContentBlocks with role markers.
-    """
+    """Flatten messages into a single ContentBlock list with role markers."""
     blocks: list[ContentBlock] = []
     for message in messages:
         blocks.append(ContentBlock(text=f"\n---\n[{message['role']}]"))
@@ -131,17 +101,7 @@ async def _call_summarizer(
     model: Model,
     config: SummarizeConfig | None = None,
 ) -> tuple[str | None, bool]:
-    """Call the model to generate a summary.
-
-    Args:
-        content: Content blocks to summarize.
-        model: Model to use.
-        config: Optional config for system prompt override.
-
-    Returns:
-        Tuple of (summary_text, succeeded). succeeded is True when the model call
-        completed (even if no text was produced), False when an exception occurred.
-    """
+    """Call the model to generate a summary. Returns (text, succeeded)."""
     system_prompt = (config or {}).get("system_prompt", DEFAULT_SYSTEM_PROMPT)
 
     messages: Messages = [

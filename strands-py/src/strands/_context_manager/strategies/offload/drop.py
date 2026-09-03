@@ -29,14 +29,7 @@ class DropStrategy(BaseOffloadStrategy):
         super().__init__(target, conditions)
 
     def when(self, **conditions: int | float) -> DropStrategy:
-        """Add conditions that determine when this strategy fires.
-
-        Args:
-            **conditions: Keyword arguments matching OffloadConditions fields.
-
-        Returns:
-            A new DropStrategy instance with the conditions applied.
-        """
+        """Return a new instance with the given conditions applied."""
         return DropStrategy(self._target, OffloadConditions(**conditions))  # type: ignore[typeddict-item]
 
     def _make_removal_marker(self, count: int) -> str:

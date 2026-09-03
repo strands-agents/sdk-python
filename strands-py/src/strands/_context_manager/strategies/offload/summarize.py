@@ -48,25 +48,11 @@ class SummarizeStrategy(BaseOffloadStrategy):
         self._config: SummarizeConfig = config or {}
 
     def when(self, **conditions: int | float) -> SummarizeStrategy:
-        """Add conditions that determine when this strategy fires.
-
-        Args:
-            **conditions: Keyword arguments matching OffloadConditions fields.
-
-        Returns:
-            A new SummarizeStrategy instance with the conditions applied.
-        """
+        """Return a new instance with the given conditions applied."""
         return SummarizeStrategy(self._target, self._config, OffloadConditions(**conditions))  # type: ignore[typeddict-item]
 
     async def apply(self, context: ContextState) -> bool:
-        """Apply summarization. Returns False if no model is available.
-
-        Args:
-            context: Current context state.
-
-        Returns:
-            True if content was summarized.
-        """
+        """Apply summarization. Returns False if no model is available."""
         if not self._resolve_model(context.agent):
             logger.warning("strategy=<%s> | no model available for summarization", self.name)
             return False

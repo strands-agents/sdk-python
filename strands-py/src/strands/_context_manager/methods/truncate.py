@@ -33,16 +33,7 @@ class TruncateConfig(TypedDict, total=False):
 
 
 def build_preview(full_text: str, block_count: int, config: TruncateConfig | None = None) -> str:
-    """Build a preview of the given text (head, tail, or head-tail depending on config).
-
-    Args:
-        full_text: The full text to preview.
-        block_count: Number of original blocks being previewed (for metadata header).
-        config: Truncation configuration.
-
-    Returns:
-        The preview string with truncation metadata header, or the original text if within budget.
-    """
+    """Build a head/tail preview of the text, or return the original if within budget."""
     config = config or {}
     raw_preview_tokens = config.get("preview_tokens", DEFAULT_PREVIEW_TOKENS)
     preview_tokens = (
@@ -75,18 +66,7 @@ def build_preview(full_text: str, block_count: int, config: TruncateConfig | Non
 
 
 def truncate_tool_result(block: ToolResult, config: TruncateConfig | None = None) -> ToolResult:
-    """Create a replacement ToolResult with textual content truncated.
-
-    Text and JSON blocks are serialized into a preview. Opaque blocks (images, documents)
-    are preserved untouched.
-
-    Args:
-        block: The original tool result block.
-        config: Truncation configuration.
-
-    Returns:
-        A new ToolResult with truncated content, or the original if no truncation needed.
-    """
+    """Truncate textual content in a ToolResult, preserving opaque blocks."""
     textual: list[str] = []
     opaque: list[ToolResultContent] = []
 
@@ -116,15 +96,7 @@ def truncate_tool_result(block: ToolResult, config: TruncateConfig | None = None
 
 
 def truncate_text_block(block: ContentBlock, config: TruncateConfig | None = None) -> ContentBlock:
-    """Create a replacement text ContentBlock containing the truncated preview.
-
-    Args:
-        block: The original text content block (must have a "text" key).
-        config: Truncation configuration.
-
-    Returns:
-        A new ContentBlock with truncated text, or the original if no truncation needed.
-    """
+    """Truncate a text ContentBlock, or return the original if within budget."""
     text = block["text"]
     preview = build_preview(text, 1, config)
     if preview == text:

@@ -56,14 +56,7 @@ class TruncateStrategy(BaseOffloadStrategy):
             )
 
     def when(self, **conditions: int | float) -> TruncateStrategy:
-        """Add conditions that determine when this strategy fires.
-
-        Args:
-            **conditions: Keyword arguments matching OffloadConditions fields.
-
-        Returns:
-            A new TruncateStrategy instance with the conditions applied.
-        """
+        """Return a new instance with the given conditions applied."""
         return TruncateStrategy(self._target, self._truncate_config, OffloadConditions(**conditions))  # type: ignore[typeddict-item]
 
     def _make_removal_marker(self, count: int) -> str:

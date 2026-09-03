@@ -11,7 +11,8 @@ from typing import TYPE_CHECKING
 from ..hooks.events import AfterModelCallEvent, BeforeModelCallEvent
 from ..plugins.plugin import Plugin
 from ..types.exceptions import ContextWindowOverflowException
-from .strategies.offload import EmergencyTruncateStrategy, Offload
+from .strategies.offload import Offload
+from .strategies.offload.base import EmergencyTruncateStrategy
 from .types import ContextState, ContextStrategy
 
 if TYPE_CHECKING:
@@ -37,12 +38,7 @@ class ContextManager(Plugin):
         return "strands:context-manager"
 
     def __init__(self, *, strategies: list[ContextStrategy] | None = None) -> None:
-        """Initialize the ContextManager.
-
-        Args:
-            strategies: Ordered list of context reduction strategies. When omitted,
-                uses default strategies (truncate tool results + summarize on overflow).
-        """
+        """Initialize with an optional ordered list of strategies (defaults provided)."""
         super().__init__()
         self._strategies: list[ContextStrategy] = [
             *(
@@ -57,14 +53,7 @@ class ContextManager(Plugin):
         ]
 
     def init_agent(self, agent: Agent) -> None:
-        """Initialize the agent with strategy hooks.
-
-        Registers BeforeModelCallEvent for proactive compression and
-        AfterModelCallEvent for overflow recovery.
-
-        Args:
-            agent: The agent to initialize.
-        """
+        """Register strategy hooks for proactive compression and overflow recovery."""
         for strategy in self._strategies:
             init = getattr(strategy, "init", None)
             if init is not None:
@@ -100,15 +89,7 @@ class ContextManager(Plugin):
         agent.hooks.add_callback(AfterModelCallEvent, _on_after_model_call)
 
     async def _run_strategies(self, agent: Agent, precomputed_input_tokens: int | None = None) -> bool:
-        """Run the strategy pipeline.
-
-        Args:
-            agent: The agent whose context to manage.
-            precomputed_input_tokens: Pre-computed token count (from BeforeModelCallEvent).
-
-        Returns:
-            True if any strategy made progress.
-        """
+        """Run the strategy pipeline, recomputing utilization after each acting strategy."""
         messages = agent.messages
         if precomputed_input_tokens is not None:
             input_tokens = precomputed_input_tokens

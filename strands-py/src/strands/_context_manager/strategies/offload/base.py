@@ -44,14 +44,7 @@ def _finite_or_none(value: int | float | None) -> int | float | None:
 
 
 def build_tool_name_map(messages: Messages) -> dict[str, str]:
-    """Build a toolUseId -> toolName map from all assistant messages.
-
-    Args:
-        messages: The conversation messages.
-
-    Returns:
-        Mapping from tool use ID to tool name.
-    """
+    """Build a toolUseId -> toolName map from all assistant messages."""
     name_map: dict[str, str] = {}
     for message in messages:
         if message["role"] != "assistant":
@@ -70,18 +63,7 @@ def tool_matches_target(
     tool_include_filter: set[str] | None,
     tool_exclude_filter: set[str] | None,
 ) -> bool:
-    """Check if a tool result block matches the given target.
-
-    Args:
-        block: A content block containing a toolResult.
-        target: The offload target.
-        tool_name_map: Mapping of tool use IDs to tool names.
-        tool_include_filter: Set of tool names to include (if any).
-        tool_exclude_filter: Set of tool names to exclude (if any).
-
-    Returns:
-        True if the block matches the target.
-    """
+    """Check if a tool result block matches the given target."""
     tool_result = block["toolResult"]
     if target == "*":
         return True
@@ -103,15 +85,7 @@ def tool_matches_target(
 
 
 def target_matches_message(target: OffloadTarget | None, message: Message) -> bool:
-    """Check if a message matches a text-level target.
-
-    Args:
-        target: The offload target.
-        message: The message to check.
-
-    Returns:
-        True if the message matches.
-    """
+    """Check if a message matches a text-level target."""
     if target is None or target == "*":
         return True
     if target == "assistant_text":
@@ -128,18 +102,7 @@ def message_matches_target(
     tool_include_filter: set[str] | None,
     tool_exclude_filter: set[str] | None,
 ) -> bool:
-    """Check if a message matches the target (text-level or tool result).
-
-    Args:
-        message: The message to check.
-        target: The offload target.
-        tool_name_map: Tool use ID to name mapping.
-        tool_include_filter: Tool name include filter.
-        tool_exclude_filter: Tool name exclude filter.
-
-    Returns:
-        True if the message matches.
-    """
+    """Check if a message matches the target (text-level or tool result)."""
     if target_matches_message(target, message):
         return True
 
@@ -160,19 +123,7 @@ def get_oldest_matches(
     tool_include_filter: set[str] | None,
     tool_exclude_filter: set[str] | None,
 ) -> list[Message]:
-    """Return target-matching messages excluding the N most recent matches.
-
-    Args:
-        messages: All messages.
-        target: The offload target.
-        count: Number of most recent matches to exclude.
-        tool_name_map: Tool use ID to name mapping.
-        tool_include_filter: Tool name include filter.
-        tool_exclude_filter: Tool name exclude filter.
-
-    Returns:
-        Oldest matching messages (excluding the most recent `count`).
-    """
+    """Return target-matching messages excluding the ``count`` most recent matches."""
     matching = [
         msg
         for msg in messages
@@ -186,18 +137,7 @@ def get_oldest_matches(
 
 
 def collect_removable_with_pair(messages: Messages, index: int) -> list[Message]:
-    """Collect a message and its paired partner for safe removal.
-
-    If removing a message would orphan a tool-use/tool-result pair, includes the partner.
-    Skips messages[0] (head-pin).
-
-    Args:
-        messages: All messages.
-        index: Index of the message to remove.
-
-    Returns:
-        List of messages that should be removed together.
-    """
+    """Collect a message and its tool-use/tool-result pair partner for safe removal."""
     if index <= 0 or index >= len(messages):
         return []
 
@@ -223,15 +163,7 @@ def collect_removable_with_pair(messages: Messages, index: int) -> list[Message]
 
 
 def splice_with_pairs(messages: Messages, to_remove: list[Message]) -> tuple[int, int]:
-    """Remove messages from the list, respecting tool-use/tool-result pairs.
-
-    Args:
-        messages: The message list (mutated in place).
-        to_remove: Messages to remove.
-
-    Returns:
-        Tuple of (number of messages removed, lowest index that was removed).
-    """
+    """Remove messages in place, expanding to include tool-use/tool-result pairs."""
     identity_map = {id(msg): idx for idx, msg in enumerate(messages)}
     to_splice: set[int] = set()
     for message in to_remove:
@@ -253,13 +185,7 @@ def splice_with_pairs(messages: Messages, to_remove: list[Message]) -> tuple[int
 
 
 def repair_alternation(messages: Messages) -> None:
-    """Merge consecutive same-role messages to restore user/assistant alternation.
-
-    Mutates the messages list in place.
-
-    Args:
-        messages: The message list to repair.
-    """
+    """Merge consecutive same-role messages to restore user/assistant alternation."""
     write_index = 0
     for read_index in range(len(messages)):
         current = messages[read_index]
@@ -276,17 +202,7 @@ def repair_alternation(messages: Messages) -> None:
 
 
 def resolve_tool_filter(target: OffloadTarget | None) -> tuple[set[str] | None, set[str] | None]:
-    """Parse a string list target into include/exclude filter sets.
-
-    Entries must be prefixed with ``tool::`` (e.g. ``'tool::bash'``).
-    An additional ``!`` prefix excludes (e.g. ``'!tool::bash'``).
-
-    Args:
-        target: The offload target.
-
-    Returns:
-        Tuple of (include_filter, exclude_filter).
-    """
+    """Parse a ``tool::`` prefixed list target into include/exclude filter sets."""
     if not isinstance(target, list):
         return None, None
 
@@ -345,11 +261,7 @@ class BaseOffloadStrategy(ABC):
         return self._utilization_threshold is not None
 
     def init(self, agent: Agent) -> None:
-        """Register eager hooks if this is a per-block strategy without preserveRecent.
-
-        Args:
-            agent: The agent to register hooks on.
-        """
+        """Register eager hooks if this is a per-block strategy without preserveRecent."""
         from ....hooks.events import MessageAddedEvent
 
         if self._is_message_level:
@@ -365,14 +277,7 @@ class BaseOffloadStrategy(ABC):
         agent.hooks.add_callback(MessageAddedEvent, _eager_hook)
 
     async def apply(self, context: ContextState) -> bool:
-        """Apply the strategy to the context.
-
-        Args:
-            context: Current context state.
-
-        Returns:
-            True if the strategy made changes.
-        """
+        """Apply the strategy to the context."""
         if self._is_message_level:
             if context.utilization < self._utilization_threshold:  # type: ignore[operator]
                 return False
@@ -527,14 +432,7 @@ class EmergencyTruncateStrategy(BaseOffloadStrategy):
         """No eager hooks for emergency truncation."""
 
     async def apply(self, context: ContextState) -> bool:
-        """Fire only when utilization >= 1.0 and messages > 3.
-
-        Args:
-            context: Current context state.
-
-        Returns:
-            True if messages were removed.
-        """
+        """Fire only when utilization >= 1.0 and messages > 3."""
         if len(context.messages) <= 3:
             return False
         tokens = await context.agent.model.count_tokens(context.messages)

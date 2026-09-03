@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .base import EmergencyTruncateStrategy as EmergencyTruncateStrategy
 from .drop import DropStrategy
 from .summarize import SummarizeStrategy
 from .truncate import TruncateStrategy
