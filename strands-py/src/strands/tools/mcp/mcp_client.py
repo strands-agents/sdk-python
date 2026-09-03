@@ -32,7 +32,6 @@ from urllib.parse import urlparse
 import anyio
 import httpx
 from mcp import ClientSession, ListToolsResult, StdioServerParameters, stdio_client
-from mcp.client.auth.extensions.client_credentials import ClientCredentialsOAuthProvider
 from mcp.client.session import ElicitationFnT, ProgressFnT
 from mcp.client.sse import sse_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
@@ -66,6 +65,7 @@ from ..tool_provider import ToolProvider
 from ._compat import (
     MCP_V2,
     MCPError,
+    client_credentials_auth,
     is_error,
     is_tools_list_changed,
     mime_type,
@@ -2470,12 +2470,12 @@ def _build_client_credentials_auth(url: str, auth: MCPClientCredentials) -> http
     scopes = values.get("scopes")
     if scopes is not None and not (isinstance(scopes, list) and all(isinstance(scope, str) for scope in scopes)):
         raise ValueError("MCPClient: 'auth' requires 'scopes' to be a list of strings")
-    return ClientCredentialsOAuthProvider(
+    return client_credentials_auth(
         server_url=url,
         storage=_InMemoryTokenStorage(),
         client_id=values["client_id"],
         client_secret=values["client_secret"],
-        scopes=" ".join(scopes) if scopes else None,
+        scope=" ".join(scopes) if scopes else None,
     )
 
 

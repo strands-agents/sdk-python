@@ -642,7 +642,7 @@ async def test_forced_swap_flags_interrupted_turn(agent, agenerator):
     loop._update_turn_state()
 
     # Force the turn-alignment wait to time out immediately (no wall-clock wait).
-    with unittest.mock.patch("strands.experimental.bidi.agent.loop._TURN_ALIGN_WAIT_S", 0.0):
+    with unittest.mock.patch("strands.experimental.bidi.agent.loop._MODEL_RESTART_TURN_TIMEOUT_S", 0):
         await loop._on_reconnect_deadline()
 
     restart = await loop._lifecycle_queue.get()
@@ -656,7 +656,7 @@ async def test_forced_swap_flags_interrupted_turn(agent, agenerator):
 async def test_proactive_reconnect_waits_for_turn_boundary(loop, agent, agenerator):
     """A proactive reconnect defers until the in-progress turn completes (turn alignment)."""
     # The real timer is cancelled so the deadline is driven manually; the turn state is set
-    # directly, and _await_turn_boundary waits up to _TURN_ALIGN_WAIT_S for the boundary.
+    # directly, and _await_turn_boundary waits up to _MODEL_RESTART_TURN_TIMEOUT_S for the boundary.
     agent.model.connection_config = {"restart_after_s": 60}
     agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
     await loop.start()

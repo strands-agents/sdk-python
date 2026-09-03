@@ -5,11 +5,9 @@ from typing import Any
 from .events import (
     BidiAfterConnectionRestartEvent,
     BidiAfterInvocationEvent,
-    BidiAfterToolCallEvent,
     BidiAgentInitializedEvent,
     BidiBeforeConnectionRestartEvent,
     BidiBeforeInvocationEvent,
-    BidiBeforeToolCallEvent,
     BidiInterruptionEvent,
     BidiMessageAddedEvent,
 )
@@ -33,8 +31,6 @@ __all__ = [
     "BidiBeforeInvocationEvent",
     "BidiAfterInvocationEvent",
     "BidiMessageAddedEvent",
-    "BidiBeforeToolCallEvent",
-    "BidiAfterToolCallEvent",
     "BidiInterruptionEvent",
     "BidiBeforeConnectionRestartEvent",
     "BidiAfterConnectionRestartEvent",
