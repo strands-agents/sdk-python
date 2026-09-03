@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { InMemoryVectorSearchStrategy } from '../in-memory-vector.js'
+import { VectorSearchStrategy } from '../vector.js'
 
-describe('InMemoryVectorSearchStrategy', () => {
+describe('VectorSearchStrategy', () => {
   const fakeEmbedder = vi.fn()
   const mockStorage = { write: vi.fn(), read: vi.fn(), delete: vi.fn(), list: vi.fn() }
 
@@ -12,7 +12,7 @@ describe('InMemoryVectorSearchStrategy', () => {
   describe('index', () => {
     it('embeds content and stores the vector', async () => {
       fakeEmbedder.mockResolvedValue([0.1, 0.2, 0.3])
-      const strategy = new InMemoryVectorSearchStrategy({ embedder: fakeEmbedder })
+      const strategy = new VectorSearchStrategy({ embedder: fakeEmbedder })
 
       await strategy.index(mockStorage, 'notes/meeting.md', new TextEncoder().encode('discuss roadmap'))
 
@@ -22,7 +22,7 @@ describe('InMemoryVectorSearchStrategy', () => {
 
   describe('search', () => {
     it('returns ranked results by cosine similarity', async () => {
-      const strategy = new InMemoryVectorSearchStrategy({ embedder: fakeEmbedder })
+      const strategy = new VectorSearchStrategy({ embedder: fakeEmbedder })
 
       fakeEmbedder.mockResolvedValueOnce([1, 0, 0])
       await strategy.index(mockStorage, 'a.md', new TextEncoder().encode('a'))
@@ -45,7 +45,7 @@ describe('InMemoryVectorSearchStrategy', () => {
 
     it('returns empty array when no vectors stored', async () => {
       fakeEmbedder.mockResolvedValue([0.1, 0.2])
-      const strategy = new InMemoryVectorSearchStrategy({ embedder: fakeEmbedder })
+      const strategy = new VectorSearchStrategy({ embedder: fakeEmbedder })
 
       const results = await strategy.search(mockStorage, 'anything')
 
@@ -53,7 +53,7 @@ describe('InMemoryVectorSearchStrategy', () => {
     })
 
     it('respects maxResults', async () => {
-      const strategy = new InMemoryVectorSearchStrategy({ embedder: fakeEmbedder, maxResults: 1 })
+      const strategy = new VectorSearchStrategy({ embedder: fakeEmbedder, maxResults: 1 })
 
       fakeEmbedder.mockResolvedValueOnce([1, 0])
       await strategy.index(mockStorage, 'a.md', new TextEncoder().encode('a'))

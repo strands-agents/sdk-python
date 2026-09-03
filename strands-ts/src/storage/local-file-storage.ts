@@ -5,13 +5,13 @@ import type { EmbeddingsConfig, SearchStrategy } from './search/types.js'
 import { StorageError } from '../errors.js'
 import { NAMESPACED, normalizeKey, normalizePrefix } from './storage.js'
 import { KeywordSearchStrategy } from './search/keyword.js'
-import { LocalVectorSearchStrategy } from './search/local-vector.js'
+import { VectorSearchStrategy } from './search/vector.js'
 
 /** Configuration for {@link LocalFileStorage}. */
 export interface LocalFileStorageConfig {
   /** Search strategy to use instead of the default keyword search. Takes precedence over `embeddings`. */
   searchStrategy?: SearchStrategy
-  /** Shorthand for enabling vector search. Automatically wires up a {@link LocalVectorSearchStrategy}. */
+  /** Shorthand for enabling vector search. Automatically wires up a {@link VectorSearchStrategy}. */
   embeddings?: EmbeddingsConfig
 }
 
@@ -68,13 +68,10 @@ export class LocalFileStorage implements Storage {
 
   private _resolveEmbeddings(embeddings: EmbeddingsConfig | undefined): SearchStrategy | undefined {
     if (!embeddings) return undefined
-    return new LocalVectorSearchStrategy(
-      {
-        embedder: embeddings.embedder,
-        ...(embeddings.maxResults != null && { maxResults: embeddings.maxResults }),
-      },
-      this._baseDir
-    )
+    return new VectorSearchStrategy({
+      embedder: embeddings.embedder,
+      ...(embeddings.maxResults != null && { maxResults: embeddings.maxResults }),
+    })
   }
 
   /**

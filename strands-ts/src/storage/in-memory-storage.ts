@@ -3,13 +3,13 @@ import type { EmbeddingsConfig, SearchStrategy } from './search/types.js'
 
 import { namespace, normalizeKey, normalizePrefix } from './storage.js'
 import { KeywordSearchStrategy } from './search/keyword.js'
-import { InMemoryVectorSearchStrategy } from './search/in-memory-vector.js'
+import { VectorSearchStrategy } from './search/vector.js'
 
 /** Configuration for {@link InMemoryStorage}. */
 export interface InMemoryStorageConfig {
   /** Search strategy to use instead of the default keyword search. Takes precedence over `embeddings`. */
   searchStrategy?: SearchStrategy
-  /** Shorthand for enabling vector search. Automatically wires up an {@link InMemoryVectorSearchStrategy}. */
+  /** Shorthand for enabling vector search. Automatically wires up a {@link VectorSearchStrategy}. */
   embeddings?: EmbeddingsConfig
 }
 
@@ -48,7 +48,7 @@ export class InMemoryStorage implements Storage {
 
   private _resolveEmbeddings(embeddings: EmbeddingsConfig | undefined): SearchStrategy | undefined {
     if (!embeddings) return undefined
-    return new InMemoryVectorSearchStrategy({
+    return new VectorSearchStrategy({
       embedder: embeddings.embedder,
       ...(embeddings.maxResults != null && { maxResults: embeddings.maxResults }),
     })

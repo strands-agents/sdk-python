@@ -3,8 +3,8 @@ import type { Embedder, SearchStrategy } from './types.js'
 
 import { cosineSimilarity } from './cosine.js'
 
-/** Configuration for {@link InMemoryVectorSearchStrategy}. */
-export interface InMemoryVectorSearchStrategyConfig {
+/** Configuration for {@link VectorSearchStrategy}. */
+export interface VectorSearchStrategyConfig {
   /** Function that produces embedding vectors from text. */
   embedder: Embedder
   /** Maximum number of results to return. Defaults to 10. */
@@ -12,15 +12,15 @@ export interface InMemoryVectorSearchStrategyConfig {
 }
 
 /**
- * In-memory vector search strategy using brute-force cosine similarity.
+ * In-process vector search strategy using brute-force cosine similarity.
  *
  * Stores embedding vectors in a `Map` and computes cosine similarity at query
- * time. Suitable for small-to-medium datasets where an external vector store is
- * not needed.
+ * time. Works with any storage backend. Suitable for small-to-medium datasets
+ * where an external vector store is not needed.
  *
  * @example
  * ```typescript
- * import { InMemoryVectorSearchStrategy } from '@strands-agents/sdk/storage/search'
+ * import { VectorSearchStrategy } from '@strands-agents/sdk/storage/search'
  * import { InMemoryStorage } from '@strands-agents/sdk/storage'
  *
  * const storage = new InMemoryStorage({
@@ -28,11 +28,11 @@ export interface InMemoryVectorSearchStrategyConfig {
  * })
  * ```
  */
-export class InMemoryVectorSearchStrategy implements SearchStrategy {
-  private readonly _config: InMemoryVectorSearchStrategyConfig
+export class VectorSearchStrategy implements SearchStrategy {
+  private readonly _config: VectorSearchStrategyConfig
   private readonly _vectors = new Map<string, number[]>()
 
-  constructor(config: InMemoryVectorSearchStrategyConfig) {
+  constructor(config: VectorSearchStrategyConfig) {
     this._config = config
   }
 
