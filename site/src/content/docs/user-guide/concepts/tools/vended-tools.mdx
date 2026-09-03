@@ -14,6 +14,7 @@ sourceLinks:
   - path: strands-py/src/strands/vended_tools/http_request/http_request.py
   - path: strands-py/src/strands/vended_tools/shell/shell.py
   - path: strands-py/src/strands/vended_tools/sleep/sleep.py
+  - path: strands-py/src/strands/vended_tools/tool_registry/tool_registry.py
   - path: strands-py/src/strands/experimental/tools/stop/stop.py
 ---
 
@@ -41,6 +42,7 @@ Each tool is imported from its own subpath under `@strands-agents/sdk/vended-too
 | [Bash](#bash) | Execute shell commands with persistent sessions | Python, TypeScript (Node.js, Unix/Linux/macOS) |
 | [Sleep](#sleep) | Pause execution for a bounded, cancellable duration | Python, TypeScript (Node.js, browsers) |
 | [Stop](#stop-experimental) | Gracefully end the agent loop when the task is complete | Python, TypeScript (Node.js, browsers) |
+| [Tool Registry](#tool-registry) | Let the agent list, create, update, and delete tools on its own registry at runtime | Python |
 
 ### File Editor
 
@@ -320,6 +322,67 @@ result = agent("Summarize the changes in ./CHANGELOG.md")
 </Tabs>
 
 📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/experimental/vended-tools/stop/README.md)
+
+---
+
+### Tool Registry
+
+Gives the agent runtime CRUD access to its own tool registry, backed
+exclusively by already-connected MCP clients the developer pre-approved at
+construction time. The model can list every tool currently registered, register
+a new tool that binds to a specific remote tool on one of those clients, update
+an existing binding, and delete entries this tool itself added.
+Developer-registered tools are never mutable through the interface, and there
+is no filesystem or inline-code loading surface.
+
+_Supported in: all platforms (Python)._
+
+The pre-approved MCP client set is fixed when the tool is constructed; the
+model chooses among aliases the developer set, never a raw URL. A configurable
+cap (default: 32) bounds the number of tools any one instance may add
+to a given agent.
+
+**Example:**
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from mcp import StdioServerParameters, stdio_client
+
+from strands import Agent
+from strands.tools.mcp import MCPClient
+from strands.vended_tools import make_tool_registry
+
+with MCPClient(lambda: stdio_client(StdioServerParameters(command="uvx", args=["mcp-weather"]))) as weather:
+    registry_tool = make_tool_registry(mcp_clients={"weather": weather})
+    agent = Agent(tools=[registry_tool])
+    agent("List the tools you have, then add the forecast tool from weather.")
+```
+
+</Tab>
+</Tabs>
+
+**Custom configuration:**
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from mcp import StdioServerParameters, stdio_client
+
+from strands import Agent
+from strands.tools.mcp import MCPClient
+from strands.vended_tools import make_tool_registry
+
+with MCPClient(lambda: stdio_client(StdioServerParameters(command="uvx", args=["mcp-weather"]))) as weather:
+    registry_tool = make_tool_registry(mcp_clients={"weather": weather}, max_dynamic_tools=10)
+    agent = Agent(tools=[registry_tool])
+```
+
+</Tab>
+</Tabs>
+
 
 ---
 

@@ -707,3 +707,12 @@ class ToolRegistry:
 
         if exceptions:
             raise exceptions[0]
+
+    def remove(self, tool_name: str) -> None:
+        """Remove a tool from the registry. No-op if the tool does not exist.
+
+        Args:
+            tool_name: Name of the tool to remove.
+        """
+        self.registry.pop(tool_name, None)
+        self.dynamic_tools.pop(tool_name, None)

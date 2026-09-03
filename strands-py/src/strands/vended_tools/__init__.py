@@ -1,4 +1,4 @@
-"""Built-in tools for commands, files, HTTP, and pausing.
+"""Built-in tools for commands, files, HTTP, tool registry, and pausing.
 
 The :func:`make_shell` and :func:`make_file_editor` factories produce
 sandbox-routed tools that either bind to a
@@ -10,6 +10,9 @@ calls. The :data:`sleep` tool pauses execution for a bounded, cancellable durati
 The :data:`http_request` tool makes raw HTTP calls; use
 :func:`make_http_request` to supply a pre-configured ``httpx.AsyncClient``
 with custom timeouts, redirects, authentication, or proxies.
+
+The :func:`make_tool_registry` factory produces a tool that lets the agent
+introspect and mutate its own tool registry at runtime.
 
 Example Usage:
     ```python
@@ -28,6 +31,7 @@ from .file_editor import file_editor, make_file_editor
 from .http_request import http_request, make_http_request
 from .shell import make_shell, shell
 from .sleep import make_sleep, sleep
+from .tool_registry import make_tool_registry
 
 
 def __getattr__(name: str) -> Any:
@@ -52,6 +56,7 @@ __all__ = [
     "make_http_request",
     "make_shell",
     "make_sleep",
+    "make_tool_registry",
     "shell",
     "sleep",
 ]
