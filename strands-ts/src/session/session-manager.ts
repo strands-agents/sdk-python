@@ -91,8 +91,7 @@ export interface SessionManagerConfig {
  * @internal
  */
 type StashSnapshotData =
-  | { location: 'inline'; entries: Record<string, JSONValue> }
-  | { location: 'external'; storageType?: string }
+  { location: 'inline'; entries: Record<string, JSONValue> } | { location: 'external'; storageType?: string }
 
 /**
  * Manages session persistence for agents, enabling conversation state
@@ -343,16 +342,13 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
   // Stash integration
   // ---------------------------------------------------------------------------
 
-
   private async _includeStashData(agent: LocalAgent, snapshot: Snapshot): Promise<void> {
     const contextManager = agent.contextManager
     if (!contextManager?.stash) return
 
     if (contextManager.stashIsDurable) {
       const storageType = contextManager.stashStorage?.constructor.name
-      const ref: StashSnapshotData = storageType
-        ? { location: 'external', storageType }
-        : { location: 'external' }
+      const ref: StashSnapshotData = storageType ? { location: 'external', storageType } : { location: 'external' }
       snapshot.data.stash = ref as unknown as JSONValue
       return
     }

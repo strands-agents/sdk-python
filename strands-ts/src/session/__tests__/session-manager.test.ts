@@ -975,7 +975,12 @@ describe('SessionManager — stash integration', () => {
         sessionId: 'test-session',
         storage: rootStorage,
       })
-      const mockAgent = createMockAgentWithHooks({ extra: { storage: rootStorage, contextManager: { stashStorage: customStashStorage } } as unknown as Partial<Agent> })
+      const mockAgent = createMockAgentWithHooks({
+        extra: {
+          storage: rootStorage,
+          contextManager: { stashStorage: customStashStorage },
+        } as unknown as Partial<Agent>,
+      })
       sessionManager.initAgent(mockAgent)
 
       const prefix = `${STASH_PREFIX}/test-session/scopes/agent/agent`
