@@ -483,11 +483,13 @@ class OpenAIResponsesModel(Model):
                 yield self._format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": tool_call})
                 yield self._format_chunk({"chunk_type": "content_stop", "data_type": "tool"})
 
-            # Determine finish reason: tool_calls > max_tokens (length) > normal stop
-            if tool_calls:
-                finish_reason = "tool_calls"
-            elif stop_reason == "length":
+            # Determine finish reason: max_tokens (length) > tool_calls > normal stop.
+            # A function call that is still in flight when the response is cut off has truncated
+            # arguments, so it must surface as max_tokens rather than be executed.
+            if stop_reason == "length":
                 finish_reason = "length"
+            elif tool_calls:
+                finish_reason = "tool_calls"
             else:
                 finish_reason = "stop"
             yield self._format_chunk({"chunk_type": "message_stop", "data": finish_reason})
