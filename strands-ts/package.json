@@ -233,6 +233,7 @@
     "@cedar-policy/mcp-schema-generator-wasm": "^0.6.0",
     "@eslint/js": "^10.0.1",
     "@google/genai": "^2.6.0",
+    "@mixmark-io/domino": "^2.2.0",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/exporter-metrics-otlp-http": "^0.219.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.219.0",
@@ -270,8 +271,8 @@
   },
   "homepage": "https://github.com/strands-agents/harness-sdk#readme",
   "dependencies": {
-    "@smithy/fetch-http-handler": "^5.7.2",
     "@aws-sdk/client-bedrock-runtime": "^3.1112.0",
+    "@smithy/fetch-http-handler": "^5.7.2",
     "@types/json-schema": "^7.0.15",
     "turndown": "^7.2.4",
     "uuid": "^14.0.2",

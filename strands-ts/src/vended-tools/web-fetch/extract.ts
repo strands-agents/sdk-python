@@ -10,6 +10,8 @@
 
 import TurndownService from 'turndown'
 
+import { logger } from '../../logging/logger.js'
+
 // Elements whose entire subtree is discarded.
 // Cast needed because svg/noscript/template are absent from HTMLElementTagNameMap.
 const DROPPED_ELEMENTS = [
@@ -29,18 +31,8 @@ const DROPPED_ELEMENTS = [
   'button',
   'select',
   'textarea',
+  'nav',
 ] as unknown as TurndownService.Filter
-
-function getListDepth(node: HTMLElement): number {
-  let depth = 0
-  let current: HTMLElement | null = node
-  while (current) {
-    const tag = current.nodeName.toLowerCase()
-    if (tag === 'ul' || tag === 'ol') depth += 1
-    current = current.parentNode as HTMLElement | null
-  }
-  return depth
-}
 
 function buildTurndownService(): TurndownService {
   const td = new TurndownService({
@@ -54,6 +46,16 @@ function buildTurndownService(): TurndownService {
 
   td.remove(DROPPED_ELEMENTS)
 
+  // Render the <title> as a top-level heading so it appears in the document
+  // body rather than being silently dropped (turndown ignores <head> elements).
+  td.addRule('title', {
+    filter: 'title',
+    replacement: (_content, node) => {
+      const text = (node as HTMLElement).textContent?.trim() ?? ''
+      return text ? `# ${text}\n\n` : ''
+    },
+  })
+
   // Replace data: URI images with alt text only (they can be enormous blobs).
   // Strip javascript: src values entirely.
   td.addRule('safeImage', {
@@ -63,8 +65,13 @@ function buildTurndownService(): TurndownService {
       const src = (element.getAttribute('src') ?? '').trim()
       const alt = element.getAttribute('alt') ?? ''
       if (!src) return alt
-      if (src.trimStart().toLowerCase().startsWith('javascript:')) return ''
-      if (src.trimStart().toLowerCase().startsWith('data:')) return alt
+      try {
+        const scheme = new URL(src).protocol
+        if (scheme === 'javascript:') return ''
+        if (scheme === 'data:') return alt
+      } catch {
+        // not an absolute URL — pass through as-is
+      }
       return `![${alt}](${src})`
     },
   })
@@ -74,25 +81,13 @@ function buildTurndownService(): TurndownService {
     filter: (node) => {
       if (node.nodeName !== 'A') return false
       const href = ((node as HTMLAnchorElement).getAttribute('href') ?? '').trim()
-      return href.trimStart().toLowerCase().startsWith('javascript:')
+      try {
+        return new URL(href).protocol === 'javascript:'
+      } catch {
+        return false
+      }
     },
     replacement: (content) => content,
-  })
-
-  // Compact list-item markers: "- item" / "1. item" rather than turndown's
-  // default padded form ("-   item" / "1.  item").
-  td.addRule('compactListItem', {
-    filter: 'li',
-    replacement: (content, node) => {
-      content = content.replace(/^\n+/, '').replace(/\n+$/, '\n')
-      const parentName = (node.parentNode?.nodeName ?? '').toLowerCase()
-      const prefix =
-        parentName === 'ol'
-          ? `${Array.from((node.parentNode as HTMLElement).children).indexOf(node as HTMLElement) + 1}. `
-          : '- '
-      const indent = '  '.repeat(Math.max(0, getListDepth(node as HTMLElement) - 1))
-      return `${indent}${prefix}${content.replace(/\n/g, `\n${indent}  `)}\n`
-    },
   })
 
   return td
@@ -101,22 +96,20 @@ function buildTurndownService(): TurndownService {
 /**
  * Convert HTML to markdown suitable for a model to read.
  *
+ * The page title, if present, is rendered as a top-level ATX heading so the
+ * model sees it as part of the document. Returns the original HTML string if
+ * conversion fails.
+ *
  * @param html - Raw HTML string to convert.
- * @returns `{ title, markdown }` — both trimmed of surrounding whitespace.
+ * @returns The converted markdown string, or the original HTML if conversion failed.
  */
-export function htmlToMarkdown(html: string): { title: string; markdown: string } {
-  // Extract <title> before handing to turndown, which would otherwise include
-  // it in the output since <title> is a head element turndown doesn't handle.
-  const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)
-  const title = titleMatch ? titleMatch[1]?.replace(/\s+/g, ' ').trim() ?? '' : ''
-
-  const td = buildTurndownService()
-  const raw = td.turndown(html)
-
-  // Collapse runs of more than one blank line down to a single blank line,
-  // matching the original output's blank-line normalization.
-  const collapsed = raw.replace(/\n{3,}/g, '\n\n').trim()
-  const markdown = collapsed ? collapsed + '\n' : ''
-
-  return { title, markdown }
+export function htmlToMarkdown(html: string): string {
+  try {
+    const td = buildTurndownService()
+    const markdown = td.turndown(html).trim()
+    return markdown ? markdown + '\n' : ''
+  } catch (error) {
+    logger.warn(`error=<${error}> | html_to_markdown failed, returning raw html`)
+    return html
+  }
 }

@@ -5,5 +5,5 @@
  */
 
 export { webFetch, makeWebFetch } from './web-fetch.js'
-export type { MakeWebFetchOptions } from './web-fetch.js'
-export type { WebFetchInput, WebFetchOutput } from './types.js'
+export type { MakeWebFetchOptions } from './types.js'
+export type { WebFetchMarkdownInput, WebFetchAgenticInput } from './types.js'
