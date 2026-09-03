@@ -181,31 +181,6 @@ describe('LocalFileStorage', () => {
 
       expect(mockStrategy.search).toHaveBeenCalledWith(namespaced, 'test')
     })
-
-    it('wires up LocalVectorSearchStrategy from embeddings config', async () => {
-      const embedder = vi.fn().mockResolvedValue([0.1, 0.2, 0.3])
-      const custom = new LocalFileStorage(baseDir, undefined, { embeddings: { embedder } })
-
-      await custom.write('doc.md', new TextEncoder().encode('hello world'))
-
-      expect(embedder).toHaveBeenCalledWith('hello world')
-    })
-
-    it('searchStrategy takes precedence over embeddings', async () => {
-      const mockStrategy = {
-        search: vi.fn().mockResolvedValue([{ key: 'x', score: 1 }]),
-      }
-      const embedder = vi.fn()
-      const custom = new LocalFileStorage(baseDir, undefined, {
-        searchStrategy: mockStrategy,
-        embeddings: { embedder },
-      })
-
-      await custom.search!('test')
-
-      expect(mockStrategy.search).toHaveBeenCalled()
-      expect(embedder).not.toHaveBeenCalled()
-    })
   })
 
   describe('namespace', () => {

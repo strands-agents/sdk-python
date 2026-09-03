@@ -3,14 +3,6 @@ import type { Storage, StorageSearchResult } from '../storage.js'
 /** A function that produces an embedding vector from text. Provider-agnostic. */
 export type Embedder = (text: string) => Promise<number[]>
 
-/** Shared configuration for enabling vector-based search on any storage backend. */
-export interface EmbeddingsConfig {
-  /** Function that produces embedding vectors from text. */
-  embedder: Embedder
-  /** Maximum number of results to return. Defaults to 10. */
-  maxResults?: number
-}
-
 /**
  * A pluggable search strategy for storage backends.
  *

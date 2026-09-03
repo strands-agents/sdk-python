@@ -1,17 +1,21 @@
 import type { Storage, StorageSearchResult } from './storage.js'
-import type { EmbeddingsConfig, SearchStrategy } from './search/types.js'
+import type { Embedder, SearchStrategy } from './search/types.js'
 
 import { StorageError } from '../errors.js'
 import { namespace, normalizeKey, normalizePrefix } from './storage.js'
 import { KeywordSearchStrategy } from './search/keyword.js'
 import { S3VectorSearchStrategy } from './search/s3-vector.js'
 
-/** S3-specific embeddings configuration extending the shared {@link EmbeddingsConfig}. */
-export interface S3EmbeddingsConfig extends EmbeddingsConfig {
+/** Configuration for enabling vector search via S3 Vectors on {@link S3Storage}. */
+export interface S3EmbeddingsConfig {
+  /** Function that produces embedding vectors from text. */
+  embedder: Embedder
   /** S3 Vectors bucket name. Defaults to the storage bucket name suffixed with `-vectors`. */
   vectorBucketName?: string
   /** Vector index name. Defaults to `'default'`. */
   indexName?: string
+  /** Maximum number of results to return. Defaults to 10. */
+  maxResults?: number
 }
 
 /** Configuration for {@link S3Storage}. */

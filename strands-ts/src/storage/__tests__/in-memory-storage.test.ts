@@ -140,28 +140,6 @@ describe('InMemoryStorage', () => {
       expect(results.length).toBeGreaterThan(0)
       expect(results[0]!.key).toBe('hello-world')
     })
-
-    it('wires up InMemoryVectorSearchStrategy from embeddings config', async () => {
-      const embedder = vi.fn().mockResolvedValue([0.1, 0.2, 0.3])
-      const custom = new InMemoryStorage({ embeddings: { embedder } })
-
-      await custom.write('doc.md', new TextEncoder().encode('hello world'))
-
-      expect(embedder).toHaveBeenCalledWith('hello world')
-    })
-
-    it('searchStrategy takes precedence over embeddings', async () => {
-      const mockStrategy = {
-        search: vi.fn().mockResolvedValue([{ key: 'x', score: 1 }]),
-      }
-      const embedder = vi.fn()
-      const custom = new InMemoryStorage({ searchStrategy: mockStrategy, embeddings: { embedder } })
-
-      await custom.search!('test')
-
-      expect(mockStrategy.search).toHaveBeenCalled()
-      expect(embedder).not.toHaveBeenCalled()
-    })
   })
 
   describe('key normalization', () => {

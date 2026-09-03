@@ -1,16 +1,13 @@
 import type { Storage, StorageSearchResult } from './storage.js'
-import type { EmbeddingsConfig, SearchStrategy } from './search/types.js'
+import type { SearchStrategy } from './search/types.js'
 
 import { namespace, normalizeKey, normalizePrefix } from './storage.js'
 import { KeywordSearchStrategy } from './search/keyword.js'
-import { VectorSearchStrategy } from './search/vector.js'
 
 /** Configuration for {@link InMemoryStorage}. */
 export interface InMemoryStorageConfig {
-  /** Search strategy to use instead of the default keyword search. Takes precedence over `embeddings`. */
+  /** Search strategy to use instead of the default keyword search. */
   searchStrategy?: SearchStrategy
-  /** Shorthand for enabling vector search. Automatically wires up a {@link VectorSearchStrategy}. */
-  embeddings?: EmbeddingsConfig
 }
 
 /**
@@ -39,19 +36,10 @@ export class InMemoryStorage implements Storage {
   private readonly _searchStrategy: SearchStrategy
 
   /**
-   * @param config - Optional configuration for search strategy or embeddings.
+   * @param config - Optional configuration for search strategy.
    */
   constructor(config?: InMemoryStorageConfig) {
-    this._searchStrategy =
-      config?.searchStrategy ?? this._resolveEmbeddings(config?.embeddings) ?? KeywordSearchStrategy
-  }
-
-  private _resolveEmbeddings(embeddings: EmbeddingsConfig | undefined): SearchStrategy | undefined {
-    if (!embeddings) return undefined
-    return new VectorSearchStrategy({
-      embedder: embeddings.embedder,
-      ...(embeddings.maxResults != null && { maxResults: embeddings.maxResults }),
-    })
+    this._searchStrategy = config?.searchStrategy ?? KeywordSearchStrategy
   }
 
   /**
