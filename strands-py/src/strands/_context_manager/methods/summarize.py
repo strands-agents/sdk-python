@@ -15,6 +15,7 @@ from typing_extensions import TypedDict
 from ...event_loop.streaming import process_stream
 from ...types.content import ContentBlock, Message, Messages
 from ...types.tools import ToolResultContent
+from ..types import is_text_block
 
 if TYPE_CHECKING:
     from ...models.model import Model
@@ -73,7 +74,7 @@ async def summarize_content(
     if succeeded:
         return None
 
-    text_only = [block for block in content if "text" in block and "toolResult" not in block and "toolUse" not in block]
+    text_only = [block for block in content if is_text_block(block)]
     if not text_only or len(text_only) == len(content):
         return None
 

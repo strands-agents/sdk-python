@@ -11,7 +11,7 @@ from typing_extensions import TypedDict
 
 from ....types.content import ContentBlock, Message, Messages
 from ....types.tools import ToolUse
-from ...types import ContextState
+from ...types import ContextState, is_text_block, is_tool_result_block, is_tool_use_block
 
 if TYPE_CHECKING:
     from ....agent.agent import Agent
@@ -35,17 +35,6 @@ class OffloadConditions(TypedDict, total=False):
     utilization: float
     preserve_recent: int
 
-
-def _is_tool_result_block(block: ContentBlock) -> bool:
-    return "toolResult" in block
-
-
-def _is_tool_use_block(block: ContentBlock) -> bool:
-    return "toolUse" in block
-
-
-def _is_text_block(block: ContentBlock) -> bool:
-    return "text" in block and "toolResult" not in block and "toolUse" not in block
 
 
 def _finite_or_none(value: int | float | None) -> int | float | None:
@@ -126,9 +115,9 @@ def target_matches_message(target: OffloadTarget | None, message: Message) -> bo
     if target is None or target == "*":
         return True
     if target == "assistant_text":
-        return message["role"] == "assistant" and any(_is_text_block(b) for b in message["content"])
+        return message["role"] == "assistant" and any(is_text_block(b) for b in message["content"])
     if target == "user_text":
-        return message["role"] == "user" and any(_is_text_block(b) for b in message["content"])
+        return message["role"] == "user" and any(is_text_block(b) for b in message["content"])
     return False
 
 
@@ -157,7 +146,7 @@ def message_matches_target(
     if message["role"] != "user":
         return False
     for block in message["content"]:
-        if _is_tool_result_block(block):
+        if is_tool_result_block(block):
             if tool_matches_target(block, target, tool_name_map, tool_include_filter, tool_exclude_filter):
                 return True
     return False
@@ -215,19 +204,19 @@ def collect_removable_with_pair(messages: Messages, index: int) -> list[Message]
     message = messages[index]
     result: list[Message] = [message]
 
-    has_tool_result = any(_is_tool_result_block(b) for b in message["content"])
+    has_tool_result = any(is_tool_result_block(b) for b in message["content"])
     if has_tool_result:
         prev = messages[index - 1]
-        if any(_is_tool_use_block(b) for b in prev["content"]):
+        if any(is_tool_use_block(b) for b in prev["content"]):
             if index - 1 > 0:
                 result.append(prev)
             else:
                 return []
 
-    has_tool_use = any(_is_tool_use_block(b) for b in message["content"])
+    has_tool_use = any(is_tool_use_block(b) for b in message["content"])
     if has_tool_use and index < len(messages) - 1:
         next_msg = messages[index + 1]
-        if any(_is_tool_result_block(b) for b in next_msg["content"]):
+        if any(is_tool_result_block(b) for b in next_msg["content"]):
             result.append(next_msg)
 
     return result
@@ -440,11 +429,11 @@ class BaseOffloadStrategy(ABC):
         self, block: ContentBlock, message: Message, tool_name_map: dict[str, str]
     ) -> bool:
         """Check whether a block is eligible for offload given target and filters."""
-        if _is_tool_use_block(block):
+        if is_tool_use_block(block):
             return False
-        if _is_text_block(block):
+        if is_text_block(block):
             return target_matches_message(self._target, message)
-        if _is_tool_result_block(block):
+        if is_tool_result_block(block):
             return self._target is None or tool_matches_target(
                 block, self._target, tool_name_map, self._include_filter, self._exclude_filter
             )
@@ -470,7 +459,7 @@ class BaseOffloadStrategy(ABC):
             if tokens <= effective_threshold:
                 continue
 
-            if _is_text_block(block) or _is_tool_result_block(block):
+            if is_text_block(block) or is_tool_result_block(block):
                 replacement = await self._replace_block(block, tokens, message, agent)
             else:
                 block_type = next(

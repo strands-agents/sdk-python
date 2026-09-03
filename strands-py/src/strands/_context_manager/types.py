@@ -7,10 +7,25 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from typing_extensions import TypedDict
 
-from ..types.content import Messages
+from ..types.content import ContentBlock, Messages
 
 if TYPE_CHECKING:
     from ..agent.agent import Agent
+
+
+def is_tool_result_block(block: ContentBlock) -> bool:
+    """Check if a content block is a tool result."""
+    return "toolResult" in block
+
+
+def is_tool_use_block(block: ContentBlock) -> bool:
+    """Check if a content block is a tool use."""
+    return "toolUse" in block
+
+
+def is_text_block(block: ContentBlock) -> bool:
+    """Check if a content block is plain text (not a tool result or tool use)."""
+    return "text" in block and "toolResult" not in block and "toolUse" not in block
 
 
 @dataclass
