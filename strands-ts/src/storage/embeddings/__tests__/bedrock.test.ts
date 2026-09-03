@@ -11,7 +11,7 @@ vi.mock('@aws-sdk/client-bedrock-runtime', () => ({
   InvokeModelCommand: MockInvokeModelCommand,
 }))
 
-import { bedrockEmbedder } from '../bedrock-embedder.js'
+import { bedrockEmbedder } from '../bedrock.js'
 
 describe('bedrockEmbedder', () => {
   beforeEach(() => {

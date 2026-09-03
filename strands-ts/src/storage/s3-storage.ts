@@ -49,7 +49,7 @@ const S3_PAGE_SIZE = 1000
  * @example
  * ```typescript
  * import { S3Storage } from '@strands-agents/sdk/storage'
- * import { bedrockEmbedder } from '@strands-agents/sdk/storage/search'
+ * import { bedrockEmbedder } from '@strands-agents/sdk/storage/embeddings'
  *
  * const storage = new S3Storage('my-bucket', {
  *   prefix: 'agents/',

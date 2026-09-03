@@ -1,4 +1,4 @@
-import type { Embedder } from './types.js'
+import type { Embedder } from '../search/types.js'
 
 /** Configuration for {@link bedrockEmbedder}. */
 export interface BedrockEmbedderConfig {
@@ -19,7 +19,7 @@ export interface BedrockEmbedderConfig {
  *
  * @example
  * ```typescript
- * import { bedrockEmbedder } from '@strands-agents/sdk/storage/search'
+ * import { bedrockEmbedder } from '@strands-agents/sdk/storage/embeddings'
  * import { S3Storage } from '@strands-agents/sdk/storage'
  *
  * const storage = new S3Storage('my-bucket', {

@@ -156,6 +156,10 @@
       "types": "./dist/src/storage/search/index.d.ts",
       "default": "./dist/src/storage/search/index.js"
     },
+    "./storage/embeddings": {
+      "types": "./dist/src/storage/embeddings/index.d.ts",
+      "default": "./dist/src/storage/embeddings/index.js"
+    },
     "./storage/search/qmd": {
       "node": {
         "types": "./dist/src/storage/search/qmd.d.ts",
