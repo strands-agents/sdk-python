@@ -22,7 +22,7 @@ from strands.vended_tools.web_fetch.types import (
     WEB_FETCH_DESCRIPTION_AGENTIC,
     WEB_FETCH_DESCRIPTION_MARKDOWN,
 )
-from strands.vended_tools.web_fetch.web_fetch import _parse_charset, _stream_agent
+from strands.vended_tools.web_fetch.web_fetch import _parse_charset
 
 
 def _transport(handler):
@@ -281,9 +281,9 @@ class TestAnalyst:
             def __init__(self, **kwargs):
                 pass
 
-            async def stream_async(self, prompt: str):
+            async def invoke_async(self, prompt: str, **kwargs):
                 received_prompt.append(prompt)
-                yield {"result": "answer"}
+                return "answer"
 
         monkeypatch.setattr(agent_module, "Agent", _FakeAgent)
         tool = make_web_fetch(
@@ -314,8 +314,8 @@ class TestAnalyst:
             def __init__(self, model=None, **kwargs):
                 received_model.append(model)
 
-            async def stream_async(self, prompt: str):
-                yield {"result": "host answer"}
+            async def invoke_async(self, prompt: str, **kwargs):
+                return "host answer"
 
         monkeypatch.setattr(agent_module, "Agent", _FakeAgent)
         from strands.types.tools import ToolContext, ToolUse
@@ -339,9 +339,9 @@ class TestAnalyst:
             def __init__(self, **kwargs):
                 pass
 
-            async def stream_async(self, prompt: str):
+            async def invoke_async(self, prompt: str, **kwargs):
                 invoked.append(True)
-                yield {"result": "answer"}
+                return "answer"
 
         monkeypatch.setattr(agent_module, "Agent", _FakeAgent)
         tool = make_web_fetch(client=self._page_client(), model=fake_model, mode="markdown")
@@ -365,12 +365,9 @@ class TestAnalyst:
             def __init__(self, **kwargs):
                 pass
 
-            async def stream_async(self, prompt: str):
+            async def invoke_async(self, prompt: str, **kwargs):
                 received_prompt.append(prompt)
-                yield {"result": "the answer"}
-
-            def cancel(self) -> None:
-                pass
+                return "the answer"
 
         monkeypatch.setattr(agent_module, "Agent", _FakeAgent)
         tool = make_web_fetch(client=self._page_client(), model=fake_model, mode="agentic")
@@ -379,38 +376,6 @@ class TestAnalyst:
         assert len(received_prompt) == 1
         assert "What is this about?" in received_prompt[0]
         assert "page content" in received_prompt[0]
-
-
-class TestStreamAgent:
-    """_stream_agent cancellation and error-wrapping paths."""
-
-    @pytest.mark.asyncio
-    async def test_mid_stream_cancel_raises_cancelled_error(self):
-        cancel = threading.Event()
-        cancelled: list[bool] = []
-
-        class _FakeAgent:
-            async def stream_async(self, prompt: str):
-                yield {"result": "first"}
-                cancel.set()
-                yield {"result": "second"}
-
-            def cancel(self) -> None:
-                cancelled.append(True)
-
-        with pytest.raises(asyncio.CancelledError):
-            await _stream_agent(_FakeAgent(), "prompt", cancel, "https://example.com/")
-        assert cancelled
-
-    @pytest.mark.asyncio
-    async def test_agent_exception_wrapped_as_web_fetch_error(self):
-        class _FakeAgent:
-            async def stream_async(self, prompt: str):
-                raise RuntimeError("model exploded")
-                yield  # make it an async generator
-
-        with pytest.raises(WebFetchError, match="analyst failed"):
-            await _stream_agent(_FakeAgent(), "prompt", None, "https://example.com/")
 
 
 class TestParseCharset:

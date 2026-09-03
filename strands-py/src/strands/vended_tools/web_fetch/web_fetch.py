@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal
 
 import httpx
 
@@ -182,7 +182,11 @@ def make_web_fetch(
         if len(content) > max_content_chars:
             content = content[:max_content_chars] + "\n\n[content truncated]"
         invoke_prompt = f"URL: {url}\n\nRequest: {prompt}\n\n--- Content ---\n{content}"
-        return await _stream_agent(analyst, invoke_prompt, cancel_signal, url)
+        try:
+            result = await analyst.invoke_async(invoke_prompt, cancel_signal=cancel_signal)
+        except Exception as exc:
+            raise WebFetchError(f"Web fetch analyst failed for {url}: {exc}") from exc
+        return str(result)
 
     return web_fetch_tool_markdown if mode == "markdown" else web_fetch_tool_agentic
 
@@ -246,37 +250,6 @@ async def _fetch_once(
         raw = body.decode("utf-8", errors="replace")
 
     return content_type, raw
-
-
-async def _stream_agent(
-    agent: Any,
-    prompt: str,
-    cancel_signal: threading.Event | None,
-    url: str,
-) -> str:
-    """Stream an agent invocation and return its result as a string.
-
-    ``stream_async`` guarantees an ``AgentResultEvent`` before the stream ends,
-    so the return value is always a non-empty string. Cancellation is checked
-    between events.
-
-    Raises:
-        asyncio.CancelledError: When the cancel signal is set mid-stream.
-        WebFetchError: When the agent raises any other exception.
-    """
-    result = None
-    try:
-        async for event in agent.stream_async(prompt):
-            if "result" in event:
-                result = event["result"]
-            if cancel_signal is not None and cancel_signal.is_set():
-                agent.cancel()
-                raise asyncio.CancelledError("Request cancelled")
-    except asyncio.CancelledError:
-        raise
-    except Exception as exc:
-        raise WebFetchError(f"Web fetch analyst failed for {url}: {exc}") from exc
-    return str(result)
 
 
 def _parse_charset(content_type: str) -> str:
