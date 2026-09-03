@@ -1008,6 +1008,86 @@ describe('SessionManager — stash integration', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Stash integration test — real Agent + ContextManager + SessionManager
+// ---------------------------------------------------------------------------
+
+describe('SessionManager — stash with real Agent wiring', () => {
+  let storage: InMemoryStorage
+  let snapshotStorage: MockSnapshotStorage
+
+  beforeEach(() => {
+    storage = new InMemoryStorage()
+    snapshotStorage = new MockSnapshotStorage()
+  })
+
+  it('round-trips stash data through save and restore with real Agent', async () => {
+    const sessionManager = new SessionManager({
+      sessionId: 'test-session',
+      storage: { snapshot: snapshotStorage },
+    })
+    const agent = new Agent({
+      model: {} as any,
+      storage,
+      contextManager: new ContextManager(),
+      sessionManager,
+      printer: false,
+    })
+    await agent.initialize()
+
+    const stash = agent.contextManager!.stash!
+    await stash.store('tool-1', 0, new TextEncoder().encode(JSON.stringify({ text: 'hello' })))
+    await stash.store('tool-2', 0, new TextEncoder().encode(JSON.stringify({ text: 'world' })))
+
+    await sessionManager.saveSnapshot({ target: agent, isLatest: true })
+
+    const freshSessionManager = new SessionManager({
+      sessionId: 'test-session',
+      storage: { snapshot: snapshotStorage },
+    })
+    const freshAgent = new Agent({
+      model: {} as any,
+      storage,
+      contextManager: new ContextManager(),
+      sessionManager: freshSessionManager,
+      printer: false,
+    })
+    await freshAgent.initialize()
+
+    const freshStash = freshAgent.contextManager!.stash!
+    const restored1 = await freshStash.retrieve('tool-1_0')
+    const restored2 = await freshStash.retrieve('tool-2_0')
+    expect(restored1?.data).toEqual({ text: 'hello' })
+    expect(restored2?.data).toEqual({ text: 'world' })
+  })
+
+  it('deleteSession cleans up stash data with real Agent', async () => {
+    const sessionManager = new SessionManager({
+      sessionId: 'test-session',
+      storage,
+    })
+    const agent = new Agent({
+      model: {} as any,
+      storage,
+      contextManager: new ContextManager(),
+      sessionManager,
+      printer: false,
+    })
+    await agent.initialize()
+
+    const stash = agent.contextManager!.stash!
+    await stash.store('tool-1', 0, new TextEncoder().encode(JSON.stringify({ text: 'hello' })))
+
+    const keysBefore = await storage.list(`${STASH_PREFIX}/`)
+    expect(keysBefore.length).toBeGreaterThan(0)
+
+    await sessionManager.deleteSession()
+
+    const keysAfter = await storage.list(`${STASH_PREFIX}/`)
+    expect(keysAfter).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Multi-agent tests
 // ---------------------------------------------------------------------------
 

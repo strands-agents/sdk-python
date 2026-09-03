@@ -10,6 +10,7 @@ import type { LocalAgent } from '../types/agent.js'
 import { AfterModelCallEvent, BeforeModelCallEvent, MessageAddedEvent } from '../hooks/events.js'
 import { ContextWindowOverflowError } from '../errors.js'
 import { InMemoryStorage } from '../storage/in-memory-storage.js'
+import { EPHEMERAL } from '../storage/storage.js'
 import type { Storage } from '../storage/storage.js'
 import { logger } from '../logging/logger.js'
 import type { ContextManagerConfig, ContextStrategy, ContextState } from './types.js'
@@ -70,7 +71,7 @@ export class ContextManager implements Plugin {
     if (this._stashStorage !== false) {
       const storage = this._stashStorage ?? agent.storage ?? new InMemoryStorage()
       this._resolvedStashStorage = storage
-      this._stashIsDurable = !(storage instanceof InMemoryStorage)
+      this._stashIsDurable = !(EPHEMERAL in storage)
       this._stash = new Stash(storage, agent.sessionId, agent.id)
     }
 
@@ -129,7 +130,7 @@ export class ContextManager implements Plugin {
    * Whether the stash is backed by durable storage that survives process restarts.
    * When true, stash data does not need to be embedded in session snapshots.
    *
-   * @returns true if the stash storage is not InMemoryStorage
+   * @returns true if the stash storage is not ephemeral
    */
   get stashIsDurable(): boolean {
     return this._stashIsDurable

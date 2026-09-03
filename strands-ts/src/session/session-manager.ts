@@ -88,10 +88,20 @@ export interface SessionManagerConfig {
 /**
  * Stash data envelope stored in snapshot.data.stash.
  *
+ * Extends `Record<string, JSONValue>` so it is directly assignable to
+ * `Snapshot.data` entries without casts.
+ *
  * @internal
  */
-type StashSnapshotData =
-  { location: 'inline'; entries: Record<string, JSONValue> } | { location: 'external'; storageType?: string }
+interface InlineStashSnapshot extends Record<string, JSONValue> {
+  location: 'inline'
+  entries: Record<string, JSONValue>
+}
+interface ExternalStashSnapshot extends Record<string, JSONValue> {
+  location: 'external'
+  storageType: string
+}
+type StashSnapshotData = InlineStashSnapshot | ExternalStashSnapshot
 
 /**
  * Manages session persistence for agents, enabling conversation state
@@ -347,16 +357,14 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
     if (!contextManager?.stash) return
 
     if (contextManager.stashIsDurable) {
-      const storageType = contextManager.stashStorage?.constructor.name
-      const ref: StashSnapshotData = storageType ? { location: 'external', storageType } : { location: 'external' }
-      snapshot.data.stash = ref as unknown as JSONValue
+      const storageType = contextManager.stashStorage?.constructor.name ?? 'unknown'
+      snapshot.data.stash = { location: 'external', storageType } satisfies StashSnapshotData
       return
     }
 
     const entries = await contextManager.stash.takeSnapshot()
     if (Object.keys(entries).length > 0) {
-      const data: StashSnapshotData = { location: 'inline', entries }
-      snapshot.data.stash = data as unknown as JSONValue
+      snapshot.data.stash = { location: 'inline', entries } satisfies StashSnapshotData
     }
   }
 
@@ -365,7 +373,7 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
     const stash = agent.contextManager?.stash
     if (!stash) return
 
-    const stashData = snapshot.data.stash as unknown as StashSnapshotData
+    const stashData = snapshot.data.stash as StashSnapshotData
     if (stashData.location === 'external') {
       const currentType = agent.contextManager?.stashStorage?.constructor.name
       if (stashData.storageType && currentType && stashData.storageType !== currentType) {
