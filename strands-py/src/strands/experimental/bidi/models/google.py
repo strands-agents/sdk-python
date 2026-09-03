@@ -597,7 +597,7 @@ class GoogleGeminiLiveModel(BidiModel):
             try:
                 await self._live_session_context_manager.__aexit__(None, None, None)
             finally:
-                # Clear so a second stop() (e.g. reconnect's routine teardown) does not
+                # Clear so a second stop() during restart does not
                 # re-exit an already-exited context manager.
                 self._live_session_context_manager = None
                 self._live_session = None
@@ -607,14 +607,14 @@ class GoogleGeminiLiveModel(BidiModel):
 
         await stop_all(stop_session, stop_connection)
 
-    async def reconnect(
+    async def restart(
         self,
         system_prompt: str | None = None,
         tools: list[ToolSpec] | None = None,
         messages: Messages | None = None,
         **restart_kwargs: Any,
     ) -> None:
-        """Reconnect by closing the connection and resuming the same session via its handle.
+        """Restart by closing the connection and resuming the same session via its handle.
 
         Resumes the Gemini session using the last resumption handle so server-side context
         carries across the swap without replaying history. The handle is supplied by the reactive
@@ -628,17 +628,17 @@ class GoogleGeminiLiveModel(BidiModel):
             **restart_kwargs: Provider restart options; ``live_session_handle`` resumes the session.
         """
         handle = restart_kwargs.pop("live_session_handle", None) or self._live_session_handle
-        logger.debug("session_handle=<%s> | gemini reconnect starting", handle)
+        logger.debug("session_handle=<%s> | gemini restart starting", handle)
         await self.stop()
 
         if handle is not None and await self._try_resume(system_prompt, tools, handle, **restart_kwargs):
-            logger.debug("connection_id=<%s> | gemini reconnect complete via resume", self._connection_id)
+            logger.debug("connection_id=<%s> | gemini restart complete via resume", self._connection_id)
             return
 
         # No handle, or the server refused it: start fresh and replay history so the conversation
         # continues rather than going silent.
         await self.start(system_prompt, tools, messages, **restart_kwargs)
-        logger.debug("connection_id=<%s> | gemini reconnect complete via fresh session", self._connection_id)
+        logger.debug("connection_id=<%s> | gemini restart complete via fresh session", self._connection_id)
 
     async def _try_resume(
         self, system_prompt: str | None, tools: list[ToolSpec] | None, handle: str, **restart_kwargs: Any

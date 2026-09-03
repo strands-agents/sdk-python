@@ -28,6 +28,7 @@ __all__ = [
     "GetSessionIdCallback",
     "MCPError",
     "call_tool",
+    "client_credentials_auth",
     "get_prompt",
     "input_schema",
     "is_error",
@@ -166,6 +167,43 @@ async def call_tool(
         )
 
     return await _drive_input_required(session, call_once)
+
+
+def client_credentials_auth(
+    server_url: str, storage: Any, client_id: str, client_secret: str, scope: str | None
+) -> httpx.Auth:
+    """Construct the OAuth client_credentials provider, on either `mcp` major line.
+
+    `mcp` 2.x renamed the provider's `scopes` keyword to `scope`. The import
+    path and the space-joined scope string value are the same on both lines.
+
+    Args:
+        server_url: The MCP server endpoint URL the grant authenticates against.
+        storage: The provider's token storage.
+        client_id: The OAuth client identifier.
+        client_secret: The OAuth client secret.
+        scope: Space-joined OAuth scopes to request, if any.
+
+    Returns:
+        The provider, an HTTPX auth implementation.
+    """
+    from mcp.client.auth.extensions.client_credentials import ClientCredentialsOAuthProvider
+
+    if MCP_V2:
+        return ClientCredentialsOAuthProvider(  # type: ignore[return-value]
+            server_url=server_url,
+            storage=storage,
+            client_id=client_id,
+            client_secret=client_secret,
+            scope=scope,  # type: ignore[call-arg]
+        )
+    return ClientCredentialsOAuthProvider(
+        server_url=server_url,
+        storage=storage,
+        client_id=client_id,
+        client_secret=client_secret,
+        scopes=scope,  # type: ignore[call-arg]
+    )
 
 
 async def get_prompt(session: ClientSession, name: str, arguments: dict[str, str] | None) -> Any:
