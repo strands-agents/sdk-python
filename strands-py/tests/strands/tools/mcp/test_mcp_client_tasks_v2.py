@@ -17,7 +17,7 @@ from strands.tools.mcp import (
     MCPGetTaskResult,
     MCPUpdateTaskResult,
 )
-from strands.tools.mcp._compat import MCP_V2
+from strands.tools.mcp._compat import MCP_V2, MCPError
 from strands.types.exceptions import MCPClientInitializationError
 
 pytestmark = pytest.mark.skipif(not MCP_V2, reason="requires mcp 2.x")
@@ -187,6 +187,19 @@ def test_public_task_lifecycle_over_real_mcp_transport() -> None:
         )
         assert isinstance(client.cancel_task_sync(task.task_id), MCPCancelTaskResult)
 
+        async def exercise_async_lifecycle() -> None:
+            async_task = await client.call_tool_with_task_async("task-runtime")
+            assert isinstance(async_task, MCPCreateTaskResult)
+            state = await client.get_task_async(async_task.task_id)
+            assert state.status == "completed"
+            assert isinstance(
+                await client.update_task_async(async_task.task_id, {"request-1": {"action": "decline"}}),
+                MCPUpdateTaskResult,
+            )
+            assert isinstance(await client.cancel_task_async(async_task.task_id), MCPCancelTaskResult)
+
+        asyncio.run(exercise_async_lifecycle())
+
         auto = client.call_tool_sync(tool_use_id="auto", name="auto-runtime", arguments={})
         direct = client.call_tool_sync(tool_use_id="direct", name="direct-runtime", arguments={})
 
@@ -243,9 +256,17 @@ def test_public_task_lifecycle_over_real_mcp_transport() -> None:
             MCPUpdateTaskResult,
             {},
         ),
+        (
+            MCPCreateTaskResult,
+            {**TASK_BASE, "resultType": "task", "status": "working", "createdAt": "2026-09-01T00:00:00"},
+        ),
+        (
+            MCPGetTaskResult,
+            "not-a-mapping",
+        ),
     ],
 )
-def test_task_models_reject_malformed_status_shapes(model: type[Any], value: dict[str, Any]) -> None:
+def test_task_models_reject_malformed_status_shapes(model: type[Any], value: Any) -> None:
     """Test task models reject invalid payloads, chronology, and acknowledgements."""
     with pytest.raises(ValidationError):
         model.model_validate(value)
@@ -447,6 +468,43 @@ async def test_task_completion_maps_terminal_errors(state: dict[str, Any], messa
 
 
 @pytest.mark.asyncio
+async def test_input_request_error_response_fails_the_task_call() -> None:
+    """Test an ErrorData answer to an input request surfaces as an MCP error."""
+    from mcp.types import ErrorData
+
+    input_request = {
+        "method": "elicitation/create",
+        "params": {
+            "mode": "form",
+            "message": "Approve?",
+            "requestedSchema": {"type": "object"},
+        },
+    }
+    session = FakeTaskSession(
+        {
+            "tasks/get": [
+                {
+                    **TASK_BASE,
+                    "resultType": "complete",
+                    "status": "input_required",
+                    "inputRequests": {"request-1": input_request},
+                }
+            ]
+        }
+    )
+
+    async def dispatch_error(context: Any, request: Any) -> Any:
+        _ = (context, request)
+        return ErrorData(code=-32000, message="denied")
+
+    session.dispatch_input_request = dispatch_error  # type: ignore[method-assign]
+    client = task_client(session)
+
+    with pytest.raises(MCPError, match="denied"):
+        await client._complete_v2_task(create_task("input_required"), None)
+
+
+@pytest.mark.asyncio
 async def test_task_timeout_requests_remote_cancellation() -> None:
     """Test an overall task timeout best-effort cancels the server task."""
     task = create_task()
@@ -605,6 +663,113 @@ async def test_cancellation_during_create_round_cancels_late_task_handle() -> No
             break
         await asyncio.sleep(0.01)
     assert any(request["method"] == "tasks/cancel" for request in session.requests)
+
+
+@pytest.mark.asyncio
+async def test_cancellation_grace_period_cancels_task_handle_from_finished_create_round() -> None:
+    """Test a create round finishing within the cancellation grace period is cancelled inline."""
+    release_create = asyncio.Event()
+    create_started = asyncio.Event()
+    session = FakeTaskSession({"tasks/cancel": [{"resultType": "complete"}]})
+
+    async def slow_call_tool(name: str, arguments: Any, timeout: Any, **kwargs: Any) -> Any:
+        create_started.set()
+        await release_create.wait()
+        return create_task()
+
+    session.call_tool = slow_call_tool  # type: ignore[method-assign]
+    client = task_client(session)
+    task_state: dict[str, Any] = {"session": session}
+
+    create_round = asyncio.create_task(client._create_v2_task("slow-tool", None, None, None, task_state))
+    await create_started.wait()
+    release_create.set()
+    create_round.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await create_round
+    assert task_state["task_id"] == "task-1"
+    assert any(request["method"] == "tasks/cancel" for request in session.requests)
+
+
+@pytest.mark.asyncio
+async def test_cancellation_grace_period_skips_cancel_for_direct_tool_result() -> None:
+    """Test a create round finishing with a direct result leaves nothing to cancel."""
+    release_create = asyncio.Event()
+    create_started = asyncio.Event()
+    session = FakeTaskSession({})
+
+    async def slow_call_tool(name: str, arguments: Any, timeout: Any, **kwargs: Any) -> Any:
+        create_started.set()
+        await release_create.wait()
+        return CallToolResult(content=[TextContent(type="text", text="direct")], is_error=False)
+
+    session.call_tool = slow_call_tool  # type: ignore[method-assign]
+    client = task_client(session)
+    task_state: dict[str, Any] = {"session": session}
+
+    create_round = asyncio.create_task(client._create_v2_task("fast-tool", None, None, None, task_state))
+    await create_started.wait()
+    release_create.set()
+    create_round.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await create_round
+    assert task_state.get("task_id") is None
+    assert session.requests == []
+
+
+@pytest.mark.asyncio
+async def test_record_task_handle_ignores_failed_create_round() -> None:
+    """Test a create round that errored records no task id to cancel."""
+
+    async def failing_create() -> Any:
+        raise RuntimeError("create failed")
+
+    create_round = asyncio.create_task(failing_create())
+    with pytest.raises(RuntimeError, match="create failed"):
+        await create_round
+    task_state: dict[str, Any] = {}
+
+    MCPClient._record_v2_task_handle(create_round, task_state)
+
+    assert task_state == {}
+
+
+@pytest.mark.asyncio
+async def test_session_task_claim_resolver_is_unreachable() -> None:
+    """Test the low-level session claim resolver rejects resolution by design."""
+    from strands.tools.mcp import _compat
+
+    session_kwargs = _compat.task_session_kwargs(True)
+    (claim,) = session_kwargs["result_claims"]["io.modelcontextprotocol/tasks"]
+
+    with pytest.raises(RuntimeError, match="resolved by MCPClient"):
+        await claim.resolve(create_task(), None)
+
+
+@pytest.mark.asyncio
+async def test_late_direct_result_after_cancellation_needs_no_cleanup() -> None:
+    """Test a direct result arriving after cancellation triggers no tasks/cancel."""
+    release_create = asyncio.Event()
+    session = FakeTaskSession({})
+
+    async def slow_call_tool(name: str, arguments: Any, timeout: Any, **kwargs: Any) -> Any:
+        await release_create.wait()
+        return CallToolResult(content=[TextContent(type="text", text="direct")], is_error=False)
+
+    session.call_tool = slow_call_tool  # type: ignore[method-assign]
+    client = task_client(session)
+
+    poll_task = asyncio.create_task(client._call_tool_with_task_and_poll_async("fast-tool", cancellation_state={}))
+    await asyncio.sleep(0.01)
+    poll_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await poll_task
+
+    release_create.set()
+    await client._drain_background_cleanup_tasks()
+    assert session.requests == []
 
 
 @pytest.mark.asyncio
