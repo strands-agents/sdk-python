@@ -28,7 +28,7 @@ from ...hooks.events import (
 )
 from .. import _telemetry
 from .._async import _TaskPool, stop_all
-from ..models import BidiModel, BidiModelTimeoutError
+from ..models import BidiModelTimeoutError, Restartable
 from ..types.events import (
     BidiAudioStreamEvent,
     BidiConnectionCloseEvent,
@@ -507,7 +507,7 @@ class _BidiAgentLoop:
         try:
             previous_reader = self._model_task
             self._generation += 1
-            await self._reconnect_model(restart_kwargs)
+            await self._restart_model(restart_kwargs)
             await self._wait_for_model_task(previous_reader)
             self._model_task = self._task_pool.create(self._run_model(self._generation))
         except Exception as exception:
@@ -521,26 +521,19 @@ class _BidiAgentLoop:
         if restart_exception is not None:
             raise restart_exception
 
-    async def _reconnect_model(self, restart_kwargs: dict[str, Any]) -> None:
-        """Reconnect via the provider's ``reconnect()``, or ``stop()`` then ``start()``.
-
-        The fallback is transitional: providers that have not implemented ``reconnect()``
-        inherit the protocol no-op, so route them through stop/start until they adopt it.
-        """
+    async def _restart_model(self, restart_kwargs: dict[str, Any]) -> None:
+        """Restart through the provider when supported, otherwise use ``stop()`` then ``start()``."""
         model = self._agent.model
         system_prompt = self._agent.system_prompt
         tools = self._agent.tool_registry.get_all_tool_specs()
         messages = self._agent.messages
 
-        # "Provider didn't override reconnect()" — it still resolves to the protocol's no-op
-        # default, so fall back to stop/start. getattr on the type (not the instance) tolerates
-        # a model whose class does not expose reconnect at all (e.g. a mock).
-        if getattr(type(model), "reconnect", None) is BidiModel.reconnect:
-            await model.stop()
-            await model.start(system_prompt, tools, messages, **restart_kwargs)
+        if isinstance(model, Restartable):
+            await model.restart(system_prompt, tools, messages, **restart_kwargs)
             return
 
-        await model.reconnect(system_prompt, tools, messages, **restart_kwargs)
+        await model.stop()
+        await model.start(system_prompt, tools, messages, **restart_kwargs)
 
     async def _wait_for_model_task(self, task: asyncio.Task | None) -> None:
         """Await a superseded reader after its stream is closed; cancel only as a backstop.

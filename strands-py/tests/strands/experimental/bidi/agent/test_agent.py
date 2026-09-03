@@ -45,7 +45,7 @@ class MockBidiModel(BidiModel):
             self._started = False
             self._connection_id = None
 
-    async def reconnect(self, system_prompt=None, tools=None, messages=None, **restart_kwargs):
+    async def restart(self, system_prompt=None, tools=None, messages=None, **restart_kwargs):
         await self.stop()
         await self.start(system_prompt, tools, messages, **restart_kwargs)
 
