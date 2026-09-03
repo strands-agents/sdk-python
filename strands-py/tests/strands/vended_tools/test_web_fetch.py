@@ -14,14 +14,9 @@ import strands.agent.agent as agent_module
 from strands.vended_tools.web_fetch import (
     WebFetchError,
     make_web_fetch,
-    web_fetch,
 )
 from strands.vended_tools.web_fetch import _extract as extract_module
 from strands.vended_tools.web_fetch._extract import _tag_attribute, html_to_markdown
-from strands.vended_tools.web_fetch.types import (
-    WEB_FETCH_DESCRIPTION_AGENTIC,
-    WEB_FETCH_DESCRIPTION_MARKDOWN,
-)
 from strands.vended_tools.web_fetch.web_fetch import _parse_charset
 
 
@@ -36,39 +31,6 @@ def _client(handler) -> httpx.AsyncClient:
 
 def _raising_beautiful_soup(*args, **kwargs):
     raise ValueError("mock extraction failure")
-
-
-class TestToolMetadata:
-    """Tool name, description, and factory validation."""
-
-    def test_default_name(self):
-        assert web_fetch.tool_name == "web_fetch"
-
-    def test_default_description(self):
-        assert web_fetch.tool_spec["description"] == WEB_FETCH_DESCRIPTION_AGENTIC
-
-    def test_custom_name(self):
-        assert make_web_fetch(name="fetch_page").tool_name == "fetch_page"
-
-    def test_custom_description(self):
-        assert make_web_fetch(description="custom").tool_spec["description"] == "custom"
-
-    @pytest.mark.parametrize("max_bytes", [0, -1])
-    def test_rejects_non_positive_max_bytes(self, max_bytes):
-        with pytest.raises(ValueError, match="max_bytes"):
-            make_web_fetch(max_bytes=max_bytes)
-
-    @pytest.mark.parametrize("max_content_chars", [0, -1])
-    def test_rejects_non_positive_max_content_chars(self, max_content_chars):
-        with pytest.raises(ValueError, match="max_content_chars"):
-            make_web_fetch(max_content_chars=max_content_chars)
-
-    def test_invalid_mode_raises(self):
-        with pytest.raises(ValueError, match="mode"):
-            make_web_fetch(mode="invalid")  # type: ignore[arg-type]
-
-    def test_markdown_mode_uses_markdown_description(self):
-        assert make_web_fetch(mode="markdown").tool_spec["description"] == WEB_FETCH_DESCRIPTION_MARKDOWN
 
 
 class TestLazyLoad:

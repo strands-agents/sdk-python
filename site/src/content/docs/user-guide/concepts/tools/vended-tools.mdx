@@ -393,8 +393,8 @@ Reading the full page as markdown:
 from strands import Agent
 from strands.vended_tools import make_web_fetch
 
-tool = make_web_fetch(mode="markdown")
-agent = Agent(tools=[tool])
+web_fetch = make_web_fetch(mode="markdown")
+agent = Agent(tools=[web_fetch])
 agent("Read https://example.com/docs and then explain the architecture")
 ```
 
@@ -406,14 +406,14 @@ from strands import Agent
 from strands.models import BedrockModel
 from strands.vended_tools import make_web_fetch
 
-tool = make_web_fetch(
+web_fetch = make_web_fetch(
     mode="agentic",
     client=httpx.AsyncClient(timeout=10.0),
     max_bytes=1 * 1024 * 1024,
     max_content_chars=25_000,
     model=BedrockModel(model_id="us.amazon.nova-micro-v1:0"),
 )
-agent = Agent(tools=[tool])
+agent = Agent(tools=[web_fetch])
 ```
 
 </Tab>
