@@ -316,6 +316,18 @@ export interface BedrockModelConfig extends BaseModelConfig {
    * @defaultValue false
    */
   useNativeTokenCount?: boolean
+
+  /**
+   * Apply strict (structured-output) enforcement to every tool sent to this model.
+   *
+   * When `true`, injects `strict: true` into each `toolSpec`. Incompatible with citations
+   * for Anthropic models.
+   *
+   * @see https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ToolSpecification.html
+   *
+   * @defaultValue false
+   */
+  strictTools?: boolean
 }
 
 /**
