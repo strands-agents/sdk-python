@@ -49,6 +49,11 @@ export class QmdSearchStrategy implements SearchStrategy {
   }
 
   /**
+   * No-op — QMD re-indexes from the filesystem on each search.
+   */
+  async index(): Promise<void> {}
+
+  /**
    * Searches stored content using BM25 full-text search.
    *
    * Triggers a re-index of the backing filesystem before searching to ensure

@@ -14,6 +14,7 @@ from .storage import _NAMESPACED, _normalize_key, _normalize_prefix
 
 if TYPE_CHECKING:
     from ..sandbox.base import Sandbox
+    from .search.types import SearchStrategy
     from .storage import StorageSearchResult
 
 _TMP_MARKER = ".__strands_tmp"
@@ -34,15 +35,25 @@ class LocalFileStorage:
         ```
     """
 
-    def __init__(self, base_dir: str = "./.strands/", *, sandbox: Sandbox | None = None) -> None:
+    def __init__(
+        self,
+        base_dir: str = "./.strands/",
+        *,
+        sandbox: Sandbox | None = None,
+        search_strategy: SearchStrategy | None = None,
+    ) -> None:
         """Initialize local file storage.
 
         Args:
             base_dir: Root directory under which all keys are stored.
             sandbox: Optional sandbox to route I/O through.
+            search_strategy: Optional search strategy. When set, ``write()``
+                automatically indexes entries and ``search()`` delegates to the
+                strategy instead of the default keyword scan.
         """
         self._base_dir = os.path.normpath(base_dir)
         self._sandbox = sandbox
+        self._search_strategy = search_strategy
 
     @property
     def base_dir(self) -> str:
@@ -62,7 +73,7 @@ class LocalFileStorage:
         """
         if self._sandbox is sandbox:
             return self
-        bound = LocalFileStorage(self._base_dir, sandbox=sandbox)
+        bound = LocalFileStorage(self._base_dir, sandbox=sandbox, search_strategy=self._search_strategy)
         if getattr(self, "_namespaced", None) is _NAMESPACED:
             bound._namespaced = _NAMESPACED  # type: ignore[attr-defined]
         return bound
@@ -105,6 +116,9 @@ class LocalFileStorage:
             raise
         except Exception as error:
             raise StorageError(f"Failed to write '{key}'") from error
+
+        if self._search_strategy is not None:
+            await self._search_strategy.index(self, normalized, data)
 
     async def read(self, key: str) -> bytes | None:
         """Read the file corresponding to key.
@@ -189,7 +203,10 @@ class LocalFileStorage:
             raise StorageError(f"Failed to list keys with prefix '{query}'") from error
 
     async def search(self, query: str) -> builtins.list[StorageSearchResult]:
-        """Search stored content by keyword token-overlap scoring.
+        """Search stored content using the configured strategy.
+
+        Delegates to the search strategy when one is set, otherwise falls back
+        to keyword token-overlap scoring.
 
         Args:
             query: Natural-language search query.
@@ -197,6 +214,8 @@ class LocalFileStorage:
         Returns:
             All matches with relevance scores, ranked best-first.
         """
+        if self._search_strategy is not None:
+            return await self._search_strategy.search(self, query)
         return await KeywordSearchStrategy().search(self, query)
 
     def namespace(self, prefix: str) -> LocalFileStorage:
@@ -215,7 +234,7 @@ class LocalFileStorage:
         """
         normalized = _normalize_prefix(prefix).rstrip("/")
         sub_dir = os.path.join(self._base_dir, *normalized.split("/")) if normalized else self._base_dir
-        scoped = LocalFileStorage(sub_dir, sandbox=self._sandbox)
+        scoped = LocalFileStorage(sub_dir, sandbox=self._sandbox, search_strategy=self._search_strategy)
         scoped._namespaced = _NAMESPACED  # type: ignore[attr-defined]
         return scoped
 
