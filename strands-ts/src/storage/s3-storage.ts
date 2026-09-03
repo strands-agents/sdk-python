@@ -1,10 +1,30 @@
 import type { Storage, StorageSearchResult } from './storage.js'
-import type { SearchStrategy } from './search/types.js'
-import type { Embeddings } from './search/types.js'
+import type { Embedder, SearchStrategy } from './search/types.js'
 
 import { StorageError } from '../errors.js'
 import { namespace, normalizeKey, normalizePrefix } from './storage.js'
 import { KeywordSearchStrategy } from './search/keyword.js'
+import { S3VectorSearchStrategy } from './search/s3-vector.js'
+
+/**
+ * Shorthand for enabling native S3 Vector search.
+ *
+ * Pass `true` to use defaults (requires `vectorBucketName` and `indexName` on the
+ * storage config), or a config object for fine-grained control.
+ */
+export type S3Embeddings = true | S3EmbeddingsConfig
+
+/** Configuration for the {@link S3Embeddings} shorthand. */
+export interface S3EmbeddingsConfig {
+  /** Function that produces embedding vectors from text. */
+  embedder: Embedder
+  /** S3 Vectors bucket name. Defaults to the storage bucket name suffixed with `-vectors`. */
+  vectorBucketName?: string
+  /** Vector index name. Defaults to `'default'`. */
+  indexName?: string
+  /** Maximum number of results to return. Defaults to 10. */
+  maxResults?: number
+}
 
 /** Configuration for {@link S3Storage}. */
 export interface S3StorageConfig {
@@ -14,20 +34,15 @@ export interface S3StorageConfig {
   region?: string
   /** Pre-configured S3 client. Cannot be combined with `region`. */
   s3Client?: import('@aws-sdk/client-s3').S3Client
-  /**
-   * Search strategy to use instead of the default keyword search.
-   * Takes precedence over `embeddings` if both are provided.
-   */
+  /** Search strategy to use instead of the default keyword search. Takes precedence over `embeddings`. */
   searchStrategy?: SearchStrategy
   /**
    * Shorthand for enabling native vector search via S3 Vectors.
    *
-   * Pass `true` to use the backend's default embedder, or a config object for
-   * fine-grained control (custom embedder, index name, distance metric).
-   *
-   * When set and `searchStrategy` is not, S3Storage creates an S3VectorSearchStrategy internally.
+   * Pass a config object with an `embedder` to automatically wire up an
+   * {@link S3VectorSearchStrategy}. Ignored if `searchStrategy` is also provided.
    */
-  embeddings?: Embeddings
+  embeddings?: S3Embeddings
 }
 
 const S3_PAGE_SIZE = 1000
@@ -52,7 +67,6 @@ export class S3Storage implements Storage {
   private readonly _prefix: string
   private readonly _region: string | undefined
   private readonly _searchStrategy: SearchStrategy
-  private readonly _embeddings: Embeddings | undefined
   private _client: import('@aws-sdk/client-s3').S3Client | undefined
 
   /**
@@ -68,8 +82,22 @@ export class S3Storage implements Storage {
     this._prefix = config?.prefix ? config.prefix.split('/').filter(Boolean).join('/') + '/' : ''
     this._region = config?.region
     this._client = config?.s3Client
-    this._embeddings = config?.embeddings
-    this._searchStrategy = config?.searchStrategy ?? KeywordSearchStrategy
+    this._searchStrategy =
+      config?.searchStrategy ?? this._resolveEmbeddings(config?.embeddings) ?? KeywordSearchStrategy
+  }
+
+  private _resolveEmbeddings(embeddings: S3Embeddings | undefined): SearchStrategy | undefined {
+    if (!embeddings) return undefined
+    if (embeddings === true) {
+      throw new StorageError('S3Storage embeddings: true requires an embedder — pass { embedder: fn } instead')
+    }
+    return new S3VectorSearchStrategy({
+      embedder: embeddings.embedder,
+      vectorBucketName: embeddings.vectorBucketName ?? `${this._bucket}-vectors`,
+      indexName: embeddings.indexName ?? 'default',
+      ...(embeddings.maxResults != null && { maxResults: embeddings.maxResults }),
+      ...(this._region != null && { region: this._region }),
+    })
   }
 
   /**

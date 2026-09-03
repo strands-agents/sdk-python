@@ -3,24 +3,6 @@ import type { Storage, StorageSearchResult } from '../storage.js'
 /** A function that produces an embedding vector from text. Provider-agnostic. */
 export type Embedder = (text: string) => Promise<number[]>
 
-/** Configuration for native vector search on a storage backend. */
-export interface EmbeddingsConfig {
-  /** Embedding function. When omitted, the backend uses its default embedder (e.g. Bedrock Titan for S3). */
-  embedder?: Embedder
-  /** Name of the vector index. Defaults to an auto-generated name. */
-  indexName?: string
-  /** Distance metric for vector similarity. Defaults to `'cosine'`. */
-  distanceMetric?: 'cosine' | 'euclidean' | 'dotProduct'
-}
-
-/**
- * Shorthand for enabling native vector search on a storage backend.
- *
- * Pass `true` to use the backend's defaults, or a {@link EmbeddingsConfig}
- * for fine-grained control (custom embedder, index name, distance metric).
- */
-export type Embeddings = true | EmbeddingsConfig
-
 /**
  * A pluggable search strategy for storage backends.
  *

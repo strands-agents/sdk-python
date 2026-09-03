@@ -146,9 +146,41 @@ describe('S3Storage', () => {
       expect(mockStrategy.index).toHaveBeenCalledWith(storage, 'doc.md', data)
     })
 
-    it('stores embeddings config', () => {
-      const storage = new S3Storage('my-bucket', { embeddings: true })
+    it('wires up S3VectorSearchStrategy from embeddings config', () => {
+      const embedder = vi.fn().mockResolvedValue([0.1, 0.2])
+      const storage = new S3Storage('my-bucket', {
+        embeddings: { embedder, vectorBucketName: 'vecs', indexName: 'idx' },
+      })
       expect(storage).toBeDefined()
+      expect(storage.search).toBeDefined()
+    })
+
+    it('defaults vectorBucketName and indexName from bucket', () => {
+      const embedder = vi.fn().mockResolvedValue([0.1, 0.2])
+      const storage = new S3Storage('my-bucket', { embeddings: { embedder } })
+      expect(storage).toBeDefined()
+    })
+
+    it('throws when embeddings is true without an embedder', () => {
+      expect(() => new S3Storage('my-bucket', { embeddings: true })).toThrow(
+        'S3Storage embeddings: true requires an embedder'
+      )
+    })
+
+    it('searchStrategy takes precedence over embeddings', async () => {
+      const mockStrategy = {
+        search: vi.fn().mockResolvedValue([{ key: 'x', score: 1 }]),
+      }
+      const embedder = vi.fn()
+      const storage = new S3Storage('my-bucket', {
+        searchStrategy: mockStrategy,
+        embeddings: { embedder },
+      })
+
+      await storage.search!('test')
+
+      expect(mockStrategy.search).toHaveBeenCalled()
+      expect(embedder).not.toHaveBeenCalled()
     })
   })
 
