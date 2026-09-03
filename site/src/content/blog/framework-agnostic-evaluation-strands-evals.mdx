@@ -467,6 +467,8 @@ provider = CloudWatchProvider(agent_name="my-agent")
 # Or point directly to a log group
 provider = CloudWatchProvider(
     log_group="/aws/bedrock-agentcore/runtimes/MyAgent-abc123-DEFAULT",
+    # Use shared span log group if Agentcore project uses split telemetry (UNIFIED_TRACES_DESTINATION_ENABLED=false)
+    # log_group="aws/spans",
     lookback_days=7,
 )
 ```
