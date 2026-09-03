@@ -131,6 +131,11 @@ async def test_invalid_region_rejected(model_id, region):
         BedrockNovaSonicModel(model_id=model_id, region=region)
 
 
+def test_bedrock_nova_sonic_model___init___rejects_boto_session_and_region(model_id, boto_session):
+    with pytest.raises(ValueError, match="Cannot specify both 'boto_session' and 'region'"):
+        BedrockNovaSonicModel(model_id=model_id, boto_session=boto_session, region="us-east-1")
+
+
 # Audio Configuration Tests
 
 
