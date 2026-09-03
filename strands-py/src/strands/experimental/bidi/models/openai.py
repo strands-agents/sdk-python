@@ -39,7 +39,7 @@ from ..types.events import (
     StopReason,
 )
 from ..types.model import AudioConfig, BidiConnectionConfig
-from .model import BidiModel, BidiModelTimeoutError
+from .model import AudioCapable, BidiModel, BidiModelTimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +90,7 @@ _RECONNECT_INSTRUCTION = (
 )
 
 
-class OpenAIRealtimeModel(BidiModel):
+class OpenAIRealtimeModel(BidiModel, AudioCapable):
     """OpenAI Realtime API implementation for bidirectional streaming.
 
     Combines model configuration and connection state in a single class.
@@ -204,6 +204,11 @@ class OpenAIRealtimeModel(BidiModel):
             "inference": config.get("inference", {}),
         }
         return resolved
+
+    @property
+    def audio_config(self) -> AudioConfig:
+        """Get the resolved audio configuration."""
+        return cast(AudioConfig, self.config["audio"])
 
     async def start(
         self,

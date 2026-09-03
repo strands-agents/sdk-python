@@ -16,19 +16,30 @@ Features:
 import abc
 import logging
 from collections.abc import AsyncIterable
-from typing import Any, NoReturn
+from typing import Any, NoReturn, Protocol, TypedDict, cast, runtime_checkable
 
 from ....models.model import Model
 from ....types._events import ToolResultEvent
 from ....types.content import Messages
 from ....types.tools import ToolSpec
-from ..types.events import (
-    BidiInputEvent,
-    BidiOutputEvent,
-)
-from ..types.model import BidiConnectionConfig
+from ..types.events import BidiInputEvent, BidiOutputEvent
+from ..types.model import AudioConfig, BidiConnectionConfig
 
 logger = logging.getLogger(__name__)
+
+
+class BidiModelConfig(TypedDict, total=False):
+    """Configuration shared by bidirectional model providers.
+
+    Attributes:
+        model_id: Provider model identifier.
+        params: Provider-specific keyword arguments passed to the model request or session.
+        connection: Reconnect timing overrides.
+    """
+
+    model_id: str
+    params: dict[str, Any] | None
+    connection: BidiConnectionConfig
 
 
 class BidiModel(Model, abc.ABC):
@@ -40,6 +51,7 @@ class BidiModel(Model, abc.ABC):
 
     Attributes:
         config: Configuration dictionary with provider-specific settings.
+        model_id: Provider model identifier.
         connection_config: Declared connection limit and reconnect timing. Providers that
             support proactive reconnect populate this; an empty config means reactive-only
             behavior.
@@ -48,7 +60,8 @@ class BidiModel(Model, abc.ABC):
             reporting deltas may omit it.
     """
 
-    config: dict[str, Any]
+    config: Any
+    model_id: str
     connection_config: BidiConnectionConfig
     usage_is_cumulative: bool
 
@@ -62,7 +75,7 @@ class BidiModel(Model, abc.ABC):
 
     def get_config(self) -> dict[str, Any]:
         """Return a copy of the model configuration."""
-        return self.config.copy()
+        return cast(dict[str, Any], self.config).copy()
 
     def structured_output(self, *args: Any, **kwargs: Any) -> NoReturn:
         """Raise because bidirectional models do not support structured output."""
@@ -196,3 +209,13 @@ class BidiModelTimeoutError(Exception):
         super().__init__(message)
 
         self.restart_config = restart_config
+
+
+@runtime_checkable
+class AudioCapable(Protocol):
+    """Protocol for models that support audio input and output."""
+
+    @property
+    def audio_config(self) -> AudioConfig:
+        """Get the resolved audio configuration."""
+        ...

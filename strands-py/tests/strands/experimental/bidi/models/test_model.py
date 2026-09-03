@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-from strands.experimental.bidi.models.model import BidiModel
+from strands.experimental.bidi.models.model import AudioCapable, AudioConfig, BidiModel
 from strands.experimental.bidi.types.events import BidiInputEvent, BidiOutputEvent
 from strands.models import Model
 from strands.types._events import ToolResultEvent
@@ -47,8 +47,24 @@ class _TestBidiModel(BidiModel):
         pass
 
 
+class _AudioBidiModel(_TestBidiModel):
+    @property
+    def audio_config(self) -> AudioConfig:
+        return {
+            "input_rate": 16000,
+            "output_rate": 24000,
+            "channels": 1,
+            "format": "pcm",
+        }
+
+
 def test_model_is_model():
     assert isinstance(_TestBidiModel(), Model)
+
+
+def test_audio_capable_identifies_audio_models():
+    assert isinstance(_AudioBidiModel(), AudioCapable)
+    assert not isinstance(_TestBidiModel(), AudioCapable)
 
 
 def test_update_config():

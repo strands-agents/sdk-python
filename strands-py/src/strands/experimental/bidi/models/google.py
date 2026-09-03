@@ -46,7 +46,7 @@ from ..types.events import (
     ModalityUsage,
 )
 from ..types.model import AudioConfig, BidiConnectionConfig
-from .model import BidiModel, BidiModelTimeoutError
+from .model import AudioCapable, BidiModel, BidiModelTimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +69,7 @@ class _TurnState:
     response_id: str | None = None
 
 
-class GoogleGeminiLiveModel(BidiModel):
+class GoogleGeminiLiveModel(BidiModel, AudioCapable):
     """Google Gemini Live implementation using the official Google GenAI SDK.
 
     Combines model configuration and connection state in a single class.
@@ -164,6 +164,11 @@ class GoogleGeminiLiveModel(BidiModel):
             },
         }
         return resolved
+
+    @property
+    def audio_config(self) -> AudioConfig:
+        """Get the resolved audio configuration."""
+        return cast(AudioConfig, self.config["audio"])
 
     async def start(
         self,

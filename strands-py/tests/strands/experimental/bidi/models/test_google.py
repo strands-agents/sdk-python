@@ -1071,6 +1071,7 @@ def test_audio_config_defaults(mock_genai_client, model_id, api_key):
     assert model.config["audio"]["channels"] == 1
     assert model.config["audio"]["format"] == "pcm"
     assert "voice" not in model.config["audio"]  # No default voice
+    assert model.audio_config == model.config["audio"]
 
 
 def test_audio_config_partial_override(mock_genai_client, model_id, api_key):
