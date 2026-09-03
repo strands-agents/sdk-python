@@ -101,9 +101,12 @@ class TestList:
             }
         )
         result = await notebook(mode="list", tool_context=ctx)
-        assert "default: Empty" in result
-        assert "notes: 3 lines" in result
-        assert "todo: 1 lines" in result
+        assert result == (
+            "Available notebooks:\n"
+            "- default: Empty\n"
+            "- notes: 3 lines\n"
+            "- todo: 1 lines"
+        )
 
 
 class TestRead:
