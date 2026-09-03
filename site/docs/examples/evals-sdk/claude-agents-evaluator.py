@@ -15,7 +15,7 @@ from strands_evals.telemetry import StrandsEvalsTelemetry
 telemetry = StrandsEvalsTelemetry().setup_in_memory_exporter()
 ClaudeAgentSDKInstrumentor().instrument()
 
-from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
+from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query  # noqa: E402
 
 async def run_commit_agent(diff: str) -> str:
     options = ClaudeAgentOptions(

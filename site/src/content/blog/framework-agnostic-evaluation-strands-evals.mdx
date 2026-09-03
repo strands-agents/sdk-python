@@ -1,6 +1,6 @@
 ---
 title: "Framework-agnostic evaluation with Strands Evals"
-date: 2026-08-31
+date: 2026-09-04
 description: "Strands Evals supports agents built with Claude Agents SDK, OpenAI Agents, Google ADK, and more. Learn how it achieves compatibility with other frameworks and how you can begin writing cross-framework experiments."
 authors:
   - ramon-li
@@ -59,7 +59,7 @@ also learn how to use a new evaluation tool.
 
 ## What framework-agnostic evaluation provides
 
-A framework-agnostic evaluation supports solves the issues above through greater interoperability:
+A framework-agnostic evaluation solves the issues above through greater interoperability:
 - You define your cases and evaluators once. When you try a new agent framework, you swap the agent code and
   keep everything else the same.
 - Comparisons become apples-to-apples: same cases, same evaluators, same scoring. This ensures differences in
@@ -133,7 +133,7 @@ async def run_commit_agent(diff: str) -> str:
         max_turns=3,
         system_prompt=(
             "Write a conventional commit message for the given diff. "
-            "Format: <type>(<scope>): <description>. "
+            "Format: <type>(<scope>): <subject>. "
             "Types: feat, fix, docs, style, refactor, perf, test, chore. "
             "Imperative mood, lowercase, no period. Output only the commit message."
         ),
@@ -167,7 +167,7 @@ from typing import Any
 
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import HelpfulnessEvaluator, GoalSuccessRateEvaluator
-from strands_evals.otel import detect_otel_mapper, readable_spans_to_dicts
+from strands_evals.mappers import detect_otel_mapper, readable_spans_to_dicts
 
 
 def task(case: Case) -> dict[str, Any]:
@@ -242,9 +242,9 @@ stayed constant.
 
 ## Variation: OpenAI Agents
 
-The following example swaps Cldue Agents for OpenAI Agents to evaluate the same commit message task,
+The following example swaps Claude Agents for OpenAI Agents to evaluate the same commit message task,
 illustrating what changes and what remains the same. Once again, you can find the full example
-[here](https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/evals-sdk/claude-agents-evaluator.py).
+[here](https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/evals-sdk/openai-agents-evaluator.py).
 
 [Obtain an OpenAI API key](https://platform.openai.com/api-keys) and set it in your environment
 variables. You also need the following dependencies:
@@ -274,7 +274,7 @@ commit_agent = Agent(
     model="gpt-4o-mini",
     instructions=(
         "Write a conventional commit message for the given diff. "
-        "Format: <type>(<scope>): <description>. "
+        "Format: <type>(<scope>): <subject>. "
         "Types: feat, fix, docs, style, refactor, perf, test, chore. "
         "Imperative mood, lowercase, no period. Output only the commit message."
     ),
@@ -294,6 +294,10 @@ spans by their scope and selects the correct mapper automatically.
 
 Strands Evals also supports OpenAI Agents instrumented with Traceloop. Swap the instrumentor
 in the first step and the rest of the setup stays the same.
+
+```bash
+pip install opentelemetry-instrumentation-openai-agents
+```
 
 ```python
 from opentelemetry.instrumentation.openai_agents import OpenAIAgentsInstrumentor
@@ -354,7 +358,7 @@ tools = []
 
 AGENT_INSTRUCTION = (
     "Write a conventional commit message for the given diff. "
-    "Format: <type>(<scope>): <description>. "
+    "Format: <type>(<scope>): <subject>. "
     "Types: feat, fix, docs, style, refactor, perf, test, chore. "
     "Imperative mood, lowercase, no period. Output only the commit message."
 )
