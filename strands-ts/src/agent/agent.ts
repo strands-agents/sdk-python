@@ -2321,6 +2321,7 @@ export class Agent implements LocalAgent, InvokableAgent {
           ...(ctx.systemPrompt !== undefined && { systemPrompt: ctx.systemPrompt }),
         })
 
+        let modelSpanEnded = false
         try {
           // Wrap the snapshot into a StateStore for the model provider, which expects
           // get/set methods.
@@ -2350,11 +2351,19 @@ export class Agent implements LocalAgent, InvokableAgent {
             ...(usage && { usage }),
             ...(metrics && { metrics }),
           })
+          modelSpanEnded = true
 
           return { result: iterResult.value }
         } catch (error) {
           self._tracer.endModelInvokeSpan(modelSpan, { error: normalizeError(error) })
+          modelSpanEnded = true
           throw error
+        } finally {
+          // A consumer break closes this generator via .return(): finally runs but catch does not,
+          // so neither end call above fires and the span would stay open.
+          if (!modelSpanEnded) {
+            self._tracer.endModelInvokeSpan(modelSpan)
+          }
         }
       }
     )
