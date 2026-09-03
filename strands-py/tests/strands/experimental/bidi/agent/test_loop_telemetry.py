@@ -85,7 +85,9 @@ def otel_setup():
 
 @pytest.fixture
 def agent():
-    return BidiAgent(model=unittest.mock.AsyncMock(spec=BidiModel), tools=[mock_tool_func])
+    model = unittest.mock.AsyncMock(spec=BidiModel)
+    model.restart = unittest.mock.AsyncMock()
+    return BidiAgent(model=model, tools=[mock_tool_func])
 
 
 @pytest_asyncio.fixture
@@ -347,7 +349,7 @@ async def test_restart_failure_propagates_and_reports(loop, agent, agenerator):
     """A failed restart surfaces to receive(), keeps the gate closed, and fires the after-restart hook."""
     timeout_error = BidiModelTimeoutError("8 minute timeout")
     agent.model.receive = unittest.mock.Mock(side_effect=[timeout_error, agenerator([])])
-    agent.model.reconnect = unittest.mock.AsyncMock(side_effect=ConnectionError("restart failed"))
+    agent.model.restart = unittest.mock.AsyncMock(side_effect=ConnectionError("restart failed"))
 
     after_errors = []
     agent.hooks.add_callback(BidiAfterConnectionRestartEvent, lambda event: after_errors.append(event.exception))

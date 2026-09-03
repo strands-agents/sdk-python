@@ -283,12 +283,12 @@ async def test_stop_is_idempotent(mock_genai_client, model):
     assert mock_live_session_cm.__aexit__.call_count == 1
 
     # Second stop must be a no-op: the context manager is cleared on first stop, so it is
-    # not re-exited and no error is raised (reconnect() relies on this).
+    # not re-exited and no error is raised (restart() relies on this).
     await model.stop()
     assert mock_live_session_cm.__aexit__.call_count == 1
 
 
-# Reconnect / Connection Config Tests
+# Restart / Connection Config Tests
 
 
 def test_connection_config_declared(model):
@@ -329,13 +329,13 @@ def test_connection_config_override_via_provider_config(mock_genai_client, model
 
 
 @pytest.mark.asyncio
-async def test_reconnect_resumes_via_session_handle(mock_genai_client, model):
-    """reconnect() tears down the old connection and resumes the session via the tracked handle."""
+async def test_restart_resumes_via_session_handle(mock_genai_client, model):
+    """restart() tears down the old connection and resumes the session via the tracked handle."""
     mock_client, _, mock_live_session_cm = mock_genai_client
     await model.start()
     model._live_session_handle = "handle-abc"
 
-    await model.reconnect(system_prompt="hi")
+    await model.restart(system_prompt="hi")
 
     assert mock_live_session_cm.__aexit__.called  # old connection torn down
     assert model._connection_id is not None  # new connection established
@@ -348,13 +348,13 @@ async def test_reconnect_resumes_via_session_handle(mock_genai_client, model):
 
 
 @pytest.mark.asyncio
-async def test_reconnect_prefers_explicit_handle_from_restart_kwargs(mock_genai_client, model):
+async def test_restart_prefers_explicit_handle_from_restart_kwargs(mock_genai_client, model):
     """The reactive path's handle (passed via restart_kwargs) wins over the tracked one."""
     mock_client, _, _ = mock_genai_client
     await model.start()
     model._live_session_handle = "tracked"
 
-    await model.reconnect(system_prompt="hi", live_session_handle="from-error")
+    await model.restart(system_prompt="hi", live_session_handle="from-error")
 
     config = mock_client.aio.live.connect.call_args.kwargs["config"]
     assert config["session_resumption"].handle == "from-error"
@@ -385,13 +385,13 @@ async def test_fresh_start_clears_tracked_handle(mock_genai_client, model):
 
 
 @pytest.mark.asyncio
-async def test_reconnect_without_handle_starts_fresh_and_replays_history(mock_genai_client, model, messages):
-    """With no tracked handle, reconnect() starts a fresh session and replays history."""
+async def test_restart_without_handle_starts_fresh_and_replays_history(mock_genai_client, model, messages):
+    """With no tracked handle, restart() starts a fresh session and replays history."""
     mock_client, mock_live_session, _ = mock_genai_client
     await model.start()
     assert model._live_session_handle is None
 
-    await model.reconnect(system_prompt="hi", messages=messages)
+    await model.restart(system_prompt="hi", messages=messages)
 
     # Fresh session (no resumption handle), with history replayed via send_client_content.
     config = mock_client.aio.live.connect.call_args.kwargs["config"]
@@ -402,11 +402,11 @@ async def test_reconnect_without_handle_starts_fresh_and_replays_history(mock_ge
 
 
 @pytest.mark.asyncio
-async def test_reconnect_falls_back_to_fresh_session_when_resume_rejected(mock_genai_client, model, messages):
-    """A rejected resume handle is dropped and the reconnect retries with a fresh session + replay.
+async def test_restart_falls_back_to_fresh_session_when_resume_rejected(mock_genai_client, model, messages):
+    """A rejected resume handle is dropped and the restart retries with a fresh session and replay.
 
     Guards against the connection going permanently silent when the server refuses the handle:
-    the fallback the reconnect() docstring promises.
+    the fallback the restart() docstring promises.
     """
     mock_client, mock_live_session, mock_live_session_cm = mock_genai_client
     await model.start()
@@ -421,7 +421,7 @@ async def test_reconnect_falls_back_to_fresh_session_when_resume_rejected(mock_g
 
     mock_live_session_cm.__aenter__.side_effect = aenter_rejects_resume
 
-    await model.reconnect(system_prompt="hi", messages=messages)
+    await model.restart(system_prompt="hi", messages=messages)
 
     # Handle dropped, a fresh session established, and history replayed.
     assert model._live_session_handle is None
@@ -462,7 +462,7 @@ async def test_proactive_reconnect_end_to_end_through_agent(mock_genai_client, m
 
     Drives the full chain against the real GoogleGeminiLiveModel (mocked genai transport): the loop
     reads Gemini's connection_config, arms the proactive timer, emits a warning, and reconnects
-    through Gemini's own reconnect() before the deadline, resuming the session via its handle. No
+    through Gemini's own restart() before the deadline, resuming the session via its handle. No
     live network calls are made.
     """
     from strands.experimental.bidi.agent.agent import BidiAgent
@@ -483,7 +483,7 @@ async def test_proactive_reconnect_end_to_end_through_agent(mock_genai_client, m
 
     mock_live_session.receive = unittest.mock.Mock(side_effect=blocking_receive)
     # Reap the parked superseded reader promptly instead of waiting the full backstop.
-    monkeypatch.setattr(loop_module, "_READER_REAP_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(loop_module, "_MODEL_RESTART_STOP_TIMEOUT_S", 0.05)
 
     model = GoogleGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
     # A small deadline; the injected clock below fires it without wall time.

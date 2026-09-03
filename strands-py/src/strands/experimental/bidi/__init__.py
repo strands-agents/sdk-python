@@ -12,7 +12,7 @@ from ...types._events import (
 from .agent.agent import BidiAgent
 
 # Model interface (for custom implementations)
-from .models.model import BidiModel
+from .models.model import BidiModel, Restartable
 
 # Built-in tools (deprecated - use strands_tools.stop instead)
 from .tools import stop_conversation
@@ -74,6 +74,7 @@ __all__ = [
     "ToolStreamEvent",
     # Model interface
     "BidiModel",
+    "Restartable",
     # IO channels and configuration
     "BidiAudioProcessorConfig",
     "BidiAudioIOConfig",
