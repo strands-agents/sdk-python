@@ -483,7 +483,7 @@ async def test_proactive_reconnect_end_to_end_through_agent(mock_genai_client, m
 
     mock_live_session.receive = unittest.mock.Mock(side_effect=blocking_receive)
     # Reap the parked superseded reader promptly instead of waiting the full backstop.
-    monkeypatch.setattr(loop_module, "_READER_REAP_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(loop_module, "_MODEL_RESTART_STOP_TIMEOUT_S", 0.05)
 
     model = GoogleGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
     # A small deadline; the injected clock below fires it without wall time.
