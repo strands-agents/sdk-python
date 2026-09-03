@@ -20,9 +20,9 @@ from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
 from ._defaults import resolve_config_metadata
 from ._validation import (
     _has_location_source,
+    _narrow_tools_for_unsupported_tool_choice,
     validate_config_keys,
     warn_on_cache_config_not_supported,
-    warn_on_tool_choice_not_supported,
 )
 from .model import BaseModelConfig, CacheConfig, Model
 
@@ -459,7 +459,7 @@ class MistralModel(Model):
             ContextWindowOverflowException: If the input exceeds the model's context window.
             ModelThrottledException: When the model service is throttling requests.
         """
-        warn_on_tool_choice_not_supported(tool_choice)
+        tool_specs = _narrow_tools_for_unsupported_tool_choice(tool_choice, tool_specs)
 
         logger.debug("formatting request")
         request = self.format_request(messages, tool_specs, system_prompt)

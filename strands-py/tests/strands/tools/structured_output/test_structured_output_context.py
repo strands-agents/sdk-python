@@ -35,7 +35,7 @@ class TestStructuredOutputContext:
         assert isinstance(context.structured_output_tool, StructuredOutputTool)
         assert context.expected_tool_name == "SampleModel"
         assert context.results == {}
-        assert context.forced_mode is False
+        assert context.force_attempted is False
         assert context.tool_choice is None
         assert context.stop_loop is False
         assert context.structured_output_prompt == DEFAULT_STRUCTURED_OUTPUT_PROMPT
@@ -48,7 +48,7 @@ class TestStructuredOutputContext:
         assert context.structured_output_tool is None
         assert context.expected_tool_name is None
         assert context.results == {}
-        assert context.forced_mode is False
+        assert context.force_attempted is False
         assert context.tool_choice is None
         assert context.stop_loop is False
         assert context.structured_output_prompt == DEFAULT_STRUCTURED_OUTPUT_PROMPT
@@ -115,17 +115,17 @@ class TestStructuredOutputContext:
         custom_tool_choice = {"specific": {"tool": "SampleModel"}}
         context.set_forced_mode(tool_choice=custom_tool_choice)
 
-        assert context.forced_mode is True
+        assert context.force_attempted is True
         assert context.tool_choice == custom_tool_choice
 
     def test_set_forced_mode_without_tool_choice(self):
-        """Test set_forced_mode without tool_choice (default)."""
+        """Test set_forced_mode without tool_choice defaults to a by-name force of the schema tool."""
         context = StructuredOutputContext(structured_output_model=SampleModel)
 
         context.set_forced_mode()
 
-        assert context.forced_mode is True
-        assert context.tool_choice == {"any": {}}
+        assert context.force_attempted is True
+        assert context.tool_choice == {"tool": {"name": "SampleModel"}}
 
     def test_set_forced_mode_when_disabled(self):
         """Test set_forced_mode when context is not enabled."""
@@ -134,7 +134,7 @@ class TestStructuredOutputContext:
         # Should not change state when not enabled
         context.set_forced_mode(tool_choice={"test": "value"})
 
-        assert context.forced_mode is False
+        assert context.force_attempted is False
         assert context.tool_choice is None
 
     def test_has_structured_output_tool(self):

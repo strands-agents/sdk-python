@@ -29,7 +29,7 @@ from ..types.content import ContentBlock, Messages, SystemContentBlock
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
-from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
+from ._validation import _has_location_source, _narrow_tools_for_unsupported_tool_choice, validate_config_keys
 from .model import BaseModelConfig, Model
 
 logger = logging.getLogger(__name__)
@@ -591,7 +591,7 @@ class LlamaCppModel(Model):
             ContextWindowOverflowException: When the context window is exceeded.
             ModelThrottledException: When the llama.cpp server is overloaded.
         """
-        warn_on_tool_choice_not_supported(tool_choice)
+        tool_specs = _narrow_tools_for_unsupported_tool_choice(tool_choice, tool_specs)
 
         # Track request start time for latency calculation
         start_time = time.perf_counter()
