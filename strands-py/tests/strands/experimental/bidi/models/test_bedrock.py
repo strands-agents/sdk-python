@@ -1027,6 +1027,73 @@ async def test_receive_ends_when_stream_closed(nova_model, mock_stream):
     assert [type(event).__name__ for event in events] == ["BidiConnectionStartEvent"]
 
 
+# Session ID Tests
+
+
+def _mock_event_receiver(*nova_events):
+    """Build an event receiver that emits the given Nova events, then end-of-stream."""
+    payloads = [
+        Mock(value=Mock(bytes_=json.dumps({"event": nova_event}).encode("utf-8"))) for nova_event in nova_events
+    ]
+    output = AsyncMock()
+    output.receive = AsyncMock(side_effect=[*payloads, None])
+    return output
+
+
+@pytest.mark.asyncio
+async def test_session_id_none_until_nova_reports_it(nova_model, mock_stream):
+    """session_id stays None while no received event has carried Nova's sessionId."""
+    assert nova_model.session_id is None
+
+    mock_stream.await_output.return_value = (None, _mock_event_receiver({"contentEnd": {"type": "AUDIO"}}))
+    await nova_model.start()
+
+    async for _ in nova_model.receive():
+        pass
+
+    assert nova_model.session_id is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "nova_event",
+    [
+        {"completionStart": {"sessionId": "session-abc", "completionId": "completion-1"}},
+        {"usageEvent": {"sessionId": "session-abc", "totalInputTokens": 4, "totalOutputTokens": 8}},
+    ],
+)
+async def test_session_id_captured_from_nova_event(nova_model, mock_stream, nova_event):
+    """Nova carries sessionId on both completionStart and usageEvent; either one populates it."""
+    mock_stream.await_output.return_value = (None, _mock_event_receiver(nova_event))
+    await nova_model.start()
+
+    async for _ in nova_model.receive():
+        pass
+
+    tru_session_id = nova_model.session_id
+    exp_session_id = "session-abc"
+    assert tru_session_id == exp_session_id
+
+
+@pytest.mark.asyncio
+async def test_session_id_retained_after_stop_and_cleared_on_start(nova_model, mock_stream):
+    """The ID outlives stop() for post-mortem debugging but never carries into a new connection."""
+    mock_stream.await_output.return_value = (
+        None,
+        _mock_event_receiver({"completionStart": {"sessionId": "session-abc"}}),
+    )
+    await nova_model.start()
+
+    async for _ in nova_model.receive():
+        pass
+
+    await nova_model.stop()
+    assert nova_model.session_id == "session-abc"
+
+    await nova_model.start()
+    assert nova_model.session_id is None
+
+
 @pytest.mark.asyncio
 async def test_error_handling(nova_model, mock_stream):
     """Test error handling in various scenarios."""
