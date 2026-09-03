@@ -36,7 +36,7 @@ Each tool is imported from its own subpath under `@strands-agents/sdk/vended-too
 | Tool | Description | Supported in |
 |------|-------------|--------------|
 | [File Editor](#file-editor) | View, create, and edit files | Python, TypeScript (Node.js) |
-| [HTTP Request](#http-request) | Make HTTP requests to external APIs | Python, TypeScript (Node.js 20+, browsers) |
+| [HTTP Request](#http-request) | Make HTTP requests to external APIs | Python, TypeScript (Node.js 22+, browsers) |
 | [Notebook](#notebook) | Manage persistent text notebooks | TypeScript (Node.js, browsers) |
 | [Bash](#bash) | Execute shell commands with persistent sessions | Python, TypeScript (Node.js, Unix/Linux/macOS) |
 | [Sleep](#sleep) | Pause execution for a bounded, cancellable duration | Python, TypeScript (Node.js, browsers) |
@@ -83,7 +83,7 @@ agent("Create a file at /tmp/hello.txt with the contents 'Hello, world!'")
 
 Lets your agent call external APIs and fetch web content. Supports all HTTP methods, custom headers, and request bodies. Default timeout is 30 seconds.
 
-_Supported in: Python; Node.js 20+, modern browsers (TypeScript)._
+_Supported in: Python; Node.js 22+, modern browsers (TypeScript)._
 
 <Tabs>
 <Tab label="Python">
