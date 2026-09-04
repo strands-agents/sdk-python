@@ -6,14 +6,22 @@
  * etc.) are dropped entirely. `data:` URI images are replaced with their alt
  * text (or nothing) to avoid enormous blobs in the output. `javascript:`
  * hrefs and src values are stripped silently.
+ *
+ * Requires `turndown` as an optional peer dependency.
  */
 
-import TurndownService from 'turndown'
+import type TurndownService from 'turndown'
 
 import { logger } from '../../logging/logger.js'
 
+class TurndownMissingError extends Error {
+  constructor() {
+    super("web_fetch requires the 'turndown' package. Install it with: npm install turndown")
+    this.name = 'TurndownMissingError'
+  }
+}
+
 // Elements whose entire subtree is discarded.
-// Cast needed because svg/noscript/template are absent from HTMLElementTagNameMap.
 const DROPPED_ELEMENTS = [
   'script',
   'style',
@@ -32,15 +40,22 @@ const DROPPED_ELEMENTS = [
   'select',
   'textarea',
   'nav',
-] as unknown as TurndownService.Filter
+]
 
 // Strip invisible characters before URL scheme detection.
 function _stripInvisible(value: string): string {
   return value.replace(/^[\p{Cc}\p{Cf}\p{Zs}]+/u, '')
 }
 
-function buildTurndownService(): TurndownService {
-  const td = new TurndownService({
+async function buildTurndownService(): Promise<TurndownService> {
+  let Turndown: typeof TurndownService
+  try {
+    Turndown = (await import('turndown')).default
+  } catch {
+    throw new TurndownMissingError()
+  }
+
+  const td = new Turndown({
     headingStyle: 'atx',
     codeBlockStyle: 'fenced',
     bulletListMarker: '-',
@@ -49,7 +64,8 @@ function buildTurndownService(): TurndownService {
     linkStyle: 'inlined',
   })
 
-  td.remove(DROPPED_ELEMENTS)
+  // Cast needed because svg/noscript/template are absent from HTMLElementTagNameMap.
+  td.remove(DROPPED_ELEMENTS as unknown as import('turndown').Filter)
 
   // Render the <title> as a top-level heading so it appears in the document
   // body rather than being silently dropped (turndown ignores <head> elements).
@@ -108,12 +124,16 @@ function buildTurndownService(): TurndownService {
  * @param html - Raw HTML string to convert.
  * @returns The converted markdown string, or the original HTML if conversion failed.
  */
-export function htmlToMarkdown(html: string): string {
+export async function htmlToMarkdown(html: string): Promise<string> {
   try {
-    const td = buildTurndownService()
+    const td = await buildTurndownService()
     const markdown = td.turndown(html).trim()
     return markdown ? markdown + '\n' : ''
   } catch (error) {
+    // Let the missing-dep error propagate
+    if (error instanceof TurndownMissingError) {
+      throw error
+    }
     logger.warn(`error=<${error}> | html_to_markdown failed, returning raw html`)
     return html
   }

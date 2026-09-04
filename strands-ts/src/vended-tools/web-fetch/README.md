@@ -11,6 +11,14 @@ Fetches an HTTP(S) URL and returns its relevant content. Distinct from the http-
 - For production deployments, consider running in a sandboxed environment (containers, VMs, etc.)
 - Never expose this tool to untrusted users or untrusted prompt input without additional security measures
 
+## Install
+
+HTML conversion requires the optional `turndown` peer dependency:
+
+```bash
+npm install turndown
+```
+
 ## Usage
 
 Default instance (agentic mode):

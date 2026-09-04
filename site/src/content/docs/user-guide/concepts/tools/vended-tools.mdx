@@ -354,6 +354,14 @@ pip install 'strands-agents[web-fetch]'
 ```
 :::
 
+:::note[TypeScript: install required]
+HTML conversion requires the optional `turndown` peer dependency:
+
+```bash
+npm install turndown
+```
+:::
+
 :::note[Security posture]
 `web_fetch` accepts only `http://` and `https://` URLs and caps response bodies
 at 5 MiB by default. Egress control belongs at the layer that encapsulates the

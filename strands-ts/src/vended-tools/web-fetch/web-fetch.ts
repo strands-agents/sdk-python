@@ -66,7 +66,7 @@ export function makeWebFetch(options: MakeWebFetchOptions = {}): ReturnType<type
       const [contentType, raw] = await fetchOnce(url, maxBytes, signal)
 
       const isMarkup = contentType.toLowerCase().includes('html') || contentType.toLowerCase().includes('xml')
-      let content = isMarkup ? htmlToMarkdown(raw) : raw
+      let content = isMarkup ? await htmlToMarkdown(raw) : raw
       if (content.length > maxContentChars) {
         content = content.slice(0, maxContentChars) + '\n\n[content truncated]'
       }
@@ -97,7 +97,7 @@ export function makeWebFetch(options: MakeWebFetchOptions = {}): ReturnType<type
       const [contentType, raw] = await fetchOnce(url, maxBytes, signal)
 
       const isMarkup = contentType.toLowerCase().includes('html') || contentType.toLowerCase().includes('xml')
-      let content = isMarkup ? htmlToMarkdown(raw) : raw
+      let content = isMarkup ? await htmlToMarkdown(raw) : raw
       if (content.length > maxContentChars) {
         content = content.slice(0, maxContentChars) + '\n\n[content truncated]'
       }
@@ -131,6 +131,15 @@ export const webFetch = makeWebFetch()
 // ---- Internals ----
 
 async function fetchOnce(url: string, maxBytes: number, signal: AbortSignal): Promise<[string, string]> {
+  // Validate scheme before hitting the network
+  if (!URL.canParse(url)) {
+    throw new Error(`url=<${url}> | fetch failed: invalid URL`)
+  }
+  const { protocol } = new URL(url)
+  if (protocol !== 'http:' && protocol !== 'https:') {
+    throw new Error(`url=<${url}> | fetch failed: only http and https URLs are supported`)
+  }
+
   let response: Response
   try {
     response = await globalThis.fetch(url, { method: 'GET', headers: _HEADERS, signal })

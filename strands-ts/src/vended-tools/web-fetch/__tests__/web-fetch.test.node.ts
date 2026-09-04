@@ -127,6 +127,16 @@ describe('webFetch tool', () => {
       expect(result).toContain('[content truncated]')
     })
 
+    it('rejects non-http scheme', async () => {
+      await expect(makeWebFetch({ mode: 'markdown' }).invoke({ url: 'file:///etc/passwd' })).rejects.toThrow(
+        /only http and https/
+      )
+    })
+
+    it('rejects invalid URL', async () => {
+      await expect(makeWebFetch({ mode: 'markdown' }).invoke({ url: 'not a url' })).rejects.toThrow(/invalid URL/)
+    })
+
     it('rejects 4xx status', async () => {
       mockFetch('Not Found', { status: 404, statusText: 'Not Found' })
       await expect(makeWebFetch({ mode: 'markdown' }).invoke({ url: 'https://example.com/missing' })).rejects.toThrow(
@@ -187,6 +197,7 @@ describe('webFetch tool', () => {
 
     it('aborts mid-body-read when the stream reader throws an AbortError', async () => {
       let readCount = 0
+      const mockCancel = vi.fn().mockResolvedValue(undefined)
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
@@ -200,13 +211,14 @@ describe('webFetch tool', () => {
               throw new DOMException('The operation was aborted', 'AbortError')
             }),
             releaseLock: vi.fn(),
-            cancel: vi.fn().mockResolvedValue(undefined),
+            cancel: mockCancel,
           }),
         },
       })
       await expect(makeWebFetch({ mode: 'markdown' }).invoke({ url: 'https://example.com/' })).rejects.toThrow(
         'Web fetch tool request cancelled'
       )
+      expect(mockCancel).toHaveBeenCalled()
     })
 
     it('sends correct user-agent header and passes cancel signal', async () => {
@@ -276,6 +288,24 @@ describe('webFetch tool', () => {
       const [invokePrompt] = mockInvoke.mock.calls[0] ?? []
       expect(invokePrompt).toContain('What is this about?')
       expect(invokePrompt).toContain('page content')
+    })
+
+    it('strips reasoning blocks from analyst result', async () => {
+      mockFetch('page content', { contentType: 'text/plain' })
+      mockInvoke.mockResolvedValue({
+        lastMessage: {
+          content: [
+            { type: 'reasoningBlock', text: 'internal chain-of-thought' },
+            { type: 'textBlock', text: 'the answer' },
+          ],
+        },
+      })
+      const result = await makeWebFetch({ mode: 'agentic', model: {} as LocalAgent['model'] }).invoke({
+        url: 'https://example.com/',
+        prompt: 'Summarize',
+      })
+      expect(result).toBe('the answer')
+      expect(result).not.toContain('chain-of-thought')
     })
 
     it('truncates content before passing to analyst', async () => {

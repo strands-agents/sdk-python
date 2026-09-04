@@ -273,7 +273,6 @@
     "@aws-sdk/client-bedrock-runtime": "^3.1112.0",
     "@smithy/fetch-http-handler": "^5.7.2",
     "@types/json-schema": "^7.0.15",
-    "turndown": "^7.2.4",
     "uuid": "^14.0.2",
     "yaml": "^2.8.3"
   },
@@ -300,7 +299,8 @@
     "@tobilu/qmd": "^2.8.0",
     "express": "^5.1.0",
     "openai": "^6.45.0",
-    "zod": "^4.1.12"
+    "zod": "^4.1.12",
+    "turndown": "^7.2.4"
   },
   "peerDependenciesMeta": {
     "@a2a-js/sdk": {
@@ -361,6 +361,9 @@
       "optional": true
     },
     "@tobilu/qmd": {
+      "optional": true
+    },
+    "turndown": {
       "optional": true
     }
   },
