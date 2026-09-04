@@ -125,7 +125,7 @@ function baseOptions(
   // applicationName is the shared app identity sent in the MCP handshake; honor an explicit
   // default for all clients, falling back to the server's config key when none is given.
   const opts: McpClientOptions = { ...defaults, applicationName: defaults?.applicationName ?? name }
-  if (options?.prefixWithServerName) opts.prefix = name
+  if (options?.prefixWithServerName) opts.prefix = name.replace(/[^A-Za-z0-9_-]/g, '_')
   if (server.continueOnError != null) opts.continueOnError = server.continueOnError
   if (server.tasksConfig != null) opts.tasksConfig = server.tasksConfig
   if (server.prefix !== undefined) opts.prefix = interpolateEnv(server.prefix)

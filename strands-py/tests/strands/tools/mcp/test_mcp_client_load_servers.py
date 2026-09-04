@@ -172,6 +172,17 @@ def test_prefix_with_server_name_uses_config_key(mock_client, transports):
     assert mock_client[0][1]["prefix"] == "slack"
 
 
+def test_prefix_with_server_name_sanitizes_config_key(mock_client, transports):
+    MCPClient.load_servers({"awslabs.aws-docs mcp/server": {"command": "node"}}, prefix_with_server_name=True)
+    assert mock_client[0][1]["prefix"] == "awslabs_aws-docs_mcp_server"
+    assert mock_client[0][1]["application_name"] == "awslabs.aws-docs mcp/server"
+
+
+def test_prefix_with_server_name_explicit_prefix_is_not_sanitized(mock_client, transports):
+    MCPClient.load_servers({"slack": {"command": "node", "prefix": "a.b"}}, prefix_with_server_name=True)
+    assert mock_client[0][1]["prefix"] == "a.b"
+
+
 def test_prefix_with_server_name_explicit_prefix_wins(mock_client, transports):
     MCPClient.load_servers({"slack": {"command": "node", "prefix": "chat"}}, prefix_with_server_name=True)
     assert mock_client[0][1]["prefix"] == "chat"

@@ -52,8 +52,9 @@ export interface McpServerConfig {
 export interface McpLoadServersOptions {
   /**
    * When true, servers without an explicit `prefix` use their config key as the tool name prefix,
-   * so same-named tools from different servers no longer collide. Takes precedence over a default
-   * `prefix`; a server can still opt out with `prefix: ''`.
+   * so same-named tools from different servers no longer collide. Characters outside `[A-Za-z0-9_-]`
+   * in the key (e.g. the dot in `awslabs.foo`) are replaced with `_`. Takes precedence over a
+   * default `prefix`; a server can still opt out with `prefix: ''`.
    */
   prefixWithServerName?: boolean
 }

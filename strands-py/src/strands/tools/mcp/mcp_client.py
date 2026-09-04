@@ -254,7 +254,8 @@ class MCPClient(ToolProvider):
                 ``continue_on_error`` key overrides it.
             prefix_with_server_name: When True, servers without an explicit ``prefix`` use their config
                 key as the tool name prefix, so same-named tools from different servers no longer
-                collide. A server can still opt out with ``"prefix": ""``.
+                collide. Characters outside ``[A-Za-z0-9_-]`` in the key (e.g. the dot in
+                ``awslabs.foo``) are replaced with ``_``. A server can still opt out with ``"prefix": ""``.
 
         Returns:
             One MCPClient per enabled server, ready to pass to ``Agent(tools=...)``.
@@ -2591,11 +2592,16 @@ def _build_client_from_config(
         transport_callable,
         startup_timeout=server.get("startup_timeout", 30),
         tool_filters=_parse_config_tool_filters(name, server.get("tool_filters")),
-        prefix=server.get("prefix", name if prefix_with_server_name else None),
+        prefix=server.get("prefix", _sanitize_prefix(name) if prefix_with_server_name else None),
         application_name=server.get("application_name", name),
         application_version=server.get("application_version"),
         continue_on_error=server.get("continue_on_error", continue_on_error),
     )
+
+
+def _sanitize_prefix(name: str) -> str:
+    """Replace characters that model providers reject in tool names (e.g. the dot in ``awslabs.foo``) with ``_``."""
+    return re.sub(r"[^A-Za-z0-9_-]", "_", name)
 
 
 def _config_transport_callable(name: str, transport: str, server: dict[str, Any]) -> Callable[[], MCPTransport]:
