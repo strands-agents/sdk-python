@@ -333,6 +333,21 @@ def test_continue_on_error_passed_to_client(mock_client, transports):
     assert mock_client[0][1]["continue_on_error"] is True
 
 
+def test_continue_on_error_default_skips_failed_server_and_passes_to_client(mock_client, transports):
+    clients = MCPClient.load_servers(
+        {"bad": {"command": "${MISSING_VAR_XYZ}"}, "good": {"command": "node"}}, continue_on_error=True
+    )
+    assert len(clients) == 1
+    assert mock_client[0][1]["continue_on_error"] is True
+
+
+def test_continue_on_error_server_key_overrides_default(mock_client, transports):
+    with pytest.raises(ValueError, match="MISSING_VAR_XYZ"):
+        MCPClient.load_servers(
+            {"bad": {"command": "${MISSING_VAR_XYZ}", "continue_on_error": False}}, continue_on_error=True
+        )
+
+
 def test_mixed_config_non_opted_in_failure_aborts_whole_load(mock_client, transports):
     """continue_on_error is per-server, not global: a failing server that did not opt in aborts the load.
 
