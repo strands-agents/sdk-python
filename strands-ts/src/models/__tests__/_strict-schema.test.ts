@@ -1,3 +1,5 @@
+// Parity mirror of strands-py/tests/strands/models/test_strict_schema.py.
+// Keep the cases aligned with the Python file so the two SDKs stay in parity.
 import { describe, it, expect } from 'vitest'
 import { ensureStrictJsonSchema } from '../_strict-schema.js'
 import type { JSONSchema } from '../../types/json.js'
