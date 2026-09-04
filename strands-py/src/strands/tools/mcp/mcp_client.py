@@ -263,7 +263,14 @@ class MCPClient(ToolProvider):
                 logger.debug("server_name=<%s> | skipping disabled MCP server", name)
                 continue
             try:
-                clients.append(_build_client_from_config(name, server, continue_on_error, prefix_with_server_name))
+                clients.append(
+                    _build_client_from_config(
+                        name,
+                        server,
+                        continue_on_error=continue_on_error,
+                        prefix_with_server_name=prefix_with_server_name,
+                    )
+                )
             except Exception as e:
                 if not server.get("continue_on_error", continue_on_error):
                     raise

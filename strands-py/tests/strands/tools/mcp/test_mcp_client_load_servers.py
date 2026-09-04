@@ -348,6 +348,11 @@ def test_continue_on_error_server_key_overrides_default(mock_client, transports)
         )
 
 
+def test_continue_on_error_server_key_false_overrides_default_for_client(mock_client, transports):
+    MCPClient.load_servers({"srv": {"command": "node", "continue_on_error": False}}, continue_on_error=True)
+    assert mock_client[0][1]["continue_on_error"] is False
+
+
 def test_mixed_config_non_opted_in_failure_aborts_whole_load(mock_client, transports):
     """continue_on_error is per-server, not global: a failing server that did not opt in aborts the load.
 
