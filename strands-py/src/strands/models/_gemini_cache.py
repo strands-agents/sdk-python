@@ -50,9 +50,11 @@ _UNCACHEABLE_PHRASES = ("too small", "minimum", "cached content is too small", "
 def should_engage_managed(cache_config: CacheConfig) -> bool:
     """Whether a ``CacheConfig`` opts into managed ``CachedContent`` rather than implicit-only caching.
 
-    Managed caching creates a billed resource, so it engages only when the caller set at least one
-    field to a non-default value and did not disable the system-prompt cache. A bare ``CacheConfig()``
-    leaves today's behavior unchanged.
+    Managed caching creates a billed resource, so it engages only when the caller set a field Gemini
+    can honor (``ttl``, a ``system_prompt_ttl`` duration, or ``cache_key``) to a non-default value and
+    did not disable the system-prompt cache. Setting only an unsupported field (e.g. ``strategy`` or
+    ``tools_ttl``) warns and is ignored rather than silently creating a resource, and a bare
+    ``CacheConfig()`` leaves today's behavior unchanged.
 
     Args:
         cache_config: The provider's configured cache settings.
@@ -62,7 +64,7 @@ def should_engage_managed(cache_config: CacheConfig) -> bool:
     """
     if cache_config.system_prompt_ttl is False:
         return False
-    return bool(_cache_config_fields_set(cache_config))
+    return bool(_cache_config_fields_set(cache_config) & _SUPPORTED_FIELDS)
 
 
 def resolve_ttl(cache_config: CacheConfig) -> str | None:
@@ -90,19 +92,24 @@ def resolve_display_name(
     model_id: str,
     system_prompt: str | None,
     tools: list[Any] | None,
+    tool_config: "genai.types.ToolConfig | None",
 ) -> str | None:
     """Resolve the ``display_name`` identifying a reusable prefix, or None to opt out of caching.
 
     An explicit ``cache_key`` is the identity (hashed only when it exceeds the 128-char display-name
     cap); an empty ``cache_key`` opts out. With no ``cache_key``, identity is a content fingerprint
-    over the static prefix (model, system prompt, tools) so any caller sending the same prefix reuses
-    one resource. Session identity never contributes.
+    over the static prefix (model, system prompt, tools, tool config) so any caller sending the same
+    prefix reuses one resource. The tool config is part of the identity because it is baked into the
+    created resource: two calls that share tools but force different tool choices must not collapse to
+    one cache, or the forced choice would be silently served from the other's baked config. Session
+    identity never contributes.
 
     Args:
         cache_config: The provider's configured cache settings.
         model_id: The Gemini model id the prefix targets.
         system_prompt: The system instruction cached as part of the prefix.
         tools: The formatted Gemini tools cached as part of the prefix.
+        tool_config: The tool config cached as part of the prefix.
 
     Returns:
         The display name to look up or create under, or None to fall back to implicit caching.
@@ -114,8 +121,8 @@ def resolve_display_name(
             return cache_config.cache_key
         return _hash(cache_config.cache_key)
 
-    fingerprint = _hash(f"{model_id}\n{system_prompt or ''}\n{_tools_fingerprint(tools)}")
-    return fingerprint[:_FINGERPRINT_LENGTH]
+    prefix = f"{model_id}\n{system_prompt or ''}\n{_tools_fingerprint(tools)}\n{_tool_config_fingerprint(tool_config)}"
+    return _hash(prefix)[:_FINGERPRINT_LENGTH]
 
 
 async def find_cached_content(caches: "genai.caches.AsyncCaches", display_name: str) -> str | None:
@@ -183,7 +190,7 @@ async def resolve_cached_content(
     if ttl is None:
         return None
 
-    display_name = resolve_display_name(cache_config, model_id, system_prompt, tools)
+    display_name = resolve_display_name(cache_config, model_id, system_prompt, tools, tool_config)
     if display_name is None:
         return None
 
@@ -298,6 +305,22 @@ def _tools_fingerprint(tools: list[Any] | None) -> str:
         else:
             serialized.append(repr(tool))
     return "\n".join(serialized)
+
+
+def _tool_config_fingerprint(tool_config: "genai.types.ToolConfig | None") -> str:
+    """Stable serialization of the tool config for the identity fingerprint.
+
+    Args:
+        tool_config: The tool config baked into the resource, or None.
+
+    Returns:
+        A deterministic string; empty when there is no tool config.
+    """
+    if tool_config is None:
+        return ""
+    if hasattr(tool_config, "to_json_dict"):
+        return json.dumps(tool_config.to_json_dict(), sort_keys=True)
+    return repr(tool_config)
 
 
 def _create_time_key(cached: "genai.types.CachedContent") -> float:

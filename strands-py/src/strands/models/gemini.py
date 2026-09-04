@@ -61,8 +61,12 @@ class GeminiModel(Model):
             cache_config: Prompt-caching configuration. When set, Gemini manages a native
                 ``CachedContent`` resource holding the static prefix (system instruction + tools):
                 ``cache_key`` fixes its identity, ``system_prompt_ttl``/``ttl`` its lifetime; other
-                fields have no effect. A bare ``CacheConfig()`` and an explicit ``cached_content`` in
-                ``params`` both leave the request unchanged.
+                fields have no effect. Managed caching engages only when one of those honored fields is
+                set to a duration or key: a ``ttl``, a ``system_prompt_ttl`` duration string, or a
+                ``cache_key``. The default ``system_prompt_ttl=True`` alone does not engage - pass a
+                duration such as ``system_prompt_ttl="1h"`` to cache the system prompt. A bare
+                ``CacheConfig()`` and an explicit ``cached_content`` in ``params`` both leave the
+                request unchanged.
         """
 
         model_id: Required[str]
@@ -335,6 +339,34 @@ class GeminiModel(Model):
                 allowed_function_names=allowed_function_names,
             ),
         )
+
+    def _prefix_tool_config(
+        self,
+        params: dict[str, Any],
+        tool_specs: list[ToolSpec] | None,
+        tool_choice: ToolChoice | None,
+    ) -> "genai.types.ToolConfig | None":
+        """Resolve the tool config baked into the cached prefix.
+
+        A tool config set in ``params`` wins over the per-request ``tool_choice``, mirroring the
+        precedence ``_format_request_config`` applies to the request itself. Both must agree: a cached
+        resource omits the inline tool config, so if the baked one differs from what the request would
+        have sent, the caller's forced tool choice is silently dropped once managed caching engages.
+
+        Args:
+            params: Configured request params, which may carry an explicit ``tool_config``.
+            tool_specs: Tool specifications; a tool choice applies only when tools are present.
+            tool_choice: Selection strategy for tool invocation.
+
+        Returns:
+            The tool config to bake into the prefix, or None when neither source sets one.
+        """
+        if "tool_config" not in params:
+            return self._format_tool_choice(tool_choice) if tool_specs else None
+        params_tool_config = params["tool_config"]
+        if params_tool_config is None:
+            return None
+        return genai.types.ToolConfig.model_validate(params_tool_config)
 
     def _format_request_config(
         self,
@@ -765,7 +797,7 @@ class GeminiModel(Model):
             model_id=self.config["model_id"],
             system_prompt=system_prompt,
             tools=self._format_request_tools(tool_specs),
-            tool_config=self._format_tool_choice(tool_choice) if tool_specs else None,
+            tool_config=self._prefix_tool_config(params, tool_specs, tool_choice),
         )
         if cached_content is None:
             return params, None
@@ -848,7 +880,7 @@ class GeminiModel(Model):
             model_id=self.config["model_id"],
             system_prompt=system_prompt,
             tools=self._format_request_tools(tool_specs),
-            tool_config=self._format_tool_choice(tool_choice) if tool_specs else None,
+            tool_config=self._prefix_tool_config(params, tool_specs, tool_choice),
             force_create=True,
         )
         if recreated is not None:

@@ -59,9 +59,11 @@ export interface ResolveCachedContentOptions {
 /**
  * Whether a `CacheConfig` opts into managed `CachedContent` rather than implicit-only caching.
  *
- * Managed caching creates a billed resource, so it engages only when the caller set at least one
- * field to a non-default value and did not disable the system-prompt cache. A bare `{}` leaves
- * today's behavior unchanged.
+ * Managed caching creates a billed resource, so it engages only when the caller set a field Google
+ * can honor (`ttl`, a `systemPromptTTL` duration, or `cacheKey`) to a non-default value and did not
+ * disable the system-prompt cache. Setting only an unsupported field (e.g. `strategy` or `toolsTTL`)
+ * warns and is ignored rather than silently creating a resource, and a bare `{}` leaves today's
+ * behavior unchanged.
  *
  * @param cacheConfig - The provider's configured cache settings.
  * @returns True when managed caching should be attempted.
@@ -69,7 +71,7 @@ export interface ResolveCachedContentOptions {
  */
 export function shouldEngageManaged(cacheConfig: CacheConfig): boolean {
   if (cacheConfig.systemPromptTTL === false) return false
-  return hasCacheConfigSet(cacheConfig)
+  return hasSupportedFieldSet(cacheConfig)
 }
 
 /**
@@ -116,13 +118,17 @@ export function resolveTtl(cacheConfig: CacheConfig): string | undefined {
  *
  * An explicit `cacheKey` is the identity (hashed only when it exceeds the 128-char display-name
  * cap); an empty `cacheKey` opts out. With no `cacheKey`, identity is a content fingerprint over the
- * static prefix (model, system prompt, tools) so any caller sending the same prefix reuses one
- * resource. Session identity never contributes.
+ * static prefix (model, system prompt, tools, tool config) so any caller sending the same prefix
+ * reuses one resource. The tool config is part of the identity because it is baked into the created
+ * resource: two calls that share tools but force different tool choices must not collapse to one
+ * cache, or the forced choice would be silently served from the other's baked config. Session
+ * identity never contributes.
  *
  * @param cacheConfig - The provider's configured cache settings.
  * @param modelId - The Gemini model id the prefix targets.
  * @param systemInstruction - The system instruction cached as part of the prefix.
  * @param tools - The formatted Gemini tools cached as part of the prefix.
+ * @param toolConfig - The tool config cached as part of the prefix.
  * @returns The display name to look up or create under, or undefined to fall back to implicit caching.
  * @internal
  */
@@ -130,7 +136,8 @@ export async function resolveDisplayName(
   cacheConfig: CacheConfig,
   modelId: string,
   systemInstruction: ContentUnion | undefined,
-  tools: Tool[] | undefined
+  tools: Tool[] | undefined,
+  toolConfig: ToolConfig | undefined
 ): Promise<string | undefined> {
   if (cacheConfig.cacheKey !== undefined) {
     if (cacheConfig.cacheKey === '') return undefined
@@ -138,7 +145,8 @@ export async function resolveDisplayName(
     return sha256Hex(cacheConfig.cacheKey)
   }
 
-  const fingerprint = await sha256Hex(`${modelId}\n${stringifyPrefix(systemInstruction)}\n${toolsFingerprint(tools)}`)
+  const prefix = `${modelId}\n${stringifyPrefix(systemInstruction)}\n${toolsFingerprint(tools)}\n${toolConfigFingerprint(toolConfig)}`
+  const fingerprint = await sha256Hex(prefix)
   return fingerprint.slice(0, FINGERPRINT_LENGTH)
 }
 
@@ -193,7 +201,7 @@ export async function resolveCachedContent(
   const ttl = resolveTtl(cacheConfig)
   if (ttl === undefined) return undefined
 
-  const displayName = await resolveDisplayName(cacheConfig, modelId, systemInstruction, tools)
+  const displayName = await resolveDisplayName(cacheConfig, modelId, systemInstruction, tools, toolConfig)
   if (displayName === undefined) return undefined
 
   if (!forceCreate) {
@@ -317,15 +325,15 @@ function durationToSeconds(duration: string): number | undefined {
 }
 
 /**
- * Reports whether any `CacheConfig` field is set to something other than its default.
+ * Reports whether a `CacheConfig` field Google's managed caching can honor is set to a non-default.
+ *
+ * Only `ttl`, a `systemPromptTTL` duration string, and `cacheKey` engage caching; the rest
+ * (`strategy`, `toolsTTL`, `messagesTTL`) warn via `warnUnsupported` and never engage on their own.
  */
-function hasCacheConfigSet(cacheConfig: CacheConfig): boolean {
+function hasSupportedFieldSet(cacheConfig: CacheConfig): boolean {
   return (
-    (cacheConfig.strategy !== undefined && cacheConfig.strategy !== 'auto') ||
     cacheConfig.ttl !== undefined ||
-    (cacheConfig.toolsTTL !== undefined && cacheConfig.toolsTTL !== true) ||
     (cacheConfig.systemPromptTTL !== undefined && cacheConfig.systemPromptTTL !== true) ||
-    (cacheConfig.messagesTTL !== undefined && cacheConfig.messagesTTL !== true) ||
     cacheConfig.cacheKey !== undefined
   )
 }
@@ -344,6 +352,14 @@ function stringifyPrefix(systemInstruction: ContentUnion | undefined): string {
 function toolsFingerprint(tools: Tool[] | undefined): string {
   if (!tools || tools.length === 0) return ''
   return JSON.stringify(tools)
+}
+
+/**
+ * Stable serialization of the tool config for the identity fingerprint; empty when none.
+ */
+function toolConfigFingerprint(toolConfig: ToolConfig | undefined): string {
+  if (toolConfig === undefined) return ''
+  return JSON.stringify(toolConfig)
 }
 
 /**

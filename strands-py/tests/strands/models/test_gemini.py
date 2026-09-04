@@ -1204,6 +1204,79 @@ async def test_stream_response_client_exception(gemini_client, model, messages):
 
 
 @pytest.mark.asyncio
+async def test_stream_response_invalid_argument_non_overflow_reraises(gemini_client, model, messages):
+    """A non-overflow INVALID_ARGUMENT (e.g. a malformed request) propagates raw rather than mapping to overflow."""
+    gemini_client.aio.models.generate_content_stream.side_effect = genai.errors.ClientError(
+        400, {"error": {"status": "INVALID_ARGUMENT", "message": "Invalid tool schema"}}
+    )
+
+    with pytest.raises(genai.errors.ClientError, match="Invalid tool schema"):
+        await anext(model.stream(messages))
+
+
+@pytest.mark.asyncio
+async def test_stream_response_merges_text_then_closes_block_for_tool_use(
+    gemini_client, model, messages, agenerator, alist
+):
+    """Consecutive text parts share one block, and a following function call closes it before the tool block."""
+    gemini_client.aio.models.generate_content_stream.return_value = agenerator(
+        [
+            genai.types.GenerateContentResponse(
+                candidates=[
+                    genai.types.Candidate(
+                        content=genai.types.Content(
+                            parts=[
+                                genai.types.Part(text="one "),
+                                genai.types.Part(text="two"),
+                                genai.types.Part(
+                                    function_call=genai.types.FunctionCall(
+                                        args={"expression": "2+2"},
+                                        id="c1",
+                                        name="calculator",
+                                    ),
+                                ),
+                            ],
+                        ),
+                        finish_reason="STOP",
+                    ),
+                ],
+                usage_metadata=genai.types.GenerateContentResponseUsageMetadata(
+                    prompt_token_count=1,
+                    total_token_count=3,
+                ),
+            ),
+        ]
+    )
+
+    tru_chunks = await alist(model.stream(messages))
+    exp_chunks = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"text": "one "}}},
+        {"contentBlockDelta": {"delta": {"text": "two"}}},
+        {"contentBlockStop": {}},
+        {"contentBlockStart": {"start": {"toolUse": {"name": "calculator", "toolUseId": "c1"}}}},
+        {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"expression": "2+2"}'}}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "tool_use"}},
+        {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
+    ]
+    assert tru_chunks == exp_chunks
+
+
+@pytest.mark.asyncio
+async def test_stream_error_while_iterating_propagates(gemini_client, model, messages, alist):
+    """A vendor error raised while iterating the stream maps to a typed exception, not a raw ClientError."""
+    throttle = genai.errors.ClientError(
+        429, {"error": {"status": "RESOURCE_EXHAUSTED", "message": "Resource exhausted. Please try again later."}}
+    )
+    gemini_client.aio.models.generate_content_stream.return_value = _raising_stream(throttle)
+
+    with pytest.raises(ModelThrottledException, match="Resource exhausted. Please try again later."):
+        await alist(model.stream(messages))
+
+
+@pytest.mark.asyncio
 async def test_structured_output(gemini_client, model, messages, model_id, weather_output):
     gemini_client.aio.models.generate_content.return_value = unittest.mock.Mock(parsed=weather_output.model_dump())
 
@@ -1811,31 +1884,48 @@ def test_resolve_ttl(cache_config, expected):
 
 
 def test_resolve_display_name_uses_cache_key_verbatim():
-    assert _gemini_cache.resolve_display_name(CacheConfig(cache_key="myprefix"), "m1", "s1", None) == "myprefix"
+    assert _gemini_cache.resolve_display_name(CacheConfig(cache_key="myprefix"), "m1", "s1", None, None) == "myprefix"
 
 
 def test_resolve_display_name_hashes_cache_key_over_cap():
     long_key = "x" * 200
-    display_name = _gemini_cache.resolve_display_name(CacheConfig(cache_key=long_key), "m1", "s1", None)
+    display_name = _gemini_cache.resolve_display_name(CacheConfig(cache_key=long_key), "m1", "s1", None, None)
     assert display_name != long_key
     assert len(display_name) == 64
     assert all(character in "0123456789abcdef" for character in display_name)
 
 
 def test_resolve_display_name_empty_cache_key_opts_out():
-    assert _gemini_cache.resolve_display_name(CacheConfig(cache_key=""), "m1", "s1", None) is None
+    assert _gemini_cache.resolve_display_name(CacheConfig(cache_key=""), "m1", "s1", None, None) is None
 
 
 def test_resolve_display_name_fingerprint_is_content_derived():
     without_key = CacheConfig(ttl="1h")
 
-    same = _gemini_cache.resolve_display_name(without_key, "m1", "s1", None)
-    again = _gemini_cache.resolve_display_name(without_key, "m1", "s1", None)
-    different_model = _gemini_cache.resolve_display_name(without_key, "m2", "s1", None)
+    same = _gemini_cache.resolve_display_name(without_key, "m1", "s1", None, None)
+    again = _gemini_cache.resolve_display_name(without_key, "m1", "s1", None, None)
+    different_model = _gemini_cache.resolve_display_name(without_key, "m2", "s1", None, None)
 
     assert same == again
     assert len(same) == 16
     assert same != different_model
+
+
+def test_resolve_display_name_fingerprint_varies_by_tool_config():
+    """Forced tool choices bake into distinct resources, so tool_config must change the identity."""
+    without_key = CacheConfig(ttl="1h")
+    tools = [genai.types.Tool(function_declarations=[genai.types.FunctionDeclaration(name="lookup")])]
+    auto_config = genai.types.ToolConfig(
+        function_calling_config=genai.types.FunctionCallingConfig(mode=genai.types.FunctionCallingConfigMode.AUTO)
+    )
+    forced_config = genai.types.ToolConfig(
+        function_calling_config=genai.types.FunctionCallingConfig(mode=genai.types.FunctionCallingConfigMode.ANY)
+    )
+
+    auto = _gemini_cache.resolve_display_name(without_key, "m1", "s1", tools, auto_config)
+    forced = _gemini_cache.resolve_display_name(without_key, "m1", "s1", tools, forced_config)
+
+    assert auto != forced
 
 
 @pytest.mark.parametrize(
@@ -1845,7 +1935,13 @@ def test_resolve_display_name_fingerprint_is_content_derived():
         (CacheConfig(ttl="1h"), True),
         (CacheConfig(cache_key="k"), True),
         (CacheConfig(system_prompt_ttl="1h"), True),
-        (CacheConfig(strategy="anthropic"), True),
+        # Only a field Gemini can honor engages managed caching; unsupported-only fields warn and are
+        # ignored rather than silently creating a billed resource.
+        (CacheConfig(strategy="anthropic"), False),
+        (CacheConfig(tools_ttl="5m"), False),
+        # The default system_prompt_ttl=True is indistinguishable from a bare config, so it does not
+        # engage; a duration string is required to cache the system prompt.
+        (CacheConfig(system_prompt_ttl=True), False),
         # A disabled system prompt cache opts out of managed caching entirely.
         (CacheConfig(system_prompt_ttl=False), False),
     ],
@@ -1874,6 +1970,51 @@ async def test_find_cached_content_no_match(gemini_client, agenerator):
     gemini_client.aio.caches.list.side_effect = lambda: agenerator([_cached_content("cachedContents/x", "other")])
 
     assert await _gemini_cache.find_cached_content(gemini_client.aio.caches, "k") is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_cached_content_empty_cache_key_opts_out(gemini_client):
+    """An empty cache_key engages managed caching but resolves no identity, so nothing is looked up or created."""
+    result = await _gemini_cache.resolve_cached_content(
+        gemini_client.aio.caches,
+        cache_config=CacheConfig(cache_key=""),
+        model_id="m1",
+        system_prompt="s1",
+        tools=None,
+        tool_config=None,
+    )
+
+    assert result is None
+    gemini_client.aio.caches.list.assert_not_awaited()
+    gemini_client.aio.caches.create.assert_not_awaited()
+
+
+def test_tools_fingerprint_falls_back_to_repr_without_to_json_dict():
+    """A tool lacking to_json_dict is serialized via repr so the identity fingerprint stays deterministic."""
+
+    class _ToolWithoutJson:
+        def __repr__(self):
+            return "tool-repr"
+
+    assert _gemini_cache._tools_fingerprint([_ToolWithoutJson()]) == "tool-repr"
+
+
+def test_is_missing_cache_detects_by_message_wording():
+    """A 400 whose body names a missing CachedContent is treated as an expired cache, not a hard error."""
+    error = genai.errors.ClientError(
+        400, {"error": {"status": "INVALID_ARGUMENT", "message": "CachedContent not found for name x"}}
+    )
+
+    assert _gemini_cache._is_missing_cache(error) is True
+
+
+def test_is_missing_cache_false_for_unrelated_invalid_argument():
+    """An unrelated 400 is not mistaken for a missing cache."""
+    error = genai.errors.ClientError(
+        400, {"error": {"status": "INVALID_ARGUMENT", "message": "Invalid value for field foo"}}
+    )
+
+    assert _gemini_cache._is_missing_cache(error) is False
 
 
 class _FakeCaches:
@@ -1926,6 +2067,23 @@ class TestPromptCaching:
 
         gemini_client.aio.caches.create.assert_not_awaited()
         gemini_client.aio.caches.list.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_unsupported_only_field_with_prefix_warns_without_creating(
+        self, gemini_client, model_id, messages, system_prompt, tool_spec, agenerator, alist
+    ):
+        """G2/G4: an unsupported-only field warns and is ignored, never billing a resource for a real prefix."""
+        gemini_client.aio.models.generate_content_stream.side_effect = lambda **kwargs: agenerator([_text_response()])
+
+        model = GeminiModel(model_id=model_id, cache_config=CacheConfig(strategy="anthropic"))
+        with pytest.warns(UserWarning, match="have no effect on Gemini"):
+            await alist(model.stream(messages, [tool_spec], system_prompt))
+
+        gemini_client.aio.caches.create.assert_not_awaited()
+        gemini_client.aio.caches.list.assert_not_awaited()
+        config = gemini_client.aio.models.generate_content_stream.call_args.kwargs["config"]
+        assert "cached_content" not in config
+        assert config["system_instruction"] == system_prompt
 
     @pytest.mark.asyncio
     async def test_bare_cache_config_matches_no_config(
@@ -2114,6 +2272,49 @@ class TestPromptCaching:
         assert gemini_client.aio.caches.create_count == 1
 
     @pytest.mark.asyncio
+    async def test_distinct_tool_choices_create_distinct_resources(
+        self, gemini_client, model_id, messages, system_prompt, tool_spec, agenerator, alist
+    ):
+        """tool_config is baked into the resource, so differing tool choices must not share one cache."""
+        gemini_client.aio.caches = _FakeCaches()
+        gemini_client.aio.models.generate_content_stream.side_effect = lambda **kwargs: agenerator([_text_response()])
+
+        cache_config = CacheConfig(ttl="1h")
+        model = GeminiModel(model_id=model_id, cache_config=cache_config)
+
+        await alist(model.stream(messages, [tool_spec], system_prompt, tool_choice={"auto": {}}))
+        await alist(model.stream(messages, [tool_spec], system_prompt, tool_choice={"any": {}}))
+
+        assert gemini_client.aio.caches.create_count == 2
+
+    @pytest.mark.asyncio
+    async def test_bakes_params_tool_config_into_resource(
+        self, gemini_client, model_id, messages, system_prompt, tool_spec, agenerator, alist
+    ):
+        """A params tool config wins over the per-request choice and is baked into the resource.
+
+        A cached prefix omits the inline tool config, so the forced choice reaches the model only if it
+        is baked; deriving the baked config from the tool choice alone would silently drop it.
+        """
+        gemini_client.aio.caches.list.side_effect = lambda: agenerator([])
+        gemini_client.aio.caches.create.return_value = _cached_content("cachedContents/created", "k")
+        gemini_client.aio.models.generate_content_stream.side_effect = lambda **kwargs: agenerator([_text_response()])
+
+        forced = genai.types.ToolConfig(
+            function_calling_config=genai.types.FunctionCallingConfig(mode=genai.types.FunctionCallingConfigMode.ANY)
+        )
+        model = GeminiModel(
+            model_id=model_id, params={"tool_config": forced}, cache_config=CacheConfig(cache_key="k", ttl="30m")
+        )
+        # A per-request auto choice must not win over the explicit params tool config.
+        await alist(model.stream(messages, [tool_spec], system_prompt, tool_choice={"auto": {}}))
+
+        create_config = gemini_client.aio.caches.create.call_args.kwargs["config"]
+        assert create_config.tool_config.function_calling_config.mode == genai.types.FunctionCallingConfigMode.ANY
+        request_config = gemini_client.aio.models.generate_content_stream.call_args.kwargs["config"]
+        assert "tool_config" not in request_config
+
+    @pytest.mark.asyncio
     async def test_structured_output_strips_and_injects(
         self, gemini_client, model_id, system_prompt, weather_output, agenerator
     ):
@@ -2150,3 +2351,48 @@ class TestPromptCaching:
         assert calls[0].kwargs["config"]["cached_content"] == "cachedContents/old"
         assert "cached_content" not in calls[1].kwargs["config"]
         assert calls[1].kwargs["config"]["system_instruction"] == system_prompt
+
+    @pytest.mark.asyncio
+    async def test_missing_cache_uncacheable_on_recreate_falls_back_to_implicit(
+        self, gemini_client, model_id, messages, system_prompt, tool_spec, agenerator, alist
+    ):
+        """When the cache 404s and recreation is refused as uncacheable, the turn completes implicitly."""
+        missing = _missing_cache_error()
+        gemini_client.aio.caches.list.side_effect = lambda: agenerator([_cached_content("cachedContents/old", "k")])
+        gemini_client.aio.caches.create.side_effect = genai.errors.ClientError(
+            400,
+            {"error": {"status": "FAILED_PRECONDITION", "message": "Cached content is too small. Minimum is 4096"}},
+        )
+        gemini_client.aio.models.generate_content_stream.side_effect = [
+            _raising_stream(missing),
+            agenerator([_text_response()]),
+        ]
+
+        model = GeminiModel(model_id=model_id, cache_config=CacheConfig(cache_key="k"))
+        with pytest.warns(UserWarning, match="implicit caching"):
+            chunks = await alist(model.stream(messages, [tool_spec], system_prompt))
+
+        gemini_client.aio.caches.create.assert_awaited_once()
+        calls = gemini_client.aio.models.generate_content_stream.call_args_list
+        assert len(calls) == 2
+        assert calls[0].kwargs["config"]["cached_content"] == "cachedContents/old"
+        assert "cached_content" not in calls[1].kwargs["config"]
+        assert calls[1].kwargs["config"]["system_instruction"] == system_prompt
+        assert "cached text" in _streamed_text(chunks)
+
+    @pytest.mark.asyncio
+    async def test_structured_output_non_missing_cache_error_propagates(
+        self, gemini_client, model_id, system_prompt, weather_output, agenerator
+    ):
+        """A non-missing-cache error during structured output is not mistaken for an expired cache and retried."""
+        gemini_client.aio.caches.list.side_effect = lambda: agenerator([_cached_content("cachedContents/old", "k")])
+        gemini_client.aio.models.generate_content.side_effect = genai.errors.ClientError(
+            400, {"error": {"status": "INVALID_ARGUMENT", "message": "Invalid tool schema"}}
+        )
+
+        model = GeminiModel(model_id=model_id, cache_config=CacheConfig(cache_key="k"))
+        prompt = [{"role": "user", "content": [{"text": "test"}]}]
+        with pytest.raises(genai.errors.ClientError, match="Invalid tool schema"):
+            await anext(model.structured_output(type(weather_output), prompt, system_prompt=system_prompt))
+
+        gemini_client.aio.models.generate_content.assert_awaited_once()

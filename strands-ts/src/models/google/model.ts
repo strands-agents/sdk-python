@@ -289,12 +289,11 @@ export class GoogleModel extends Model<GoogleModelConfig> {
   ): AsyncGenerator<GenerateContentResponse> {
     const cachedContent = await this._resolveCachedContent(messages, options, cacheConfig)
     const params = this._formatRequest(messages, options, cachedContent)
-    const stream = await this._client.models.generateContentStream(params)
 
     // cachedContent is set only when managed caching injected it, so recovery is attempted only for a
     // cache this provider owns; a user-supplied params.cachedContent is left for the caller to manage.
     try {
-      yield* GoogleModel._guardedStream(stream, cachedContent !== undefined)
+      yield* this._openContentStream(params, cachedContent !== undefined)
       return
     } catch (error) {
       if (!(error instanceof MissingCacheContentError)) throw error
@@ -317,11 +316,8 @@ export class GoogleModel extends Model<GoogleModelConfig> {
   ): AsyncGenerator<GenerateContentResponse> {
     const recreated = await this._resolveCachedContent(messages, options, cacheConfig, true)
     if (recreated !== undefined) {
-      const retryStream = await this._client.models.generateContentStream(
-        this._formatRequest(messages, options, recreated)
-      )
       try {
-        yield* GoogleModel._guardedStream(retryStream, true)
+        yield* this._openContentStream(this._formatRequest(messages, options, recreated), true)
         return
       } catch (error) {
         if (!(error instanceof MissingCacheContentError)) throw error
@@ -329,8 +325,34 @@ export class GoogleModel extends Model<GoogleModelConfig> {
     }
 
     // Drop the cache; system/tools re-attach via _formatRequest with no cachedContent.
-    const implicitStream = await this._client.models.generateContentStream(this._formatRequest(messages, options))
-    yield* GoogleModel._guardedStream(implicitStream, false)
+    yield* this._openContentStream(this._formatRequest(messages, options), false)
+  }
+
+  /**
+   * Opens a stream and yields its events, signaling a pre-content missing-cache 404 for retry.
+   *
+   * The vendor SDK opens eagerly: `generateContentStream` fires the request and rejects at the await
+   * when the referenced cachedContent has expired, before any event is produced. That open-time
+   * rejection and a mid-open 404 from `_guardedStream` are both normalized to `MissingCacheContentError`
+   * so the caller has a single recoverable signal; either way nothing has streamed, so a retry is safe.
+   *
+   * @throws MissingCacheContentError - When a managed cachedContent 404s before any event is produced
+   *   and `recoverable` is set. Any other error, and any error after the first event, propagates.
+   */
+  private async *_openContentStream(
+    params: GenerateContentParameters,
+    recoverable: boolean
+  ): AsyncGenerator<GenerateContentResponse> {
+    let stream: AsyncIterable<GenerateContentResponse>
+    try {
+      stream = await this._client.models.generateContentStream(params)
+    } catch (error) {
+      if (recoverable && error instanceof Error && isMissingCache(error)) {
+        throw new MissingCacheContentError()
+      }
+      throw error
+    }
+    yield* GoogleModel._guardedStream(stream, recoverable)
   }
 
   /**
