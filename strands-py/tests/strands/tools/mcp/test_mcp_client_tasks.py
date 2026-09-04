@@ -17,6 +17,8 @@ from strands.tools.mcp.mcp_tasks import DEFAULT_TASK_POLL_TIMEOUT, DEFAULT_TASK_
 
 from .conftest import create_server_capabilities
 
+pytestmark = pytest.mark.skipif(MCP_V2, reason="the legacy 2025-11-25 task workflow requires mcp 1.x")
+
 
 class TestTasksOptIn:
     """Tests for task opt-in behavior via tasks config."""

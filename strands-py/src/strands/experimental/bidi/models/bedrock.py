@@ -38,19 +38,19 @@ from aws_sdk_bedrock_runtime.models import (
     ModelTimeoutException,
     ValidationException,
 )
+from boto3.session import Session
 from smithy_aws_core.identity.static import StaticCredentialsResolver
 from smithy_core.aio.eventstream import DuplexEventStream
 from smithy_core.shapes import ShapeID
 from smithy_http.aio.crt import AWSCRTHTTPClient
+from typing_extensions import Unpack
 
-from ....models._validation import validate_region
+from ....models._validation import validate_config_keys, validate_region
 from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
 from .._async import stop_all
 from ..types.events import (
-    AudioChannel,
-    AudioSampleRate,
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
     BidiConnectionStartEvent,
@@ -64,38 +64,18 @@ from ..types.events import (
     BidiUsageEvent,
 )
 from ..types.model import AudioConfig, BidiConnectionConfig
-from .model import BidiModel, BidiModelTimeoutError
+from .model import (
+    AudioCapable,
+    BidiModel,
+    BidiModelConfig,
+    BidiModelTimeoutError,
+)
 
 logger = logging.getLogger(__name__)
 
 # Nova Sonic model identifiers
 NOVA_SONIC_V1_MODEL_ID = "amazon.nova-sonic-v1:0"
 NOVA_SONIC_V2_MODEL_ID = "amazon.nova-2-sonic-v1:0"
-
-_NOVA_INFERENCE_CONFIG_KEYS = {
-    "max_tokens": "maxTokens",
-    "temperature": "temperature",
-    "top_p": "topP",
-}
-
-NOVA_AUDIO_INPUT_CONFIG = {
-    "mediaType": "audio/lpcm",
-    "sampleRateHertz": 16000,
-    "sampleSizeBits": 16,
-    "channelCount": 1,
-    "audioType": "SPEECH",
-    "encoding": "base64",
-}
-
-NOVA_AUDIO_OUTPUT_CONFIG = {
-    "mediaType": "audio/lpcm",
-    "sampleRateHertz": 16000,
-    "sampleSizeBits": 16,
-    "channelCount": 1,
-    "voiceId": "matthew",
-    "encoding": "base64",
-    "audioType": "SPEECH",
-}
 
 NOVA_TEXT_CONFIG = {"mediaType": "text/plain"}
 NOVA_TOOL_CONFIG = {"mediaType": "application/json"}
@@ -106,7 +86,7 @@ _MAX_HISTORY_TOTAL_BYTES = 200 * 1024  # 200KB total history
 _STRANDS_USER_AGENT_EXTRA = "strands-agents"
 
 
-class BedrockNovaSonicModel(BidiModel):
+class BedrockNovaSonicModel(BidiModel, AudioCapable):
     """Amazon Bedrock Nova Sonic implementation for bidirectional streaming.
 
     Combines model configuration and connection state in a single class.
@@ -123,70 +103,48 @@ class BedrockNovaSonicModel(BidiModel):
 
     def __init__(
         self,
-        model_id: str = NOVA_SONIC_V2_MODEL_ID,
-        provider_config: dict[str, Any] | None = None,
-        client_config: dict[str, Any] | None = None,
-        **kwargs: Any,
+        *,
+        boto_session: Session | None = None,
+        region: str | None = None,
+        audio: AudioConfig | None = None,
+        **model_config: Unpack[BidiModelConfig],
     ) -> None:
         """Initialize Nova Sonic bidirectional model.
 
         Args:
-            model_id: Model identifier (default: amazon.nova-2-sonic-v1:0)
-            provider_config: Model behavior configuration including:
-                - audio: Audio input/output settings (sample rate, voice, etc.)
-                - inference: Model inference settings (max_tokens, temperature, top_p)
-                - turn_detection: Turn detection configuration (v2 only feature)
-                  - endpointingSensitivity: "HIGH" | "MEDIUM" | "LOW" (optional)
-                - connection: Reconnect overrides merged over the provider defaults
-                  (e.g. restart_after_s, auto_reconnect); see
-                  BidiConnectionConfig.
-            client_config: AWS authentication (boto_session OR region, not both)
-            **kwargs: Reserved for future parameters.
+            boto_session: Boto3 session used to resolve credentials and region.
+            region: AWS region. Cannot be combined with ``boto_session``.
+            audio: Audio configuration.
+            **model_config: Model configuration.
 
         Raises:
-            ValueError: If turn_detection is used with v1 model.
-            ValueError: If endpointingSensitivity is not HIGH, MEDIUM, or LOW.
-            ValueError: If the resolved AWS region is not a valid region identifier.
+            ValueError: If both ``boto_session`` and ``region`` are provided or the resolved region is invalid.
         """
-        # Store model ID
-        self.model_id = model_id
+        if boto_session is not None and region is not None:
+            raise ValueError("Cannot specify both 'boto_session' and 'region'")
+
+        validate_config_keys(model_config, BidiModelConfig)
+        self.config = BidiModelConfig(**model_config)
+        self.model_id = self.config.setdefault("model_id", NOVA_SONIC_V2_MODEL_ID)
 
         # Nova caps a connection at ~8 min; reconnect at 7 min, leaving headroom below the cap.
         # It also reports cumulative usage totals.
-        self.connection_config: BidiConnectionConfig = {"restart_after_s": 420}
+        self.connection_config = BidiConnectionConfig(**{"restart_after_s": 420, **self.config.get("connection", {})})
         self.usage_is_cumulative = True
 
-        provider_config = provider_config or {}
+        default_audio: AudioConfig = {
+            "input_rate": 16000,
+            "output_rate": 16000,
+            "channels": 1,
+            "format": "pcm",
+        }
+        self._audio_config = AudioConfig(**{**default_audio, **(audio or {})})
+        self.config["params"] = dict(self.config.get("params") or {})
+        self.config["connection"] = self.connection_config
 
-        # Merge any caller-supplied connection overrides over the provider defaults, so
-        # reconnect behavior can be tuned (or opted out via auto_reconnect) through
-        # provider_config without replacing the whole config.
-        self.connection_config = cast(
-            BidiConnectionConfig, {**self.connection_config, **provider_config.get("connection", {})}
-        )
-
-        # Validate turn_detection configuration
-        if "turn_detection" in provider_config and provider_config["turn_detection"]:
-            if model_id == NOVA_SONIC_V1_MODEL_ID:
-                raise ValueError(
-                    f"turn_detection is only supported in Nova Sonic v2. "
-                    f"Current model_id: {model_id}. Use {NOVA_SONIC_V2_MODEL_ID} instead."
-                )
-
-            # Validate endpointingSensitivity value if provided
-            sensitivity = provider_config["turn_detection"].get("endpointingSensitivity")
-            if sensitivity and sensitivity not in ["HIGH", "MEDIUM", "LOW"]:
-                raise ValueError(f"Invalid endpointingSensitivity: {sensitivity}. Must be HIGH, MEDIUM, or LOW")
-
-        # Resolve client config with defaults
-        self._client_config = self._resolve_client_config(client_config or {})
-
-        # Resolve provider config with defaults
-        self.config = self._resolve_provider_config(provider_config)
-
-        # Store session and region for later use
-        self._session = self._client_config["boto_session"]
-        self.region = self._client_config["region"]
+        self._session = boto_session or boto3.Session()
+        resolved_region = region if region is not None else self._session.region_name or "us-east-1"
+        self.region = validate_region(resolved_region)
 
         # Track API-provided identifiers
         self._connection_id: str | None = None
@@ -199,47 +157,12 @@ class BedrockNovaSonicModel(BidiModel):
         # Ensure certain events are sent in sequence when required
         self._send_lock = asyncio.Lock()
 
-        logger.debug("model_id=<%s> | nova sonic model initialized", model_id)
+        logger.debug("model_id=<%s> | nova sonic model initialized", self.model_id)
 
-    def _resolve_client_config(self, config: dict[str, Any]) -> dict[str, Any]:
-        """Resolve AWS client config (creates boto session if needed)."""
-        if "boto_session" in config and "region" in config:
-            raise ValueError("Cannot specify both 'boto_session' and 'region' in client_config")
-
-        resolved = config.copy()
-
-        # Create boto session if not provided
-        if "boto_session" not in resolved:
-            resolved["boto_session"] = boto3.Session()
-
-        # Resolve region from session or use default
-        if "region" not in resolved:
-            resolved["region"] = resolved["boto_session"].region_name or "us-east-1"
-
-        # Validate the region before it is interpolated into the service endpoint URL
-        validate_region(resolved["region"])
-
-        return resolved
-
-    def _resolve_provider_config(self, config: dict[str, Any]) -> dict[str, Any]:
-        """Merge user config with defaults (user takes precedence)."""
-        default_audio: AudioConfig = {
-            "input_rate": cast(AudioSampleRate, NOVA_AUDIO_INPUT_CONFIG["sampleRateHertz"]),
-            "output_rate": cast(AudioSampleRate, NOVA_AUDIO_OUTPUT_CONFIG["sampleRateHertz"]),
-            "channels": cast(AudioChannel, NOVA_AUDIO_INPUT_CONFIG["channelCount"]),
-            "format": "pcm",
-            "voice": cast(str, NOVA_AUDIO_OUTPUT_CONFIG["voiceId"]),
-        }
-
-        resolved = {
-            "audio": {
-                **default_audio,
-                **config.get("audio", {}),
-            },
-            "inference": config.get("inference", {}),
-            "turn_detection": config.get("turn_detection", {}),
-        }
-        return resolved
+    @property
+    def audio_config(self) -> AudioConfig:
+        """Get the resolved audio configuration."""
+        return self._audio_config
 
     async def start(
         self,
@@ -472,9 +395,9 @@ class BedrockNovaSonicModel(BidiModel):
         # Build audio input configuration from config
         audio_input_config = {
             "mediaType": "audio/lpcm",
-            "sampleRateHertz": self.config["audio"]["input_rate"],
+            "sampleRateHertz": self.audio_config["input_rate"],
             "sampleSizeBits": 16,
-            "channelCount": self.config["audio"]["channels"],
+            "channelCount": self.audio_config["channels"],
             "audioType": "SPEECH",
             "encoding": "base64",
         }
@@ -655,8 +578,8 @@ class BedrockNovaSonicModel(BidiModel):
             return BidiAudioStreamEvent(
                 audio=audio_content,
                 format="pcm",
-                sample_rate=cast(AudioSampleRate, self.config["audio"]["output_rate"]),
-                channels=cast(AudioChannel, self.config["audio"]["channels"]),
+                sample_rate=self.audio_config["output_rate"],
+                channels=self.audio_config["channels"],
             )
 
         # Handle text output (transcripts)
@@ -744,26 +667,18 @@ class BedrockNovaSonicModel(BidiModel):
 
     def _get_connection_start_event(self) -> str:
         """Generate Nova Sonic connection start event."""
-        inference_config = {_NOVA_INFERENCE_CONFIG_KEYS[key]: value for key, value in self.config["inference"].items()}
-
-        session_start_event: dict[str, Any] = {"event": {"sessionStart": {"inferenceConfiguration": inference_config}}}
-
-        # Add turn detection configuration if provided (v2 feature)
-        turn_detection_config = self.config.get("turn_detection", {})
-        if turn_detection_config:
-            session_start_event["event"]["sessionStart"]["turnDetectionConfiguration"] = turn_detection_config
+        session_start_event: dict[str, Any] = {"event": {"sessionStart": {**(self.config["params"] or {})}}}
 
         return json.dumps(session_start_event)
 
     def _get_prompt_start_event(self, tools: list[ToolSpec]) -> str:
         """Generate Nova Sonic prompt start event with tool configuration."""
-        # Build audio output configuration from config
         audio_output_config = {
             "mediaType": "audio/lpcm",
-            "sampleRateHertz": self.config["audio"]["output_rate"],
+            "sampleRateHertz": self.audio_config["output_rate"],
             "sampleSizeBits": 16,
-            "channelCount": self.config["audio"]["channels"],
-            "voiceId": self.config["audio"].get("voice", "matthew"),
+            "channelCount": self.audio_config["channels"],
+            "voiceId": self.audio_config.get("voice", "matthew"),
             "encoding": "base64",
             "audioType": "SPEECH",
         }
