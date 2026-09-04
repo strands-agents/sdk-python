@@ -167,6 +167,21 @@ def test_default_startup_timeout(mock_client, transports):
     }
 
 
+def test_prefix_with_server_name_uses_config_key(mock_client, transports):
+    MCPClient.load_servers({"slack": {"command": "node"}}, prefix_with_server_name=True)
+    assert mock_client[0][1]["prefix"] == "slack"
+
+
+def test_prefix_with_server_name_explicit_prefix_wins(mock_client, transports):
+    MCPClient.load_servers({"slack": {"command": "node", "prefix": "chat"}}, prefix_with_server_name=True)
+    assert mock_client[0][1]["prefix"] == "chat"
+
+
+def test_prefix_with_server_name_empty_prefix_opts_out(mock_client, transports):
+    MCPClient.load_servers({"slack": {"command": "node", "prefix": ""}}, prefix_with_server_name=True)
+    assert mock_client[0][1]["prefix"] == ""
+
+
 def test_tool_filters_compiled_to_regex(mock_client, transports):
     MCPClient.load_servers(
         {"srv": {"command": "node", "tool_filters": {"allowed": ["search_.*"], "rejected": ["^delete_"]}}}

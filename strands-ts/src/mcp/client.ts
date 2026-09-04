@@ -16,7 +16,7 @@ import type { JSONSchema, JSONValue } from '../types/json.js'
 import type { ElicitationCallback } from '../types/elicitation.js'
 import { McpTool } from '../tools/mcp-tool.js'
 import { logger } from '../logging/index.js'
-import { type McpServerConfig, mcpServerLoader } from './config.js'
+import { type McpLoadServersOptions, type McpServerConfig, mcpServerLoader } from './config.js'
 
 /**
  * Widened transport type that accepts MCP transport implementations without requiring explicit casts.
@@ -167,7 +167,7 @@ export class McpClient {
    */
   public static async loadServers(
     config: string | Record<string, McpServerConfig>,
-    defaults?: McpClientOptions
+    defaults?: McpLoadServersOptions
   ): Promise<McpClient[]> {
     return (await mcpServerLoader.get()(config, defaults)).map((c) => new McpClient(c))
   }

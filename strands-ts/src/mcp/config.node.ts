@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 import type { McpClientConfig, McpClientOptions, McpToolFilters, McpTransport } from './client.js'
-import type { McpServerConfig } from './config.js'
+import type { McpLoadServersOptions, McpServerConfig } from './config.js'
 import { logger } from '../logging/index.js'
 
 /**
@@ -21,7 +21,7 @@ import { logger } from '../logging/index.js'
  */
 export async function resolveServerConfigs(
   config: string | Record<string, McpServerConfig>,
-  defaults?: McpClientOptions
+  defaults?: McpLoadServersOptions
 ): Promise<McpClientConfig[]> {
   const servers = await loadServersObject(config)
   const results: McpClientConfig[] = []
@@ -114,10 +114,12 @@ function buildSseConfig(server: McpServerConfig): McpClientConfig {
   }
 }
 
-function baseOptions(name: string, server: McpServerConfig, defaults?: McpClientOptions): McpClientOptions {
+function baseOptions(name: string, server: McpServerConfig, defaults?: McpLoadServersOptions): McpClientOptions {
+  const { prefixWithServerName, ...clientDefaults } = defaults ?? {}
   // applicationName is the shared app identity sent in the MCP handshake; honor an explicit
   // default for all clients, falling back to the server's config key when none is given.
-  const opts: McpClientOptions = { ...defaults, applicationName: defaults?.applicationName ?? name }
+  const opts: McpClientOptions = { ...clientDefaults, applicationName: clientDefaults.applicationName ?? name }
+  if (prefixWithServerName) opts.prefix = name
   if (server.continueOnError != null) opts.continueOnError = server.continueOnError
   if (server.tasksConfig != null) opts.tasksConfig = server.tasksConfig
   if (server.prefix !== undefined) opts.prefix = interpolateEnv(server.prefix)

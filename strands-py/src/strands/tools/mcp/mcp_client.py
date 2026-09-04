@@ -205,7 +205,7 @@ class MCPClient(ToolProvider):
     """
 
     @classmethod
-    def load_servers(cls, config: "str | dict[str, Any]") -> "list[MCPClient]":
+    def load_servers(cls, config: "str | dict[str, Any]", prefix_with_server_name: bool = False) -> "list[MCPClient]":
         """Create MCPClient instances from an ``mcpServers`` JSON config (file path or mapping).
 
         Returns one client per enabled server. Accepts either a flat mapping of server name to
@@ -222,6 +222,9 @@ class MCPClient(ToolProvider):
         Args:
             config: A file path (with optional ``file://`` prefix) to a JSON config, or a
                 dictionary mapping server names to configs (optionally under an ``mcpServers`` key).
+            prefix_with_server_name: When True, servers without an explicit ``prefix`` use their config
+                key as the tool name prefix, so tools from different servers cannot collide. A server
+                can still opt out with ``"prefix": ""``.
 
         Returns:
             One MCPClient per enabled server, ready to pass to ``Agent(tools=...)``.
@@ -251,7 +254,7 @@ class MCPClient(ToolProvider):
                 logger.debug("server_name=<%s> | skipping disabled MCP server", name)
                 continue
             try:
-                clients.append(_build_client_from_config(name, server))
+                clients.append(_build_client_from_config(name, server, prefix_with_server_name))
             except Exception as e:
                 if not server.get("continue_on_error", False):
                     raise
@@ -1981,7 +1984,7 @@ def _load_servers_mapping(config: str | dict[str, Any]) -> dict[str, Any]:
     return servers
 
 
-def _build_client_from_config(name: str, server: dict[str, Any]) -> MCPClient:
+def _build_client_from_config(name: str, server: dict[str, Any], prefix_with_server_name: bool = False) -> MCPClient:
     """Build a single MCPClient from one server entry.
 
     Interpolates ``${VAR}`` references first so secrets can live in the environment, then detects
@@ -2005,7 +2008,7 @@ def _build_client_from_config(name: str, server: dict[str, Any]) -> MCPClient:
         transport_callable,
         startup_timeout=server.get("startup_timeout", 30),
         tool_filters=_parse_config_tool_filters(name, server.get("tool_filters")),
-        prefix=server.get("prefix"),
+        prefix=server.get("prefix", name if prefix_with_server_name else None),
         application_name=server.get("application_name", name),
         application_version=server.get("application_version"),
         continue_on_error=server.get("continue_on_error", False),
