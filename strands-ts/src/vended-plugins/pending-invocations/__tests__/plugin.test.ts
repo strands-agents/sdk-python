@@ -232,5 +232,48 @@ describe('PendingInvocations', () => {
           })
       ).not.toThrow()
     })
+
+    it('does not auto-attach the built-in block alongside a custom-named instance', async () => {
+      let release!: () => void
+      const released = new Promise<void>((resolve) => (release = resolve))
+      let signalStarted!: () => void
+      const started = new Promise<void>((resolve) => (signalStarted = resolve))
+      const gate = tool({
+        name: 'gate',
+        description: 'Gated tool',
+        callback: async () => {
+          signalStarted()
+          await released
+          return 'gate done'
+        },
+      })
+      const model = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'gate', toolUseId: 't1', input: {} })
+        .addTurn({ type: 'textBlock', text: 'A' })
+        .addTurn({ type: 'textBlock', text: 'B' })
+      const streamSpy = vi.spyOn(model, 'stream')
+      const agent = new Agent({
+        model,
+        tools: [gate],
+        printer: false,
+        concurrentInvocationMode: 'enqueue',
+        plugins: [new PendingInvocations({ name: 'queue-view', render: (p) => `custom queue: ${p.length}` })],
+      })
+
+      const first = agent.invoke('review the PR')
+      await started
+      const second = agent.invoke('stop — wrong repo')
+      for (let i = 0; i < 2000 && agent.pendingInvocations.length === 0; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      }
+
+      release()
+      await Promise.all([first, second])
+
+      const midLoop = requestText(streamSpy.mock.calls[1] as never)
+      expect(midLoop).toContain('custom queue: 1')
+      // The user's instance replaces the built-in block — it must not also be injected.
+      expect(midLoop).not.toContain('<pending_invocations>')
+    })
   })
 })
