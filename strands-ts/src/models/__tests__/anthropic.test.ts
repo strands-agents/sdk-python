@@ -1279,6 +1279,25 @@ describe('AnthropicModel', () => {
       warnSpy.mockRestore()
     })
 
+    it('falls back to explicit placement for a per-call trailing tail under auto', async () => {
+      // Automatic caching cannot keep its breakpoint ahead of per-call content: it lands inside the
+      // rebuilt tail, and every request writes a cache entry that none ever reads (verified live).
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
+      const message = new Message({
+        role: 'user',
+        content: [new TextBlock('durable ask'), new TextBlock('per-call')],
+      })
+
+      await collectIterator(provider.stream([message], { dynamicTrailingBlocks: 1 }))
+
+      expect(captured.request.cache_control).toBeUndefined()
+      expect(captured.request.messages[0].content).toEqual([
+        { type: 'text', text: 'durable ask', cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: 'per-call' },
+      ])
+    })
+
     it('defers to a caller-supplied top-level cache_control', async () => {
       // A cache_control passed through params is the caller's own placement; auto does not override it.
       const { captured, mockClient } = setupCapture()

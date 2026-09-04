@@ -1591,6 +1591,21 @@ class TestPromptCaching:
 
         assert request["extra_body"] == {"cache_control": {"type": "ephemeral"}, "service_tier": "flex"}
 
+    def test_auto_with_per_call_trailing_blocks_falls_back_to_explicit_placement(self, model):
+        """Automatic caching cannot keep its breakpoint ahead of per-call content: it lands inside the
+        rebuilt tail, and every request writes a cache entry that none ever reads (verified live). A
+        declared tail therefore gets the explicit point placed ahead of it, and no top-level field."""
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        messages = [{"role": "user", "content": [{"text": "durable ask"}, {"text": "per-call"}]}]
+
+        request = model.format_request(messages, dynamic_trailing_blocks=1)
+
+        assert "extra_body" not in request
+        assert request["messages"][0]["content"] == [
+            {"type": "text", "text": "durable ask", "cache_control": {"type": "ephemeral"}},
+            {"type": "text", "text": "per-call"},
+        ]
+
     def test_cross_sdk_automatic_caching_parity(self, model, messages):
         """Pins the automatic-caching value shared with strands-ts, which sends the same top-level
         cache_control natively rather than through extra_body. Update both together or the SDKs drift.

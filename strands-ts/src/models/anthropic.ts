@@ -422,9 +422,12 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
     if (!this._config.modelId) throw new Error('Model ID is required')
 
     const messagesCache = this._cacheSection('messagesTTL')
+    const dynamicTrailingBlocks = options?.dynamicTrailingBlocks ?? 0
     // Under 'auto' the API's automatic caching places the breakpoint server-side, so no managed
-    // block-level point is injected; hand-placed cache points are still honored.
-    const nativeAuto = messagesCache.enabled && (this._config.cacheConfig?.strategy ?? 'auto') === 'auto'
+    // block-level point is injected; hand-placed cache points are still honored. A per-call trailing
+    // tail falls back to explicit placement, which alone can keep the breakpoint ahead of it.
+    const nativeAuto =
+      messagesCache.enabled && (this._config.cacheConfig?.strategy ?? 'auto') === 'auto' && dynamicTrailingBlocks === 0
     // The cache point goes on the last user message with content, not counting cache point blocks.
     let cacheTargetMessage = -1
     if (messagesCache.enabled) {
@@ -439,13 +442,7 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
     const request: Anthropic.MessageStreamParams = {
       model: this._config.modelId,
       max_tokens: this._config.maxTokens ?? MODEL_DEFAULTS.anthropic.maxTokens,
-      messages: this._formatMessages(
-        messages,
-        messagesCache,
-        cacheTargetMessage,
-        options?.dynamicTrailingBlocks ?? 0,
-        nativeAuto
-      ),
+      messages: this._formatMessages(messages, messagesCache, cacheTargetMessage, dynamicTrailingBlocks, nativeAuto),
       stream: true,
     }
 
@@ -494,7 +491,9 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
   /**
    * Applies the API's automatic caching: one top-level `cache_control`, placed server-side on the last
    * cacheable block. Skipped when the caller supplied their own through `params` or when the request
-   * already carries the API's maximum of explicit breakpoints, which it would reject.
+   * already carries the API's maximum of explicit breakpoints, which it would reject. Never reached
+   * with a per-call trailing tail: its breakpoint would land inside content rebuilt every call, so
+   * every request would write a cache entry that none ever reads.
    */
   private _applyAutomaticCache(request: Anthropic.MessageStreamParams, messagesCache: ResolvedCacheSection): void {
     if (request.cache_control !== undefined) return

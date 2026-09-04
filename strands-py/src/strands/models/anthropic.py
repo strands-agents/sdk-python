@@ -245,8 +245,9 @@ class AnthropicModel(Model):
         cache_config = self.config.get("cache_config")
         configured_ttl = cache_config.ttl if cache_config else None
         # Under "auto" the API's automatic caching places the breakpoint server-side, so no managed
-        # block-level point is injected; hand-placed cache points are still honored.
-        native_auto = cache_config is not None and cache_config.strategy == "auto"
+        # block-level point is injected; hand-placed cache points are still honored. A per-call trailing
+        # tail falls back to explicit placement, which alone can keep the breakpoint ahead of it.
+        native_auto = cache_config is not None and cache_config.strategy == "auto" and not dynamic_trailing_blocks
         formatted_messages = []
 
         for message_idx, message in enumerate(messages):
@@ -319,22 +320,28 @@ class AnthropicModel(Model):
 
         return False
 
-    def _resolve_automatic_cache(self, request: dict[str, Any]) -> dict[str, Any] | None:
+    def _resolve_automatic_cache(
+        self, request: dict[str, Any], dynamic_trailing_blocks: int = 0
+    ) -> dict[str, Any] | None:
         """Resolve the top-level ``cache_control`` that turns on the API's automatic caching.
 
         Automatic caching has the API place the cache breakpoint on the last cacheable block and move it
         forward as the conversation grows, replacing the client-side injection ``strategy="anthropic"``
         keeps. Not sent when the caller supplied a top-level ``cache_control`` through ``params`` or when
         the request already carries the API's maximum of explicit breakpoints, which it would reject.
+        A per-call trailing tail also disables it: the automatic breakpoint would land inside content
+        rebuilt every call, so every request would write a cache entry that none ever reads.
 
         Args:
             request: The formatted request, inspected for existing cache breakpoints.
+            dynamic_trailing_blocks: How many trailing blocks of the last user message are rebuilt on
+                every call. Nonzero falls back to the explicit placement that stays ahead of them.
 
         Returns:
             The cache_control value, or None when automatic caching must not be sent.
         """
         cache_config = self.config.get("cache_config")
-        if cache_config is None or cache_config.strategy != "auto":
+        if cache_config is None or cache_config.strategy != "auto" or dynamic_trailing_blocks:
             return None
         if "cache_control" in request:
             return None
@@ -519,7 +526,7 @@ class AnthropicModel(Model):
             **(self.config.get("params") or {}),
         }
 
-        if (automatic_cache := self._resolve_automatic_cache(request)) is not None:
+        if (automatic_cache := self._resolve_automatic_cache(request, dynamic_trailing_blocks)) is not None:
             # extra_body merges the field into the request body on every supported anthropic version; the
             # pinned floor (0.21.0) predates the SDK's native top-level cache_control parameter.
             request["extra_body"] = {"cache_control": automatic_cache, **(request.get("extra_body") or {})}

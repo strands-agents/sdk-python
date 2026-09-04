@@ -272,7 +272,10 @@ to set one.
 automatic caching, a single request-level setting whose breakpoint the API places and
 advances itself; `"anthropic"` injects an explicit cache point on the last user message
 instead. Automatic caching is not offered on Amazon Bedrock, so `BedrockModel` injects
-an explicit cache point under both strategies.
+an explicit cache point under both strategies. On a call that carries
+per-call content — a [context injector](../plugins/context-injector)'s block, the
+agentic status line — `"auto"` also places an explicit point, ahead
+of the content that changes every call; the automatic breakpoint would land inside it.
 </Tab>
 <Tab label="TypeScript">
 
@@ -286,7 +289,10 @@ a provider switch unchanged.
 automatic caching, a single request-level setting whose breakpoint the API places and
 advances itself; `'anthropic'` injects an explicit cache point on the last user message
 instead. Automatic caching is not offered on Amazon Bedrock, so `BedrockModel` injects
-an explicit cache point under both strategies.
+an explicit cache point under both strategies. On a call that carries
+per-call content — a [context injector](../plugins/context-injector)'s block, the
+agentic status line — `'auto'` also places an explicit point, ahead
+of the content that changes every call; the automatic breakpoint would land inside it.
 </Tab>
 </Tabs>
 
