@@ -183,6 +183,14 @@ class OpenAIRealtimeModel(BidiModel, AudioCapable):
         """Get the resolved audio configuration."""
         return self._audio_config
 
+    def _merge_audio_config(self, config: dict[str, Any], overrides: dict[str, Any]) -> None:
+        """Merge audio overrides while preserving nested defaults."""
+        for key, value in overrides.items():
+            if isinstance(config.get(key), dict) and isinstance(value, dict):
+                self._merge_audio_config(config[key], value)
+            else:
+                config[key] = value
+
     async def start(
         self,
         system_prompt: str | None = None,
@@ -256,7 +264,10 @@ class OpenAIRealtimeModel(BidiModel, AudioCapable):
     def _build_session_config(self, system_prompt: str | None, tools: list[ToolSpec] | None) -> dict[str, Any]:
         """Build session configuration for OpenAI Realtime API."""
         config: dict[str, Any] = copy.deepcopy(DEFAULT_SESSION_CONFIG)
-        config.update(self.config.get("params") or {})
+        params = copy.deepcopy(self.config.get("params") or {})
+        audio_params = params.pop("audio", {})
+        config.update(params)
+        self._merge_audio_config(config["audio"], audio_params)
 
         if system_prompt:
             config["instructions"] = system_prompt

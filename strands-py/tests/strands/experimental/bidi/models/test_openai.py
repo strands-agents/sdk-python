@@ -676,6 +676,31 @@ def test__build_session_config_passes_through_params(api_key):
     assert config["tracing"] == "auto"
 
 
+def test__build_session_config_merges_audio_params(api_key):
+    """Test nested audio params preserve unspecified defaults."""
+    model = OpenAIRealtimeModel(
+        api_key=api_key,
+        params={"audio": {"input": {"turn_detection": {"threshold": 0.3}}}},
+    )
+
+    config = model._build_session_config(None, None)
+
+    assert config["audio"]["input"] == {
+        "format": {"type": "audio/pcm", "rate": 24000},
+        "transcription": {"model": "gpt-4o-transcribe"},
+        "turn_detection": {
+            "type": "server_vad",
+            "threshold": 0.3,
+            "prefix_padding_ms": 300,
+            "silence_duration_ms": 500,
+        },
+    }
+    assert config["audio"]["output"] == {
+        "format": {"type": "audio/pcm", "rate": 24000},
+        "voice": "alloy",
+    }
+
+
 def test_tool_conversion(model, tool_spec):
     """Test tool conversion to OpenAI format."""
     # Test with tools
