@@ -690,7 +690,7 @@ export class Agent implements LocalAgent, InvokableAgent {
     }
     this._concurrentInvocationMode = concurrentInvocationMode
     this._invocationQueue = new InvocationQueue()
-    const hasPendingInvocations = (config?.plugins ?? []).some((p) => p instanceof PendingInvocations)
+    const hasPendingInvocations = (config?.plugins ?? []).some((p) => p.name === 'strands:pending-invocations')
 
     const contextManagerPlugin = config?.contextManager instanceof ContextManager ? config.contextManager : undefined
     this._backgroundTasks = config?.backgroundTasks

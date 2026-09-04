@@ -233,7 +233,7 @@ describe('PendingInvocations', () => {
       ).not.toThrow()
     })
 
-    it('does not auto-attach the built-in block alongside a custom-named instance', async () => {
+    it('a user instance with the default name replaces the built-in block', async () => {
       let release!: () => void
       const released = new Promise<void>((resolve) => (release = resolve))
       let signalStarted!: () => void
@@ -257,7 +257,7 @@ describe('PendingInvocations', () => {
         tools: [gate],
         printer: false,
         concurrentInvocationMode: 'enqueue',
-        plugins: [new PendingInvocations({ name: 'queue-view', render: (p) => `custom queue: ${p.length}` })],
+        plugins: [new PendingInvocations({ render: (p) => `custom queue: ${p.length}` })],
       })
 
       const first = agent.invoke('review the PR')

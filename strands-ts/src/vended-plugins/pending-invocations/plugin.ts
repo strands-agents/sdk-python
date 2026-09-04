@@ -6,8 +6,9 @@ import { ContextInjector } from '../context-injector/plugin.js'
 /** Configuration for the {@link PendingInvocations} plugin. */
 export interface PendingInvocationsConfig {
   /**
-   * Plugin name, for logging and duplicate detection.
-   * Defaults to `'strands:pending-invocations'`.
+   * Plugin name. Defaults to `'strands:pending-invocations'`. The agent skips its
+   * auto-attach when a plugin with the default name is present, so a renamed
+   * instance runs alongside the built-in block.
    */
   name?: string
 
