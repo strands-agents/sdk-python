@@ -93,7 +93,7 @@ async def _drive_input_required(session: ClientSession, call_once: Callable[[Any
         The terminal result.
 
     Raises:
-        MCPError: An embedded input request's callback declined it.
+        MCPError: An embedded input request's callback answered with an error.
         InputRequiredRoundsExceededError: The server kept returning `InputRequiredResult` past the round cap.
     """
     from mcp.client import ClientRequestContext, InputRequiredRoundsExceededError  # type: ignore[attr-defined]
@@ -150,7 +150,7 @@ async def call_tool(
         ``allow_claimed`` is enabled.
 
     Raises:
-        MCPError: An embedded input request's callback declined it.
+        MCPError: An embedded input request's callback answered with an error.
         InputRequiredRoundsExceededError: The server kept returning `InputRequiredResult` past the round cap.
     """
     if not MCP_V2:
@@ -229,7 +229,7 @@ async def get_prompt(session: ClientSession, name: str, arguments: dict[str, str
         The terminal `GetPromptResult`.
 
     Raises:
-        MCPError: An embedded input request's callback declined it.
+        MCPError: An embedded input request's callback answered with an error.
         InputRequiredRoundsExceededError: The server kept returning `InputRequiredResult` past the round cap.
     """
     if not MCP_V2:
@@ -262,7 +262,7 @@ async def read_resource(session: ClientSession, uri: Any) -> Any:
         The terminal `ReadResourceResult`.
 
     Raises:
-        MCPError: An embedded input request's callback declined it.
+        MCPError: An embedded input request's callback answered with an error.
         InputRequiredRoundsExceededError: The server kept returning `InputRequiredResult` past the round cap.
     """
     if not MCP_V2:
