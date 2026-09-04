@@ -46,6 +46,11 @@ _CACHEABLE_BLOCK_TYPES = frozenset({"document", "image", "text", "tool_result", 
 # ``ephemeral`` is the only cache type the Anthropic API supports
 _ANTHROPIC_CACHE_TYPE = "ephemeral"
 
+# The API rejects a request carrying more explicit block-level cache breakpoints than this, and rejects
+# the top-level automatic-caching field once this many are already present.
+# https://docs.claude.com/en/docs/build-with-claude/prompt-caching
+_MAX_CACHE_BREAKPOINTS = 4
+
 
 class AnthropicModel(Model):
     """Anthropic model provider implementation."""
@@ -69,8 +74,10 @@ class AnthropicModel(Model):
         """Configuration options for Anthropic models.
 
         Attributes:
-            cache_config: Configuration for prompt caching. Adds a cache point to the last user message,
-                caching everything before it. Caching is off when unset.
+            cache_config: Configuration for prompt caching. ``strategy="auto"`` (the default) turns on the
+                API's automatic caching, which places the cache breakpoint server-side and moves it forward
+                as the conversation grows; ``strategy="anthropic"`` injects an explicit cache point on the
+                last user message instead. Caching is off when unset.
             cache_tools: Caches the tool definitions (deprecated, use CacheConfig(tools_ttl=...)). Superseded
                 by an explicitly set cache_config.tools_ttl.
             max_tokens: Maximum number of tokens to generate.
@@ -237,6 +244,9 @@ class AnthropicModel(Model):
         """
         cache_config = self.config.get("cache_config")
         configured_ttl = cache_config.ttl if cache_config else None
+        # Under "auto" the API's automatic caching places the breakpoint server-side, so no managed
+        # block-level point is injected; hand-placed cache points are still honored.
+        native_auto = cache_config is not None and cache_config.strategy == "auto"
         formatted_messages = []
 
         for message_idx, message in enumerate(messages):
@@ -272,7 +282,7 @@ class AnthropicModel(Model):
             # block that survived translation. It is skipped when a caller-placed point already marked one.
             # Per-call trailing blocks apply only to the cache-target message, which is where a producer
             # appends content rebuilt every call.
-            if message_idx == cache_target_idx and not marked:
+            if message_idx == cache_target_idx and not marked and not native_auto:
                 if self._attach_cache_control(formatted_contents, configured_ttl, dynamic_trailing_blocks):
                     logger.debug("msg_idx=<%d> | added cache point to last user message", message_idx)
                 else:
@@ -308,6 +318,46 @@ class AnthropicModel(Model):
                 return True
 
         return False
+
+    def _resolve_automatic_cache(self, request: dict[str, Any]) -> dict[str, Any] | None:
+        """Resolve the top-level ``cache_control`` that turns on the API's automatic caching.
+
+        Automatic caching has the API place the cache breakpoint on the last cacheable block and move it
+        forward as the conversation grows, replacing the client-side injection ``strategy="anthropic"``
+        keeps. Not sent when the caller supplied a top-level ``cache_control`` through ``params`` or when
+        the request already carries the API's maximum of explicit breakpoints, which it would reject.
+
+        Args:
+            request: The formatted request, inspected for existing cache breakpoints.
+
+        Returns:
+            The cache_control value, or None when automatic caching must not be sent.
+        """
+        cache_config = self.config.get("cache_config")
+        if cache_config is None or cache_config.strategy != "auto":
+            return None
+        if "cache_control" in request:
+            return None
+        if self._count_cache_breakpoints(request) >= _MAX_CACHE_BREAKPOINTS:
+            logger.warning(
+                "count=<%d> | explicit cache breakpoints at the API limit, skipped automatic caching",
+                _MAX_CACHE_BREAKPOINTS,
+            )
+            return None
+        return self._format_cache_control(cache_config.ttl)
+
+    @staticmethod
+    def _count_cache_breakpoints(request: dict[str, Any]) -> int:
+        """Count the explicit block-level cache breakpoints in a formatted request."""
+        blocks = list(request.get("tools") or [])
+        system = request.get("system")
+        if isinstance(system, list):
+            blocks.extend(system)
+        for message in request.get("messages") or []:
+            content = message.get("content")
+            if isinstance(content, list):
+                blocks.extend(content)
+        return sum(1 for block in blocks if isinstance(block, dict) and "cache_control" in block)
 
     def _resolve_tools_cache(self) -> dict[str, Any] | None:
         """Return the Anthropic ``cache_control`` payload for tool definitions, if enabled.
@@ -468,6 +518,11 @@ class AnthropicModel(Model):
             **({"system": system} if system else {}),
             **(self.config.get("params") or {}),
         }
+
+        if (automatic_cache := self._resolve_automatic_cache(request)) is not None:
+            # extra_body merges the field into the request body on every supported anthropic version; the
+            # pinned floor (0.21.0) predates the SDK's native top-level cache_control parameter.
+            request["extra_body"] = {"cache_control": automatic_cache, **(request.get("extra_body") or {})}
 
         return request
 
