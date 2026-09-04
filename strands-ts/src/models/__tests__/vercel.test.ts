@@ -901,30 +901,44 @@ describe('VercelModel', () => {
         warnSpy.mockRestore()
       })
 
-      it('keeps the tool result adjacent to its tool call when the answering turn also carries text', async () => {
-        // An everyTurn context injector folds rendered text onto the tool-result turn, so its content
-        // is [toolResult, text]. The tool message must still lead the split so it stays adjacent to the
-        // assistant tool call it answers; the injected text follows as a separate user message.
+      // Regression: an everyTurn context injector folds rendered text onto the tool-result turn, making
+      // a mixed turn. Tool messages must lead the split whatever the source-block order, so each tool
+      // result stays adjacent to the assistant tool call it answers once an adapter re-merges them. See #4138.
+      it.each([
+        { name: 'tool result then text', order: ['tu1', 'text'], roles: ['user', 'assistant', 'tool', 'user'] },
+        { name: 'text then tool result', order: ['text', 'tu1'], roles: ['user', 'assistant', 'tool', 'user'] },
+        {
+          name: 'text between parallel tool results',
+          order: ['tu1', 'text', 'tu2'],
+          roles: ['user', 'assistant', 'tool', 'tool', 'user'],
+        },
+      ])('keeps tool results ahead of injected text for $name', async ({ order, roles }) => {
+        const toolUseIds = order.filter((entry) => entry !== 'text')
         const { collect, callArgs } = setupCaptureTest()
         await collect([
           new Message({ role: 'user', content: [new TextBlock('task')] }),
           new Message({
             role: 'assistant',
-            content: [new ToolUseBlock({ name: 'calc', toolUseId: 'tu1', input: {} })],
+            content: toolUseIds.map((id) => new ToolUseBlock({ name: 'calc', toolUseId: id, input: {} })),
           }),
           new Message({
             role: 'user',
-            content: [
-              new ToolResultBlock({ toolUseId: 'tu1', status: 'success', content: [new TextBlock('42')] }),
-              new TextBlock('\n\nNOTE'),
-            ],
+            content: order.map((entry) =>
+              entry === 'text'
+                ? new TextBlock('\n\nNOTE')
+                : new ToolResultBlock({ toolUseId: entry, status: 'success', content: [new TextBlock('42')] })
+            ),
           }),
         ])
 
         const prompt = callArgs().prompt
-        expect(prompt.map((message) => message.role)).toEqual(['user', 'assistant', 'tool', 'user'])
-        expect((prompt[2] as any).content[0]).toMatchObject({ type: 'tool-result', toolCallId: 'tu1' })
-        expect((prompt[3] as any).content[0]).toEqual({ type: 'text', text: '\n\nNOTE' })
+        expect(prompt.map((message) => message.role)).toEqual(roles)
+        expect((prompt[2] as any).content[0]).toMatchObject({
+          type: 'tool-result',
+          toolCallId: 'tu1',
+          toolName: 'calc',
+        })
+        expect((prompt.at(-1) as any).content[0]).toEqual({ type: 'text', text: '\n\nNOTE' })
       })
     })
   })
