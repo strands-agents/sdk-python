@@ -17,21 +17,9 @@ function escapeText(text: string): string {
   return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
 
-/**
- * Renders the pending queue as a model-facing block, or `undefined` when empty.
- *
- * The block states the delivery contract explicitly: the queued requests are not part
- * of the conversation and each will run as its own invocation — the injected view is
- * advisory, delivery is authoritative. A request can never be lost by being "seen"
- * mid-run.
- */
-/**
- * Maximum queue entries rendered into the block. The block's purpose is "am I
- * superseded?" — the front of the queue answers that; rendering an unbounded queue
- * would re-send an unbounded block on every model pass.
- */
 const MAX_RENDERED_ENTRIES = 5
 
+/** Renders the pending queue as a model-facing block, or `undefined` when empty. */
 function renderPendingBlock(pending: readonly PendingInvocation[]): string | undefined {
   if (pending.length === 0) return undefined
   const lines = pending
@@ -53,24 +41,12 @@ function renderPendingBlock(pending: readonly PendingInvocation[]): string | und
 }
 
 /**
- * Plugin that makes the agent's invocation queue visible to the model, ephemerally.
- *
- * Before every model call of the running invocation, renders `agent.pendingInvocations`
- * into the model input via {@link ContextInjector} (`trigger: 'everyTurn'`). The block
- * is injected for that one call only and never persists into durable history or the
- * session. When the queue is empty, nothing is injected and no tokens are spent.
+ * Renders `agent.pendingInvocations` into the model input before every model call of
+ * the running invocation, ephemerally — the block never persists into durable history.
  *
  * Attached automatically when the agent's `concurrentInvocationMode` is `'enqueue'`
  * or `'cancelPrevious'`; attach manually when using per-call `ifBusy` on a
  * `'throw'`-mode agent.
- *
- * @example
- * ```typescript
- * import { Agent } from '@strands-agents/sdk'
- * import { PendingInvocations } from '@strands-agents/sdk/vended-plugins/pending-invocations'
- *
- * const agent = new Agent({ model, plugins: [new PendingInvocations()] })
- * ```
  */
 export class PendingInvocations implements Plugin {
   readonly name: string

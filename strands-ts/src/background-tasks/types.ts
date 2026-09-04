@@ -6,12 +6,8 @@ import type { ToolResultContentData } from '../types/messages.js'
 export interface BackgroundTasksConfig {
   /**
    * Wait for background work before an invocation returns. Defaults to `true`.
-   * Skipped while another invocation is queued (`concurrentInvocationMode: 'enqueue'`):
-   * the queued caller runs immediately and outstanding task results are delivered
-   * during its own model passes. If the queue empties before the turn is handed over
-   * (e.g. the queued caller is cancelled), nothing waits and delivery is deferred to
-   * some future invocation — possibly never, if the agent is not invoked again.
-   * Task results are never lost: they stay persisted until delivered.
+   * Skipped while another invocation is queued: the queued caller runs immediately
+   * and outstanding task results are delivered during a later invocation's passes.
    */
   readonly waitForCompletion?: boolean
   /** Tools or registered tool names whose execution mode is selected by the model. Defaults to `['*']`. */

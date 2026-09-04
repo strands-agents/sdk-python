@@ -138,21 +138,8 @@ export interface InvokeOptions {
 
   /**
    * Behavior when the agent is already processing an invocation, overriding the
-   * constructor-level `concurrentInvocationMode` for this call only.
-   *
-   * - `'throw'`: reject with `ConcurrentInvocationError` (the constructor default).
-   * - `'enqueue'`: wait in the agent's FIFO invocation queue; this call runs as its own
-   *   invocation — with its own result, hook events, and cancellation signal — when the
-   *   current one finishes.
-   * - `'cancelPrevious'`: cancel the running invocation via `agent.cancel()` and run
-   *   this call next, ahead of any queued invocations. The cancelled caller receives
-   *   its own result with `stopReason: 'cancelled'`.
-   *
-   * When omitted, the agent's `concurrentInvocationMode` applies.
-   *
-   * On an agent left in the default `'throw'` mode, per-call `'enqueue'` /
-   * `'cancelPrevious'` waits in a queue that is not rendered to the model — attach
-   * the `PendingInvocations` plugin for visibility.
+   * agent's `concurrentInvocationMode` for this call only. Same values: `'throw'`,
+   * `'enqueue'`, or `'cancelPrevious'`.
    */
   ifBusy?: ConcurrentInvocationMode
 
@@ -342,10 +329,7 @@ export interface LocalAgent {
    */
   systemPrompt?: SystemPrompt
 
-  /**
-   * Invocations waiting in the agent's queue, in run order. Always empty unless the
-   * agent (or a caller, via `ifBusy`) uses `'enqueue'` or `'interrupt'` concurrency.
-   */
+  /** Invocations waiting in the agent's queue, in run order. */
   readonly pendingInvocations: readonly PendingInvocation[]
 
   /**

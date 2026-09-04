@@ -1,76 +1,50 @@
 /**
  * Invocation queueing for agents using `'enqueue'` or `'cancelPrevious'` concurrency.
- *
- * The queue lives at the invocation lock: entries are added when `invoke()`/`stream()`
- * is called while the agent is busy, and the lock is handed to the next entry inside
- * `stream()`'s `finally` — before the busy flag is cleared — so a late arrival either
- * gets the lock or lands in the queue the current owner is about to pop.
  */
 
 import { PendingInvocationCancelledError } from '../errors.js'
 import type { InvokeArgs } from '../types/agent.js'
 
-/**
- * Supported values for the `concurrentInvocationMode` parameter.
- */
+/** Supported values for the `concurrentInvocationMode` parameter. */
 export const CONCURRENT_INVOCATION_MODES = ['throw', 'enqueue', 'cancelPrevious'] as const
 
 /**
  * Behavior when `invoke()` or `stream()` is called while an invocation is already in
  * progress. Set agent-wide via `concurrentInvocationMode`, or per call via
- * `InvokeOptions.ifBusy` (same values).
+ * `InvokeOptions.ifBusy`.
  *
  * - `'throw'`: reject the new call with `ConcurrentInvocationError` (default).
- * - `'enqueue'`: queue the new call FIFO; it runs as its own invocation — with its own
- *   result, hook events, and cancellation signal — when the current one finishes.
- * - `'cancelPrevious'`: cancel the running invocation via `agent.cancel()` and run this
- *   call next, ahead of any queued invocations. The cancelled caller receives its own
- *   result with `stopReason: 'cancelled'`; this call runs as a fresh invocation with a
- *   fresh cancellation signal. When the running invocation has already completed its
- *   final model pass and is only awaiting background work (e.g. background-task
- *   settlement), it stops waiting and returns its completed result with
- *   `stopReason: 'endTurn'` instead; undelivered background results are delivered
- *   in a later invocation.
+ * - `'enqueue'`: queue the new call FIFO; it runs as its own invocation when the
+ *   current one finishes.
+ * - `'cancelPrevious'`: cancel the running invocation via `agent.cancel()` and run
+ *   this call next, ahead of any queued invocations.
  */
 export type ConcurrentInvocationMode = (typeof CONCURRENT_INVOCATION_MODES)[number]
 
-/**
- * A queued invocation, as surfaced by `agent.pendingInvocations`.
- */
+/** A queued invocation, as surfaced by `agent.pendingInvocations`. */
 export interface PendingInvocation {
   /** Queue-unique identifier, usable with `agent.cancelPending(id)`. */
   readonly id: string
-  /** When the call was submitted (entered the queue). */
+  /** When the call entered the queue. */
   readonly submittedAt: Date
-  /** Short text preview of the call's input, for introspection and model visibility. */
+  /** Short text preview of the call's input. */
   readonly preview: string
 }
 
-/** A queue entry: the public snapshot fields plus the waiter's continuation. */
 interface QueueEntry extends PendingInvocation {
   resolve: () => void
   reject: (error: Error) => void
-  /** Detaches the entry's abort listener, if any. Safe to call more than once. */
   cleanup: () => void
 }
 
-/** Maximum characters of input text preserved in {@link PendingInvocation.preview}. */
 const PREVIEW_MAX_CHARS = 200
 
-/**
- * Collapses whitespace runs (including newlines) to single spaces and truncates to
- * {@link PREVIEW_MAX_CHARS}, marking the cut. Collapsing keeps the preview a single
- * line wherever it is rendered — in particular a queued request cannot inject
- * line-structured text into the model-facing pending-invocations block. Truncation
- * splits on code points, never inside a surrogate pair.
- */
 function truncatePreview(text: string): string {
   const collapsed = text.replace(/\s+/g, ' ').trim()
   const codePoints = [...collapsed]
-  return codePoints.length <= PREVIEW_MAX_CHARS ? collapsed : `${codePoints.slice(0, PREVIEW_MAX_CHARS).join('')}…`
+  return codePoints.length <= PREVIEW_MAX_CHARS ? collapsed : `${codePoints.slice(0, PREVIEW_MAX_CHARS).join('')}\u2026`
 }
 
-/** Collects `text` fields from a content-block-like or message-like array element. */
 function textOf(element: unknown): string[] {
   if (typeof element !== 'object' || element === null) return []
   if ('text' in element && typeof element.text === 'string') return [element.text]
@@ -78,11 +52,7 @@ function textOf(element: unknown): string[] {
   return []
 }
 
-/**
- * Derives a short human/model-readable preview from invocation arguments.
- * Text is extracted from string input, content blocks, and message content;
- * inputs with no extractable text yield a bracketed placeholder.
- */
+/** Derives a short preview from invocation arguments. */
 export function previewInvokeArgs(args: InvokeArgs): string {
   if (typeof args === 'string') return truncatePreview(args)
   if (Array.isArray(args)) {
@@ -93,20 +63,16 @@ export function previewInvokeArgs(args: InvokeArgs): string {
 }
 
 /**
- * FIFO queue of invocations waiting for the agent's invocation lock.
+ * FIFO queue of invocations waiting for the agent's invocation lock. All mutating
+ * methods are synchronous, so no interleaving can observe a half-applied transition.
  *
- * All mutating methods are synchronous (no interior `await`), so on a single JS thread
- * no interleaving can observe a half-applied transition — the correctness argument for
- * the lock handoff in `stream()`'s `finally`.
- *
- * @internal Used by `Agent`; consumers observe it through `agent.pendingInvocations`.
+ * @internal
  */
 export class InvocationQueue {
   private readonly _entries: QueueEntry[] = []
   private _nextSequence = 1
   private readonly _enqueueListeners = new Set<() => void>()
 
-  /** Number of invocations currently waiting. */
   get size(): number {
     return this._entries.length
   }
@@ -118,9 +84,7 @@ export class InvocationQueue {
 
   /**
    * Registers a listener invoked whenever an invocation enters the queue.
-   * Listeners must not throw.
    *
-   * @param listener - Called synchronously on each enqueue
    * @returns A function that detaches the listener
    */
   onEnqueue(listener: () => void): () => void {
@@ -135,9 +99,9 @@ export class InvocationQueue {
    * handed to it (via {@link handoff}), or rejects when the entry is removed first.
    *
    * @param args - The invocation arguments, used to derive the entry's preview
-   * @param options - `front` inserts at the front of the queue (for `'cancelPrevious'`);
-   *   `cancelSignal` is the caller's signal — aborting while queued removes the entry and
-   *   rejects with {@link PendingInvocationCancelledError}
+   * @param options - `front` inserts at the front of the queue; aborting
+   *   `cancelSignal` while queued removes the entry and rejects with
+   *   {@link PendingInvocationCancelledError}
    */
   wait(args: InvokeArgs, options?: { front?: boolean; cancelSignal?: AbortSignal }): Promise<void> {
     const id = `pending-${this._nextSequence++}`
@@ -174,8 +138,7 @@ export class InvocationQueue {
   /**
    * Hands the invocation lock to the next waiter, if any.
    *
-   * @returns `true` when a waiter took ownership (the busy flag must stay set),
-   *   `false` when the queue is empty (the caller releases the lock).
+   * @returns `true` when a waiter took ownership, `false` when the queue is empty
    */
   handoff(): boolean {
     const next = this._entries.shift()
@@ -189,7 +152,7 @@ export class InvocationQueue {
    * Removes a queued entry by id, rejecting its caller with
    * {@link PendingInvocationCancelledError}.
    *
-   * @returns `true` when the entry was found and removed, `false` otherwise
+   * @returns `true` when the entry was found and removed
    */
   cancel(id: string): boolean {
     const entry = this._entries.find((e) => e.id === id)
@@ -198,7 +161,6 @@ export class InvocationQueue {
     return true
   }
 
-  /** Removes an entry, detaches its abort listener, and rejects its caller. */
   private _remove(entry: QueueEntry): void {
     const index = this._entries.indexOf(entry)
     if (index === -1) return

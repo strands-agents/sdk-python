@@ -114,18 +114,12 @@ export class ConcurrentInvocationError extends Error {
 
 /**
  * Error a queued invoke() or stream() call rejects with when it is removed from the
- * agent's invocation queue before running — via `agent.cancelPending(id)` or the
- * caller's own `cancelSignal` aborting while queued.
+ * agent's invocation queue before running.
  */
 export class PendingInvocationCancelledError extends Error {
   /** The queue id of the cancelled invocation. */
   readonly pendingInvocationId: string
 
-  /**
-   * Creates a new PendingInvocationCancelledError.
-   *
-   * @param pendingInvocationId - The queue id of the cancelled invocation
-   */
   constructor(pendingInvocationId: string) {
     super(`Queued invocation ${pendingInvocationId} was cancelled before it ran`)
     this.name = 'PendingInvocationCancelledError'

@@ -245,9 +245,7 @@ describe('concurrentInvocationMode', () => {
         .addTurn({ type: 'textBlock', text: 'A' })
         .addTurn({ type: 'textBlock', text: 'B' })
       const agent = new Agent({ model, tools: [gate.tool], printer: false, concurrentInvocationMode: 'enqueue' })
-      // Record the ordered event sequence keyed by invocation identity (each
-      // invocation threads its own invocationState): two counts of 2 would also be
-      // consistent with ONE invocation doing two continuation passes.
+      // Record the ordered event sequence keyed by invocation identity.
       const invocations: object[] = []
       const sequence: string[] = []
       const invocationIndex = (state: object): number => {
@@ -529,11 +527,8 @@ describe('concurrentInvocationMode', () => {
       await until(() => agent.pendingInvocations.length === 1, 'b queued')
       gate.release()
 
-      // Submitting from the predecessor's .then() lands in the handoff window: the
-      // turn already belongs to b, but b's loop has not started, so the abort must
-      // target the controller installed for b at handoff time. Without that, the
-      // interrupt is silently discarded and c waits behind the very invocation it
-      // asked to supersede.
+      // Submitting from the predecessor's .then() lands in the handoff window: b owns
+      // the turn but its loop has not started, so the abort must target b's controller.
       const third = first.then(() => agent.invoke('c', { ifBusy: 'cancelPrevious' }))
 
       const secondResult = await second
@@ -553,9 +548,7 @@ describe('concurrentInvocationMode', () => {
       const first = agent.invoke('a')
       await gate.started
 
-      // A pre-aborted signal means the caller already gave up: it never enters the
-      // queue, so cancelling the running invocation for it would be pure collateral
-      // damage with no beneficiary.
+      // A pre-aborted caller never enters the queue and must not cancel the running invocation.
       const controller = new AbortController()
       controller.abort()
       await expect(agent.invoke('x', { ifBusy: 'cancelPrevious', cancelSignal: controller.signal })).rejects.toThrow(

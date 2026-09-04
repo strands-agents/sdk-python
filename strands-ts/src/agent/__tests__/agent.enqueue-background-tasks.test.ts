@@ -335,9 +335,7 @@ describe('concurrentInvocationMode enqueue × backgroundTasks', () => {
     await until(() => (persistedTasks(agent) ?? []).some((task) => task.status === 'completed'), 'fast task settled')
     expect(model.callCount).toBe(2)
 
-    // The interrupt must actually end the running invocation: the prepared delivery
-    // continuation must not resurrect it for further model passes (which would
-    // strand this caller behind the still-running slow task).
+    // The prepared delivery continuation must not resurrect the cancelled invocation.
     const urgent = agent.invoke('urgent', { ifBusy: 'cancelPrevious' })
     const firstResult = await first
     expect(firstResult.stopReason).toBe('endTurn')
@@ -390,11 +388,8 @@ describe('concurrentInvocationMode enqueue × backgroundTasks', () => {
     await holdGate.started
     await until(() => (persistedTasks(agent) ?? []).some((task) => task.status === 'input_required'), 'input_required')
 
-    // Cancel the running invocation (the gate resolves on abort). The pending
-    // input_required interrupt must still surface: the resume path is deliberately
-    // NOT gated on cancellation — its pass raises the interrupt before any model
-    // call and terminates promptly, so gating it would silently drop the interrupt
-    // and return a plain result the caller cannot resume from.
+    // Cancel the running invocation. The pending input_required interrupt must still
+    // surface: the resume path is deliberately not gated on cancellation.
     agent.cancel()
     const firstResult = await first
     expect(firstResult.stopReason).toBe('interrupt')
@@ -433,10 +428,8 @@ describe('concurrentInvocationMode enqueue × backgroundTasks', () => {
       printer: false,
     })
 
-    // One options object reused verbatim across invocations - exactly what
-    // AgentAsTool does when it forwards the outer invocation's state into a
-    // sub-agent, and what a serving layer reusing one options literal does.
-    // Provenance must be keyed on the invocation, not this object's identity.
+    // One options object reused across invocations (as AgentAsTool does): provenance
+    // must be keyed on the invocation, not this object's identity.
     const sharedOptions = { invocationState: {} }
 
     const first = agent.invoke('first', sharedOptions)
@@ -497,10 +490,8 @@ describe('concurrentInvocationMode enqueue × backgroundTasks', () => {
     const firstResult = await first
     expect(firstResult.stopReason).toBe('interrupt')
 
-    // The resume continues the interrupted invocation - it is the same logical
-    // request that dispatched the task, so its delivery carries no provenance
-    // marker (labeling it "an earlier request" would misattribute the user's
-    // own resumed work).
+    // The resume continues the request that dispatched the task, so its delivery
+    // carries no provenance marker.
     const resumed = await agent.invoke([
       new InterruptResponseContent({
         interruptId: firstResult.interrupts![0]!.id,
@@ -539,14 +530,9 @@ describe('concurrentInvocationMode enqueue × backgroundTasks', () => {
       }
       return yield* next(context)
     })
-    // A cleanup hook that cancels at end of invocation. AfterInvocation callbacks
-    // run in reverse registration order, so this pre-plugin registration fires
-    // AFTER the background-tasks plugin has set `event.resume` - the abort is
-    // visible when stream() reads its cancellation gate, unlike a cancel landing
-    // mid-pass (which the per-pass controller reset wipes before the gate read).
-    // This is the scenario that distinguishes the deliberate non-gating of
-    // `resume` from gating it: gated, the interrupt would be silently dropped
-    // and the caller would get a plain result it cannot resume from.
+    // AfterInvocation callbacks run in reverse registration order, so this cleanup
+    // hook cancels AFTER the background-tasks plugin has set `event.resume` — the
+    // scenario that distinguishes not gating `resume` on cancellation from gating it.
     agent.addHook(AfterInvocationEvent, (event) => {
       if (event.resume !== undefined) agent.cancel()
     })

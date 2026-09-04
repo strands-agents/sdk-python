@@ -364,21 +364,15 @@ export type AgentConfig = {
    * in progress.
    *
    * - `'throw'` (default): reject the new call with {@link ConcurrentInvocationError}.
-   * - `'enqueue'`: queue the new call FIFO. Each queued call runs as its own
-   *   invocation — with its own result, hook events, and cancellation signal — when
-   *   the current one finishes.
+   * - `'enqueue'`: queue the new call FIFO; it runs as its own invocation when the
+   *   current one finishes.
    * - `'cancelPrevious'`: cancel the running invocation and run the new call next,
-   *   ahead of any queued invocations. The cancelled caller receives its own result
-   *   with `stopReason: 'cancelled'`.
+   *   ahead of any queued invocations.
    *
-   * Callers can override per call via {@link InvokeOptions.ifBusy}. Under `'enqueue'`
-   * and `'cancelPrevious'`, the pending queue is rendered ephemerally into the model
-   * input of the running invocation (via the `PendingInvocations` vended plugin), so
-   * the model can wrap up early when a queued request supersedes its current work.
-   *
-   * Under `'enqueue'`, a tool or hook of the running invocation must not `await` its
-   * own agent's `invoke()`/`stream()` — the inner call would queue behind the
-   * invocation it is part of and deadlock.
+   * Callers can override per call via {@link InvokeOptions.ifBusy}. Under `'enqueue'`,
+   * a tool or hook of the running invocation must not `await` its own agent's
+   * `invoke()`/`stream()` — the inner call would queue behind the invocation it is
+   * part of and deadlock.
    */
   concurrentInvocationMode?: ConcurrentInvocationMode
 }
@@ -566,19 +560,10 @@ export class Agent implements LocalAgent, InvokableAgent {
   private _mcpClients: McpClient[]
   private _initialized: boolean
   private _isInvoking: boolean = false
-  /** Monotonic sequence backing {@link _invocationId}. */
   private _invocationSeq: number = 0
-  /**
-   * Identity of the logical request currently holding the turn. Minted per
-   * invocation; a resume from an interrupted state keeps the interrupted
-   * invocation's id, because it continues the same logical request. The
-   * caller-supplied `invocationState` object is NOT an invocation identity -
-   * callers may reuse one object across invocations (as `AgentAsTool` does).
-   * @internal
-   */
+  /** Id of the invocation holding the turn. A resume keeps the interrupted invocation's id. @internal */
   _invocationId: number = 0
   private readonly _concurrentInvocationMode: ConcurrentInvocationMode
-  /** Invocations waiting for the lock. Only populated under 'enqueue'/'cancelPrevious' concurrency. */
   private readonly _invocationQueue: InvocationQueue
   private _abortController = new AbortController()
   private _abortSignal: AbortSignal = this._abortController.signal
@@ -692,10 +677,7 @@ export class Agent implements LocalAgent, InvokableAgent {
     // The plugin is a no-op when no delegation tools fire.
     const hasAgentDelegation = (config?.plugins ?? []).some((p) => p.name === 'strands:agent-delegation')
 
-    // Queueing agents ('enqueue' / 'cancelPrevious') get queue visibility by default,
-    // unless the user already registered their own PendingInvocations instance.
-    // Validated at runtime (not just compile time) so an unrecognized value from an
-    // untyped (JS) caller fails loudly instead of silently behaving like 'throw'.
+    // Validated at runtime so an unrecognized value from an untyped (JS) caller fails loudly.
     const concurrentInvocationMode = config?.concurrentInvocationMode ?? 'throw'
     if (!CONCURRENT_INVOCATION_MODES.includes(concurrentInvocationMode)) {
       throw new Error(
@@ -972,20 +954,11 @@ export class Agent implements LocalAgent, InvokableAgent {
   }
 
   /**
-   * Acquires the invocation turn. When the agent is idle, takes the lock and returns
-   * immediately. When busy, the behavior follows `options.ifBusy`, falling back to the
-   * agent's `concurrentInvocationMode`:
-   *
-   * - `'throw'`: throws {@link ConcurrentInvocationError}.
-   * - `'enqueue'`: waits FIFO in the invocation queue until {@link _releaseTurn} hands
-   *   the lock over.
-   * - `'cancelPrevious'`: enters the queue at the front, then cancels the running invocation.
-   *
-   * Callers must release via try/finally with {@link _releaseTurn}.
+   * Acquires the invocation turn, following `options.ifBusy` (falling back to the
+   * agent's `concurrentInvocationMode`) when the agent is busy. Callers must release
+   * via try/finally with {@link _releaseTurn}.
    */
   private async _acquireTurn(args: InvokeArgs, options?: InvokeOptions): Promise<void> {
-    // Validate up front (even when idle): an unrecognized value must fail loudly rather
-    // than silently fall through to enqueue semantics for untyped (JS) callers.
     if (options?.ifBusy !== undefined && !CONCURRENT_INVOCATION_MODES.includes(options.ifBusy)) {
       throw new Error(
         `Unsupported ifBusy value: ${JSON.stringify(options.ifBusy)}. Supported values: ${CONCURRENT_INVOCATION_MODES.map((v) => `"${v}"`).join(', ')}`
@@ -997,8 +970,6 @@ export class Agent implements LocalAgent, InvokableAgent {
       return
     }
     const strategy = options?.ifBusy ?? this._concurrentInvocationMode
-    // Exhaustive on purpose: a future mode added to the vocabulary must be given
-    // explicit dispatch semantics here — it must not silently fall through to enqueue.
     switch (strategy) {
       case 'throw':
         throw new ConcurrentInvocationError(
@@ -1010,9 +981,8 @@ export class Agent implements LocalAgent, InvokableAgent {
           front: strategy === 'cancelPrevious',
           ...(options?.cancelSignal !== undefined && { cancelSignal: options.cancelSignal }),
         })
-        // A caller whose cancelSignal is already aborted never enters the queue (its
-        // `wait()` above has already rejected) — cancelling the running invocation for
-        // it would be pure collateral damage, so the cancel half is skipped.
+        // An already-aborted caller never enters the queue; don't cancel the running
+        // invocation on its behalf.
         if (strategy === 'cancelPrevious' && options?.cancelSignal?.aborted !== true) {
           this.cancel()
         }
@@ -1028,10 +998,7 @@ export class Agent implements LocalAgent, InvokableAgent {
 
   /**
    * Registers a listener invoked whenever an invocation enters the pending queue.
-   * Lets end-of-invocation waits (e.g. background-task settlement) yield promptly
-   * to a newly queued caller instead of holding the turn.
    *
-   * @param listener - Called synchronously on each enqueue; must not throw
    * @returns A function that detaches the listener
    * @internal
    */
@@ -1041,31 +1008,19 @@ export class Agent implements LocalAgent, InvokableAgent {
 
   /**
    * Releases the invocation turn: hands the lock to the next queued invocation, or
-   * clears the busy flag when the queue is empty. Both the queue mutation and the
-   * flag flip are synchronous, so a call arriving in between either takes the lock
-   * or lands in the queue before this handoff pops it — there is no window in which
-   * a waiter can be stranded.
+   * clears the busy flag when the queue is empty.
    */
   private _releaseTurn(): void {
     if (this._invocationQueue.handoff()) {
-      // Install the successor's AbortController synchronously with the handoff. A
-      // `cancel()` (or `'cancelPrevious'`) arriving between this handoff and the
-      // successor's first loop pass must target the successor — not the finished
-      // predecessor's stale controller, where the abort would be silently discarded
-      // when the successor started. The successor's first pass adopts this controller
-      // instead of replacing it (see the loop in `stream()`).
+      // Install the successor's controller synchronously so a cancel() arriving before
+      // its first loop pass targets the successor, not the predecessor's stale controller.
       this._installTurnController()
     } else {
       this._isInvoking = false
     }
   }
 
-  /**
-   * Installs a fresh AbortController for the invocation that now owns the turn.
-   * Called synchronously at both turn-acquisition points (idle acquire and queue
-   * handoff) so there is no window in which `cancel()` aborts a stale controller
-   * that the turn owner never observes.
-   */
+  /** Installs a fresh AbortController for the invocation that now owns the turn. */
   private _installTurnController(): void {
     this._abortController = new AbortController()
     this._abortSignal = this._abortController.signal
@@ -1184,34 +1139,22 @@ export class Agent implements LocalAgent, InvokableAgent {
     return this._isInvoking
   }
 
-  /**
-   * The agent-level concurrency mode, as configured via
-   * {@link AgentConfig.concurrentInvocationMode}. Per-call `ifBusy` options override
-   * it for individual calls.
-   */
+  /** The agent-level concurrency mode ({@link AgentConfig.concurrentInvocationMode}). */
   get concurrentInvocationMode(): ConcurrentInvocationMode {
     return this._concurrentInvocationMode
   }
 
-  /**
-   * Invocations waiting in the agent's queue, in run order.
-   *
-   * Always empty unless the agent (or a caller, via `ifBusy`) uses `'enqueue'` /
-   * `'cancelPrevious'` concurrency. Returns a point-in-time snapshot; entries are
-   * not live objects.
-   */
+  /** Point-in-time snapshot of invocations waiting in the agent's queue, in run order. */
   get pendingInvocations(): readonly PendingInvocation[] {
     return this._invocationQueue.snapshot()
   }
 
   /**
-   * Removes a queued invocation before it runs. The dequeued caller's `invoke()` or
-   * `stream()` call rejects with {@link PendingInvocationCancelledError}; no other
-   * invocation is disturbed. To cancel the currently *running* invocation, use
-   * {@link cancel} instead.
+   * Removes a queued invocation before it runs; its caller rejects with
+   * {@link PendingInvocationCancelledError}. Use {@link cancel} for the running invocation.
    *
    * @param id - The queue id from {@link pendingInvocations}
-   * @returns `true` when the entry was found and removed, `false` otherwise
+   * @returns `true` when the entry was found and removed
    */
   public cancelPending(id: string): boolean {
     return this._invocationQueue.cancel(id)
@@ -1263,16 +1206,13 @@ export class Agent implements LocalAgent, InvokableAgent {
    * Hook callbacks can check `event.agent.cancelSignal.aborted` to detect
    * cancellation and adjust their behavior accordingly.
    *
-   * The stream/invoke call will return an AgentResult with `stopReason: 'cancelled'` —
-   * or with `stopReason: 'endTurn'` when the final model pass had already completed and
-   * the invocation was only awaiting end-of-invocation work (e.g. background-task
-   * settlement); the completed result is returned promptly rather than discarded.
-   * If the agent is not currently invoking, this is a no-op.
+   * The stream/invoke call will return an AgentResult with `stopReason: 'cancelled'`,
+   * or `stopReason: 'endTurn'` when the final model pass had already completed and the
+   * invocation was only awaiting end-of-invocation work (e.g. background-task
+   * settlement). If the agent is not currently invoking, this is a no-op.
    *
-   * Only the *running* invocation is cancelled: queued invocations (under
-   * `concurrentInvocationMode: 'enqueue'`) are not affected — the next one starts,
-   * with a fresh cancellation signal, when the cancelled invocation ends. Use
-   * {@link cancelPending} to remove a queued invocation.
+   * Only the *running* invocation is cancelled; use {@link cancelPending} to remove a
+   * queued invocation.
    *
    * @example
    * ```typescript
@@ -1341,11 +1281,8 @@ export class Agent implements LocalAgent, InvokableAgent {
    * assistant messages containing tool uses are only added after tool execution succeeds
    * with valid toolResponses
    *
-   * Generators are lazy: the invocation starts at the first iteration, not when
-   * stream() returns. When the agent is configured to queue concurrent calls, a call
-   * made while another invocation is running waits in the agent's invocation queue;
-   * an unconsumed stream never enters the queue, and a queued stream can only be
-   * removed early by cancelling it.
+   * Generators are lazy: the invocation starts (and, under queueing concurrency,
+   * enters the invocation queue) at the first iteration, not when stream() returns.
    *
    * @param args - Arguments for invoking the agent
    * @param options - Optional per-invocation options
@@ -1370,9 +1307,7 @@ export class Agent implements LocalAgent, InvokableAgent {
     try {
       await this.initialize()
 
-      // Mint this request's identity. A resume from an interrupted state keeps the
-      // interrupted invocation's id - it continues that request, not a new one -
-      // so work dispatched before the interrupt still classifies as "this request".
+      // A resume continues the interrupted request, so it keeps that invocation's id.
       if (!this._interruptState.activated) {
         this._invocationId = ++this._invocationSeq
       }
@@ -1386,9 +1321,8 @@ export class Agent implements LocalAgent, InvokableAgent {
 
       while (true) {
         // Fresh AbortController per iteration, composed with any external signal. The
-        // first pass ADOPTS the controller installed at turn acquisition instead of
-        // replacing it: a cancel that landed between acquiring the turn and this point
-        // (e.g. `'cancelPrevious'` racing a queue handoff) must be observed, not wiped.
+        // first pass adopts the controller installed at turn acquisition, so a cancel
+        // that landed between acquiring the turn and this point is observed, not wiped.
         if (!firstPass) {
           this._abortController = new AbortController()
         }
@@ -1474,16 +1408,9 @@ export class Agent implements LocalAgent, InvokableAgent {
           )) !== undefined
         continuationEvent = hasContinuation ? afterInvocationEvent : undefined
 
-        // A continuation must not swallow cancellation: each loop iteration installs a
-        // fresh AbortController, so continuing here would wipe an abort that arrived
-        // during AfterInvocation (e.g. while awaiting background-task settlement) and
-        // resurrect the cancelled invocation for more model passes — stranding an
-        // `'cancelPrevious'` caller behind the very invocation it cancelled. Instead,
-        // return the completed result; the prepared inputs are abandoned in the
-        // `finally` below, and contributors that retain their sources (like
-        // background-task delivery) re-deliver in a later invocation. `resume` is not
-        // gated: its passes surface interrupts before any model call and terminate
-        // promptly.
+        // Don't let a continuation swallow an abort that arrived during AfterInvocation:
+        // return the completed result instead; abandoned inputs re-deliver in a later
+        // invocation. `resume` is not gated — its passes terminate promptly.
         const cancelledAfterFinalPass = hasContinuation && this._abortSignal.aborted
 
         if ((hasContinuation && !cancelledAfterFinalPass) || afterInvocationEvent.resume !== undefined) {
