@@ -135,12 +135,10 @@ async def test_bidi_agent_loop_proactive_reconnect_before_deadline(loop, agent, 
 
     # The proactive timer emits the warning and scheduled restart on the bounded event stream.
     warning = await loop._event_queue.get()
-    assert isinstance(warning, BidiConnectionWarningEvent)
+    assert warning == BidiConnectionWarningEvent(time_left_s=5)
 
     restart = await loop._event_queue.get()
-    assert isinstance(restart, BidiConnectionRestartEvent)
-    assert restart.reason == "scheduled"
-    assert restart.turn_interrupted is False  # swapped at an idle boundary, no turn cut
+    assert restart == BidiConnectionRestartEvent(reason="scheduled", turn_interrupted=False)
 
     agent.model.restart.assert_called()
 
@@ -172,8 +170,7 @@ async def test_scheduled_restart_event_emitted_before_model_restart(loop, agent,
 
     assert order == ["event", "restart"]
     restart = await loop._event_queue.get()
-    assert isinstance(restart, BidiConnectionRestartEvent)
-    assert restart.reason == "scheduled"
+    assert restart == BidiConnectionRestartEvent(reason="scheduled", turn_interrupted=False)
     assert await asyncio.wait_for(loop._event_queue.get(), timeout=2.0) is output
 
     await loop.stop()
@@ -447,7 +444,7 @@ async def test_connection_events_share_bounded_event_queue(loop, agent, agenerat
     await warning_put
 
     second = await asyncio.wait_for(loop.receive().__anext__(), timeout=2.0)
-    assert isinstance(second, BidiConnectionWarningEvent)
+    assert second == BidiConnectionWarningEvent(time_left_s=10)
     assert loop._event_queue.maxsize == 1
 
     await loop.stop()
@@ -468,7 +465,7 @@ async def test_connection_event_delivered_while_consumer_idle(loop, agent, agene
 
     asyncio.create_task(emit())
     first = await asyncio.wait_for(consumer.__anext__(), timeout=2.0)
-    assert isinstance(first, BidiConnectionWarningEvent)
+    assert first == BidiConnectionWarningEvent(time_left_s=10)
 
     await loop.stop()
 
@@ -593,7 +590,7 @@ async def test_deadline_callback_does_not_restart_after_stop_while_queue_full(ag
     await asyncio.wait_for(deadline_task, timeout=2)
 
     agent.model.restart.assert_not_called()
-    assert isinstance(loop._event_queue.get_nowait(), BidiConnectionRestartEvent)
+    assert loop._event_queue.get_nowait() == BidiConnectionRestartEvent(reason="scheduled", turn_interrupted=False)
 
 
 @pytest.mark.asyncio
@@ -711,8 +708,7 @@ async def test_forced_swap_flags_interrupted_turn(agent, agenerator):
         await loop._on_reconnect_deadline()
 
     restart = await loop._event_queue.get()
-    assert isinstance(restart, BidiConnectionRestartEvent)
-    assert restart.turn_interrupted is True
+    assert restart == BidiConnectionRestartEvent(reason="scheduled", turn_interrupted=True)
 
     await loop.stop()
 

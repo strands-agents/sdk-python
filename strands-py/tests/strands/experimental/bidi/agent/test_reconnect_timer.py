@@ -59,6 +59,46 @@ async def test_timer_fires_warning_then_deadline():
 
 
 @pytest.mark.asyncio
+async def test_timer_deadline_countdown_continues_while_warning_is_blocked():
+    """Warning backpressure does not add its duration to the deadline countdown."""
+    warning_started = asyncio.Event()
+    release_warning = asyncio.Event()
+    deadline_sleep_started = asyncio.Event()
+    deadline_elapsed = asyncio.Event()
+    deadlines = []
+    sleep_count = 0
+
+    async def fake_sleep(_seconds):
+        nonlocal sleep_count
+        sleep_count += 1
+        if sleep_count == 2:
+            deadline_sleep_started.set()
+            await deadline_elapsed.wait()
+
+    async def blocked_warning(_time_left_s):
+        warning_started.set()
+        await release_warning.wait()
+
+    timer = BidiReconnectTimer(
+        on_warning=blocked_warning,
+        on_deadline=lambda: _record(deadlines, None),
+        sleep=fake_sleep,
+    )
+    timer.arm(deadline_s=420, warning_lead_s=30)
+
+    await warning_started.wait()
+    await deadline_sleep_started.wait()
+    deadline_elapsed.set()
+    await asyncio.sleep(0)
+    assert deadlines == []  # warning ordering is preserved even after the deadline elapses
+
+    release_warning.set()
+    await timer._task
+
+    assert deadlines == [None]
+
+
+@pytest.mark.asyncio
 async def test_timer_cancel_is_safe_when_idle():
     """cancel() before arming does not raise."""
     timer = BidiReconnectTimer(on_warning=_noop_arg, on_deadline=_noop)
