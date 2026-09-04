@@ -7,6 +7,8 @@ import { type MakeWebFetchOptions, WEB_FETCH_DESCRIPTION_MARKDOWN, WEB_FETCH_DES
 
 export const DEFAULT_MAX_BYTES = 5 * 1024 * 1024 // 5 MiB
 export const DEFAULT_MAX_CONTENT_CHARS = 50_000
+// Match httpx's default timeout.
+const _DEFAULT_TIMEOUT_MS = 5_000
 
 const _HEADERS = {
   'User-Agent': 'strands-agents-web-fetch/1.0',
@@ -59,7 +61,7 @@ export function makeWebFetch(options: MakeWebFetchOptions = {}): ReturnType<type
     inputSchema: webFetchMarkdownInputSchema,
     callback: async (input, context) => {
       const { url } = input
-      const signal = context?.cancelSignal ?? null
+      const signal = makeSignal(context?.cancelSignal)
 
       const [contentType, raw] = await fetchOnce(url, maxBytes, signal)
 
@@ -90,8 +92,8 @@ export function makeWebFetch(options: MakeWebFetchOptions = {}): ReturnType<type
         )
       }
 
-      const signal = context?.cancelSignal ?? null
-      const invokeOptions = signal ? { cancelSignal: signal } : {}
+      const signal = makeSignal(context?.cancelSignal)
+      const invokeOptions = context?.cancelSignal ? { cancelSignal: context.cancelSignal } : {}
       const [contentType, raw] = await fetchOnce(url, maxBytes, signal)
 
       const isMarkup = contentType.toLowerCase().includes('html') || contentType.toLowerCase().includes('xml')
@@ -105,9 +107,15 @@ export function makeWebFetch(options: MakeWebFetchOptions = {}): ReturnType<type
       const invokePrompt = `URL: ${url}\n\nRequest: ${prompt}\n\n--- Content ---\n${content}`
       try {
         const result = await analyst.invoke(invokePrompt, invokeOptions)
-        return String(result)
+        return result.lastMessage.content
+          .filter((block) => block.type === 'textBlock')
+          .map((block) => block.text)
+          .join('')
       } catch (error) {
-        throw new Error(`url=<${url}> | web fetch analyst failed`, { cause: error })
+        throw new Error(
+          `url=<${url}> | web fetch analyst failed: ${error instanceof Error ? error.message : String(error)}`,
+          { cause: error }
+        )
       }
     },
   })
@@ -122,7 +130,7 @@ export const webFetch = makeWebFetch()
 
 // ---- Internals ----
 
-async function fetchOnce(url: string, maxBytes: number, signal: AbortSignal | null): Promise<[string, string]> {
+async function fetchOnce(url: string, maxBytes: number, signal: AbortSignal): Promise<[string, string]> {
   let response: Response
   try {
     response = await globalThis.fetch(url, { method: 'GET', headers: _HEADERS, signal })
@@ -130,20 +138,63 @@ async function fetchOnce(url: string, maxBytes: number, signal: AbortSignal | nu
     if (error instanceof Error && error.name === 'AbortError') {
       throw new Error('Web fetch tool request cancelled', { cause: error })
     }
-    throw new Error(`url=<${url}> | fetch failed`, { cause: error })
+    throw new Error(`url=<${url}> | fetch failed: ${error instanceof Error ? error.message : String(error)}`, {
+      cause: error,
+    })
   }
 
   if (!response.ok) {
     throw new Error(`HTTP ${response.status} ${response.statusText}: GET ${url}`)
   }
 
-  // Enforce the body size cap without buffering the entire response first.
-  const contentLength = response.headers.get('content-length')
-  if (contentLength !== null && Number(contentLength) > maxBytes) {
-    throw new Error(`Response body exceeded max_bytes=${maxBytes}. Refusing to buffer more.`)
+  // Stream the body and enforce the size cap on decompressed bytes as they arrive.
+  if (!response.body) {
+    return [response.headers.get('content-type') ?? '', '']
   }
-  const text = await response.text()
 
   const contentType = response.headers.get('content-type') ?? ''
-  return [contentType, text]
+  const charset = _parseCharset(contentType)
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder(charset)
+  const chunks: string[] = []
+  let total = 0
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > maxBytes) {
+        throw new Error(`Response body exceeded max_bytes=${maxBytes}. Refusing to buffer more.`)
+      }
+      chunks.push(decoder.decode(value, { stream: true }))
+    }
+    chunks.push(decoder.decode())
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Web fetch tool request cancelled', { cause: error })
+    }
+    throw error
+  } finally {
+    reader.cancel().catch(() => {})
+    reader.releaseLock()
+  }
+
+  return [contentType, chunks.join('')]
+}
+
+function _parseCharset(contentType: string): string {
+  const match = contentType.match(/charset=(?:"([^"]+)"|'([^']+)'|([^;\s]+))/i)
+  const charset = (match?.[1] ?? match?.[2] ?? match?.[3] ?? 'utf-8').toLowerCase()
+  try {
+    new TextDecoder(charset)
+    return charset
+  } catch {
+    return 'utf-8'
+  }
+}
+
+function makeSignal(cancelSignal?: AbortSignal): AbortSignal {
+  const timeoutSignal = AbortSignal.timeout(_DEFAULT_TIMEOUT_MS)
+  return cancelSignal ? AbortSignal.any([timeoutSignal, cancelSignal]) : timeoutSignal
 }

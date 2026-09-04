@@ -329,7 +329,7 @@ result = agent("Summarize the changes in ./CHANGELOG.md")
 ### Web Fetch
 
 Fetches an HTTP(S) URL and returns its content. Two modes are available,
-configured at construction time via `make_web_fetch`:
+configured at construction time via `make_web_fetch` / `makeWebFetch`:
 
 - **`agentic`** (default) — HTML is converted to markdown and passed to an
   analyst agent that answers a `prompt`, so the full page never enters the
@@ -338,17 +338,15 @@ configured at construction time via `make_web_fetch`:
 - **`markdown`** — HTML is converted to clean markdown with scripts, styles,
   and noise stripped. Use when the agent needs full pages for reasoning.
 
-The tool delegates all networking to an `httpx.AsyncClient`. Use the
-`make_web_fetch` factory to supply a pre-configured client with custom
-timeouts, redirects, proxies, or caching. The `max_bytes` parameter caps the
-HTTP response size (default 5 MiB); `max_content_chars` caps the extracted
-content delivered to the model or analyst (default 50,000 characters). For
-`mode='agentic'`, the factory also accepts a `model` for the analyst; the
-agent's own model is used when none is supplied.
+The `max_bytes` parameter caps the HTTP response size (default 5 MiB);
+`max_content_chars` caps the extracted content delivered to the model or
+analyst (default 50,000 characters). For `mode='agentic'` / `mode: 'agentic'`,
+the factory also accepts a `model` for the analyst; the agent's own model is
+used when none is supplied.
 
 _Supported in: Node.js (TypeScript); Python (all platforms)._
 
-:::note[Install required]
+:::note[Python: install required]
 `web_fetch` requires the optional `web-fetch` extra:
 
 ```bash
@@ -369,11 +367,17 @@ consistently across all tools, including `shell`.
 <Tab label="TypeScript">
 
 ```typescript
-import { Agent } from '@strands-agents/sdk'
-import { webFetch } from '@strands-agents/sdk/vended-tools/web-fetch'
+--8<-- "user-guide/concepts/tools/vended-tools-imports.ts:web_fetch_import"
 
-const agent = new Agent({ tools: [webFetch] })
-await agent.invoke('Summarize https://example.com/blog/post')
+--8<-- "user-guide/concepts/tools/vended-tools.ts:web_fetch_example"
+```
+
+Reading the full page as markdown:
+
+```typescript
+--8<-- "user-guide/concepts/tools/vended-tools-imports.ts:web_fetch_markdown_import"
+
+--8<-- "user-guide/concepts/tools/vended-tools.ts:web_fetch_markdown_example"
 ```
 
 </Tab>
@@ -398,17 +402,15 @@ agent = Agent(tools=[web_fetch])
 agent("Read https://example.com/docs and then explain the architecture")
 ```
 
-Dedicated analyst model and tighter response cap:
+Tighter response cap with a dedicated analyst model:
 
 ```python
-import httpx
 from strands import Agent
 from strands.models import BedrockModel
 from strands.vended_tools import make_web_fetch
 
 web_fetch = make_web_fetch(
     mode="agentic",
-    client=httpx.AsyncClient(timeout=10.0),
     max_bytes=1 * 1024 * 1024,
     max_content_chars=25_000,
     model=BedrockModel(model_id="us.amazon.nova-micro-v1:0"),

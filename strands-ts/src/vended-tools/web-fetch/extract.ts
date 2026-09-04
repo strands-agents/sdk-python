@@ -34,6 +34,11 @@ const DROPPED_ELEMENTS = [
   'nav',
 ] as unknown as TurndownService.Filter
 
+// Strip invisible characters before URL scheme detection.
+function _stripInvisible(value: string): string {
+  return value.replace(/^[\p{Cc}\p{Cf}\p{Zs}]+/u, '')
+}
+
 function buildTurndownService(): TurndownService {
   const td = new TurndownService({
     headingStyle: 'atx',
@@ -66,7 +71,7 @@ function buildTurndownService(): TurndownService {
       const alt = element.getAttribute('alt') ?? ''
       if (!src) return alt
       try {
-        const scheme = new URL(src).protocol
+        const scheme = new URL(_stripInvisible(src)).protocol
         if (scheme === 'javascript:') return ''
         if (scheme === 'data:') return alt
       } catch {
@@ -82,7 +87,7 @@ function buildTurndownService(): TurndownService {
       if (node.nodeName !== 'A') return false
       const href = ((node as HTMLAnchorElement).getAttribute('href') ?? '').trim()
       try {
-        return new URL(href).protocol === 'javascript:'
+        return new URL(_stripInvisible(href)).protocol === 'javascript:'
       } catch {
         return false
       }
