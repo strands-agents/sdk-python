@@ -7,8 +7,6 @@ import { type MakeWebFetchOptions, WEB_FETCH_DESCRIPTION_MARKDOWN, WEB_FETCH_DES
 
 export const DEFAULT_MAX_BYTES = 5 * 1024 * 1024 // 5 MiB
 export const DEFAULT_MAX_CONTENT_CHARS = 50_000
-// Match httpx's default timeout.
-const _DEFAULT_TIMEOUT_MS = 5_000
 
 const _HEADERS = {
   'User-Agent': 'strands-agents-web-fetch/1.0',
@@ -61,7 +59,7 @@ export function makeWebFetch(options: MakeWebFetchOptions = {}): ReturnType<type
     inputSchema: webFetchMarkdownInputSchema,
     callback: async (input, context) => {
       const { url } = input
-      const signal = makeSignal(context?.cancelSignal)
+      const signal = context?.cancelSignal ?? null
 
       const [contentType, raw] = await fetchOnce(url, maxBytes, signal)
 
@@ -92,7 +90,7 @@ export function makeWebFetch(options: MakeWebFetchOptions = {}): ReturnType<type
         )
       }
 
-      const signal = makeSignal(context?.cancelSignal)
+      const signal = context?.cancelSignal ?? null
       const invokeOptions = context?.cancelSignal ? { cancelSignal: context.cancelSignal } : {}
       const [contentType, raw] = await fetchOnce(url, maxBytes, signal)
 
@@ -130,7 +128,7 @@ export const webFetch = makeWebFetch()
 
 // ---- Internals ----
 
-async function fetchOnce(url: string, maxBytes: number, signal: AbortSignal): Promise<[string, string]> {
+async function fetchOnce(url: string, maxBytes: number, signal: AbortSignal | null): Promise<[string, string]> {
   // Validate scheme before hitting the network
   if (!URL.canParse(url)) {
     throw new Error(`url=<${url}> | fetch failed: invalid URL`)
@@ -201,9 +199,4 @@ function _parseCharset(contentType: string): string {
   } catch {
     return 'utf-8'
   }
-}
-
-function makeSignal(cancelSignal?: AbortSignal): AbortSignal {
-  const timeoutSignal = AbortSignal.timeout(_DEFAULT_TIMEOUT_MS)
-  return cancelSignal ? AbortSignal.any([timeoutSignal, cancelSignal]) : timeoutSignal
 }

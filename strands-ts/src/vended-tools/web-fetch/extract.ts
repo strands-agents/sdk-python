@@ -47,7 +47,20 @@ function _stripInvisible(value: string): string {
   return value.replace(/^[\p{Cc}\p{Cf}\p{Zs}]+/u, '')
 }
 
+// Cache the configured service so rules are registered once across all calls.
+let _turndownServicePromise: Promise<TurndownService> | null = null
+
 async function buildTurndownService(): Promise<TurndownService> {
+  if (_turndownServicePromise) return _turndownServicePromise
+  _turndownServicePromise = _createTurndownService().catch((error) => {
+    // Don't cache failures — allow retry on next call (e.g. after install).
+    _turndownServicePromise = null
+    throw error
+  })
+  return _turndownServicePromise
+}
+
+async function _createTurndownService(): Promise<TurndownService> {
   let Turndown: typeof TurndownService
   try {
     Turndown = (await import('turndown')).default
