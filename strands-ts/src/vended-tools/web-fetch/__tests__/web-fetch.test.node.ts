@@ -102,13 +102,13 @@ describe('webFetch tool', () => {
     it('html response is converted to markdown', async () => {
       mockFetch('<h1>Hi</h1>', { contentType: 'text/html' })
       const result = await makeWebFetch({ mode: 'markdown' }).invoke({ url: 'https://example.com/' })
-      expect(result).toContain('md:')
+      expect(result).toBe('md:<h1>Hi</h1>')
     })
 
     it('xml content type is also converted to markdown', async () => {
       mockFetch('<p>xhtml</p>', { contentType: 'application/xhtml+xml' })
       const result = await makeWebFetch({ mode: 'markdown' }).invoke({ url: 'https://example.com/page.xhtml' })
-      expect(result).toContain('md:')
+      expect(result).toBe('md:<p>xhtml</p>')
     })
 
     it('non-html response is returned as-is', async () => {
