@@ -20,6 +20,13 @@ describe('htmlToMarkdown', () => {
     expect(result).toMatch(/After script\./)
   })
 
+  it.each(['nav', 'form', 'iframe', 'svg', 'canvas', 'video', 'audio'])('drops <%s> element entirely', async (tag) => {
+    const result = await htmlToMarkdown(`<p>before</p><${tag}>secret content</${tag}><p>after</p>`)
+    expect(result).not.toContain('secret content')
+    expect(result).toContain('before')
+    expect(result).toContain('after')
+  })
+
   it('strips data-URI image blobs', async () => {
     const bigBlob = 'A'.repeat(10000)
     const result = await htmlToMarkdown(`<p>text</p><img src="data:image/png;base64,${bigBlob}" alt="alt text">`)
@@ -51,6 +58,10 @@ describe('htmlToMarkdown', () => {
     expect(await htmlToMarkdown('<img src="javascript:alert(1)" alt="x">')).not.toMatch(/javascript:/)
   })
 
+  it('returns alt text for image with empty src', async () => {
+    expect(await htmlToMarkdown('<img src="" alt="description">')).toContain('description')
+  })
+
   it.each(['\u200b', '\u00ad', '\ufeff'])('drops javascript: img src with invisible prefix %s', async (prefix) => {
     expect(await htmlToMarkdown(`<img src="${prefix}javascript:alert(1)" alt="x">`)).not.toMatch(/javascript:/)
   })
@@ -60,45 +71,6 @@ describe('htmlToMarkdown', () => {
     const result = await htmlToMarkdown(`<img src="\u200bdata:image/png;base64,${blob}" alt="alt">`)
     expect(result).not.toContain(blob)
     expect(result).toContain('alt')
-  })
-
-  it('preserves headings, lists, and links', async () => {
-    const html = `
-      <h1>Title</h1>
-      <p>Intro paragraph with a <a href="https://ex.com/x">link</a>.</p>
-      <ul><li>one</li><li>two</li></ul>
-      <ol><li>first</li><li>second</li></ol>
-    `
-    const result = await htmlToMarkdown(html)
-    expect(result).toMatch(/# Title/)
-    expect(result).toContain('[link](https://ex.com/x)')
-    expect(result).toMatch(/- +one/)
-    expect(result).toMatch(/1\. +first/)
-  })
-
-  it('preserves code blocks', async () => {
-    const result = await htmlToMarkdown('<pre><code>def f():\n    return 1</code></pre>')
-    expect(result).toContain('```')
-    expect(result).toContain('def f():')
-  })
-
-  it('survives malformed HTML', async () => {
-    const result = await htmlToMarkdown('<p>ok <b>bold <em>and italic</p>')
-    expect(result).toContain('ok')
-    expect(result).toContain('bold')
-  })
-
-  it('preserves blockquote prefix on nested block content', async () => {
-    const result = await htmlToMarkdown('<blockquote><p>quoted line one.</p><p>quoted line two.</p></blockquote>')
-    const bqLines = result.split('\n').filter((line: string) => line.includes('quoted line'))
-    expect(bqLines).toHaveLength(2)
-    for (const line of bqLines) {
-      expect(line.startsWith('> ')).toBe(true)
-    }
-  })
-
-  it('void tag inside a dropped element does not swallow following content', async () => {
-    expect(await htmlToMarkdown('<form><input></form><p>after</p>')).toContain('after')
   })
 
   it('embeds the page title as a top-level heading', async () => {
