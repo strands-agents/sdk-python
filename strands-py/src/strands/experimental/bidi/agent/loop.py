@@ -28,7 +28,7 @@ from ...hooks.events import (
 )
 from .. import _telemetry
 from .._async import _TaskPool, stop_all
-from ..models import BidiModel, BidiModelTimeoutError
+from ..models import BidiModelTimeoutError, Restartable
 from ..types.events import (
     BidiAudioStreamEvent,
     BidiConnectionCloseEvent,
@@ -44,7 +44,7 @@ from ..types.events import (
     BidiUsageEvent,
 )
 from ..types.model import BidiConnectionConfig
-from ._reconnect_timer import _BidiReconnectTimer, resolve_deadline_s
+from ._reconnect_timer import BidiReconnectTimer, resolve_deadline_s
 
 if TYPE_CHECKING:
     from .agent import BidiAgent
@@ -52,13 +52,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Bound on awaiting a superseded reader after its stream is closed before cancelling it.
-_READER_REAP_TIMEOUT_S = 2.0
+_MODEL_RESTART_STOP_TIMEOUT_S = 2
 
 # Fixed advance notice, in seconds before a scheduled reconnect, for the warning event.
-_WARNING_LEAD_S = 10.0
+_MODEL_RESTART_WARNING_S = 10
 
 # Max seconds a proactive reconnect waits for a turn boundary before forcing the swap.
-_TURN_ALIGN_WAIT_S = 10.0
+_MODEL_RESTART_TURN_TIMEOUT_S = 10
 
 
 @dataclass(frozen=True)
@@ -123,7 +123,7 @@ class _BidiAgentLoop:
         self._baseline_total_tokens = 0
         self._baseline_cache_read_tokens = 0
 
-        self._reconnect_timer = _BidiReconnectTimer(
+        self._reconnect_timer = BidiReconnectTimer(
             on_warning=self._on_reconnect_warning,
             on_deadline=self._on_reconnect_deadline,
         )
@@ -367,9 +367,9 @@ class _BidiAgentLoop:
         deadline_s = resolve_deadline_s(self._connection_config())
         if deadline_s is None:
             return
-        self._reconnect_timer.arm(deadline_s, _WARNING_LEAD_S)
+        self._reconnect_timer.arm(deadline_s, _MODEL_RESTART_WARNING_S)
 
-    async def _on_reconnect_warning(self, time_left_s: float) -> None:
+    async def _on_reconnect_warning(self, time_left_s: int) -> None:
         """Timer callback: surface an approaching-reconnect warning to the receiver.
 
         Emitted on the lifecycle queue: non-blocking (so it never stalls the timer's run to the
@@ -408,15 +408,18 @@ class _BidiAgentLoop:
         """Wait for the current turn to finish, bounded so the reconnect beats the limit.
 
         Returns immediately at a turn boundary (including for a provider that emits no turn
-        events). Otherwise waits up to ``_TURN_ALIGN_WAIT_S`` for the turn to complete, then
+        events). Otherwise waits up to ``_MODEL_RESTART_TURN_TIMEOUT_S`` for the turn to complete, then
         proceeds so the swap does not overrun the headroom below the provider limit.
         """
         if self._turn_complete.is_set():
             return
         try:
-            await asyncio.wait_for(self._turn_complete.wait(), timeout=_TURN_ALIGN_WAIT_S)
+            await asyncio.wait_for(self._turn_complete.wait(), timeout=_MODEL_RESTART_TURN_TIMEOUT_S)
         except asyncio.TimeoutError:
-            logger.debug("no turn boundary within %.1fs | forcing reconnect", _TURN_ALIGN_WAIT_S)
+            logger.debug(
+                "no turn boundary within %.1fs | forcing reconnect",
+                _MODEL_RESTART_TURN_TIMEOUT_S,
+            )
 
     def _reset_turn_state(self) -> None:
         """Reset turn tracking to the idle boundary state."""
@@ -504,8 +507,8 @@ class _BidiAgentLoop:
         try:
             previous_reader = self._model_task
             self._generation += 1
-            await self._reconnect_model(restart_kwargs)
-            await self._await_superseded_reader(previous_reader)
+            await self._restart_model(restart_kwargs)
+            await self._wait_for_model_task(previous_reader)
             self._model_task = self._task_pool.create(self._run_model(self._generation))
         except Exception as exception:
             restart_exception = exception
@@ -518,28 +521,21 @@ class _BidiAgentLoop:
         if restart_exception is not None:
             raise restart_exception
 
-    async def _reconnect_model(self, restart_kwargs: dict[str, Any]) -> None:
-        """Reconnect via the provider's ``reconnect()``, or ``stop()`` then ``start()``.
-
-        The fallback is transitional: providers that have not implemented ``reconnect()``
-        inherit the protocol no-op, so route them through stop/start until they adopt it.
-        """
+    async def _restart_model(self, restart_kwargs: dict[str, Any]) -> None:
+        """Restart through the provider when supported, otherwise use ``stop()`` then ``start()``."""
         model = self._agent.model
         system_prompt = self._agent.system_prompt
         tools = self._agent.tool_registry.get_all_tool_specs()
         messages = self._agent.messages
 
-        # "Provider didn't override reconnect()" — it still resolves to the protocol's no-op
-        # default, so fall back to stop/start. getattr on the type (not the instance) tolerates
-        # a model whose class does not expose reconnect at all (e.g. a mock).
-        if getattr(type(model), "reconnect", None) is BidiModel.reconnect:
-            await model.stop()
-            await model.start(system_prompt, tools, messages, **restart_kwargs)
+        if isinstance(model, Restartable):
+            await model.restart(system_prompt, tools, messages, **restart_kwargs)
             return
 
-        await model.reconnect(system_prompt, tools, messages, **restart_kwargs)
+        await model.stop()
+        await model.start(system_prompt, tools, messages, **restart_kwargs)
 
-    async def _await_superseded_reader(self, task: asyncio.Task | None) -> None:
+    async def _wait_for_model_task(self, task: asyncio.Task | None) -> None:
         """Await a superseded reader after its stream is closed; cancel only as a backstop.
 
         The reader is expected to fall out of receive() when its connection is closed. It is
@@ -549,7 +545,7 @@ class _BidiAgentLoop:
         if task is None or task.done():
             return
         try:
-            await asyncio.wait_for(task, timeout=_READER_REAP_TIMEOUT_S)
+            await asyncio.wait_for(task, timeout=_MODEL_RESTART_STOP_TIMEOUT_S)
         except Exception as error:
             # Expected: the reader's stream-close error, or the reap timeout. Logged, not
             # forwarded — the current reader is the only one that surfaces errors to the consumer.
@@ -667,16 +663,23 @@ class _BidiAgentLoop:
                         )
                         response_span = None
                     self._response_active = False
+                    # A completed reply satisfies the user turn: clear the latch so a lagging user
+                    # transcript arriving after completion does not re-open the turn.
+                    self._awaiting_response = False
                     self._update_turn_state()
 
                 elif isinstance(event, BidiTranscriptStreamEvent):
+                    if event["role"] == "user":
+                        # Any user speech opens a turn that owes a model reply, so a proactive
+                        # reconnect holds for the reply (or force-swaps, flagging turn_interrupted)
+                        # instead of dropping a turn spoken near the deadline. Keyed on any user
+                        # transcript, not just the final one: providers differ in whether they flag
+                        # the final user transcript, and the reply is what clears this state.
+                        self._awaiting_response = True
+                        self._update_turn_state()
                     if event["is_final"]:
                         message: Message = {"role": event["role"], "content": [{"text": event["text"]}]}
                         await self._agent._append_messages(message)
-                        if event["role"] == "user":
-                            # A finished user turn owes a response; hold reconnect until it lands.
-                            self._awaiting_response = True
-                            self._update_turn_state()
 
                 elif isinstance(event, ToolUseStreamEvent):
                     tool_use = event["current_tool_use"]

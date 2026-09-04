@@ -18,7 +18,7 @@ from ..types.event_loop import AuxiliaryModelCallSource, Usage
 from ..types.interrupt import _Interruptible
 from ..types.streaming import StopReason
 from ..types.tools import AgentTool, ToolResult, ToolUse
-from .registry import BaseHookEvent, HookEvent
+from .registry import BaseHookEvent, HookEvent, _LocalAgentT
 
 if TYPE_CHECKING:
     from ..multiagent.base import MultiAgentBase
@@ -206,7 +206,7 @@ class AfterToolsEvent(HookEvent):
 
 
 @dataclass
-class BeforeToolCallEvent(HookEvent, _Interruptible):
+class BeforeToolCallEvent(HookEvent[_LocalAgentT], _Interruptible):
     """Event triggered before a tool is invoked.
 
     This event is fired just before the agent executes a tool, allowing hook
@@ -246,7 +246,7 @@ class BeforeToolCallEvent(HookEvent, _Interruptible):
 
 
 @dataclass
-class AfterToolCallEvent(HookEvent):
+class AfterToolCallEvent(HookEvent[_LocalAgentT]):
     """Event triggered after a tool invocation completes.
 
     This event is fired after the agent has finished executing a tool,

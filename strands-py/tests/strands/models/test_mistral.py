@@ -5,6 +5,7 @@ import pydantic
 import pytest
 
 import strands
+from strands.models import CacheConfig
 from strands.models.mistral import MistralModel
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 
@@ -123,6 +124,61 @@ def test_format_request_default(model, messages, model_id):
     }
 
     assert actual_request == exp_request
+
+
+def test_cache_config_round_trips(model_id, max_tokens, captured_warnings):
+    """cache_config is a valid config field and survives get_config/update_config unchanged."""
+    cache_config = CacheConfig(cache_key="tenant-42")
+    model = MistralModel(model_id=model_id, max_tokens=max_tokens, cache_config=cache_config)
+
+    assert model.get_config()["cache_config"] is cache_config
+
+    updated = CacheConfig(cache_key="tenant-99")
+    model.update_config(cache_config=updated)
+    assert model.get_config()["cache_config"] is updated
+
+    assert not any("Invalid configuration parameters" in str(warning.message) for warning in captured_warnings)
+
+
+def test_cache_key_maps_to_prompt_cache_key(model_id, max_tokens, messages):
+    """Mistral is key-routed: cache_config.cache_key maps to the request's prompt_cache_key."""
+    model = MistralModel(model_id=model_id, max_tokens=max_tokens, cache_config=CacheConfig(cache_key="tenant-42"))
+
+    request = model.format_request(messages)
+
+    assert request["prompt_cache_key"] == "tenant-42"
+
+
+def test_prompt_cache_key_absent_when_unset(model_id, max_tokens, messages):
+    """A cache_config without cache_key adds no prompt_cache_key to the request."""
+    model = MistralModel(model_id=model_id, max_tokens=max_tokens, cache_config=CacheConfig())
+
+    request = model.format_request(messages)
+
+    assert "prompt_cache_key" not in request
+
+
+def test_ttl_is_ignored_and_warned(model_id, max_tokens, messages):
+    """Mistral has no retention control: ttl is dropped with a warning, never sent to the wire."""
+    model = MistralModel(model_id=model_id, max_tokens=max_tokens, cache_config=CacheConfig(cache_key="k", ttl="1h"))
+
+    with pytest.warns(UserWarning, match=r"fields \['ttl'\] have no effect"):
+        request = model.format_request(messages)
+
+    assert request["prompt_cache_key"] == "k"
+    assert "prompt_cache_retention" not in request
+
+
+def test_placement_fields_are_no_ops_warned(model_id, max_tokens, messages):
+    """strategy / system_prompt_ttl are placement controls Mistral cannot honor; they warn."""
+    model = MistralModel(
+        model_id=model_id, max_tokens=max_tokens, cache_config=CacheConfig(strategy="anthropic", cache_key="k")
+    )
+
+    with pytest.warns(UserWarning, match=r"fields \['strategy'\] have no effect"):
+        request = model.format_request(messages)
+
+    assert request["prompt_cache_key"] == "k"
 
 
 def test_format_request_with_temperature(model, messages, model_id):
@@ -781,7 +837,6 @@ def test_format_request_filters_s3_source_image(model, caplog):
 
 def test_format_request_skips_message_cache_point(model, caplog):
     caplog.set_level(logging.WARNING, logger="strands.models.mistral")
-
     messages = [{"role": "user", "content": [{"text": "durable prefix"}, {"cachePoint": {"type": "default"}}]}]
 
     formatted_messages = model._format_request_messages(messages)

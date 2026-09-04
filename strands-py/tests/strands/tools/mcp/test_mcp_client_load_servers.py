@@ -5,7 +5,11 @@ from unittest.mock import ANY, patch
 
 import pytest
 
+from strands.tools.mcp._compat import MCP_V2
 from strands.tools.mcp.mcp_client import MCPClient
+
+# mcp 2.x renamed the provider's `scopes` keyword to `scope`.
+SCOPE_KWARG = "scope" if MCP_V2 else "scopes"
 
 
 @pytest.fixture
@@ -28,7 +32,7 @@ def transports():
     """Patch the three transport constructors as imported into mcp_client."""
     with (
         patch("strands.tools.mcp.mcp_client.stdio_client") as stdio,
-        patch("strands.tools.mcp.mcp_client.streamablehttp_client") as http,
+        patch("strands.tools.mcp.mcp_client.streamable_http_transport") as http,
         patch("strands.tools.mcp.mcp_client.sse_client") as sse,
         patch("strands.tools.mcp.mcp_client.StdioServerParameters") as params,
     ):
@@ -332,7 +336,7 @@ def test_mixed_config_non_opted_in_failure_aborts_whole_load(mock_client, transp
 
 
 def test_config_auth_builds_client_credentials_provider(mock_client, transports):
-    with patch("strands.tools.mcp.mcp_client.ClientCredentialsOAuthProvider") as provider_cls:
+    with patch("mcp.client.auth.extensions.client_credentials.ClientCredentialsOAuthProvider") as provider_cls:
         MCPClient.load_servers(
             {
                 "srv": {
@@ -348,7 +352,7 @@ def test_config_auth_builds_client_credentials_provider(mock_client, transports)
         storage=ANY,
         client_id="id",
         client_secret="secret",
-        scopes="read write",
+        **{SCOPE_KWARG: "read write"},
     )
     assert transports["http"].call_args.kwargs["auth"] is provider_cls.return_value
 
@@ -356,7 +360,7 @@ def test_config_auth_builds_client_credentials_provider(mock_client, transports)
 def test_auth_interpolates_env_vars(mock_client, transports, monkeypatch):
     monkeypatch.setenv("OAUTH_ID", "env-id")
     monkeypatch.setenv("OAUTH_SECRET", "env-secret")
-    with patch("strands.tools.mcp.mcp_client.ClientCredentialsOAuthProvider") as provider_cls:
+    with patch("mcp.client.auth.extensions.client_credentials.ClientCredentialsOAuthProvider") as provider_cls:
         MCPClient.load_servers(
             {
                 "srv": {
