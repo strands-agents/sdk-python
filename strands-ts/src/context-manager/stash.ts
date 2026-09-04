@@ -43,10 +43,14 @@ export class Stash {
   private readonly _baseStorage: Storage
   private readonly _sessionId: string
 
+  /** Name of the base storage constructor, for diagnostic logging. */
+  readonly storageTypeName: string
+
   constructor(storage: Storage, sessionId: string, agentId: string) {
     this._baseStorage = storage
     this._sessionId = sessionId
     this._storage = namespaceStorage(storage, `${STASH_PREFIX}/${sessionId}/scopes/agent/${agentId}`)
+    this.storageTypeName = storage.constructor.name || 'unknown'
   }
 
   /**

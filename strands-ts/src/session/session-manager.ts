@@ -352,7 +352,7 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
     if (!contextManager?.stash) return
 
     if (contextManager.stashIsDurable) {
-      const storageType = contextManager.stashStorage?.constructor.name ?? 'unknown'
+      const storageType = contextManager.stash.storageTypeName
       snapshot.data.stash = { location: 'external', storageType } satisfies StashSnapshotData
       return
     }
@@ -370,7 +370,7 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
 
     const stashData = snapshot.data.stash as StashSnapshotData
     if (stashData.location === 'external') {
-      const currentType = agent.contextManager?.stashStorage?.constructor.name
+      const currentType = stash.storageTypeName
       if (stashData.storageType && currentType && stashData.storageType !== currentType) {
         logger.warn(
           `session_id=<${this._sessionId}>, snapshot_storage=<${stashData.storageType}>, current_storage=<${currentType}> | stash storage type changed since snapshot was created, stash data may be inaccessible`

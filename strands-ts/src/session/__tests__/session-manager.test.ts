@@ -756,7 +756,7 @@ describe('SessionManager — stash integration', () => {
   ): { agent: Agent; stash: Stash } {
     const storage = stashStorage ?? rootStorage
     const stash = new Stash(storage, sessionId, agentId)
-    const contextManager = { stash, stashStorage: storage } as unknown as ContextManager
+    const contextManager = { stash } as unknown as ContextManager
     const agent = {
       ...createMockAgent(agentId),
       contextManager,
@@ -836,7 +836,7 @@ describe('SessionManager — stash integration', () => {
       sessionManager.initAgent(createMockAgentWithHooks())
 
       const stash = new Stash(rootStorage, 'test-session', 'agent')
-      const contextManager = { stash, stashIsDurable: true, stashStorage: rootStorage } as unknown as ContextManager
+      const contextManager = { stash, stashIsDurable: true } as unknown as ContextManager
       const agent = { ...createMockAgent('agent'), contextManager } as unknown as Agent
       await stash.store('tool-1', 0, new TextEncoder().encode(JSON.stringify({ text: 'hello' })))
 
@@ -957,7 +957,7 @@ describe('SessionManager — stash integration', () => {
       const mockAgent = createMockAgentWithHooks({
         extra: {
           storage: rootStorage,
-          contextManager: { stash, stashStorage: rootStorage },
+          contextManager: { stash },
         } as unknown as Partial<Agent>,
       })
       sessionManager.initAgent(mockAgent)
@@ -984,7 +984,7 @@ describe('SessionManager — stash integration', () => {
       const mockAgent = createMockAgentWithHooks({
         extra: {
           storage: rootStorage,
-          contextManager: { stash, stashStorage: customStashStorage },
+          contextManager: { stash },
         } as unknown as Partial<Agent>,
       })
       sessionManager.initAgent(mockAgent)
@@ -1011,7 +1011,7 @@ describe('SessionManager — stash integration', () => {
       const mockAgent = createMockAgentWithHooks({
         extra: {
           storage: rootStorage,
-          contextManager: { stash, stashStorage: namespacedStorage },
+          contextManager: { stash },
         } as unknown as Partial<Agent>,
       })
       sessionManager.initAgent(mockAgent)
@@ -1038,7 +1038,7 @@ describe('SessionManager — stash integration', () => {
       const mockAgent = createMockAgentWithHooks({
         extra: {
           storage: namespacedRoot,
-          contextManager: { stash, stashStorage: namespacedRoot },
+          contextManager: { stash },
         } as unknown as Partial<Agent>,
       })
       sessionManager.initAgent(mockAgent)
