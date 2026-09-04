@@ -347,4 +347,5 @@ Comments are to-the-point, state only what cannot be inferred from the code, and
   - [TESTING.md](./docs/TESTING.md) - Testing reference
   - [HOOKS.md](./docs/HOOKS.md) - Hooks system guide
   - [MCP_CLIENT_ARCHITECTURE.md](./docs/MCP_CLIENT_ARCHITECTURE.md) - MCP threading design
+  - [MCP_VERSIONS.md](./docs/MCP_VERSIONS.md) - MCP 1.x/2.x support and migration
 - [PR.md](../team/PR.md) - PR description guidelines

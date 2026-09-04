@@ -21,22 +21,24 @@ The dependency range is `mcp>=1.23.0,<2.2`. A fresh install resolves to the newe
 
 To stay on 1.x, pin it in your own project:
 
-```
+```bash
 pip install strands-agents "mcp<2"
 ```
 
-Pinning an exact `mcp` version works too and is the safest way to control upgrades. The upper bound excludes `mcp` releases we have not verified yet, and we raise it as we test new releases. Every release line inside the current range has been verified: 1.29.x and 2.1.x, each exercised end to end against live MCP servers over stdio, streamable HTTP, and SSE.
+Pinning an exact `mcp` version works too and is the safest way to control upgrades. The upper bound excludes `mcp` releases we have not verified yet, and we raise it as we test new releases. CI exercises the newest release of each major line in the range. Older releases inside the range are accepted but not individually tested.
 
-CI covers both major versions on every PR: the regular test matrix resolves mcp 2.x, and the "MCP 1.x Compat" job force-installs mcp 1.x and runs the MCP client suite against it. Integration tests split the same way: the main scope runs on 2.x, and the mcp-1x scope forces mcp 1.x to run the 1.x-era MCP integration suite.
+CI covers both major versions on every PR that touches the Python SDK: the regular test matrix resolves mcp 2.x, and the "MCP 1.x Compat" job force-installs mcp 1.x and runs the MCP client suite against it. Integration tests split the same way: the main scope runs on 2.x, and the mcp-1x scope forces mcp 1.x to run the 1.x-era MCP integration suite.
 
 ## Migrating your code
 
-If your code only uses the Strands API, nothing changes. `MCPClient`, `Agent(tools=client.list_tools_sync())`, tool calls, prompts, resources, and OAuth client credentials behave the same on both versions.
+If your code only uses the Strands API, little changes. `MCPClient`, `Agent(tools=client.list_tools_sync())`, tool calls, prompts, resources, and OAuth client credentials work the same way on both versions, apart from the differences below.
 
-Three things behave differently on 2.x:
+These behave differently on 2.x:
 
 - `read_timeout_seconds` on tool calls bounds each request round instead of the whole call, because a 2.x tool call can involve several round trips.
-- 2.x validates `ToolAnnotations` strictly and drops unknown extra keys that 1.x preserved.
+- 2.x drops unknown `ToolAnnotations` keys that 1.x preserves.
+- `get_prompt` and `read_resource` return the installed `mcp` package's own result models, and 2.x renamed their fields from camelCase to snake_case (for example `mimeType` became `mime_type`). Code that reads fields on those results follows the installed version.
+- `auth_provider` on `MCPClient` takes an HTTPX auth object, and mcp 2.x is built on `httpx2`, which rejects `httpx.Auth` instances at request time. On a 2.x install, pass an `httpx2`-compatible auth object instead. OAuth client credentials passed through the `auth` config are unaffected, because the SDK builds the provider from the installed `mcp` package.
 - MCP Tasks work on both versions through `tasks_config`: the client drives the finalized SEP-2663 task extension on 2.x and the legacy 2025-11-25 experimental flow on 1.x, and tool calls return the same results either way. The manual task lifecycle methods (`submit_tool_sync`, `get_task_sync`, `update_task_sync`, `cancel_task_sync`, and their `_async` pairs) require 2.x and raise `RuntimeError` on 1.x.
 
 The compatibility layer only covers the Strands API. If you write your own MCP server with the `mcp` package, or build transports from `mcp` APIs yourself before passing them to `MCPClient`, that code uses `mcp` directly and the renames above apply to it. Follow the official guide at [modelcontextprotocol/python-sdk `docs/migration.md`](https://github.com/modelcontextprotocol/python-sdk/blob/main/docs/migration.md) for that part of the migration.

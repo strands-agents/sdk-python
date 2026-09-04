@@ -252,18 +252,15 @@ module = [
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-# _compat branches on which mcp major line is installed; mypy only ever sees
-# one, so each branch's ignores are "unused" when checked against the other.
-module = ["strands.tools.mcp._compat"]
+# These modules branch on which mcp major line is installed; mypy only ever sees one line's types, so each branch's
+# per-line ignores are "unused" when checked against the other line.
+module = [
+    "strands.tools.mcp._compat",
+    "strands.tools.mcp.mcp_client",
+    "strands.tools.mcp.mcp_instrumentation",
+    "strands.tools.mcp.mcp_tasks",
+]
 warn_unused_ignores = false
-
-[[tool.mypy.overrides]]
-# The task workflow and transport plumbing here are written against the mcp
-# 1.x types, and the default environment now resolves mcp 2.x. Remove this
-# exemption when the SEP-2663 task implementation replaces the 1.x-typed
-# code (#4125).
-module = ["strands.tools.mcp.mcp_client", "strands.tools.mcp.mcp_instrumentation"]
-ignore_errors = true
 
 [tool.ruff]
 line-length = 120
