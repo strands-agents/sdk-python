@@ -1,4 +1,4 @@
-"""Internal only. Do not export.
+"""Experimental and internal. Do not export.
 
-Context management modes that operate on an agent's conversation.
+Context management modes and strategies that operate on an agent's conversation.
 """
