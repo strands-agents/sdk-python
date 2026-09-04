@@ -178,7 +178,7 @@ def test_public_task_lifecycle_over_real_mcp_transport() -> None:
 
     client = MCPClient(transport, tasks_config={"poll_interval": timedelta(milliseconds=1)})
     with client:
-        task = client.call_tool_with_task_sync("task-runtime")
+        task = client.submit_tool_sync("task-runtime")
         assert isinstance(task, MCPCreateTaskResult)
         assert client.get_task_sync(task.task_id).status == "completed"
         assert isinstance(
@@ -188,7 +188,7 @@ def test_public_task_lifecycle_over_real_mcp_transport() -> None:
         assert isinstance(client.cancel_task_sync(task.task_id), MCPCancelTaskResult)
 
         async def exercise_async_lifecycle() -> None:
-            async_task = await client.call_tool_with_task_async("task-runtime")
+            async_task = await client.submit_tool_async("task-runtime")
             assert isinstance(async_task, MCPCreateTaskResult)
             state = await client.get_task_async(async_task.task_id)
             assert state.status == "completed"
@@ -800,7 +800,7 @@ class TestPublicTaskMethodGuards:
     def test_methods_require_active_session(self) -> None:
         client = MCPClient(lambda: None, tasks_config={})
         with pytest.raises(MCPClientInitializationError):
-            client.call_tool_with_task_sync("tool")
+            client.submit_tool_sync("tool")
         with pytest.raises(MCPClientInitializationError):
             client.get_task_sync("task-1")
         with pytest.raises(MCPClientInitializationError):
@@ -812,7 +812,7 @@ class TestPublicTaskMethodGuards:
     async def test_async_methods_require_active_session(self) -> None:
         client = MCPClient(lambda: None, tasks_config={})
         with pytest.raises(MCPClientInitializationError):
-            await client.call_tool_with_task_async("tool")
+            await client.submit_tool_async("tool")
         with pytest.raises(MCPClientInitializationError):
             await client.get_task_async("task-1")
         with pytest.raises(MCPClientInitializationError):
@@ -823,13 +823,13 @@ class TestPublicTaskMethodGuards:
     def test_call_tool_with_task_requires_tasks_config(self) -> None:
         client = active_task_client(FakeTaskSession({}), tasks_config=None)
         with pytest.raises(RuntimeError, match="tasks_config"):
-            client.call_tool_with_task_sync("tool")
+            client.submit_tool_sync("tool")
 
     def test_call_tool_with_task_requires_advertised_extension(self) -> None:
         client = active_task_client(FakeTaskSession({}), tasks_config={})
         client._server_task_capable = False
         with pytest.raises(RuntimeError, match="did not advertise"):
-            client.call_tool_with_task_sync("tool")
+            client.submit_tool_sync("tool")
 
     @pytest.mark.asyncio
     async def test_task_id_must_not_be_empty(self) -> None:

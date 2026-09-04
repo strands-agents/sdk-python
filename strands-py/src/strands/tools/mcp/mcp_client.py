@@ -1109,7 +1109,7 @@ class MCPClient(ToolProvider):
             logger.exception("tool execution failed")
             return self._handle_tool_execution_error(tool_use_id, e)
 
-    def call_tool_with_task_sync(
+    def submit_tool_sync(
         self,
         name: str,
         arguments: dict[str, Any] | None = None,
@@ -1117,7 +1117,7 @@ class MCPClient(ToolProvider):
         meta: dict[str, Any] | None = None,
         progress_callback: ProgressFnT | None = None,
     ) -> MCPCallToolResult | MCPCreateTaskResult:
-        """Call a tool once and return its direct result or SEP-2663 task handle.
+        """Submit a tool call once and return its direct result or SEP-2663 task handle.
 
         This protocol-level operation never polls a returned task.
 
@@ -1150,7 +1150,7 @@ class MCPClient(ToolProvider):
             )
         ).result()
 
-    async def call_tool_with_task_async(
+    async def submit_tool_async(
         self,
         name: str,
         arguments: dict[str, Any] | None = None,
@@ -1158,7 +1158,7 @@ class MCPClient(ToolProvider):
         meta: dict[str, Any] | None = None,
         progress_callback: ProgressFnT | None = None,
     ) -> MCPCallToolResult | MCPCreateTaskResult:
-        """Asynchronously call a tool once without polling a returned task.
+        """Asynchronously submit a tool call once without polling a returned task.
 
         Args:
             name: Name of the tool to call.

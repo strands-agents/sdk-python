@@ -557,18 +557,18 @@ class TestTaskMetaForwarding:
 class TestFinalizedTaskLifecycleUnavailableOnV1:
     """The finalized SEP-2663 lifecycle refuses to run against the mcp 1.x line."""
 
-    def test_call_tool_with_task_sync_requires_mcp_v2(self, mock_transport, mock_session):
+    def test_submit_tool_sync_requires_mcp_v2(self, mock_transport, mock_session):
         """Test the public task lifecycle rejects mcp 1.x before sending anything."""
         with MCPClient(mock_transport["transport_callable"], tasks_config={}) as client:
             with pytest.raises(RuntimeError, match="mcp 2.x"):
-                client.call_tool_with_task_sync("tool")
+                client.submit_tool_sync("tool")
 
     @pytest.mark.asyncio
-    async def test_call_tool_with_task_async_requires_mcp_v2(self, mock_transport, mock_session):
+    async def test_submit_tool_async_requires_mcp_v2(self, mock_transport, mock_session):
         """Test the async task lifecycle rejects mcp 1.x before sending anything."""
         with MCPClient(mock_transport["transport_callable"], tasks_config={}) as client:
             with pytest.raises(RuntimeError, match="mcp 2.x"):
-                await client.call_tool_with_task_async("tool")
+                await client.submit_tool_async("tool")
 
     @pytest.mark.asyncio
     async def test_task_aware_call_requires_mcp_v2(self, mock_transport, mock_session):

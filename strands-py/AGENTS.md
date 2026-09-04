@@ -254,7 +254,7 @@ Task-augmented execution is used when ALL conditions are met:
 ### Key Files
 
 - `src/strands/tools/mcp/mcp_tasks.py` - `TasksConfig`, task result models, and defaults
-- `src/strands/tools/mcp/mcp_client.py` - Task execution logic (2.x: `_call_tool_with_task_and_poll_async`; 1.x: `_call_tool_as_task_and_poll_async`) and the public task lifecycle methods (`call_tool_with_task_*`, `get_task_*`, `update_task_*`, `cancel_task_*`)
+- `src/strands/tools/mcp/mcp_client.py` - Task execution logic (2.x: `_call_tool_with_task_and_poll_async`; 1.x: `_call_tool_as_task_and_poll_async`) and the public task lifecycle methods (`submit_tool_*`, `get_task_*`, `update_task_*`, `cancel_task_*`)
 - `tests/strands/tools/mcp/test_mcp_client_tasks.py` - Unit tests (1.x flow)
 - `tests/strands/tools/mcp/test_mcp_client_tasks_v2.py` - Unit tests (2.x flow; runs in the MCP 2.x Compat CI job)
 - `tests_integ/mcp/test_mcp_client_tasks.py` - Integration tests
