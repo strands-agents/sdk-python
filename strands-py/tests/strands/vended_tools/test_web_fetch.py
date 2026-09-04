@@ -578,9 +578,10 @@ class TestAgenticAuxiliaryInstrumentation:
         assert host_agent.event_loop_metrics.accumulated_usage_by_source == {}
 
     @pytest.mark.asyncio
-    async def test_hook_error_surfaces_as_itself_not_analyst_failure(self, monkeypatch):
+    @pytest.mark.parametrize("failing_event", ["before", "after"])
+    async def test_hook_error_surfaces_as_itself_not_analyst_failure(self, monkeypatch, failing_event):
         from strands import Agent
-        from strands.hooks import AfterAuxiliaryModelCallEvent
+        from strands.hooks import AfterAuxiliaryModelCallEvent, BeforeAuxiliaryModelCallEvent
         from strands.types.event_loop import Usage
         from strands.types.tools import ToolContext, ToolUse
         from tests.fixtures.mocked_model_provider import MockedModelProvider
@@ -592,7 +593,8 @@ class TestAgenticAuxiliaryInstrumentation:
         def broken_hook(_event):
             raise RuntimeError("telemetry exporter down")
 
-        host_agent.hooks.add_callback(AfterAuxiliaryModelCallEvent, broken_hook)
+        event_type = BeforeAuxiliaryModelCallEvent if failing_event == "before" else AfterAuxiliaryModelCallEvent
+        host_agent.hooks.add_callback(event_type, broken_hook)
 
         tool_use = ToolUse(toolUseId="wf_aux3", name="web_fetch", input={})
         ctx = ToolContext(tool_use=tool_use, agent=host_agent, invocation_state={})
