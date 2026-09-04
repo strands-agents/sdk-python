@@ -27,7 +27,7 @@ pip install strands-agents "mcp<2"
 
 Pinning an exact `mcp` version works too and is the safest way to control upgrades. The upper bound excludes `mcp` releases we have not verified yet, and we raise it as we test new releases. Every release line inside the current range has been verified: 1.29.x and 2.1.x, each exercised end to end against live MCP servers over stdio, streamable HTTP, and SSE.
 
-CI covers both major versions on every PR: the regular test matrix resolves mcp 2.x, and the "MCP 1.x Compat" job force-installs mcp 1.x and runs the MCP client suite against it.
+CI covers both major versions on every PR: the regular test matrix resolves mcp 2.x, and the "MCP 1.x Compat" job force-installs mcp 1.x and runs the MCP client suite against it. Integration tests split the same way: the main scope runs on 2.x, and the mcp-1x scope forces mcp 1.x to run the 1.x-era MCP integration suite.
 
 ## Migrating your code
 
@@ -37,6 +37,6 @@ Three things behave differently on 2.x:
 
 - `read_timeout_seconds` on tool calls bounds each request round instead of the whole call, because a 2.x tool call can involve several round trips.
 - 2.x validates `ToolAnnotations` strictly and drops unknown extra keys that 1.x preserved.
-- MCP Tasks currently require mcp 1.x. The task client is built on the experimental 2025-11-25 API (`ClientSession.experimental`) that 2.x removed, so passing `tasks_config` to `MCPClient` on a 2.x install raises `ImportError` at construction. Pin `mcp<2` to keep using tasks. Support for the finalized SEP-2663 task extension on 2.x is tracked in #4125.
+- MCP Tasks work on both versions through `tasks_config`: the client drives the finalized SEP-2663 task extension on 2.x and the legacy 2025-11-25 experimental flow on 1.x, and tool calls return the same results either way. The manual task lifecycle methods (`submit_tool_sync`, `get_task_sync`, `update_task_sync`, `cancel_task_sync`, and their `_async` pairs) require 2.x and raise `RuntimeError` on 1.x.
 
 The compatibility layer only covers the Strands API. If you write your own MCP server with the `mcp` package, or build transports from `mcp` APIs yourself before passing them to `MCPClient`, that code uses `mcp` directly and the renames above apply to it. Follow the official guide at [modelcontextprotocol/python-sdk `docs/migration.md`](https://github.com/modelcontextprotocol/python-sdk/blob/main/docs/migration.md) for that part of the migration.

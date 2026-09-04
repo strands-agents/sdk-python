@@ -219,7 +219,7 @@ class XModel(Model):
 The SDK supports MCP task-augmented execution for long-running tools. This feature is experimental and subject to change. Which task protocol runs depends on the installed `mcp` line:
 
 - **mcp 2.x**: finalized SEP-2663 Tasks (protocol `2026-07-28`) — `tools/call` returns a direct result or a task handle, followed by `tasks/get` / `tasks/update` / `tasks/cancel`.
-- **mcp 1.x** (the runtime pin `mcp<2.0.0`): the legacy 2025-11-25 flow — `call_tool_as_task`, `poll_task`, `get_task_result`.
+- **mcp 1.x**: the legacy 2025-11-25 flow — `call_tool_as_task`, `poll_task`, `get_task_result`.
 
 ### Configuration
 
@@ -255,8 +255,8 @@ Task-augmented execution is used when ALL conditions are met:
 
 - `src/strands/tools/mcp/mcp_tasks.py` - `TasksConfig`, task result models, and defaults
 - `src/strands/tools/mcp/mcp_client.py` - Task execution logic (2.x: `_call_tool_with_task_and_poll_async`; 1.x: `_call_tool_as_task_and_poll_async`) and the public task lifecycle methods (`submit_tool_*`, `get_task_*`, `update_task_*`, `cancel_task_*`)
-- `tests/strands/tools/mcp/test_mcp_client_tasks.py` - Unit tests (1.x flow)
-- `tests/strands/tools/mcp/test_mcp_client_tasks_v2.py` - Unit tests (2.x flow; runs in the MCP 2.x Compat CI job)
+- `tests/strands/tools/mcp/test_mcp_client_tasks.py` - Unit tests (1.x flow; runs in the MCP 1.x Compat CI job)
+- `tests/strands/tools/mcp/test_mcp_client_tasks_v2.py` - Unit tests (2.x flow)
 - `tests_integ/mcp/test_mcp_client_tasks.py` - Integration tests
 - `tests_integ/mcp/task_echo_server.py` - Test server with task support
 
