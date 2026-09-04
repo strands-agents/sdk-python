@@ -6,15 +6,15 @@ import pytest
 
 from strands._context_manager.strategies.offload import Offload
 from strands._context_manager.strategies.offload.base import (
-    build_tool_name_map,
-    collect_removable_with_pair,
-    get_oldest_matches,
-    message_matches_target,
-    repair_alternation,
-    resolve_tool_filter,
-    splice_with_pairs,
-    target_matches_message,
-    tool_matches_target,
+    _build_tool_name_map,
+    _collect_removable_with_pair,
+    _get_oldest_matches,
+    _message_matches_target,
+    _repair_alternation,
+    _resolve_tool_filter,
+    _splice_with_pairs,
+    _target_matches_message,
+    _tool_matches_target,
 )
 from strands._context_manager.strategies.offload.drop import DROPPED_MARKER
 from strands._context_manager.strategies.offload.truncate import EmergencyTruncateStrategy
@@ -67,14 +67,14 @@ class TestBuildToolNameMap:
             ),
             Message(role="user", content=[ContentBlock(text="result")]),
         ]
-        tru_map = build_tool_name_map(messages)
+        tru_map = _build_tool_name_map(messages)
         assert tru_map == {"t1": "bash"}
 
     def test_ignores_user_messages(self):
         messages: Messages = [
             Message(role="user", content=[ContentBlock(text="hello")]),
         ]
-        tru_map = build_tool_name_map(messages)
+        tru_map = _build_tool_name_map(messages)
         assert tru_map == {}
 
 
@@ -82,37 +82,37 @@ class TestResolveToolFilter:
     """Tests for resolve_tool_filter."""
 
     def test_returns_none_for_string_target(self):
-        include, exclude = resolve_tool_filter("tool_results")
+        include, exclude = _resolve_tool_filter("tool_results")
         assert include is None
         assert exclude is None
 
     def test_parses_include_list(self):
-        include, exclude = resolve_tool_filter(["tool::bash", "tool::python"])
+        include, exclude = _resolve_tool_filter(["tool::bash", "tool::python"])
         assert include == {"bash", "python"}
         assert exclude is None
 
     def test_parses_exclude_list(self):
-        include, exclude = resolve_tool_filter(["!tool::bash"])
+        include, exclude = _resolve_tool_filter(["!tool::bash"])
         assert include is None
         assert exclude == {"bash"}
 
     def test_mixed_include_and_exclude_prefers_include(self):
-        include, exclude = resolve_tool_filter(["tool::bash", "!tool::python"])
+        include, exclude = _resolve_tool_filter(["tool::bash", "!tool::python"])
         assert include == {"bash"}
         assert exclude is None
 
     def test_entries_without_tool_prefix_still_parsed(self):
-        include, exclude = resolve_tool_filter(["raw_name"])
+        include, exclude = _resolve_tool_filter(["raw_name"])
         assert include == {"raw_name"}
         assert exclude is None
 
     def test_exclude_entries_without_tool_prefix_still_parsed(self):
-        include, exclude = resolve_tool_filter(["!raw_name"])
+        include, exclude = _resolve_tool_filter(["!raw_name"])
         assert include is None
         assert exclude == {"raw_name"}
 
     def test_empty_list_returns_none_none(self):
-        include, exclude = resolve_tool_filter([])
+        include, exclude = _resolve_tool_filter([])
         assert include is None
         assert exclude is None
 
@@ -126,7 +126,7 @@ class TestRepairAlternation:
             Message(role="user", content=[ContentBlock(text="b")]),
             Message(role="assistant", content=[ContentBlock(text="c")]),
         ]
-        repair_alternation(messages)
+        _repair_alternation(messages)
         assert len(messages) == 2
         assert messages[0]["role"] == "user"
         assert len(messages[0]["content"]) == 2
@@ -137,7 +137,7 @@ class TestRepairAlternation:
             Message(role="user", content=[ContentBlock(text="a")]),
             Message(role="assistant", content=[ContentBlock(text="b")]),
         ]
-        repair_alternation(messages)
+        _repair_alternation(messages)
         assert len(messages) == 2
 
 
@@ -151,7 +151,7 @@ class TestCollectRemovableWithPair:
             assistant_msg,
             user_msg,
         ]
-        tru_result = collect_removable_with_pair(messages, 2)
+        tru_result = _collect_removable_with_pair(messages, 2)
         assert assistant_msg in tru_result
         assert user_msg in tru_result
 
@@ -159,13 +159,13 @@ class TestCollectRemovableWithPair:
         messages: Messages = [
             Message(role="user", content=[ContentBlock(text="first")]),
         ]
-        tru_result = collect_removable_with_pair(messages, 0)
+        tru_result = _collect_removable_with_pair(messages, 0)
         assert tru_result == []
 
     def test_refuses_to_remove_head_pin_pair(self):
         assistant_msg, user_msg = _make_tool_pair()
         messages: Messages = [assistant_msg, user_msg]
-        tru_result = collect_removable_with_pair(messages, 1)
+        tru_result = _collect_removable_with_pair(messages, 1)
         assert tru_result == []
 
     def test_collects_tool_use_and_following_tool_result(self):
@@ -182,7 +182,7 @@ class TestCollectRemovableWithPair:
             assistant_msg,
             user_msg,
         ]
-        tru_result = collect_removable_with_pair(messages, 1)
+        tru_result = _collect_removable_with_pair(messages, 1)
         assert assistant_msg in tru_result
         assert user_msg in tru_result
 
@@ -190,7 +190,7 @@ class TestCollectRemovableWithPair:
         messages: Messages = [
             Message(role="user", content=[ContentBlock(text="only")]),
         ]
-        tru_result = collect_removable_with_pair(messages, 5)
+        tru_result = _collect_removable_with_pair(messages, 5)
         assert tru_result == []
 
 
@@ -205,7 +205,7 @@ class TestSpliceWithPairs:
             Message(role="assistant", content=[ContentBlock(text="c")]),
         ]
         to_remove = [messages[1], messages[2]]
-        removed, lowest = splice_with_pairs(messages, to_remove)
+        removed, lowest = _splice_with_pairs(messages, to_remove)
         assert removed == 2
         assert lowest == 1
         assert len(messages) == 2
@@ -216,7 +216,7 @@ class TestSpliceWithPairs:
             Message(role="assistant", content=[ContentBlock(text="keep")]),
         ]
         foreign_message = Message(role="user", content=[ContentBlock(text="not in list")])
-        removed, lowest = splice_with_pairs(messages, [foreign_message])
+        removed, lowest = _splice_with_pairs(messages, [foreign_message])
         assert removed == 0
         assert lowest == len(messages)
 
@@ -227,7 +227,7 @@ class TestSpliceWithPairs:
             assistant_msg,
             user_msg,
         ]
-        removed, lowest = splice_with_pairs(messages, [user_msg])
+        removed, lowest = _splice_with_pairs(messages, [user_msg])
         assert removed == 2
         assert lowest == 1
         assert len(messages) == 1
@@ -279,47 +279,47 @@ class TestToolMatchesTarget:
 
     def test_wildcard_target_matches_any_tool_result(self):
         block = self._make_tool_result_block()
-        assert tool_matches_target(block, "*", {}, None, None) is True
+        assert _tool_matches_target(block, "*", {}, None, None) is True
 
     def test_tool_results_target_matches_success_status(self):
         block = self._make_tool_result_block(status="success")
-        assert tool_matches_target(block, "tool_results", {}, None, None) is True
+        assert _tool_matches_target(block, "tool_results", {}, None, None) is True
 
     def test_tool_results_target_rejects_error_status(self):
         block = self._make_tool_result_block(status="error")
-        assert tool_matches_target(block, "tool_results", {}, None, None) is False
+        assert _tool_matches_target(block, "tool_results", {}, None, None) is False
 
     def test_tool_result_errors_target_matches_error_status(self):
         block = self._make_tool_result_block(status="error")
-        assert tool_matches_target(block, "tool_result_errors", {}, None, None) is True
+        assert _tool_matches_target(block, "tool_result_errors", {}, None, None) is True
 
     def test_tool_result_errors_target_rejects_success_status(self):
         block = self._make_tool_result_block(status="success")
-        assert tool_matches_target(block, "tool_result_errors", {}, None, None) is False
+        assert _tool_matches_target(block, "tool_result_errors", {}, None, None) is False
 
     def test_returns_false_when_tool_name_not_in_map(self):
         block = self._make_tool_result_block(tool_use_id="unknown-id")
-        assert tool_matches_target(block, ["tool::bash"], {}, {"bash"}, None) is False
+        assert _tool_matches_target(block, ["tool::bash"], {}, {"bash"}, None) is False
 
     def test_include_filter_matches_tool_name(self):
         block = self._make_tool_result_block(tool_use_id="tu-1")
-        assert tool_matches_target(block, ["tool::bash"], {"tu-1": "bash"}, {"bash"}, None) is True
+        assert _tool_matches_target(block, ["tool::bash"], {"tu-1": "bash"}, {"bash"}, None) is True
 
     def test_include_filter_rejects_non_matching_tool_name(self):
         block = self._make_tool_result_block(tool_use_id="tu-1")
-        assert tool_matches_target(block, ["tool::bash"], {"tu-1": "python"}, {"bash"}, None) is False
+        assert _tool_matches_target(block, ["tool::bash"], {"tu-1": "python"}, {"bash"}, None) is False
 
     def test_exclude_filter_rejects_matching_tool_name(self):
         block = self._make_tool_result_block(tool_use_id="tu-1")
-        assert tool_matches_target(block, ["!tool::bash"], {"tu-1": "bash"}, None, {"bash"}) is False
+        assert _tool_matches_target(block, ["!tool::bash"], {"tu-1": "bash"}, None, {"bash"}) is False
 
     def test_exclude_filter_allows_non_matching_tool_name(self):
         block = self._make_tool_result_block(tool_use_id="tu-1")
-        assert tool_matches_target(block, ["!tool::bash"], {"tu-1": "python"}, None, {"bash"}) is True
+        assert _tool_matches_target(block, ["!tool::bash"], {"tu-1": "python"}, None, {"bash"}) is True
 
     def test_returns_false_with_no_filters_and_list_target(self):
         block = self._make_tool_result_block(tool_use_id="tu-1")
-        assert tool_matches_target(block, [], {"tu-1": "bash"}, None, None) is False
+        assert _tool_matches_target(block, [], {"tu-1": "bash"}, None, None) is False
 
 
 class TestTargetMatchesMessage:
@@ -327,31 +327,31 @@ class TestTargetMatchesMessage:
 
     def test_assistant_text_target_matches_assistant_with_text(self):
         message = Message(role="assistant", content=[ContentBlock(text="hello")])
-        assert target_matches_message("assistant_text", message) is True
+        assert _target_matches_message("assistant_text", message) is True
 
     def test_assistant_text_target_rejects_user_message(self):
         message = Message(role="user", content=[ContentBlock(text="hello")])
-        assert target_matches_message("assistant_text", message) is False
+        assert _target_matches_message("assistant_text", message) is False
 
     def test_user_text_target_matches_user_with_text(self):
         message = Message(role="user", content=[ContentBlock(text="hello")])
-        assert target_matches_message("user_text", message) is True
+        assert _target_matches_message("user_text", message) is True
 
     def test_user_text_target_rejects_assistant_message(self):
         message = Message(role="assistant", content=[ContentBlock(text="hello")])
-        assert target_matches_message("user_text", message) is False
+        assert _target_matches_message("user_text", message) is False
 
     def test_none_target_matches_any(self):
         message = Message(role="user", content=[ContentBlock(text="hello")])
-        assert target_matches_message(None, message) is True
+        assert _target_matches_message(None, message) is True
 
     def test_wildcard_target_matches_any(self):
         message = Message(role="assistant", content=[ContentBlock(text="hello")])
-        assert target_matches_message("*", message) is True
+        assert _target_matches_message("*", message) is True
 
     def test_unknown_string_target_returns_false(self):
         message = Message(role="user", content=[ContentBlock(text="hello")])
-        assert target_matches_message("tool_results", message) is False
+        assert _target_matches_message("tool_results", message) is False
 
 
 class TestMessageMatchesTarget:
@@ -362,25 +362,25 @@ class TestMessageMatchesTarget:
             toolResult=ToolResult(toolUseId="tu-1", status="success", content=[{"text": "result"}])
         )
         user_msg = Message(role="user", content=[tool_result_block])
-        assert message_matches_target(user_msg, "tool_results", {"tu-1": "bash"}, None, None) is True
+        assert _message_matches_target(user_msg, "tool_results", {"tu-1": "bash"}, None, None) is True
 
     def test_target_none_guard_returns_false_for_non_text_match(self):
         assistant_msg = Message(role="assistant", content=[ContentBlock(text="hello")])
-        assert message_matches_target(assistant_msg, "tool_results", {}, None, None) is False
+        assert _message_matches_target(assistant_msg, "tool_results", {}, None, None) is False
 
     def test_returns_false_when_no_tool_results_match(self):
         tool_result_block = ContentBlock(
             toolResult=ToolResult(toolUseId="tu-1", status="error", content=[{"text": "error"}])
         )
         user_msg = Message(role="user", content=[tool_result_block])
-        assert message_matches_target(user_msg, "tool_results", {}, None, None) is False
+        assert _message_matches_target(user_msg, "tool_results", {}, None, None) is False
 
     def test_skips_non_user_messages_for_tool_matching(self):
         tool_result_block = ContentBlock(
             toolResult=ToolResult(toolUseId="tu-1", status="success", content=[{"text": "result"}])
         )
         assistant_msg = Message(role="assistant", content=[tool_result_block])
-        assert message_matches_target(assistant_msg, "tool_results", {}, None, None) is False
+        assert _message_matches_target(assistant_msg, "tool_results", {}, None, None) is False
 
 
 class TestGetOldestMatches:
@@ -394,7 +394,7 @@ class TestGetOldestMatches:
             Message(role="assistant", content=[ContentBlock(text="msg4")]),
             Message(role="user", content=[ContentBlock(text="msg5")]),
         ]
-        tru_result = get_oldest_matches(messages, "*", 2, {}, None, None)
+        tru_result = _get_oldest_matches(messages, "*", 2, {}, None, None)
         assert len(tru_result) == 3
         assert tru_result[0] is messages[0]
         assert tru_result[2] is messages[2]
@@ -404,13 +404,13 @@ class TestGetOldestMatches:
             Message(role="user", content=[ContentBlock(text="msg1")]),
             Message(role="assistant", content=[ContentBlock(text="msg2")]),
         ]
-        assert get_oldest_matches(messages, "*", 5, {}, None, None) == []
+        assert _get_oldest_matches(messages, "*", 5, {}, None, None) == []
 
     def test_returns_empty_when_count_equals_matches(self):
         messages: Messages = [
             Message(role="user", content=[ContentBlock(text="msg1")]),
         ]
-        assert get_oldest_matches(messages, "*", 1, {}, None, None) == []
+        assert _get_oldest_matches(messages, "*", 1, {}, None, None) == []
 
 
 class TestDropStrategy:
@@ -577,7 +577,7 @@ class TestMessageLevelDrop:
         mock_agent.messages = messages
         context = ContextState(messages=messages, agent=mock_agent, utilization=0.9)
         with unittest.mock.patch(
-            "strands._context_manager.strategies.offload.base.splice_with_pairs",
+            "strands._context_manager.strategies.offload.base._splice_with_pairs",
             return_value=(0, 1),
         ):
             assert await strategy.apply(context) is False
@@ -734,7 +734,7 @@ class TestTransformBlocks:
         image_block = ContentBlock(image={"format": "png", "source": {"bytes": b"fake"}})
         message = Message(role="user", content=[image_block])
         assert await strategy._transform_blocks(message, [message], {}, mock_agent) is True
-        assert "[Truncated: image block" in message["content"][0]["text"]
+        assert "[Offloaded: ~" in message["content"][0]["text"]
 
     @pytest.mark.asyncio
     async def test_skips_reasoning_content_block(self, mock_agent):
@@ -789,8 +789,6 @@ class TestGetEligibleMessages:
             Message(role="user", content=[ContentBlock(text="pin")]),
             Message(role="assistant", content=[ContentBlock(text="large" * 10000)]),
             Message(role="user", content=[ContentBlock(text="also large" * 10000)]),
-            Message(role="assistant", content=[ContentBlock(text="large" * 10000)]),
-            Message(role="user", content=[ContentBlock(text="recent")]),
         ]
         mock_agent.messages = messages
         context = ContextState(messages=messages, agent=mock_agent, utilization=0.9)
@@ -803,8 +801,6 @@ class TestGetEligibleMessages:
             Message(role="user", content=[ContentBlock(text="pin")]),
             Message(role="assistant", content=[ContentBlock(text="msg1")]),
             Message(role="user", content=[ContentBlock(text="msg2")]),
-            Message(role="assistant", content=[ContentBlock(text="msg3")]),
-            Message(role="user", content=[ContentBlock(text="recent")]),
         ]
         mock_agent.messages = messages
         context = ContextState(messages=messages, agent=mock_agent, utilization=0.9)

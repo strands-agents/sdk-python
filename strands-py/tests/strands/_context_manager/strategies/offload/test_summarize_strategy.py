@@ -4,7 +4,6 @@ import unittest.mock
 
 import pytest
 
-from strands._context_manager.methods.summarize import SUMMARIZED_PREFIX
 from strands._context_manager.strategies.offload import Offload
 from strands._context_manager.types import ContextState
 from strands.types.content import ContentBlock, Message, Messages
@@ -75,7 +74,7 @@ class TestSummarizeStrategyPerBlock:
         context = ContextState(messages=messages, agent=mock_agent, utilization=0.5)
         assert await strategy.apply(context) is True
         result_text = messages[1]["content"][0]["toolResult"]["content"][0]["text"]
-        assert SUMMARIZED_PREFIX in result_text
+        assert "[Summarized:" in result_text
         assert "Summary of content." in result_text
 
     @pytest.mark.asyncio
@@ -88,7 +87,7 @@ class TestSummarizeStrategyPerBlock:
         mock_agent.messages = messages
         context = ContextState(messages=messages, agent=mock_agent, utilization=0.5)
         assert await strategy.apply(context) is True
-        assert SUMMARIZED_PREFIX in messages[1]["content"][0]["text"]
+        assert "[Summarized:" in messages[1]["content"][0]["text"]
 
     @pytest.mark.asyncio
     async def test_skips_when_no_model(self):
@@ -150,7 +149,7 @@ class TestSummarizeStrategyPerBlock:
         mock_agent.messages = messages
         context = ContextState(messages=messages, agent=mock_agent, utilization=0.5)
         assert await strategy.apply(context) is True
-        assert "image block" in messages[1]["content"][0]["text"]
+        assert "[Offloaded: ~" in messages[1]["content"][0]["text"]
 
 
 class TestSummarizeStrategyMessageLevel:
@@ -170,7 +169,7 @@ class TestSummarizeStrategyMessageLevel:
         context = ContextState(messages=messages, agent=mock_agent, utilization=0.9)
         assert await strategy.apply(context) is True
         all_text = " ".join(block.get("text", "") for msg in messages for block in msg["content"])
-        assert SUMMARIZED_PREFIX in all_text
+        assert "[Summarized:" in all_text
 
     @pytest.mark.asyncio
     async def test_inserts_summary_and_removes_originals(self, mock_agent):
@@ -191,7 +190,7 @@ class TestSummarizeStrategyMessageLevel:
             block.get("text", "")
             for msg in messages
             for block in msg["content"]
-            if SUMMARIZED_PREFIX in block.get("text", "")
+            if "[Summarized:" in block.get("text", "")
         ]
         assert len(summary_texts) >= 1
         assert "5,000 tokens" in summary_texts[0]

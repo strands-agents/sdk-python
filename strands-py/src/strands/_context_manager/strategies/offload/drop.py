@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from ....types.content import ContentBlock, Message
 from ....types.tools import ToolResult, ToolResultContent
-from .base import BaseOffloadStrategy, OffloadConditions, OffloadTarget, build_conditions
+from .base import BaseOffloadStrategy, OffloadConditions, OffloadTarget, _build_conditions
 
 if TYPE_CHECKING:
     from ....agent.agent import Agent
@@ -38,7 +38,7 @@ class DropStrategy(BaseOffloadStrategy):
         """Return a new instance with the given conditions applied."""
         return DropStrategy(
             self._target,
-            build_conditions(threshold=threshold, utilization=utilization, preserve_recent=preserve_recent),
+            _build_conditions(threshold=threshold, utilization=utilization, preserve_recent=preserve_recent),
         )
 
     def _make_removal_marker(self, count: int) -> str:

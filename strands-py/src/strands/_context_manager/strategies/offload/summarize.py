@@ -19,10 +19,10 @@ from .base import (
     BaseOffloadStrategy,
     OffloadConditions,
     OffloadTarget,
-    build_conditions,
-    collect_removable_with_pair,
-    repair_alternation,
-    splice_with_pairs,
+    _build_conditions,
+    _collect_removable_with_pair,
+    _repair_alternation,
+    _splice_with_pairs,
 )
 
 if TYPE_CHECKING:
@@ -60,7 +60,7 @@ class SummarizeStrategy(BaseOffloadStrategy):
         return SummarizeStrategy(
             self._target,
             self._config,
-            build_conditions(threshold=threshold, utilization=utilization, preserve_recent=preserve_recent),
+            _build_conditions(threshold=threshold, utilization=utilization, preserve_recent=preserve_recent),
         )
 
     async def apply(self, context: ContextState) -> bool:
@@ -93,7 +93,7 @@ class SummarizeStrategy(BaseOffloadStrategy):
             index = identity_map.get(id(message))
             if index is None:
                 continue
-            for removable in collect_removable_with_pair(messages, index):
+            for removable in _collect_removable_with_pair(messages, index):
                 safe_ids.add(id(removable))
         safe = [msg for msg in messages if id(msg) in safe_ids]
         if not safe:
@@ -106,7 +106,7 @@ class SummarizeStrategy(BaseOffloadStrategy):
 
         total_tokens = await model.count_tokens(safe)
 
-        removed, lowest_index = splice_with_pairs(messages, safe)
+        removed, lowest_index = _splice_with_pairs(messages, safe)
         if removed == 0:
             return False
 
@@ -117,7 +117,7 @@ class SummarizeStrategy(BaseOffloadStrategy):
         insert_index = max(1, min(lowest_index, len(messages)))
         messages.insert(insert_index, summary_message)
 
-        repair_alternation(messages)
+        _repair_alternation(messages)
         logger.debug("summarized=<%s>, tokens=<%s> | batched summarization complete", removed, total_tokens)
         return True
 
@@ -150,11 +150,8 @@ class SummarizeStrategy(BaseOffloadStrategy):
             )
 
         if "text" not in block:
-            block_type = next(
-                (media_type for media_type in ("image", "document", "audio", "video") if media_type in block),
-                "media",
-            )
-            return ContentBlock(text=_format_summarized(f"{block_type} block", tokens))
+            logger.debug("tracking_id=<%s>, tokens=<%s> | offloaded media block", message.get("tracking_id"), tokens)
+            return ContentBlock(text=f"[Offloaded: ~{tokens} tokens]")
 
         summary = await _summarize_content([ContentBlock(text=block["text"])], model, self._config)
         if not summary:

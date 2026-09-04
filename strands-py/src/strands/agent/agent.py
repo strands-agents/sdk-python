@@ -46,7 +46,7 @@ from ..types._snapshot import (
 )
 
 if TYPE_CHECKING:
-    from .._context_manager.context_manager import ContextManager as _ContextManagerPlugin
+    from .._context_manager.context_manager import ContextManager
     from ..tools import ToolProvider
 from .._middleware import MiddlewareRegistry
 from .._middleware.stages import AgentStreamContext, AgentStreamStage
@@ -154,13 +154,14 @@ _DEFAULT_AGENT_NAME = "Strands Agents"
 _DEFAULT_AGENT_ID = "default"
 
 ContextManagerStrategy = Literal["auto", "agentic"]
-"""Supported string preset values for the ``context_manager`` parameter.
+"""Supported values for the ``context_manager`` parameter.
 
 - ``"auto"``: SummarizingConversationManager with proactive compression + ContextOffloader.
 - ``"agentic"``: (Experimental) Lets the model drive context management via injected tools.
   This mode may change in future versions.
 - ``ContextManager`` instance: Strategy-driven offloading with overflow recovery.
 - ``False``: Explicitly disable all context management.
+- ``None``: Uses the default (same as ``"auto"``).
 """
 
 _CONTEXT_MANAGER_MAX_RESULT_TOKENS = 1_500
@@ -226,7 +227,7 @@ class Agent(AgentBase, LocalAgent):
         name: str | None = None,
         description: str | None = None,
         state: AgentState | dict | None = None,
-        context_manager: "ContextManagerStrategy | _ContextManagerPlugin | Literal[False] | None" = None,
+        context_manager: "ContextManagerStrategy | ContextManager | Literal[False] | None" = None,
         plugins: list[Plugin] | None = None,
         hooks: list[HookProvider | HookCallback] | None = None,
         interventions: list[InterventionHandler] | None = None,
@@ -582,7 +583,7 @@ class Agent(AgentBase, LocalAgent):
 
     @staticmethod
     def _resolve_context_manager(
-        context_manager: "ContextManagerStrategy | _ContextManagerPlugin | Literal[False] | None",
+        context_manager: "ContextManagerStrategy | ContextManager | Literal[False] | None",
         conversation_manager: ConversationManager | None,
         plugins: list[Plugin] | None,
     ) -> tuple[ConversationManager | None, list[Plugin] | None]:
@@ -613,7 +614,7 @@ class Agent(AgentBase, LocalAgent):
         if context_manager is None:
             return None, None
 
-        from .._context_manager.context_manager import ContextManager as _CMPlugin
+        from .._context_manager.context_manager import ContextManager as _ContextManager
         from ..vended_plugins.context_offloader import ContextOffloader
         from .conversation_manager import NullConversationManager, SummarizingConversationManager
 
@@ -621,7 +622,7 @@ class Agent(AgentBase, LocalAgent):
             resolved_cm = conversation_manager if conversation_manager is not None else NullConversationManager()
             return resolved_cm, list(plugins) if plugins else None
 
-        if isinstance(context_manager, _CMPlugin):
+        if isinstance(context_manager, _ContextManager):
             resolved_plugins = list(plugins) if plugins else []
             resolved_plugins.append(context_manager)
             return NullConversationManager(), resolved_plugins

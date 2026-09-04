@@ -42,7 +42,7 @@ def _finite_or_none(value: int | float | None) -> int | float | None:
     return None
 
 
-def build_conditions(
+def _build_conditions(
     *,
     threshold: int | None = None,
     utilization: float | None = None,
@@ -59,7 +59,7 @@ def build_conditions(
     return conditions
 
 
-def build_tool_name_map(messages: Messages) -> dict[str, str]:
+def _build_tool_name_map(messages: Messages) -> dict[str, str]:
     """Build a toolUseId -> toolName map from all assistant messages."""
     name_map: dict[str, str] = {}
     for message in messages:
@@ -72,7 +72,7 @@ def build_tool_name_map(messages: Messages) -> dict[str, str]:
     return name_map
 
 
-def tool_matches_target(
+def _tool_matches_target(
     block: ContentBlock,
     target: OffloadTarget,
     tool_name_map: dict[str, str],
@@ -100,7 +100,7 @@ def tool_matches_target(
     return False
 
 
-def target_matches_message(target: OffloadTarget | None, message: Message) -> bool:
+def _target_matches_message(target: OffloadTarget | None, message: Message) -> bool:
     """Check if a message matches a text-level target."""
     if target is None or target == "*":
         return True
@@ -111,7 +111,7 @@ def target_matches_message(target: OffloadTarget | None, message: Message) -> bo
     return False
 
 
-def message_matches_target(
+def _message_matches_target(
     message: Message,
     target: OffloadTarget | None,
     tool_name_map: dict[str, str],
@@ -119,7 +119,7 @@ def message_matches_target(
     tool_exclude_filter: set[str] | None,
 ) -> bool:
     """Check if a message matches the target (text-level or tool result)."""
-    if target_matches_message(target, message):
+    if _target_matches_message(target, message):
         return True
     if target is None:
         return False
@@ -128,12 +128,12 @@ def message_matches_target(
         return False
     for block in message["content"]:
         if is_tool_result_block(block):
-            if tool_matches_target(block, target, tool_name_map, tool_include_filter, tool_exclude_filter):
+            if _tool_matches_target(block, target, tool_name_map, tool_include_filter, tool_exclude_filter):
                 return True
     return False
 
 
-def get_oldest_matches(
+def _get_oldest_matches(
     messages: Messages,
     target: OffloadTarget | None,
     count: int,
@@ -145,7 +145,7 @@ def get_oldest_matches(
     matching = [
         msg
         for msg in messages
-        if message_matches_target(msg, target, tool_name_map, tool_include_filter, tool_exclude_filter)
+        if _message_matches_target(msg, target, tool_name_map, tool_include_filter, tool_exclude_filter)
     ]
     if count <= 0:
         return matching
@@ -154,7 +154,7 @@ def get_oldest_matches(
     return matching[:-count]
 
 
-def collect_removable_with_pair(messages: Messages, index: int) -> list[Message]:
+def _collect_removable_with_pair(messages: Messages, index: int) -> list[Message]:
     """Collect a message and its tool-use/tool-result pair partner for safe removal."""
     if index <= 0 or index >= len(messages):
         return []
@@ -180,7 +180,7 @@ def collect_removable_with_pair(messages: Messages, index: int) -> list[Message]
     return result
 
 
-def splice_with_pairs(messages: Messages, to_remove: list[Message]) -> tuple[int, int]:
+def _splice_with_pairs(messages: Messages, to_remove: list[Message]) -> tuple[int, int]:
     """Remove messages in place, expanding to include tool-use/tool-result pairs."""
     identity_map = {id(msg): idx for idx, msg in enumerate(messages)}
     to_splice: set[int] = set()
@@ -188,7 +188,7 @@ def splice_with_pairs(messages: Messages, to_remove: list[Message]) -> tuple[int
         index = identity_map.get(id(message))
         if index is None:
             continue
-        for removable in collect_removable_with_pair(messages, index):
+        for removable in _collect_removable_with_pair(messages, index):
             removable_index = identity_map.get(id(removable))
             if removable_index is not None:
                 to_splice.add(removable_index)
@@ -202,7 +202,7 @@ def splice_with_pairs(messages: Messages, to_remove: list[Message]) -> tuple[int
     return len(to_splice), min(to_splice)
 
 
-def repair_alternation(messages: Messages) -> None:
+def _repair_alternation(messages: Messages) -> None:
     """Merge consecutive same-role messages to restore user/assistant alternation."""
     write_index = 0
     for read_index in range(len(messages)):
@@ -219,7 +219,7 @@ def repair_alternation(messages: Messages) -> None:
     del messages[write_index:]
 
 
-def resolve_tool_filter(target: OffloadTarget | None) -> tuple[set[str] | None, set[str] | None]:
+def _resolve_tool_filter(target: OffloadTarget | None) -> tuple[set[str] | None, set[str] | None]:
     """Parse a ``tool::`` prefixed list target into include/exclude filter sets."""
     if not isinstance(target, list):
         return None, None
@@ -278,7 +278,7 @@ class BaseOffloadStrategy(ABC):
         preserve = _finite_or_none(conditions.get("preserve_recent"))
         self._preserve_recent = int(preserve) if preserve is not None else 0
 
-        self._include_filter, self._exclude_filter = resolve_tool_filter(target)
+        self._include_filter, self._exclude_filter = _resolve_tool_filter(target)
 
     @property
     def _is_message_level(self) -> bool:
@@ -296,7 +296,7 @@ class BaseOffloadStrategy(ABC):
         async def _eager_hook(event: MessageAddedEvent) -> None:
             try:
                 messages = event.agent.messages
-                tool_name_map = build_tool_name_map(messages)
+                tool_name_map = _build_tool_name_map(messages)
                 await self._transform_blocks(event.message, messages, tool_name_map, event.agent)
             except Exception:
                 logger.warning("strategy=<%s> | eager hook failed, continuing", self.name, exc_info=True)
@@ -316,8 +316,8 @@ class BaseOffloadStrategy(ABC):
         """Per-block execution: walk each message, transform individual blocks above threshold."""
         messages = context.messages
         agent = context.agent
-        tool_name_map = build_tool_name_map(messages)
-        eligible = get_oldest_matches(
+        tool_name_map = _build_tool_name_map(messages)
+        eligible = _get_oldest_matches(
             messages, self._target, self._preserve_recent, tool_name_map, self._include_filter, self._exclude_filter
         )
 
@@ -342,7 +342,7 @@ class BaseOffloadStrategy(ABC):
         target_removal = max(1, int(len(eligible) * self._removal_ratio))
         to_remove = eligible[:target_removal]
 
-        removed, lowest_index = splice_with_pairs(messages, to_remove)
+        removed, lowest_index = _splice_with_pairs(messages, to_remove)
         if removed == 0:
             return False
 
@@ -351,7 +351,7 @@ class BaseOffloadStrategy(ABC):
             insert_index = max(1, min(lowest_index, len(messages)))
             messages.insert(insert_index, Message(role="user", content=[ContentBlock(text=marker)]))
 
-        repair_alternation(messages)
+        _repair_alternation(messages)
         return True
 
     def _make_removal_marker(self, count: int) -> str | None:
@@ -365,9 +365,9 @@ class BaseOffloadStrategy(ABC):
         if "reasoningContent" in block or "cachePoint" in block:
             return False
         if is_text_block(block):
-            return target_matches_message(self._target, message)
+            return _target_matches_message(self._target, message)
         if is_tool_result_block(block):
-            return self._target is None or tool_matches_target(
+            return self._target is None or _tool_matches_target(
                 block, self._target, tool_name_map, self._include_filter, self._exclude_filter
             )
         return self._target is None or self._target == "*"
@@ -402,17 +402,13 @@ class BaseOffloadStrategy(ABC):
     async def _get_eligible_messages(self, context: ContextState) -> list[Message]:
         """Collect eligible messages for message-level operations."""
         messages = context.messages
-        tool_name_map = build_tool_name_map(messages)
+        tool_name_map = _build_tool_name_map(messages)
 
-        oldest = get_oldest_matches(
+        oldest = _get_oldest_matches(
             messages, self._target, self._preserve_recent, tool_name_map, self._include_filter, self._exclude_filter
         )
-        protected = {id(messages[0])}
-        if len(messages) > 1:
-            protected.add(id(messages[-1]))
-        if len(messages) > 2:
-            protected.add(id(messages[-2]))
-        candidates = [msg for msg in oldest if id(msg) not in protected]
+        head_id = id(messages[0])
+        candidates = [msg for msg in oldest if id(msg) != head_id]
 
         if self._threshold is None:
             return candidates

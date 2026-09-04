@@ -5,7 +5,6 @@ import unittest.mock
 import pytest
 
 from strands._context_manager.methods.summarize import (
-    SUMMARIZED_PREFIX,
     _flatten_messages_to_content,
     _summarize_content,
     _tool_result_to_content_blocks,
@@ -188,8 +187,10 @@ class TestSummarizeContent:
         tru_result = await _summarize_content(content_blocks, mock_model, {})
         assert tru_result is None
 
-    def test_summarized_prefix_is_defined(self):
-        assert SUMMARIZED_PREFIX.startswith("[Summarized:")
+    def test_format_summarized_uses_expected_prefix(self):
+        from strands._context_manager.methods.summarize import _format_summarized
+
+        assert _format_summarized("test", 100).startswith("[Summarized:")
 
 
 class TestToolResultToContentBlocksJson:

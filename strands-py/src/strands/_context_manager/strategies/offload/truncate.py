@@ -13,9 +13,9 @@ from .base import (
     BaseOffloadStrategy,
     OffloadConditions,
     OffloadTarget,
-    build_conditions,
-    repair_alternation,
-    splice_with_pairs,
+    _build_conditions,
+    _repair_alternation,
+    _splice_with_pairs,
 )
 
 if TYPE_CHECKING:
@@ -68,7 +68,7 @@ class TruncateStrategy(BaseOffloadStrategy):
         return TruncateStrategy(
             self._target,
             self._truncate_config,
-            build_conditions(threshold=threshold, utilization=utilization, preserve_recent=preserve_recent),
+            _build_conditions(threshold=threshold, utilization=utilization, preserve_recent=preserve_recent),
         )
 
     def _make_removal_marker(self, count: int) -> str | None:
@@ -99,7 +99,7 @@ class TruncateStrategy(BaseOffloadStrategy):
         if not middle_messages:
             return False
 
-        removed, lowest_index = splice_with_pairs(messages, middle_messages)
+        removed, lowest_index = _splice_with_pairs(messages, middle_messages)
         if removed == 0:
             return False
 
@@ -108,7 +108,7 @@ class TruncateStrategy(BaseOffloadStrategy):
             insert_index = max(1, min(lowest_index, len(messages)))
             messages.insert(insert_index, Message(role="user", content=[ContentBlock(text=marker)]))
 
-        repair_alternation(messages)
+        _repair_alternation(messages)
         return True
 
     async def _replace_block(
@@ -125,11 +125,8 @@ class TruncateStrategy(BaseOffloadStrategy):
         if is_text_block(block):
             logger.debug("tracking_id=<%s>, tokens=<%s> | truncated text block", message.get("tracking_id"), tokens)
             return _truncate_text_block(block, self._truncate_config)
-        block_type = next(
-            (media_type for media_type in ("image", "document", "audio", "video") if media_type in block),
-            "media",
-        )
-        return ContentBlock(text=f"[Truncated: {block_type} block, ~{tokens:,} tokens]")
+        logger.debug("tracking_id=<%s>, tokens=<%s> | offloaded media block", message.get("tracking_id"), tokens)
+        return ContentBlock(text=f"[Offloaded: ~{tokens} tokens]")
 
 
 class EmergencyTruncateStrategy(TruncateStrategy):
