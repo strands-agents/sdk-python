@@ -699,6 +699,8 @@ describe('BedrockModel', () => {
 
     // Parity mirror of the strict_tools cases in strands-py test_bedrock.py.
     // Keep aligned with the Python file so the two SDKs stay in parity.
+    // Python's separate strict_tools_false / strict_tools_none cases are merged here into one
+    // false/unset case: same behavior, fewer tests.
     describe('strictTools', () => {
       const toolSpec = (inputSchema: object) => ({
         name: 'calc',
