@@ -162,15 +162,16 @@ export class McpClient {
    * Parses an MCP servers config (file path or object) and returns McpClient instances.
    *
    * @param config - A file path to a JSON config, or a flat server map object.
-   * @param defaults - Options applied to all clients unless overridden per-server, plus loader-only
-   *   options such as `prefixWithServerName`.
+   * @param defaults - Options applied to all clients unless overridden per-server.
+   * @param options - Loader behavior, such as prefixing tools with the server name.
    * @returns An array of McpClient instances ready to be passed to an Agent.
    */
   public static async loadServers(
     config: string | Record<string, McpServerConfig>,
-    defaults?: McpLoadServersOptions
+    defaults?: McpClientOptions,
+    options?: McpLoadServersOptions
   ): Promise<McpClient[]> {
-    return (await mcpServerLoader.get()(config, defaults)).map((c) => new McpClient(c))
+    return (await mcpServerLoader.get()(config, defaults, options)).map((c) => new McpClient(c))
   }
 
   private _clientName: string

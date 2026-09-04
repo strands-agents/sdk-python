@@ -15,13 +15,15 @@ import { logger } from '../logging/index.js'
  *
  * @param config - A file path to a JSON config, or a flat server map object.
  * @param defaults - Options applied to all clients unless overridden per-server.
+ * @param options - Loader behavior, such as prefixing tools with the server name.
  * @returns Resolved McpClientConfig array (one per enabled, successfully-resolved server).
  *
  * @internal
  */
 export async function resolveServerConfigs(
   config: string | Record<string, McpServerConfig>,
-  defaults?: McpLoadServersOptions
+  defaults?: McpClientOptions,
+  options?: McpLoadServersOptions
 ): Promise<McpClientConfig[]> {
   const servers = await loadServersObject(config)
   const results: McpClientConfig[] = []
@@ -61,7 +63,7 @@ export async function resolveServerConfigs(
         }
       }
 
-      results.push({ ...baseOptions(name, server, defaults), ...clientConfig })
+      results.push({ ...baseOptions(name, server, defaults, options), ...clientConfig })
     } catch (error) {
       if (!continueOnError) throw error
       logger.warn(`server=<${name}>, error=<${error}> | MCP server config failed, skipping (continueOnError)`)
@@ -114,12 +116,16 @@ function buildSseConfig(server: McpServerConfig): McpClientConfig {
   }
 }
 
-function baseOptions(name: string, server: McpServerConfig, defaults?: McpLoadServersOptions): McpClientOptions {
-  const { prefixWithServerName, ...clientDefaults } = defaults ?? {}
+function baseOptions(
+  name: string,
+  server: McpServerConfig,
+  defaults?: McpClientOptions,
+  options?: McpLoadServersOptions
+): McpClientOptions {
   // applicationName is the shared app identity sent in the MCP handshake; honor an explicit
   // default for all clients, falling back to the server's config key when none is given.
-  const opts: McpClientOptions = { ...clientDefaults, applicationName: clientDefaults.applicationName ?? name }
-  if (prefixWithServerName) opts.prefix = name
+  const opts: McpClientOptions = { ...defaults, applicationName: defaults?.applicationName ?? name }
+  if (options?.prefixWithServerName) opts.prefix = name
   if (server.continueOnError != null) opts.continueOnError = server.continueOnError
   if (server.tasksConfig != null) opts.tasksConfig = server.tasksConfig
   if (server.prefix !== undefined) opts.prefix = interpolateEnv(server.prefix)

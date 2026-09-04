@@ -48,8 +48,8 @@ export interface McpServerConfig {
   tasksConfig?: TasksConfig
 }
 
-/** Options for `McpClient.loadServers`: client defaults plus loader-only behavior. */
-export interface McpLoadServersOptions extends McpClientOptions {
+/** Options controlling how `McpClient.loadServers` translates config entries into clients. */
+export interface McpLoadServersOptions {
   /**
    * When true, servers without an explicit `prefix` use their config key as the tool name prefix,
    * so same-named tools from different servers no longer collide. Takes precedence over a default
@@ -69,7 +69,8 @@ export interface McpLoadServersOptions extends McpClientOptions {
  */
 export type McpServerLoader = (
   config: string | Record<string, McpServerConfig>,
-  defaults?: McpLoadServersOptions
+  defaults?: McpClientOptions,
+  options?: McpLoadServersOptions
 ) => Promise<McpClientConfig[]>
 
 /**
