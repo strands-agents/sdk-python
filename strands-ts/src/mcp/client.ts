@@ -162,7 +162,8 @@ export class McpClient {
    * Parses an MCP servers config (file path or object) and returns McpClient instances.
    *
    * @param config - A file path to a JSON config, or a flat server map object.
-   * @param defaults - Options applied to all clients unless overridden per-server.
+   * @param defaults - Options applied to all clients unless overridden per-server, plus loader-only
+   *   options such as `prefixWithServerName`.
    * @returns An array of McpClient instances ready to be passed to an Agent.
    */
   public static async loadServers(

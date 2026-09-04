@@ -205,7 +205,9 @@ class MCPClient(ToolProvider):
     """
 
     @classmethod
-    def load_servers(cls, config: "str | dict[str, Any]", prefix_with_server_name: bool = False) -> "list[MCPClient]":
+    def load_servers(
+        cls, config: "str | dict[str, Any]", *, prefix_with_server_name: bool = False
+    ) -> "list[MCPClient]":
         """Create MCPClient instances from an ``mcpServers`` JSON config (file path or mapping).
 
         Returns one client per enabled server. Accepts either a flat mapping of server name to
@@ -223,8 +225,8 @@ class MCPClient(ToolProvider):
             config: A file path (with optional ``file://`` prefix) to a JSON config, or a
                 dictionary mapping server names to configs (optionally under an ``mcpServers`` key).
             prefix_with_server_name: When True, servers without an explicit ``prefix`` use their config
-                key as the tool name prefix, so tools from different servers cannot collide. A server
-                can still opt out with ``"prefix": ""``.
+                key as the tool name prefix, so same-named tools from different servers no longer
+                collide. A server can still opt out with ``"prefix": ""``.
 
         Returns:
             One MCPClient per enabled server, ready to pass to ``Agent(tools=...)``.
@@ -1984,7 +1986,7 @@ def _load_servers_mapping(config: str | dict[str, Any]) -> dict[str, Any]:
     return servers
 
 
-def _build_client_from_config(name: str, server: dict[str, Any], prefix_with_server_name: bool = False) -> MCPClient:
+def _build_client_from_config(name: str, server: dict[str, Any], prefix_with_server_name: bool) -> MCPClient:
     """Build a single MCPClient from one server entry.
 
     Interpolates ``${VAR}`` references first so secrets can live in the environment, then detects

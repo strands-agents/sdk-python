@@ -393,6 +393,17 @@ describe('McpClient.loadServers', () => {
       expect((await client!.listTools()).map((tool) => tool.name)).toEqual(['slack_search'])
     })
 
+    it('prefers the server name over a default prefix when prefixWithServerName is set', async () => {
+      const [client] = await McpClient.loadServers(
+        { slack: { command: 'node' } },
+        { prefix: 'global', prefixWithServerName: true }
+      )
+      const sdkClient = vi.mocked(Client).mock.results.at(-1)!.value
+      sdkClient.listTools.mockResolvedValue({ tools: [{ name: 'search', inputSchema: {} }] })
+
+      expect((await client!.listTools()).map((tool) => tool.name)).toEqual(['slack_search'])
+    })
+
     it('lets an explicit server prefix win over prefixWithServerName', async () => {
       const clients = await McpClient.loadServers(
         { slack: { command: 'node', prefix: 'chat' }, chorus: { command: 'node', prefix: '' } },

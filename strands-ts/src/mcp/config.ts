@@ -52,7 +52,8 @@ export interface McpServerConfig {
 export interface McpLoadServersOptions extends McpClientOptions {
   /**
    * When true, servers without an explicit `prefix` use their config key as the tool name prefix,
-   * so tools from different servers cannot collide. A server can still opt out with `prefix: ''`.
+   * so same-named tools from different servers no longer collide. Takes precedence over a default
+   * `prefix`; a server can still opt out with `prefix: ''`.
    */
   prefixWithServerName?: boolean
 }
