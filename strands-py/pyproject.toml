@@ -87,7 +87,7 @@ bidi = [
 ]
 bidi-google = ["google-genai>=2.0.0,<3.0.0"]
 bidi-openai = ["websockets>=16.0.0,<17.0.0"]
-bidi-aec = ["pywebrtc-audio>=0.1.0,<0.2.0", "numpy>=2.0.0,<3.0.0"]
+bidi-aec = ["pywebrtc-audio>=0.2.0,<0.3.0", "numpy>=2.0.0,<3.0.0"]
 # Excluded from aggregate extras because PyAudio requires PortAudio as a system level install.
 bidi-pyaudio = ["pyaudio>=0.2.0,<0.3.0"]
 bidi-all = ["strands-agents[a2a,bidi,bidi-aec,bidi-google,bidi-openai,docs,otel]"]
