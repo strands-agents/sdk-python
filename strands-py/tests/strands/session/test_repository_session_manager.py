@@ -562,11 +562,12 @@ def test_fix_broken_tool_use_does_not_change_valid_message(session_manager):
             ],
         },
     ]
+    expected = copy.deepcopy(messages)
 
     fixed_messages = session_manager._fix_broken_tool_use(messages)
 
     # Should remain unchanged since toolUse is in last message
-    assert fixed_messages == messages
+    assert fixed_messages == expected
 
 
 # ============================================================================
@@ -743,11 +744,12 @@ def test_fix_broken_tool_use_does_not_affect_normal_conversations(session_manage
         {"role": "assistant", "content": [{"text": "Hi there!"}]},
         {"role": "user", "content": [{"text": "How are you?"}]},
     ]
+    expected = copy.deepcopy(messages)
 
     fixed_messages = session_manager._fix_broken_tool_use(messages)
 
     # Should remain unchanged
-    assert fixed_messages == messages
+    assert fixed_messages == expected
 
 
 # ============================================================================
@@ -1222,9 +1224,11 @@ def test_fix_broken_tool_use_removes_orphaned_tool_result_mid_conversation(sessi
 
     fixed_messages = session_manager._fix_broken_tool_use(messages)
 
-    assert len(fixed_messages) == 3
-    assert not any("toolResult" in content for message in fixed_messages for content in message["content"])
-    assert fixed_messages[2]["content"][0]["text"] == "Anything else?"
+    assert fixed_messages == [
+        {"role": "user", "content": [{"text": "Where do I live?"}]},
+        {"role": "assistant", "content": [{"text": "You live in Seattle, USA."}]},
+        {"role": "assistant", "content": [{"text": "Anything else?"}]},
+    ]
 
 
 def test_fix_broken_tool_use_keeps_non_tool_result_content_of_orphaned_message(session_manager):
@@ -1248,8 +1252,10 @@ def test_fix_broken_tool_use_keeps_non_tool_result_content_of_orphaned_message(s
 
     fixed_messages = session_manager._fix_broken_tool_use(messages)
 
-    assert len(fixed_messages) == 2
-    assert fixed_messages[1]["content"] == [{"text": "and what about Portland?"}]
+    assert fixed_messages == [
+        {"role": "assistant", "content": [{"text": "Summary of earlier conversation."}]},
+        {"role": "user", "content": [{"text": "and what about Portland?"}]},
+    ]
 
 
 def test_fix_broken_tool_use_removes_orphaned_tool_result_after_prepended_message(session_manager):
@@ -1273,9 +1279,10 @@ def test_fix_broken_tool_use_removes_orphaned_tool_result_after_prepended_messag
 
     fixed_messages = session_manager._fix_broken_tool_use(messages)
 
-    assert len(fixed_messages) == 2
-    assert fixed_messages[0]["content"][0]["text"] == "Summary of earlier conversation."
-    assert fixed_messages[1]["content"][0]["text"] == "done"
+    assert fixed_messages == [
+        {"role": "assistant", "content": [{"text": "Summary of earlier conversation."}]},
+        {"role": "assistant", "content": [{"text": "done"}]},
+    ]
 
 
 def test_fix_broken_tool_use_keeps_paired_tool_result_after_a_text_turn(session_manager):
@@ -1289,7 +1296,8 @@ def test_fix_broken_tool_use_keeps_paired_tool_result_after_a_text_turn(session_
         },
         {"role": "assistant", "content": [{"text": "It is sunny."}]},
     ]
+    expected = copy.deepcopy(messages)
 
     fixed_messages = session_manager._fix_broken_tool_use(messages)
 
-    assert fixed_messages == messages
+    assert fixed_messages == expected
