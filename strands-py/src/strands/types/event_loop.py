@@ -36,7 +36,7 @@ class Metrics(TypedDict, total=False):
     timeToFirstByteMs: int
 
 
-AuxiliaryModelCallSource = Literal["summarization", "extraction", "routing"] | str
+AuxiliaryModelCallSource = Literal["summarization", "extraction", "routing", "web_fetch"] | str
 """The auxiliary feature making an SDK-internal model call.
 
 Any string is accepted for forward compatibility: the SDK may add sources in minor

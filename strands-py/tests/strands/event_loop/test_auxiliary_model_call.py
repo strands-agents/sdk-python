@@ -6,8 +6,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from strands import Agent
-from strands.event_loop._auxiliary_model_call import instrument_auxiliary_model_call
+from strands.agent.agent_result import AgentResult
+from strands.event_loop._auxiliary_model_call import instrument_auxiliary_agent_call, instrument_auxiliary_model_call
 from strands.hooks import AfterAuxiliaryModelCallEvent, BeforeAuxiliaryModelCallEvent
+from strands.telemetry.metrics import EventLoopMetrics
 from strands.types.content import Message, Messages
 from strands.types.event_loop import Metrics, Usage
 from tests.fixtures.mock_hook_provider import MockHookProvider
@@ -288,3 +290,119 @@ def test_after_event_is_not_writable(agent):
 
     with pytest.raises(AttributeError, match="Property exception is not writable"):
         event.exception = RuntimeError("nope")
+
+
+# --- instrument_auxiliary_agent_call (inner-Agent auxiliary calls) ---
+
+
+def _agent_result(usage=STOP_USAGE):
+    metrics = EventLoopMetrics()
+    metrics.accumulated_usage = Usage(**usage)
+    return AgentResult(stop_reason="end_turn", message=STOP_MESSAGE, metrics=metrics, state={})
+
+
+@pytest.mark.asyncio
+async def test_agent_call_fires_hook_pair_and_records_usage(agent, hook_provider):
+    result = await instrument_auxiliary_agent_call(
+        lambda: _async_return(_agent_result()),
+        source="web_fetch",
+        agent=agent,
+        messages=PROMPT_MESSAGES,
+        system_prompt="analyst prompt",
+        invocation_state={"key": "value"},
+    )
+
+    assert result.message == STOP_MESSAGE
+
+    before_event, after_event = hook_provider.events_received
+    assert isinstance(before_event, BeforeAuxiliaryModelCallEvent)
+    assert before_event.source == "web_fetch"
+    assert before_event.messages == PROMPT_MESSAGES
+    assert before_event.system_prompt == "analyst prompt"
+    assert before_event.invocation_state == {"key": "value"}
+
+    assert isinstance(after_event, AfterAuxiliaryModelCallEvent)
+    assert after_event.exception is None
+    assert after_event.stop_response == AfterAuxiliaryModelCallEvent.ModelStopResponse(
+        message=STOP_MESSAGE, stop_reason="end_turn", usage=STOP_USAGE
+    )
+
+    assert agent.event_loop_metrics.accumulated_usage == STOP_USAGE
+    assert agent.event_loop_metrics.accumulated_usage_by_source == {"web_fetch": STOP_USAGE}
+
+
+@pytest.mark.asyncio
+async def test_agent_call_does_not_rerecord_otel_histograms(agent):
+    """The inner agent's loop already records its tokens to OTel; the rollup must not."""
+    with patch.object(type(agent.event_loop_metrics), "_metrics_client", create=True, new=MagicMock()) as client:
+        await instrument_auxiliary_agent_call(
+            lambda: _async_return(_agent_result()),
+            source="web_fetch",
+            agent=agent,
+            messages=PROMPT_MESSAGES,
+        )
+        client.event_loop_input_tokens.record.assert_not_called()
+        client.event_loop_output_tokens.record.assert_not_called()
+
+    assert agent.event_loop_metrics.accumulated_usage_by_source == {"web_fetch": STOP_USAGE}
+
+
+@pytest.mark.asyncio
+async def test_agent_call_invoke_runs_after_before_event(agent):
+    order = []
+
+    agent.hooks.add_callback(BeforeAuxiliaryModelCallEvent, lambda _: order.append("before_hook"))
+
+    async def invoke():
+        order.append("agent_call")
+        return _agent_result()
+
+    await instrument_auxiliary_agent_call(invoke, source="web_fetch", agent=agent, messages=PROMPT_MESSAGES)
+
+    assert order == ["before_hook", "agent_call"]
+
+
+@pytest.mark.asyncio
+async def test_agent_call_error_fires_after_event_with_exception(agent, hook_provider):
+    error = RuntimeError("analyst failed")
+
+    async def invoke():
+        raise error
+
+    with pytest.raises(RuntimeError, match="analyst failed"):
+        await instrument_auxiliary_agent_call(invoke, source="web_fetch", agent=agent, messages=PROMPT_MESSAGES)
+
+    before_event, after_event = hook_provider.events_received
+    assert isinstance(before_event, BeforeAuxiliaryModelCallEvent)
+    assert after_event.exception is error
+    assert after_event.stop_response is None
+    assert agent.event_loop_metrics.accumulated_usage_by_source == {}
+
+
+@pytest.mark.asyncio
+async def test_agent_call_agent_none_is_uninstrumented():
+    result = await instrument_auxiliary_agent_call(
+        lambda: _async_return(_agent_result()), source="web_fetch", agent=None, messages=PROMPT_MESSAGES
+    )
+
+    assert result.message == STOP_MESSAGE
+
+
+@pytest.mark.asyncio
+async def test_agent_call_zeroed_usage_still_fires_hooks_without_stop_response(agent, hook_provider):
+    """An inner result whose metrics carry no usable usage skips the rollup, not the hooks."""
+    result = _agent_result()
+    result.metrics.accumulated_usage = None  # type: ignore[assignment]
+
+    await instrument_auxiliary_agent_call(
+        lambda: _async_return(result), source="web_fetch", agent=agent, messages=PROMPT_MESSAGES
+    )
+
+    _, after_event = hook_provider.events_received
+    assert after_event.stop_response is None
+    assert after_event.exception is None
+    assert agent.event_loop_metrics.accumulated_usage_by_source == {}
+
+
+async def _async_return(value):
+    return value

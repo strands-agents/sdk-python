@@ -1,16 +1,19 @@
 """Shared instrumentation for SDK-internal (auxiliary) model calls.
 
-Auxiliary model calls — summarization, routing classification, memory extraction —
-happen outside the agent's main event loop, so they bypass its hooks, metrics, and
-traces. :func:`instrument_auxiliary_model_call` wraps an auxiliary call's event stream to
-fire the ``Before/AfterAuxiliaryModelCallEvent`` hook pair, roll token usage into the owning
-agent's :class:`~strands.telemetry.metrics.EventLoopMetrics` (tagged by source), and emit a
-model-invoke span (tagged with ``strands.source``) parented under the active trace — the
-same span the main event loop emits, so auxiliary spend shows up in tracing backends too.
+Auxiliary model calls — summarization, routing classification, memory extraction,
+web fetch analysis — happen outside the agent's main event loop, so they bypass its
+hooks, metrics, and traces. :func:`instrument_auxiliary_model_call` wraps an auxiliary
+call's event stream to fire the ``Before/AfterAuxiliaryModelCallEvent`` hook pair, roll
+token usage into the owning agent's :class:`~strands.telemetry.metrics.EventLoopMetrics`
+(tagged by source), and emit a model-invoke span (tagged with ``strands.source``)
+parented under the active trace — the same span the main event loop emits, so auxiliary
+spend shows up in tracing backends too. :func:`instrument_auxiliary_agent_call` is the
+variant for auxiliary features that run a throwaway inner ``Agent`` instead of a bare
+model stream.
 """
 
 import logging
-from collections.abc import AsyncGenerator, AsyncIterable, Mapping
+from collections.abc import AsyncGenerator, AsyncIterable, Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from opentelemetry import trace as trace_api
@@ -23,6 +26,7 @@ from ..types.event_loop import AuxiliaryModelCallSource
 
 if TYPE_CHECKING:
     from ..agent import Agent
+    from ..agent.agent_result import AgentResult
     from ..telemetry.tracer import Tracer
 
 logger = logging.getLogger(__name__)
@@ -164,3 +168,90 @@ def _is_usable_usage(usage: Any) -> bool:
     """Return True if the stop event's usage payload has the required ``Usage`` keys."""
     required_keys = {"inputTokens", "outputTokens", "totalTokens"}
     return isinstance(usage, dict) and required_keys <= usage.keys()
+
+
+async def instrument_auxiliary_agent_call(
+    invoke: Callable[[], Awaitable["AgentResult"]],
+    *,
+    source: AuxiliaryModelCallSource,
+    agent: "Agent | None",
+    messages: Messages,
+    system_prompt: str | None = None,
+    invocation_state: dict[str, Any] | None = None,
+) -> "AgentResult":
+    """Wrap an SDK-internal inner-``Agent`` invocation with hooks and metrics.
+
+    For auxiliary features that run a throwaway inner agent (e.g. the web fetch
+    analyst) instead of a bare model stream. Fires the same
+    ``Before/AfterAuxiliaryModelCallEvent`` pair on the *owning* agent and rolls the
+    inner agent's accumulated usage into its metrics under ``source``. Unlike
+    :func:`instrument_auxiliary_model_call`, no span is emitted and no OTel
+    histograms are recorded: the inner agent's own event loop already traces itself
+    and records its tokens (under ``"main"``), so this wrapper only adds the
+    owner-level attribution that is otherwise discarded with the inner agent.
+
+    Args:
+        invoke: Zero-arg callable performing the inner agent invocation. A callable
+            rather than a coroutine so nothing is created (or leaks un-awaited) if a
+            Before hook raises.
+        source: The auxiliary feature making the call, e.g. ``"web_fetch"``.
+        agent: The owning agent, or None to run uninstrumented.
+        messages: The messages the inner agent is invoked with, exposed on the Before event.
+        system_prompt: The inner agent's system prompt, exposed on the Before event.
+        invocation_state: Invocation state to expose on the hook events, when the call
+            site has access to it.
+
+    Returns:
+        The inner agent invocation's result, unchanged.
+    """
+    if agent is None:
+        return await invoke()
+
+    resolved_invocation_state = invocation_state if invocation_state is not None else {}
+
+    await agent.hooks.invoke_callbacks_async(
+        BeforeAuxiliaryModelCallEvent(
+            agent=agent,
+            source=source,
+            messages=messages,
+            system_prompt=system_prompt,
+            invocation_state=resolved_invocation_state,
+        )
+    )
+
+    # BaseException, not Exception: the After event must also fire when the inner
+    # invocation is cancelled, or paired setup/teardown hooks would leak.
+    try:
+        result = await invoke()
+    except BaseException as error:
+        await agent.hooks.invoke_callbacks_async(
+            AfterAuxiliaryModelCallEvent(
+                agent=agent,
+                source=source,
+                invocation_state=resolved_invocation_state,
+                exception=error,
+            )
+        )
+        raise
+
+    stop_response: AfterAuxiliaryModelCallEvent.ModelStopResponse | None = None
+    usage = result.metrics.accumulated_usage
+    if _is_usable_usage(usage):
+        agent.event_loop_metrics._accumulate_source_usage(usage, source=source)
+        stop_response = AfterAuxiliaryModelCallEvent.ModelStopResponse(
+            message=result.message,
+            stop_reason=result.stop_reason,
+            usage=usage,
+        )
+    else:
+        logger.debug("source=<%s> | auxiliary agent call reported no usable usage, skipping", source)
+
+    await agent.hooks.invoke_callbacks_async(
+        AfterAuxiliaryModelCallEvent(
+            agent=agent,
+            source=source,
+            invocation_state=resolved_invocation_state,
+            stop_response=stop_response,
+        )
+    )
+    return result

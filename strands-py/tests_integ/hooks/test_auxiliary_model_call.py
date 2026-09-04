@@ -107,3 +107,43 @@ def test_routing_classifier_fires_hooks_and_records_usage():
     # Auxiliary usage stays out of the per-invocation figures the main loop tracks.
     invocation_total = sum(inv.usage["totalTokens"] for inv in agent.event_loop_metrics.agent_invocations)
     assert invocation_total == by_source["main"]["totalTokens"]
+
+
+@retry_on_flaky("Bedrock capacity may be transiently unavailable", max_attempts=2)
+def test_web_fetch_analyst_fires_hooks_and_records_usage():
+    """The web fetch analyst (inner-Agent path) fires the hook pair and books usage on the host."""
+    import httpx
+
+    from strands.vended_tools.web_fetch import make_web_fetch
+
+    def page_handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/html"},
+            text="<html><body><p>Strands Agents is an SDK for building AI agents.</p></body></html>",
+        )
+
+    fetch_tool = make_web_fetch(client=httpx.AsyncClient(transport=httpx.MockTransport(page_handler)))
+    agent = Agent(
+        model=BedrockModel(model_id=_HAIKU_MODEL_ID, max_tokens=256, streaming=False),
+        tools=[fetch_tool],
+        system_prompt="Use the web_fetch tool to answer questions about pages.",
+        load_tools_from_directory=False,
+        callback_handler=None,
+    )
+    aux_events = _record_aux_events(agent)
+
+    agent("Fetch https://example.com/ and tell me what the page says Strands Agents is.")
+
+    web_fetch_events = [event for event in aux_events if event.source == "web_fetch"]
+    before, after = web_fetch_events
+    assert isinstance(before, BeforeAuxiliaryModelCallEvent)
+    assert isinstance(after, AfterAuxiliaryModelCallEvent)
+    assert after.exception is None
+    assert after.stop_response is not None
+
+    by_source = agent.event_loop_metrics.accumulated_usage_by_source
+    assert by_source["web_fetch"]["totalTokens"] > 0
+    # Auxiliary usage stays out of the per-invocation figures the main loop tracks.
+    invocation_total = sum(inv.usage["totalTokens"] for inv in agent.event_loop_metrics.agent_invocations)
+    assert invocation_total == by_source["main"]["totalTokens"]
