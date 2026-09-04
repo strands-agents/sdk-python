@@ -285,14 +285,22 @@ class _BidiAgentLoop:
                     if not self._auto_reconnect_enabled():
                         logger.debug("auto_reconnect disabled | surfacing timeout to caller")
                         raise error
-                    yield BidiConnectionRestartEvent(
+                    restart_event = BidiConnectionRestartEvent(
                         reason="timeout",
                         timeout_error=error,
                         turn_interrupted=not self._turn_complete.is_set(),
                     )
-                    # Raise-time generation: a swap during the yield makes _restart_connection
-                    # decline this now-stale trigger.
-                    await self._restart_connection(error, event.generation)
+                    try:
+                        await self._restart_connection(
+                            error,
+                            event.generation,
+                            restart_event=restart_event,
+                        )
+                    except Exception:
+                        # The restart event was queued before the failing swap. Surface it before
+                        # preserving the existing behavior of raising the restart failure.
+                        yield self._event_queue.get_nowait()
+                        raise
                     continue
                 raise error
 
@@ -409,7 +417,7 @@ class _BidiAgentLoop:
             timeout_error: Timeout error on the reactive path, or ``None`` when proactive.
             generation: Connection generation the trigger was raised for; the restart is declined
                 as stale if the connection has since been swapped.
-            restart_event: Scheduled restart event to emit before the proactive swap.
+            restart_event: Restart event to emit before an accepted swap.
 
         Returns:
             ``True`` if this call performed the swap, ``False`` if it declined. Raises if the

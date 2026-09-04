@@ -76,6 +76,26 @@ async def test_bidi_agent_loop_receive_restart_connection(loop, agent, agenerato
 
 
 @pytest.mark.asyncio
+async def test_reactive_restart_failure_yields_event_before_raising(loop, agent, agenerator):
+    """A failed reactive restart still notifies the caller before surfacing the failure."""
+    timeout_error = BidiModelTimeoutError("test timeout")
+    restart_error = RuntimeError("restart failed")
+    agent.model.connection_config = {}
+    agent.model.receive = unittest.mock.Mock(side_effect=timeout_error)
+    agent.model.restart.side_effect = restart_error
+
+    await loop.start()
+    consumer = loop.receive()
+
+    event = await consumer.__anext__()
+    assert event == BidiConnectionRestartEvent(reason="timeout", timeout_error=timeout_error)
+    with pytest.raises(RuntimeError, match="restart failed"):
+        await consumer.__anext__()
+
+    await loop.stop()
+
+
+@pytest.mark.asyncio
 async def test_bidi_agent_loop_auto_reconnect_default_on(loop, agent, agenerator):
     """Auto reconnect is the default: a timeout triggers reconnect without any opt-in."""
     # AsyncMock(spec=BidiModel) generates connection_config as a Mock; force the realistic
@@ -422,6 +442,47 @@ async def test_stale_reactive_timeout_dropped_after_proactive_swap(loop, agent, 
     assert result is sentinel
     await feed
     assert agent.model.restart.call_count == restarts  # no second restart from the stale timeout
+
+    await loop.stop()
+
+
+@pytest.mark.asyncio
+async def test_reactive_timeout_during_scheduled_restart_emits_no_duplicate(loop, agent, agenerator):
+    """A timeout cannot emit another restart event after a scheduled restart is accepted."""
+    agent.model.connection_config = {}
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
+    hook_started = asyncio.Event()
+    release_hook = asyncio.Event()
+
+    async def block_restart(_event):
+        hook_started.set()
+        await release_hook.wait()
+
+    agent.hooks.add_callback(BidiBeforeConnectionRestartEvent, block_restart)
+
+    await loop.start()
+    loop._reconnect_timer.cancel()
+    generation = loop._generation
+
+    deadline = asyncio.create_task(loop._on_reconnect_deadline())
+    await hook_started.wait()
+
+    consumer = loop.receive()
+    scheduled = await consumer.__anext__()
+    assert scheduled == BidiConnectionRestartEvent(reason="scheduled")
+
+    await loop._event_queue.put(_ReaderError(generation, BidiModelTimeoutError("duplicate timeout")))
+    next_event = asyncio.create_task(consumer.__anext__())
+    await asyncio.sleep(0)
+    assert not next_event.done()
+
+    sentinel = BidiTextInputEvent(text="after duplicate timeout")
+    await loop._event_queue.put(sentinel)
+    assert await asyncio.wait_for(next_event, timeout=2.0) is sentinel
+
+    release_hook.set()
+    await deadline
+    agent.model.restart.assert_called_once()
 
     await loop.stop()
 
