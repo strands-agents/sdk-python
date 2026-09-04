@@ -264,22 +264,22 @@ if __name__ == "__main__":
 ```python
 from strands.experimental.bidi.models import BedrockNovaSonicModel
 
-# Configure audio settings and turn detection (v2 only)
+# Configure audio streams and Nova Sonic session parameters.
 model = BedrockNovaSonicModel(
-    provider_config={
-        "audio": {
-            "input_rate": 16000,
-            "output_rate": 16000,
-            "voice": "matthew"
+    audio={
+        "input_rate": 16000,
+        "output_rate": 16000,
+        "voice": "matthew",
+    },
+    params={
+        "turnDetectionConfiguration": {
+            "endpointingSensitivity": "MEDIUM"
         },
-        "turn_detection": {
-            "endpointingSensitivity": "MEDIUM"  # HIGH, MEDIUM, or LOW
-        },
-        "inference": {
-            "max_tokens": 2048,
+        "inferenceConfiguration": {
+            "maxTokens": 2048,
             "temperature": 0.7
-        }
-    }
+        },
+    },
 )
 
 # Configure I/O devices

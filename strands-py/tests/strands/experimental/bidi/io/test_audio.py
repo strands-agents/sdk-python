@@ -54,14 +54,11 @@ def audio_buffer():
 @pytest.fixture
 def agent():
     mock = unittest.mock.MagicMock()
-    mock.model.config = {
-        "audio": {
-            "input_rate": 24000,
-            "output_rate": 16000,
-            "channels": 2,
-            "format": "test-format",
-            "voice": "test-voice",
-        },
+    mock.model.audio_config = {
+        "input_rate": 24000,
+        "output_rate": 16000,
+        "channels": 2,
+        "format": "test-format",
     }
     return mock
 
@@ -69,14 +66,11 @@ def agent():
 @pytest.fixture
 def aec_agent():
     mock = unittest.mock.MagicMock()
-    mock.model.config = {
-        "audio": {
-            "input_rate": 16000,
-            "output_rate": 16000,
-            "channels": 1,
-            "format": "pcm",
-            "voice": "test-voice",
-        },
+    mock.model.audio_config = {
+        "input_rate": 16000,
+        "output_rate": 16000,
+        "channels": 1,
+        "format": "pcm",
     }
     return mock
 
@@ -84,14 +78,11 @@ def aec_agent():
 @pytest.fixture
 def agent_mixed_rates():
     mock = unittest.mock.MagicMock()
-    mock.model.config = {
-        "audio": {
-            "input_rate": 16000,
-            "output_rate": 24000,
-            "channels": 1,
-            "format": "pcm",
-            "voice": "test-voice",
-        },
+    mock.model.audio_config = {
+        "input_rate": 16000,
+        "output_rate": 24000,
+        "channels": 1,
+        "format": "pcm",
     }
     return mock
 
@@ -267,6 +258,20 @@ def test_bidi_audio_io_output_configs(pyaudio_module, py_audio, audio_output):
         rate=16000,
         stream_callback=audio_output._callback,
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("direction", ["input", "output"])
+async def test_bidi_audio_io_start_rejects_model_without_audio_capability(pyaudio_module, direction):
+    agent = unittest.mock.MagicMock()
+    agent.model = object()
+    audio_io = BidiAudioIO()
+    io = audio_io.input() if direction == "input" else audio_io.output()
+
+    with pytest.raises(TypeError, match="BidiAudioIO requires a model that implements AudioCapable"):
+        await io.start(agent)
+
+    pyaudio_module.PyAudio.assert_not_called()
 
 
 # ===========================================================================
