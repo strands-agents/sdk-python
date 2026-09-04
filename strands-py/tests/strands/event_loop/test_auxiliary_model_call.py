@@ -179,6 +179,23 @@ async def test_span_ended_with_error_on_stream_failure(agent):
 
 
 @pytest.mark.asyncio
+async def test_span_ended_with_cancellation_on_mid_stream_cancel(agent):
+    """A cancelled stream ends the span via end_span_with_cancellation, not as an ERROR."""
+    tracer = MagicMock()
+    error = asyncio.CancelledError()
+    with patch("strands.event_loop._auxiliary_model_call.get_tracer", return_value=tracer):
+        with pytest.raises(asyncio.CancelledError):
+            async for _ in instrument_auxiliary_model_call(
+                _stream_that_raises(error), source="routing", agent=agent, messages=PROMPT_MESSAGES
+            ):
+                pass
+
+    tracer.end_span_with_cancellation.assert_called_once()
+    tracer.end_span_with_error.assert_not_called()
+    tracer.end_model_invoke_span.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_span_ended_without_usage_when_no_stop(agent):
     tracer = MagicMock()
     with patch("strands.event_loop._auxiliary_model_call.get_tracer", return_value=tracer):

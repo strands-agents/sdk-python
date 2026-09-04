@@ -107,7 +107,11 @@ async def instrument_auxiliary_model_call(
                     stop = event["stop"]
                 yield event
     except BaseException as error:
-        tracer.end_span_with_error(span, str(error), error)
+        if isinstance(error, Exception):
+            tracer.end_span_with_error(span, str(error), error)
+        else:
+            # Cancellation (e.g. the routing classifier's wait_for timeout) is not a failure.
+            tracer.end_span_with_cancellation(span, error)
         if agent is not None:
             await agent.hooks.invoke_callbacks_async(
                 AfterAuxiliaryModelCallEvent(

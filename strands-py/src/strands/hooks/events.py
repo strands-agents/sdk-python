@@ -400,7 +400,8 @@ class BeforeAuxiliaryModelCallEvent(HookEvent):
 
     Auxiliary model calls are calls the SDK makes on the user's behalf outside the
     agent's main event loop — summarizing conversation history, classifying a request
-    to route between models, or extracting memories. They do not fire
+    to route between models, extracting memories, or analyzing a fetched web page. They
+    do not fire
     :class:`BeforeModelCallEvent`, which keeps meaning "the agent's turn"; a consumer
     that wants to observe auxiliary calls opts in by subscribing to this event.
 

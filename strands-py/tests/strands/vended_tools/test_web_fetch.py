@@ -571,8 +571,35 @@ class TestAgenticAuxiliaryInstrumentation:
             await tool(url="https://example.com/", prompt="Summarize", tool_context=ctx)
 
         assert len(after_events) == 1
-        assert isinstance(after_events[0].exception, RuntimeError)
+        # The wrap happens inside the instrumented call, so the After event carries the
+        # WebFetchError with the analyst's original error as its cause.
+        assert isinstance(after_events[0].exception, WebFetchError)
+        assert isinstance(after_events[0].exception.__cause__, RuntimeError)
         assert host_agent.event_loop_metrics.accumulated_usage_by_source == {}
+
+    @pytest.mark.asyncio
+    async def test_hook_error_surfaces_as_itself_not_analyst_failure(self, monkeypatch):
+        from strands import Agent
+        from strands.hooks import AfterAuxiliaryModelCallEvent
+        from strands.types.event_loop import Usage
+        from strands.types.tools import ToolContext, ToolUse
+        from tests.fixtures.mocked_model_provider import MockedModelProvider
+
+        usage = Usage(inputTokens=1, outputTokens=1, totalTokens=2)
+        host_agent = Agent(model=MockedModelProvider([]), load_tools_from_directory=False)
+        monkeypatch.setattr(agent_module, "Agent", self._fake_analyst(usage))
+
+        def broken_hook(_event):
+            raise RuntimeError("telemetry exporter down")
+
+        host_agent.hooks.add_callback(AfterAuxiliaryModelCallEvent, broken_hook)
+
+        tool_use = ToolUse(toolUseId="wf_aux3", name="web_fetch", input={})
+        ctx = ToolContext(tool_use=tool_use, agent=host_agent, invocation_state={})
+
+        tool = make_web_fetch(client=self._page_client(), mode="agentic")
+        with pytest.raises(RuntimeError, match="telemetry exporter down"):
+            await tool(url="https://example.com/", prompt="Summarize", tool_context=ctx)
 
     @pytest.mark.asyncio
     async def test_no_tool_context_runs_uninstrumented(self, monkeypatch):

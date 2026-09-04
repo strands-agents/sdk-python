@@ -222,7 +222,7 @@ class EventLoopMetrics:
             invocations only — auxiliary calls contribute usage, not latency.
         accumulated_usage_by_source: Accumulated token usage broken down by source — ``"main"`` for
             main-event-loop model calls, or the auxiliary feature that made the call (e.g.
-            ``"summarization"``, ``"routing"``, ``"extraction"``).
+            ``"summarization"``, ``"routing"``, ``"extraction"``, ``"web_fetch"``).
     """
 
     cycle_count: int = 0
