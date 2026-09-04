@@ -12,7 +12,7 @@ from ...types._events import (
 from .agent.agent import BidiAgent
 
 # Model interface (for custom implementations)
-from .models.model import BidiModel, Restartable
+from .models.model import AudioCapable, BidiModel, BidiModelConfig, Restartable
 
 # Built-in tools (deprecated - use strands_tools.stop instead)
 from .tools import stop_conversation
@@ -38,8 +38,8 @@ from .types.events import (
     ModalityUsage,
 )
 
-# Reconnect configuration (declared by providers, tunable via provider_config)
-from .types.model import BidiConnectionConfig
+# Reconnect configuration (declared by providers, tunable via model configuration)
+from .types.model import AudioConfig, BidiConnectionConfig
 
 if TYPE_CHECKING:
     from .io.audio import BidiAudioIO, BidiAudioIOConfig, BidiAudioProcessorConfig
@@ -73,7 +73,10 @@ __all__ = [
     "ToolResultEvent",
     "ToolStreamEvent",
     # Model interface
+    "AudioCapable",
+    "AudioConfig",
     "BidiModel",
+    "BidiModelConfig",
     "Restartable",
     # IO channels and configuration
     "BidiAudioProcessorConfig",

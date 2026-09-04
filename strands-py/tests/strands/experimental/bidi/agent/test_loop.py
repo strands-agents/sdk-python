@@ -76,6 +76,26 @@ async def test_bidi_agent_loop_receive_restart_connection(loop, agent, agenerato
 
 
 @pytest.mark.asyncio
+async def test_reactive_restart_failure_yields_event_before_raising(loop, agent, agenerator):
+    """A failed reactive restart still notifies the caller before surfacing the failure."""
+    timeout_error = BidiModelTimeoutError("test timeout")
+    restart_error = RuntimeError("restart failed")
+    agent.model.connection_config = {}
+    agent.model.receive = unittest.mock.Mock(side_effect=timeout_error)
+    agent.model.restart.side_effect = restart_error
+
+    await loop.start()
+    consumer = loop.receive()
+
+    event = await consumer.__anext__()
+    assert event == BidiConnectionRestartEvent(reason="timeout", timeout_error=timeout_error)
+    with pytest.raises(RuntimeError, match="restart failed"):
+        await consumer.__anext__()
+
+    await loop.stop()
+
+
+@pytest.mark.asyncio
 async def test_bidi_agent_loop_auto_reconnect_default_on(loop, agent, agenerator):
     """Auto reconnect is the default: a timeout triggers reconnect without any opt-in."""
     # AsyncMock(spec=BidiModel) generates connection_config as a Mock; force the realistic
@@ -133,16 +153,45 @@ async def test_bidi_agent_loop_proactive_reconnect_before_deadline(loop, agent, 
 
     await loop.start()
 
-    # The proactive timer enqueues a warning, then reconnects, then enqueues the scheduled event.
-    warning = await loop._lifecycle_queue.get()
-    assert isinstance(warning, BidiConnectionWarningEvent)
+    # The proactive timer emits the warning and scheduled restart on the bounded event stream.
+    warning = await loop._event_queue.get()
+    assert warning == BidiConnectionWarningEvent(time_left_s=5)
 
-    restart = await loop._lifecycle_queue.get()
-    assert isinstance(restart, BidiConnectionRestartEvent)
-    assert restart.reason == "scheduled"
-    assert restart.turn_interrupted is False  # swapped at an idle boundary, no turn cut
+    restart = await loop._event_queue.get()
+    assert restart == BidiConnectionRestartEvent(reason="scheduled", turn_interrupted=False)
 
     agent.model.restart.assert_called()
+
+    await loop.stop()
+
+
+@pytest.mark.asyncio
+async def test_scheduled_restart_event_emitted_before_model_restart(loop, agent, agenerator):
+    """The scheduled restart event precedes provider restart and new-connection output."""
+    agent.model.connection_config = {}
+    output = BidiTextInputEvent(text="new-connection output")
+    agent.model.receive = unittest.mock.Mock(side_effect=[agenerator([]), agenerator([output])])
+    order = []
+
+    await loop.start()
+    loop._reconnect_timer.cancel()
+
+    original_put = loop._event_queue.put
+
+    async def recording_put(event):
+        if isinstance(event, BidiConnectionRestartEvent):
+            order.append("event")
+        await original_put(event)
+
+    agent.model.restart.side_effect = lambda *_args, **_kwargs: order.append("restart")
+
+    with unittest.mock.patch.object(loop._event_queue, "put", side_effect=recording_put):
+        await loop._on_reconnect_deadline()
+
+    assert order == ["event", "restart"]
+    restart = await loop._event_queue.get()
+    assert restart == BidiConnectionRestartEvent(reason="scheduled", turn_interrupted=False)
+    assert await asyncio.wait_for(loop._event_queue.get(), timeout=2.0) is output
 
     await loop.stop()
 
@@ -398,40 +447,86 @@ async def test_stale_reactive_timeout_dropped_after_proactive_swap(loop, agent, 
 
 
 @pytest.mark.asyncio
-async def test_lifecycle_events_take_priority_over_data_in_receive(loop, agent, agenerator):
-    """A queued lifecycle event is delivered before an older data event (in-order, not dropped)."""
+async def test_reactive_timeout_during_scheduled_restart_emits_no_duplicate(loop, agent, agenerator):
+    """A timeout cannot emit another restart event after a scheduled restart is accepted."""
+    agent.model.connection_config = {}
     agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
+    hook_started = asyncio.Event()
+    release_hook = asyncio.Event()
+
+    async def block_restart(_event):
+        hook_started.set()
+        await release_hook.wait()
+
+    agent.hooks.add_callback(BidiBeforeConnectionRestartEvent, block_restart)
+
     await loop.start()
     loop._reconnect_timer.cancel()
+    generation = loop._generation
 
-    data = BidiTextInputEvent(text="new-connection output")
-    warning = BidiConnectionWarningEvent(time_left_s=10.0)
-    await loop._event_queue.put(data)  # data queued first...
-    loop._lifecycle_queue.put_nowait(warning)  # ...lifecycle second, but wins
+    deadline = asyncio.create_task(loop._on_reconnect_deadline())
+    await hook_started.wait()
 
-    first = await asyncio.wait_for(loop.receive().__anext__(), timeout=2.0)
-    assert first is warning
+    consumer = loop.receive()
+    scheduled = await consumer.__anext__()
+    assert scheduled == BidiConnectionRestartEvent(reason="scheduled")
+
+    await loop._event_queue.put(_ReaderError(generation, BidiModelTimeoutError("duplicate timeout")))
+    next_event = asyncio.create_task(consumer.__anext__())
+    await asyncio.sleep(0)
+    assert not next_event.done()
+
+    sentinel = BidiTextInputEvent(text="after duplicate timeout")
+    await loop._event_queue.put(sentinel)
+    assert await asyncio.wait_for(next_event, timeout=2.0) is sentinel
+
+    release_hook.set()
+    await deadline
+    agent.model.restart.assert_called_once()
 
     await loop.stop()
 
 
 @pytest.mark.asyncio
-async def test_lifecycle_event_delivered_while_consumer_idle(loop, agent, agenerator):
-    """A lifecycle event emitted while both queues are empty still wakes receive()."""
+async def test_connection_events_share_bounded_event_queue(loop, agent, agenerator):
+    """Connection events preserve FIFO order and backpressure on the size-one event queue."""
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
+    await loop.start()
+    loop._reconnect_timer.cancel()
+
+    data = BidiTextInputEvent(text="new-connection output")
+    await loop._event_queue.put(data)
+    warning_put = asyncio.create_task(loop._on_reconnect_warning(10))
+    await asyncio.sleep(0)
+    assert not warning_put.done()
+
+    first = await asyncio.wait_for(loop.receive().__anext__(), timeout=2.0)
+    assert first is data
+    await warning_put
+
+    second = await asyncio.wait_for(loop.receive().__anext__(), timeout=2.0)
+    assert second == BidiConnectionWarningEvent(time_left_s=10)
+    assert loop._event_queue.maxsize == 1
+
+    await loop.stop()
+
+
+@pytest.mark.asyncio
+async def test_connection_event_delivered_while_consumer_idle(loop, agent, agenerator):
+    """A connection event emitted while the queue is empty wakes receive()."""
     agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
     await loop.start()
     loop._reconnect_timer.cancel()
 
     consumer = loop.receive()
-    warning = BidiConnectionWarningEvent(time_left_s=10.0)
 
     async def emit():
-        await asyncio.sleep(0)  # let the consumer reach the both-queues-empty wait
-        loop._lifecycle_queue.put_nowait(warning)
+        await asyncio.sleep(0)
+        await loop._on_reconnect_warning(10)
 
     asyncio.create_task(emit())
     first = await asyncio.wait_for(consumer.__anext__(), timeout=2.0)
-    assert first is warning
+    assert first == BidiConnectionWarningEvent(time_left_s=10)
 
     await loop.stop()
 
@@ -529,6 +624,34 @@ async def test_deadline_callback_does_not_reconnect_after_stop(agent, agenerator
     await asyncio.wait_for(deadline_task, timeout=2)
 
     agent.model.restart.assert_not_called()
+    assert loop._event_queue.empty()
+
+
+@pytest.mark.asyncio
+async def test_deadline_callback_does_not_restart_after_stop_while_queue_full(agent, agenerator):
+    """A restart blocked on event backpressure must not restart the model after stop()."""
+    agent.model.connection_config = {}
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
+
+    loop = agent._loop
+    await loop.start()
+    loop._reconnect_timer.cancel()
+
+    queued = BidiTextInputEvent(text="queued")
+    await loop._event_queue.put(queued)
+    deadline_task = asyncio.create_task(loop._on_reconnect_deadline())
+    for _ in range(10):
+        await asyncio.sleep(0)
+        if loop._reconnecting:
+            break
+    assert loop._reconnecting
+
+    await loop.stop()
+    assert loop._event_queue.get_nowait() is queued
+    await asyncio.wait_for(deadline_task, timeout=2)
+
+    agent.model.restart.assert_not_called()
+    assert loop._event_queue.get_nowait() == BidiConnectionRestartEvent(reason="scheduled", turn_interrupted=False)
 
 
 @pytest.mark.asyncio
@@ -645,9 +768,8 @@ async def test_forced_swap_flags_interrupted_turn(agent, agenerator):
     with unittest.mock.patch("strands.experimental.bidi.agent.loop._MODEL_RESTART_TURN_TIMEOUT_S", 0):
         await loop._on_reconnect_deadline()
 
-    restart = await loop._lifecycle_queue.get()
-    assert isinstance(restart, BidiConnectionRestartEvent)
-    assert restart.turn_interrupted is True
+    restart = await loop._event_queue.get()
+    assert restart == BidiConnectionRestartEvent(reason="scheduled", turn_interrupted=True)
 
     await loop.stop()
 
