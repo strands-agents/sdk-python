@@ -10,6 +10,14 @@ export interface PendingInvocationsConfig {
    * Defaults to `'strands:pending-invocations'`.
    */
   name?: string
+
+  /**
+   * Replaces the built-in renderer for the model-facing block. Receives the queue in
+   * run order; return the text to inject before the next model call, or `undefined`
+   * to inject nothing. Entry previews are untrusted caller data — quote them
+   * accordingly. `render: () => undefined` disables queue visibility entirely.
+   */
+  render?: (pending: readonly PendingInvocation[]) => string | undefined
 }
 
 /** Escapes `&`, `<`, and `>` so a preview cannot break out of the injected block. */
@@ -46,7 +54,8 @@ function renderPendingBlock(pending: readonly PendingInvocation[]): string | und
  *
  * Attached automatically when the agent's `concurrentInvocationMode` is `'enqueue'`
  * or `'cancelPrevious'`; attach manually when using per-call `ifBusy` on a
- * `'throw'`-mode agent.
+ * `'throw'`-mode agent, or pass your own instance to customize the injected text via
+ * {@link PendingInvocationsConfig.render}.
  */
 export class PendingInvocations implements Plugin {
   readonly name: string
@@ -55,10 +64,11 @@ export class PendingInvocations implements Plugin {
 
   constructor(config?: PendingInvocationsConfig) {
     this.name = config?.name ?? 'strands:pending-invocations'
+    const render = config?.render ?? renderPendingBlock
     this._injector = new ContextInjector({
       name: this.name,
       trigger: 'everyTurn',
-      renderContent: async ({ agent }): Promise<string | undefined> => renderPendingBlock(agent.pendingInvocations),
+      renderContent: async ({ agent }): Promise<string | undefined> => render(agent.pendingInvocations),
     })
   }
 

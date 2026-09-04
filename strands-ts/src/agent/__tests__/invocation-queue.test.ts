@@ -9,8 +9,8 @@ describe('previewInvokeArgs', () => {
   })
 
   it('never splits a surrogate pair at the truncation cut', () => {
-    const preview = previewInvokeArgs('\u{1F642}'.repeat(300))
-    expect(preview).toBe(`${'\u{1F642}'.repeat(200)}\u2026`)
+    const preview = previewInvokeArgs('\u{1F642}'.repeat(600))
+    expect(preview).toBe(`${'\u{1F642}'.repeat(500)}\u2026`)
   })
 
   it('passes short string input through', () => {
@@ -18,8 +18,8 @@ describe('previewInvokeArgs', () => {
   })
 
   it('truncates long string input and marks the cut', () => {
-    const preview = previewInvokeArgs('x'.repeat(500))
-    expect(preview).toHaveLength(201)
+    const preview = previewInvokeArgs('x'.repeat(800))
+    expect(preview).toHaveLength(501)
     expect(preview.endsWith('…')).toBe(true)
   })
 
@@ -42,17 +42,17 @@ describe('previewInvokeArgs', () => {
 })
 
 describe('InvocationQueue', () => {
-  it('snapshots entries in run order with id, submittedAt, and preview', () => {
+  it('lists entries in run order with id, submittedAt, and preview', () => {
     const queue = new InvocationQueue()
     void queue.wait('first').catch(() => {})
     void queue.wait('second').catch(() => {})
 
-    const snapshot = queue.snapshot()
-    expect(snapshot).toHaveLength(2)
-    expect(snapshot[0]).toMatchObject({ id: 'pending-1', preview: 'first' })
-    expect(snapshot[1]).toMatchObject({ id: 'pending-2', preview: 'second' })
-    expect(snapshot[0]!.submittedAt).toBeInstanceOf(Date)
-    expect(Object.isFrozen(snapshot[0])).toBe(true)
+    const listed = queue.list()
+    expect(listed).toHaveLength(2)
+    expect(listed[0]).toMatchObject({ id: 'pending-1', preview: 'first' })
+    expect(listed[1]).toMatchObject({ id: 'pending-2', preview: 'second' })
+    expect(listed[0]!.submittedAt).toBeInstanceOf(Date)
+    expect(Object.isFrozen(listed[0])).toBe(true)
   })
 
   it('resolves waiters FIFO on handoff', async () => {
@@ -73,17 +73,32 @@ describe('InvocationQueue', () => {
     expect(new InvocationQueue().handoff()).toBe(false)
   })
 
-  it('inserts front entries ahead of waiting ones', async () => {
+  it('inserts superseding entries ahead of waiting ones', async () => {
     const queue = new InvocationQueue()
     const order: string[] = []
     const normal = queue.wait('normal').then(() => order.push('normal'))
-    const urgent = queue.wait('urgent', { front: true }).then(() => order.push('urgent'))
+    const urgent = queue.wait('urgent', { supersede: true }).then(() => order.push('urgent'))
 
     queue.handoff()
     await urgent
     queue.handoff()
     await normal
     expect(order).toEqual(['urgent', 'normal'])
+  })
+
+  it('a superseding entry displaces queued superseding predecessors but not plain ones', async () => {
+    const queue = new InvocationQueue()
+    const plain = queue.wait('plain')
+    const older = queue.wait('older-urgent', { supersede: true })
+    const newer = queue.wait('newer-urgent', { supersede: true })
+
+    await expect(older).rejects.toThrow(PendingInvocationCancelledError)
+    expect(queue.list().map((e) => e.preview)).toEqual(['newer-urgent', 'plain'])
+
+    queue.handoff()
+    await newer
+    queue.handoff()
+    await plain
   })
 
   it('cancel removes the entry and rejects its waiter with the entry id', async () => {
@@ -139,7 +154,7 @@ describe('InvocationQueue', () => {
     queue.onEnqueue(() => notified++)
     void queue.wait('first').catch(() => {})
     expect(notified).toBe(1)
-    void queue.wait('urgent', { front: true }).catch(() => {})
+    void queue.wait('urgent', { supersede: true }).catch(() => {})
     expect(notified).toBe(2)
   })
 

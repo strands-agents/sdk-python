@@ -133,6 +133,48 @@ describe('concurrentInvocationMode', () => {
       expect((await first).stopReason).toBe('endTurn')
       expect(resultText(await second)).toBe('B')
     })
+
+    it('latest wins under rapid overlap: intermediates are displaced, only the newest runs', async () => {
+      const gate = createGate()
+      const model = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'gate', toolUseId: 't1', input: {} })
+        .addTurn({ type: 'textBlock', text: 'D' })
+      const agent = new Agent({ model, tools: [gate.tool], printer: false, concurrentInvocationMode: 'cancelPrevious' })
+
+      const first = agent.invoke('a')
+      await gate.started
+      const second = agent.invoke('b')
+      const third = agent.invoke('c')
+      const fourth = agent.invoke('d')
+
+      expect((await first).stopReason).toBe('cancelled')
+      await expect(second).rejects.toThrow(PendingInvocationCancelledError)
+      await expect(third).rejects.toThrow(PendingInvocationCancelledError)
+      const resultD = await fourth
+      expect(resultD.stopReason).toBe('endTurn')
+      expect(resultText(resultD)).toBe('D')
+      // Exactly two invocations ran model passes: the cancelled first and the newest.
+      expect(agent.pendingInvocations).toHaveLength(0)
+    })
+
+    it("displacement spares callers queued with ifBusy: 'enqueue'", async () => {
+      const gate = createGate()
+      const model = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'gate', toolUseId: 't1', input: {} })
+        .addTurn({ type: 'textBlock', text: 'C' })
+        .addTurn({ type: 'textBlock', text: 'B' })
+      const agent = new Agent({ model, tools: [gate.tool], printer: false, concurrentInvocationMode: 'cancelPrevious' })
+
+      const first = agent.invoke('a')
+      await gate.started
+      const waiter = agent.invoke('b', { ifBusy: 'enqueue' })
+      await until(() => agent.pendingInvocations.length === 1, 'b queued')
+      const urgent = agent.invoke('c')
+
+      expect((await first).stopReason).toBe('cancelled')
+      expect(resultText(await urgent)).toBe('C')
+      expect(resultText(await waiter)).toBe('B')
+    })
   })
 
   describe("'throw' (default) behavior", () => {

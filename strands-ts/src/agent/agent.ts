@@ -365,14 +365,18 @@ export type AgentConfig = {
    *
    * - `'throw'` (default): reject the new call with {@link ConcurrentInvocationError}.
    * - `'enqueue'`: queue the new call FIFO; it runs as its own invocation when the
-   *   current one finishes.
-   * - `'cancelPrevious'`: cancel the running invocation and run the new call next,
-   *   ahead of any queued invocations.
+   *   current one finishes. The queue is unbounded — bound it host-side by checking
+   *   `pendingInvocations.length` before submitting.
+   * - `'cancelPrevious'`: latest wins — cancel the running invocation and displace any
+   *   queued `'cancelPrevious'` predecessors (they reject with
+   *   {@link PendingInvocationCancelledError}); the new call runs next. Callers queued
+   *   with `'enqueue'` are never displaced and run afterwards.
    *
-   * Callers can override per call via {@link InvokeOptions.ifBusy}. Under `'enqueue'`,
-   * a tool or hook of the running invocation must not `await` its own agent's
-   * `invoke()`/`stream()` — the inner call would queue behind the invocation it is
-   * part of and deadlock.
+   * Callers can override per call via {@link InvokeOptions.ifBusy}. Under `'enqueue'`
+   * and `'cancelPrevious'`, a tool or hook of the running invocation must not `await`
+   * its own agent's `invoke()`/`stream()` — the inner call would wait for the
+   * invocation it is part of (cancellation is cooperative and cannot rescue it) and
+   * deadlock.
    */
   concurrentInvocationMode?: ConcurrentInvocationMode
 }
@@ -973,12 +977,12 @@ export class Agent implements LocalAgent, InvokableAgent {
     switch (strategy) {
       case 'throw':
         throw new ConcurrentInvocationError(
-          'Agent is already processing an invocation. Wait for the current invoke() or stream() call to complete before invoking again.'
+          "Agent is already processing an invocation. Wait for the current invoke() or stream() call to complete, or set concurrentInvocationMode / ifBusy to 'enqueue' to queue instead."
         )
       case 'enqueue':
       case 'cancelPrevious': {
         const turn = this._invocationQueue.wait(args, {
-          front: strategy === 'cancelPrevious',
+          supersede: strategy === 'cancelPrevious',
           ...(options?.cancelSignal !== undefined && { cancelSignal: options.cancelSignal }),
         })
         // An already-aborted caller never enters the queue; don't cancel the running
@@ -1146,7 +1150,7 @@ export class Agent implements LocalAgent, InvokableAgent {
 
   /** Point-in-time snapshot of invocations waiting in the agent's queue, in run order. */
   get pendingInvocations(): readonly PendingInvocation[] {
-    return this._invocationQueue.snapshot()
+    return this._invocationQueue.list()
   }
 
   /**
@@ -1603,6 +1607,8 @@ export class Agent implements LocalAgent, InvokableAgent {
    *
    * Use snapshots to checkpoint agent state for later restoration, enabling
    * use cases like undo/redo, branching conversations, and session persistence.
+   * Queued invocations ({@link pendingInvocations}) are not captured — they belong
+   * to the live process.
    *
    * Fields are selected via a preset/include/exclude model:
    * 1. Start with preset fields (e.g. `'session'` captures all fields)

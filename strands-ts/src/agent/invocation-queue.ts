@@ -32,12 +32,13 @@ export interface PendingInvocation {
 }
 
 interface QueueEntry extends PendingInvocation {
+  supersedes: boolean
   resolve: () => void
   reject: (error: Error) => void
   cleanup: () => void
 }
 
-const PREVIEW_MAX_CHARS = 200
+const PREVIEW_MAX_CHARS = 500
 
 function truncatePreview(text: string): string {
   const collapsed = text.replace(/\s+/g, ' ').trim()
@@ -77,8 +78,8 @@ export class InvocationQueue {
     return this._entries.length
   }
 
-  /** Point-in-time snapshot of the queue, in run order. */
-  snapshot(): readonly PendingInvocation[] {
+  /** Immutable view of the queued entries, in run order. */
+  list(): readonly PendingInvocation[] {
     return this._entries.map(({ id, submittedAt, preview }) => Object.freeze({ id, submittedAt, preview }))
   }
 
@@ -99,17 +100,19 @@ export class InvocationQueue {
    * handed to it (via {@link handoff}), or rejects when the entry is removed first.
    *
    * @param args - The invocation arguments, used to derive the entry's preview
-   * @param options - `front` inserts at the front of the queue; aborting
-   *   `cancelSignal` while queued removes the entry and rejects with
+   * @param options - `supersede` inserts at the front of the queue and displaces any
+   *   queued superseding entries (they reject as cancelled); aborting `cancelSignal`
+   *   while queued removes the entry and rejects with
    *   {@link PendingInvocationCancelledError}
    */
-  wait(args: InvokeArgs, options?: { front?: boolean; cancelSignal?: AbortSignal }): Promise<void> {
+  wait(args: InvokeArgs, options?: { supersede?: boolean; cancelSignal?: AbortSignal }): Promise<void> {
     const id = `pending-${this._nextSequence++}`
     return new Promise<void>((resolve, reject) => {
       const entry: QueueEntry = {
         id,
         submittedAt: new Date(),
         preview: previewInvokeArgs(args),
+        supersedes: options?.supersede === true,
         resolve,
         reject,
         cleanup: () => {},
@@ -126,7 +129,8 @@ export class InvocationQueue {
         entry.cleanup = (): void => signal.removeEventListener('abort', onAbort)
       }
 
-      if (options?.front) {
+      if (entry.supersedes) {
+        for (const displaced of this._entries.filter((e) => e.supersedes)) this._remove(displaced)
         this._entries.unshift(entry)
       } else {
         this._entries.push(entry)

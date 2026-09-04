@@ -39,6 +39,30 @@ describe('PendingInvocations', () => {
       expect(new PendingInvocations({ name: 'queue-view' }).name).toBe('queue-view')
     })
 
+    it('honors a custom render function', async () => {
+      const addMiddleware = vi.fn()
+      const pending = [entry('pending-1', 'later')]
+      const agent = createMockAgent({ extra: { addMiddleware, pendingInvocations: pending } as never })
+      new PendingInvocations({ render: (p) => `queued: ${p.length}` }).initAgent(agent)
+      const handler = addMiddleware.mock.calls[0]![1] as (ctx: InvokeModelContext) => Promise<InvokeModelContext>
+
+      const result = await handler({ messages: [user('ask')], agent } as unknown as InvokeModelContext)
+      expect(textOf(result.messages)).toContain('queued: 1')
+      expect(textOf(result.messages)).not.toContain('<pending_invocations>')
+    })
+
+    it('a render returning undefined disables injection entirely', async () => {
+      const addMiddleware = vi.fn()
+      const pending = [entry('pending-1', 'later')]
+      const agent = createMockAgent({ extra: { addMiddleware, pendingInvocations: pending } as never })
+      new PendingInvocations({ render: () => undefined }).initAgent(agent)
+      const handler = addMiddleware.mock.calls[0]![1] as (ctx: InvokeModelContext) => Promise<InvokeModelContext>
+
+      const input = [user('ask')]
+      const result = await handler({ messages: input, agent } as unknown as InvokeModelContext)
+      expect(result.messages).toBe(input)
+    })
+
     it('registers an InvokeModelStage input middleware on initAgent', () => {
       const addMiddleware = vi.fn()
       const agent = createMockAgent({ extra: { addMiddleware } as never })
