@@ -251,10 +251,8 @@
     "playwright": "^1.61.0",
     "tsx": "^4.22.5",
     "typescript": "^6.0.3",
+    "@tobilu/qmd": "^2.8.0",
     "vitest": "^4.1.10"
-  },
-  "optionalDependencies": {
-    "@tobilu/qmd": "^2.8.0"
   },
   "engines": {
     "node": ">=22.0.0"
