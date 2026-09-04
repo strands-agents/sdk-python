@@ -90,6 +90,8 @@ export type ConversationManagerOptions = {
  * `BeforeModelCallEvent` hook that checks projected input tokens against the model's
  * context window limit and calls `reduce` (without `error`) when the threshold is exceeded.
  *
+ * @deprecated Use {@link ContextManager} instead. ConversationManager will be removed in a future major version.
+ *
  * @example
  * ```typescript
  * class Last10MessagesManager extends ConversationManager {
