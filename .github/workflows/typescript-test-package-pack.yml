@@ -93,14 +93,14 @@ jobs:
           npx tsc --noEmit
           npx tsx verify.ts
 
-          # Guard against dependency bloat (#4169). Measure the installed
-          # footprint a consumer would see — the same tree that ends up in a
-          # Lambda / AgentCore zip. 250 MB is the AgentCore code-package limit;
-          # we use that as the ceiling.
-          SIZE_KB=$(du -sk node_modules | cut -f1)
-          SIZE_MB=$(( SIZE_KB / 1024 ))
-          echo "[pack-test] node_modules install size: ${SIZE_MB} MB"
-          MAX_MB=250
+          # Guard against dependency bloat (#4169). Reinstall without the
+          # test fixture's devDependencies so we measure only what a consumer
+          # ships, then check against a tight ceiling.
+          npm install --ignore-scripts --no-audit --no-fund --omit=dev "$TARBALL_PATH"
+          SIZE_BYTES=$(du -sb node_modules | cut -f1)
+          SIZE_MB=$(( SIZE_BYTES / 1048576 ))
+          echo "[pack-test] consumer node_modules install size: ${SIZE_MB} MB"
+          MAX_MB=150
           if [ "$SIZE_MB" -gt "$MAX_MB" ]; then
             echo "::error::Install size ${SIZE_MB} MB exceeds ${MAX_MB} MB limit. A dependency may be pulling in unexpected native binaries."
             exit 1
