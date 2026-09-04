@@ -2,11 +2,12 @@
 
 from typing import Any
 
-from .model import BidiModel, BidiModelTimeoutError
+from .model import BidiModel, BidiModelTimeoutError, Restartable
 
 __all__ = [
     "BidiModel",
     "BidiModelTimeoutError",
+    "Restartable",
 ]
 
 

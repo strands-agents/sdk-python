@@ -553,6 +553,110 @@ async def test_call_tool_v2_returns_a_terminal_result_from_the_last_allowed_roun
     assert session.call_tool.await_count == 11
 
 
+@pytest.mark.asyncio
+async def test_get_prompt_v1_sends_a_single_request(monkeypatch):
+    """Test that the 1.x branch calls the session once, with no retry keywords."""
+    monkeypatch.setattr(_compat, "MCP_V2", False)
+    terminal_result = MagicMock()
+    session = MagicMock()
+    session.get_prompt = AsyncMock(return_value=terminal_result)
+
+    result = await _compat.get_prompt(session, "greet", {"name": "x"})
+
+    assert result is terminal_result
+    session.get_prompt.assert_awaited_once_with("greet", arguments={"name": "x"})
+
+
+@pytest.mark.asyncio
+async def test_read_resource_v1_sends_a_single_request(monkeypatch):
+    """Test that the 1.x branch calls the session once, passing the URI object through untouched."""
+    monkeypatch.setattr(_compat, "MCP_V2", False)
+    terminal_result = MagicMock()
+    session = MagicMock()
+    session.read_resource = AsyncMock(return_value=terminal_result)
+    resource_uri = MagicMock()
+
+    result = await _compat.read_resource(session, resource_uri)
+
+    assert result is terminal_result
+    session.read_resource.assert_awaited_once_with(resource_uri)
+
+
+@requires_mcp_v2
+@pytest.mark.asyncio
+async def test_get_prompt_v2_resolves_input_required_through_the_callback_table():
+    """Test that the 2.x branch resolves an `InputRequiredResult` from `prompts/get` and retries."""
+    from mcp.types import (
+        ElicitRequest,
+        ElicitRequestFormParams,
+        ElicitResult,
+        GetPromptResult,
+        InputRequiredResult,
+    )
+
+    elicit_request = ElicitRequest(
+        method="elicitation/create",
+        params=ElicitRequestFormParams(
+            mode="form",
+            message="need a value",
+            requested_schema={"type": "object", "properties": {"value": {"type": "string"}}},
+        ),
+    )
+    input_required = InputRequiredResult(input_requests={"q1": elicit_request}, request_state="state-1")
+    terminal_result = GetPromptResult(messages=[])
+    elicit_result = ElicitResult(action="accept", content={"value": "x"})
+    session = MagicMock()
+    session.get_prompt = AsyncMock(side_effect=[input_required, terminal_result])
+    session.dispatch_input_request = AsyncMock(return_value=elicit_result)
+
+    result = await _compat.get_prompt(session, "greet", {"name": "x"})
+
+    assert result is terminal_result
+    first_kwargs = session.get_prompt.await_args_list[0].kwargs
+    assert first_kwargs["allow_input_required"] is True
+    retry_kwargs = session.get_prompt.await_args_list[1].kwargs
+    assert retry_kwargs["input_responses"] == {"q1": elicit_result}
+    assert retry_kwargs["request_state"] == "state-1"
+
+
+@requires_mcp_v2
+@pytest.mark.asyncio
+async def test_read_resource_v2_resolves_input_required_and_sends_a_string_uri():
+    """Test that the 2.x branch retries an `InputRequiredResult` from `resources/read` with a plain-string URI."""
+    from mcp.types import (
+        ElicitRequest,
+        ElicitRequestFormParams,
+        ElicitResult,
+        InputRequiredResult,
+        ReadResourceResult,
+    )
+    from pydantic import AnyUrl
+
+    elicit_request = ElicitRequest(
+        method="elicitation/create",
+        params=ElicitRequestFormParams(
+            mode="form", message="need a value", requested_schema={"type": "object", "properties": {}}
+        ),
+    )
+    input_required = InputRequiredResult(input_requests={"q1": elicit_request}, request_state="state-1")
+    terminal_result = ReadResourceResult(contents=[])
+    elicit_result = ElicitResult(action="accept", content={})
+    session = MagicMock()
+    session.read_resource = AsyncMock(side_effect=[input_required, terminal_result])
+    session.dispatch_input_request = AsyncMock(return_value=elicit_result)
+    resource_uri = AnyUrl("resource://server/thing")
+
+    result = await _compat.read_resource(session, resource_uri)
+
+    assert result is terminal_result
+    first_call = session.read_resource.await_args_list[0]
+    assert first_call.args[0] == str(resource_uri)
+    assert first_call.kwargs["allow_input_required"] is True
+    retry_kwargs = session.read_resource.await_args_list[1].kwargs
+    assert retry_kwargs["input_responses"] == {"q1": elicit_result}
+    assert retry_kwargs["request_state"] == "state-1"
+
+
 def test_mcp_error_resolves_to_installed_exception():
     """Test that MCPError is the mcp package's error type regardless of its spelling."""
     import mcp.shared.exceptions as mcp_exceptions
@@ -688,3 +792,105 @@ async def test_streamable_http_transport_v2_owns_client_lifecycle(monkeypatch):
         ("transport_exit", "https://example.com/mcp"),
         ("client_exit", headers, auth),
     ]
+
+
+def test_is_tools_list_changed_accepts_both_delivery_shapes():
+    """Test that both message-handler delivery shapes are recognized.
+
+    The 1.x session wraps the notification in `ServerNotification`; the 2.x
+    session delivers it bare, including events teed from a
+    `subscriptions/listen` stream. The wrapper is constructible only on the
+    1.x line (2.x spells `ServerNotification` as a plain union), so the real
+    wrapped shape is asserted there and a stand-in with the same `root`
+    attribute everywhere.
+    """
+    from mcp.types import ToolListChangedNotification
+
+    notification = ToolListChangedNotification(method="notifications/tools/list_changed")
+
+    assert _compat.is_tools_list_changed(notification)
+    assert _compat.is_tools_list_changed(SimpleNamespace(root=notification))
+    if not _compat.MCP_V2:
+        from mcp.types import ServerNotification
+
+        assert _compat.is_tools_list_changed(ServerNotification(notification))
+
+
+def test_is_tools_list_changed_rejects_other_messages():
+    """Test that unrelated messages and exceptions are not treated as tool list changes."""
+    assert not _compat.is_tools_list_changed("normal message")
+    assert not _compat.is_tools_list_changed(Exception("boom"))
+    assert not _compat.is_tools_list_changed(SimpleNamespace(root="not a notification"))
+
+
+@requires_mcp_v2
+def test_installed_v2_line_exposes_the_subscriptions_names():
+    """Test that the names the 2.x subscription branch imports exist on the installed line."""
+    from contextlib import AbstractAsyncContextManager
+
+    from mcp.client.subscriptions import ListenNotSupportedError, listen
+
+    assert issubclass(ListenNotSupportedError, Exception)
+    assert "tools_list_changed" in inspect.signature(listen).parameters
+    # Creating the context manager defers the body, so no session traffic happens here.
+    assert isinstance(listen(MagicMock(), tools_list_changed=True), AbstractAsyncContextManager)
+
+
+@pytest.mark.asyncio
+async def test_tools_changed_subscription_v1_yields_none(monkeypatch):
+    """Test that the 1.x branch holds no subscription: the server pushes notifications unprompted."""
+    monkeypatch.setattr(_compat, "MCP_V2", False)
+
+    async with _compat.tools_changed_subscription(MagicMock()) as subscription:
+        assert subscription is None
+
+
+@pytest.mark.asyncio
+async def test_tools_changed_subscription_v2_holds_the_listen_stream(monkeypatch):
+    """Test that the 2.x branch opens `subscriptions/listen` for tool changes and closes it on exit.
+
+    The `mcp.client.subscriptions` module exists only on the 2.x line, so a
+    stub module stands in for it to exercise this branch under the 1.x pin.
+    """
+    monkeypatch.setattr(_compat, "MCP_V2", True)
+    lifecycle_events = []
+    stream = MagicMock()
+    session = MagicMock()
+
+    @asynccontextmanager
+    async def fake_listen(listen_session, *, tools_list_changed):
+        lifecycle_events.append(("enter", listen_session, tools_list_changed))
+        yield stream
+        lifecycle_events.append(("exit",))
+
+    subscriptions_module = ModuleType("mcp.client.subscriptions")
+    subscriptions_module.listen = fake_listen  # type: ignore[attr-defined]
+    subscriptions_module.ListenNotSupportedError = type("ListenNotSupportedError", (RuntimeError,), {})  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "mcp.client.subscriptions", subscriptions_module)
+
+    async with _compat.tools_changed_subscription(session) as subscription:
+        assert subscription is stream
+        assert lifecycle_events == [("enter", session, True)]
+
+    assert lifecycle_events == [("enter", session, True), ("exit",)]
+
+
+@pytest.mark.asyncio
+async def test_tools_changed_subscription_v2_degrades_on_a_legacy_connection(monkeypatch):
+    """Test that a connection whose negotiated version predates `subscriptions/listen` yields None."""
+    monkeypatch.setattr(_compat, "MCP_V2", True)
+
+    listen_not_supported = type("ListenNotSupportedError", (RuntimeError,), {})
+
+    @asynccontextmanager
+    async def fake_listen(listen_session, *, tools_list_changed):
+        raise listen_not_supported("negotiated version predates 2026-07-28")
+        yield
+
+    subscriptions_module = ModuleType("mcp.client.subscriptions")
+    subscriptions_module.listen = fake_listen  # type: ignore[attr-defined]
+    subscriptions_module.ListenNotSupportedError = listen_not_supported  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "mcp.client.subscriptions", subscriptions_module)
+
+    async with _compat.tools_changed_subscription(MagicMock()) as subscription:
+        assert subscription is None
