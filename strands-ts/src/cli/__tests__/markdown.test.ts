@@ -90,6 +90,14 @@ describe('renderMarkdown', () => {
     expect(output).toContain('│ quoted')
   })
 
+  it('renders inline formatting inside list items and blockquotes', () => {
+    const output = stripAnsi(renderMarkdown('- **CPU**: Intel\n1. **GPU is King** at this budget', { theme }))
+    expect(output).not.toContain('**CPU**')
+    expect(output).not.toContain('**GPU is King**')
+    expect(output).toContain('- CPU: Intel')
+    expect(output).toContain('1. GPU is King at this budget')
+  })
+
   it('produces raw text in plain mode', () => {
     const markdown = '# Title\n\n- one\n- two\n\n```ts\nconst x = 1\n```'
     const output = renderMarkdown(markdown, { theme: plainTheme })

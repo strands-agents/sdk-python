@@ -63,6 +63,7 @@ export class CliPrinter implements Printer {
   private _inReasoningBlock = false
   private _needReasoningIndent = false
   private _toolCount = 0
+  private _textBuffer: string[] = []
 
   constructor(options?: CliPrinterOptions) {
     this._theme = options?.theme ?? createTheme()
@@ -174,7 +175,7 @@ export class CliPrinter implements Printer {
     if (delta.type === 'textDelta') {
       this._spinner.stop()
       if (delta.text && delta.text.length > 0) {
-        this.write(delta.text)
+        this._textBuffer.push(delta.text)
       }
     } else if (delta.type === 'reasoningContentDelta') {
       if (!this._inReasoningBlock) {
@@ -211,6 +212,7 @@ export class CliPrinter implements Printer {
   }
 
   private _handleContentBlockStop(): void {
+    this._flushText()
     if (this._inReasoningBlock) {
       if (!this._needReasoningIndent) {
         this.write('\n')
@@ -218,6 +220,17 @@ export class CliPrinter implements Printer {
       this._inReasoningBlock = false
       this._needReasoningIndent = false
     }
+  }
+
+  /** Renders buffered agent text as Markdown (or raw in plain mode) and writes it. */
+  private _flushText(): void {
+    if (this._textBuffer.length === 0) {
+      return
+    }
+    const text = this._textBuffer.join('')
+    this._textBuffer = []
+    const rendered = this._markdown ? renderMarkdown(text, { theme: this._theme }) : text
+    this.write(rendered)
   }
 
   private _handleBeforeTools(event: BeforeToolsEvent): void {
@@ -274,6 +287,7 @@ export class CliPrinter implements Printer {
 
   private _handleAgentResult(event: Extract<AgentStreamEvent, { type: 'agentResultEvent' }>): void {
     this._spinner.stop()
+    this._flushText()
     this.write(`\n${this._theme.system(`stop reason: ${event.result.stopReason}`)}\n`)
   }
 }

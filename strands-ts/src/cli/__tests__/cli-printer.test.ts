@@ -40,6 +40,27 @@ describe('CliPrinter', () => {
     expect(allOutput).toContain('stop reason: endTurn')
   })
 
+  it('renders agent chat markdown (headings, lists, tables are structured)', async () => {
+    const model = new MockMessageModel().addTurn({
+      type: 'textBlock',
+      text: '## Title\n\n- a\n- b\n',
+    })
+    const outputs: string[] = []
+    const printer = makePrinter(true, outputs)
+
+    const agent = new Agent({ model, printer: false })
+    ;(agent as unknown as { _printer: CliPrinter })._printer = printer
+
+    await collectGenerator(agent.stream('Test'))
+
+    const allOutput = stripAnsi(outputs.join(''))
+    // Raw markdown tokens are gone; rendered structure remains.
+    expect(allOutput).not.toContain('## Title')
+    expect(allOutput).toContain('Title')
+    expect(allOutput).toContain('- a')
+    expect(allOutput).toContain('- b')
+  })
+
   it('announces tool calls and results with status and content', async () => {
     const tool = createMockTool('calculator', () => 'The answer is 42')
     const model = new MockMessageModel()

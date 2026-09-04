@@ -142,6 +142,15 @@ function renderBlocks(tokens: Tokens.Generic[], theme: Theme, indent: string): s
         break
       case 'space':
         break
+      case 'text': {
+        const textToken = token as Tokens.Text
+        const text =
+          textToken.tokens && textToken.tokens.length > 0 ? renderInline(textToken.tokens, theme) : textToken.text
+        if (text !== '') {
+          lines.push(indent + text)
+        }
+        break
+      }
       default:
         if ('raw' in token && token.type !== 'html') {
           lines.push(indent + String((token as { raw: string }).raw).trim())
