@@ -1027,6 +1027,37 @@ describe('SessionManager — stash integration', () => {
       expect(keysAfter).toHaveLength(0)
     })
 
+    it('does not over-delete when rootStorage is pre-namespaced', async () => {
+      const shared = new InMemoryStorage()
+      const namespacedRoot = shared.namespace('tenant-a')
+      sessionManager = new SessionManager({
+        sessionId: 'test-session',
+        storage: namespacedRoot,
+      })
+      const stash = new Stash(namespacedRoot, 'test-session', 'agent')
+      const mockAgent = createMockAgentWithHooks({
+        extra: {
+          storage: namespacedRoot,
+          contextManager: { stash, stashStorage: namespacedRoot },
+        } as unknown as Partial<Agent>,
+      })
+      sessionManager.initAgent(mockAgent)
+
+      await stash.store('tool-1', 0, new TextEncoder().encode(JSON.stringify('data1')))
+
+      // Write unrelated data under the same namespace but outside the session's stash prefix
+      await namespacedRoot.write('other-data/important', new TextEncoder().encode('keep-me'))
+
+      await sessionManager.deleteSession()
+
+      const stashKeys = await stash.list()
+      expect(stashKeys).toHaveLength(0)
+
+      // Unrelated data must survive
+      const preserved = await namespacedRoot.read('other-data/important')
+      expect(preserved).not.toBeNull()
+    })
+
     it('succeeds when no stash is available', async () => {
       sessionManager = new SessionManager({
         sessionId: 'test-session',

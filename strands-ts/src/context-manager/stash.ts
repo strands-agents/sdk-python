@@ -8,7 +8,7 @@
  * @internal
  */
 
-import { resolveNamespace, type Storage } from '../storage/storage.js'
+import { namespace as namespaceStorage, type Storage } from '../storage/storage.js'
 import { Message, ToolResultBlock, ToolUseBlock, CachePointBlock, ReasoningBlock } from '../types/messages.js'
 import type { ContentBlock } from '../types/messages.js'
 import type { JSONValue } from '../types/json.js'
@@ -40,9 +40,13 @@ export function formatStashRefs(refs: string[]): string {
  */
 export class Stash {
   private readonly _storage: Storage
+  private readonly _baseStorage: Storage
+  private readonly _sessionId: string
 
   constructor(storage: Storage, sessionId: string, agentId: string) {
-    this._storage = resolveNamespace(storage, `${STASH_PREFIX}/${sessionId}/scopes/agent/${agentId}`)
+    this._baseStorage = storage
+    this._sessionId = sessionId
+    this._storage = namespaceStorage(storage, `${STASH_PREFIX}/${sessionId}/scopes/agent/${agentId}`)
   }
 
   /**
@@ -133,6 +137,27 @@ export class Stash {
   async delete(reference: string): Promise<void> {
     await this._storage.delete(reference)
     logger.debug(`reference=<${reference}> | stash entry deleted`)
+  }
+
+  /**
+   * Delete all entries in this stash instance.
+   */
+  async clear(): Promise<void> {
+    const keys = await this.list()
+    await Promise.all(keys.map((key) => this.delete(key)))
+  }
+
+  /**
+   * Delete all stash data for this session across all agents.
+   *
+   * Unlike {@link clear}, which is scoped to this agent's namespace,
+   * this scans `context/<sessionId>/` on the base storage to catch data
+   * from every agent that wrote to the session.
+   */
+  async clearSession(): Promise<void> {
+    const prefix = `${STASH_PREFIX}/${this._sessionId}/`
+    const keys = await this._baseStorage.list(prefix)
+    await Promise.all(keys.map((key) => this._baseStorage.delete(key)))
   }
 
   /**
