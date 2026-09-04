@@ -94,7 +94,7 @@ class ContextManager(Plugin):
 
         if self._stash is not None and self._enable_retrieval_tool:
             retrieval_tool = _create_retrieval_tool(self._stash)
-            self._tools.append(retrieval_tool)
+            self._tools.append(retrieval_tool)  # type: ignore[arg-type]
 
         for strategy in self._strategies:
             init = getattr(strategy, "init", None)

@@ -15,6 +15,7 @@ from ..vended_plugins.context_offloader.search import _search_content
 from .methods.truncate import CHARS_PER_TOKEN
 
 if TYPE_CHECKING:
+    from ..types.content import Message
     from .stash import Stash
 
 logger = logging.getLogger(__name__)
@@ -129,7 +130,7 @@ def _create_retrieval_tool(stash: Stash, max_result_tokens: int | None = None) -
     )
 
 
-def _track_retrieval_tool_use_ids(message: dict[str, Any], skip_set: set[str]) -> None:
+def _track_retrieval_tool_use_ids(message: Message, skip_set: set[str]) -> None:
     """Track tool-use IDs from retrieve_context calls for loop prevention."""
     if message.get("role") != "assistant":
         return
