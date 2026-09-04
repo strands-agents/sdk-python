@@ -195,7 +195,7 @@ export interface ContextOffloaderConfig {
  * Offloaded entries are evicted after `evictAfterCycles` agent loop cycles (default 20).
  * This applies to both unified `Storage` backends and legacy offloader storage.
  *
- * @deprecated Use {@link ContextManager} with {@link Offload} strategies instead. ContextOffloader will be removed in a future major version.
+ * @deprecated Use {@link ContextManager} with {@link Offload} strategies instead. ContextManager will become the default in v2; ContextOffloader will be removed.
  *
  * @example
  * ```typescript

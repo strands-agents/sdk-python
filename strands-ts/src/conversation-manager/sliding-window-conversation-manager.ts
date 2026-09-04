@@ -126,7 +126,7 @@ export type SlidingWindowConversationManagerConfig = {
  * - AfterModelCallEvent: Reduces context on overflow errors and requests retry (via super)
  * - BeforeModelCallEvent: Proactive compression when threshold is exceeded (via super)
  *
- * @deprecated Use {@link ContextManager} instead. ConversationManager will be removed in a future major version.
+ * @deprecated Use {@link ContextManager} instead. ContextManager will become the default in v2; ConversationManager will be removed.
  */
 export class SlidingWindowConversationManager extends ConversationManager {
   private readonly _windowSize: number

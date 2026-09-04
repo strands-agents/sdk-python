@@ -14,7 +14,7 @@ import { ConversationManager, type ConversationManagerReduceOptions } from './co
  * Does not register any proactive hooks. Overflow errors will not be retried
  * since `reduce` always returns `false`.
  *
- * @deprecated Use {@link ContextManager} instead. ConversationManager will be removed in a future major version.
+ * @deprecated Use {@link ContextManager} instead. ContextManager will become the default in v2; ConversationManager will be removed.
  */
 export class NullConversationManager extends ConversationManager {
   /**
