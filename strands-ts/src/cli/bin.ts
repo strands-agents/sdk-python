@@ -10,13 +10,19 @@
  *   --plain          disable colors and Markdown styling
  *   --no-spinner     disable progress spinners
  *   --json           emit stream events as newline-delimited JSON (implies plain)
+ *   --provider NAME  model provider: groq, openai, or bedrock (default)
+ *
+ * The provider is selected via `--provider`, `STRANDS_PROVIDER`, or auto-detected
+ * from GROQ_API_KEY / OPENAI_API_KEY; see .env.example. The generic `PROVIDER`
+ * variable is deliberately ignored — it belongs to other tooling.
  */
 import readline from 'node:readline'
-import { Agent } from '../agent/agent.js'
+import type { Agent } from '../agent/agent.js'
 import type { AgentStreamEvent } from '../types/agent.js'
 import type { MultiAgentStreamEvent } from '../multiagent/events.js'
 import { CliPrinter } from './cli-printer.js'
 import { createTheme } from './theme.js'
+import { createAgentFromEnv, loadDotEnv, ProviderConfigError, type ResolvedModel } from './env.js'
 
 interface CliArgs {
   command: 'repl' | 'run'
@@ -24,6 +30,7 @@ interface CliArgs {
   plain: boolean
   spinner: boolean
   json: boolean
+  provider?: string
 }
 
 const HELP = `strands - run Strands agents from the terminal
@@ -33,16 +40,21 @@ Usage:
   strands run "prompt"        run a single prompt and exit
 
 Flags:
-  --plain        disable colors and Markdown styling
-  --no-spinner   disable progress spinners
-  --json         emit stream events as newline-delimited JSON
-  --help         show this help
+  --plain          disable colors and Markdown styling
+  --no-spinner     disable progress spinners
+  --json           emit stream events as newline-delimited JSON
+  --provider NAME  model provider: groq, openai, or bedrock
+  --help           show this help
 `
 
 function parseArgs(argv: string[]): CliArgs {
   const args: CliArgs = { command: 'repl', plain: false, spinner: true, json: false }
   const positional: string[] = []
-  for (const arg of argv) {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]
+    if (arg === undefined) {
+      break
+    }
     switch (arg) {
       case '--plain':
         args.plain = true
@@ -54,6 +66,14 @@ function parseArgs(argv: string[]): CliArgs {
         args.json = true
         args.plain = true
         break
+      case '--provider': {
+        const value = argv[i + 1]
+        if (value !== undefined) {
+          args.provider = value
+        }
+        i++
+        break
+      }
       default:
         positional.push(arg)
         break
@@ -68,10 +88,6 @@ function parseArgs(argv: string[]): CliArgs {
 
 function printHelp(): void {
   process.stdout.write(HELP)
-}
-
-function attachPrinter(agent: Agent, printer: CliPrinter): void {
-  ;(agent as unknown as { _printer: CliPrinter })._printer = printer
 }
 
 async function runOnce(agent: Agent, printer: CliPrinter, prompt: string): Promise<void> {
@@ -135,8 +151,24 @@ async function main(): Promise<void> {
   const args = parseArgs(argv)
   const theme = createTheme({ plain: args.plain })
   const printer = new CliPrinter({ theme, spinner: args.spinner })
-  const agent = new Agent({ printer: false })
-  attachPrinter(agent, printer)
+  await loadDotEnv()
+  let resolved: ResolvedModel
+  let agent: Agent
+  try {
+    ;({ agent, resolved } = createAgentFromEnv(args.provider))
+  } catch (error) {
+    if (error instanceof ProviderConfigError) {
+      printer.error(error.message)
+      process.exitCode = 1
+      return
+    }
+    throw error
+  }
+  if (!args.json) {
+    printer.system(
+      `provider=${resolved.provider} model=${resolved.modelId ?? '<sdk default>'} baseUrl=${resolved.baseUrl ?? '<sdk default>'}`
+    )
+  }
 
   if (args.json) {
     for await (const event of agent.stream(args.command === 'run' ? (args.prompt ?? '') : '')) {
