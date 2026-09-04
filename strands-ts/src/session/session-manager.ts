@@ -127,7 +127,6 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
   private readonly _configStorage?: Storage | { snapshot: SnapshotStorage } | undefined
   private _rootStorage: Storage | undefined
   private _stash: Stash | undefined
-  private _stashStorage: Storage | undefined
   private readonly _saveLatestOn: SaveLatestStrategy
   private readonly _snapshotTrigger?: SnapshotTriggerCallback | undefined
   private readonly _multiAgentSaveLatestOn: MultiAgentSaveLatestStrategy
@@ -188,7 +187,6 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
     }
     this._rootStorage ??= agent.storage
     this._stash = agent.contextManager?.stash
-    this._stashStorage = agent.contextManager?.stashStorage
     agent.addHook(InitializedEvent, async (event) => {
       await this._onAgentInitialized(event)
     })
@@ -395,9 +393,8 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
       const keys = await this._stash.list()
       await Promise.all(keys.map((key) => this._stash!.delete(key)))
     }
-    const storage = this._stashStorage ?? this._rootStorage
-    if (!storage) return
-    const scoped = resolveNamespace(storage, `${STASH_PREFIX}/${this._sessionId}`)
+    if (!this._rootStorage) return
+    const scoped = resolveNamespace(this._rootStorage, `${STASH_PREFIX}/${this._sessionId}`)
     const keys = await scoped.list('')
     await Promise.all(keys.map((key) => scoped.delete(key)))
   }
