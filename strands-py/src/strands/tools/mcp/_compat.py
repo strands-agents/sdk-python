@@ -40,8 +40,10 @@ __all__ = [
     "read_resource",
     "read_timeout",
     "resource_templates",
+    "server_task_capable",
     "streamable_http_transport",
     "structured_content",
+    "task_session_kwargs",
     "task_support",
     "tools_changed_subscription",
 ]
@@ -126,6 +128,8 @@ async def call_tool(
     read_timeout_seconds: timedelta | None,
     progress_callback: Any,
     meta: Any,
+    *,
+    allow_claimed: bool = False,
 ) -> Any:
     """Call a tool on an active session, on either `mcp` major line.
 
@@ -139,9 +143,11 @@ async def call_tool(
         read_timeout_seconds: Timeout for each request round, if any.
         progress_callback: Callback for progress notifications, if any.
         meta: Request metadata (`_meta`) to send with the call, if any.
+        allow_claimed: Return extension-claimed results without resolving them.
 
     Returns:
-        The terminal `CallToolResult`.
+        The terminal `CallToolResult`, or an unresolved extension result when
+        ``allow_claimed`` is enabled.
 
     Raises:
         MCPError: An embedded input request's callback declined it.
@@ -153,6 +159,7 @@ async def call_tool(
         )
 
     timeout = read_timeout(read_timeout_seconds)
+    claim_options = {"allow_claimed": True} if allow_claimed else {}
 
     async def call_once(input_responses: Any, request_state: str | None) -> Any:
         return await session.call_tool(  # type: ignore[call-arg]
@@ -164,6 +171,7 @@ async def call_tool(
             input_responses=input_responses,
             request_state=request_state,
             allow_input_required=True,
+            **claim_options,
         )
 
     return await _drive_input_required(session, call_once)
@@ -442,6 +450,69 @@ def task_support(tool: Any) -> str | None:
         return None
     support: str | None = tool.execution.task_support if MCP_V2 else tool.execution.taskSupport
     return support
+
+
+def server_task_capable(capabilities: ServerCapabilities | None) -> bool:
+    """Check whether a server supports the installed line's task protocol.
+
+    MCP 1.x advertises the legacy task capability under ``tasks``. MCP 2.x
+    advertises finalized SEP-2663 support through the extension registry.
+
+    Args:
+        capabilities: Capabilities negotiated with the server.
+
+    Returns:
+        Whether the server advertised compatible task support.
+    """
+    if capabilities is None:
+        return False
+    if MCP_V2:
+        from .mcp_tasks import _TASKS_EXTENSION
+
+        extensions = getattr(capabilities, "extensions", None)
+        return extensions is not None and _TASKS_EXTENSION in extensions
+    return (
+        capabilities.tasks is not None
+        and capabilities.tasks.requests is not None
+        and capabilities.tasks.requests.tools is not None
+        and capabilities.tasks.requests.tools.call is not None
+    )
+
+
+def task_session_kwargs(enabled: bool) -> dict[str, Any]:
+    """Build MCP 2.x ``ClientSession`` options for finalized Tasks support.
+
+    The extension claim teaches the 2.x result codec to parse ``resultType:
+    task``. Strands consumes the task handle itself, so the claim resolver is
+    intentionally unreachable on the low-level ``ClientSession`` path.
+
+    Args:
+        enabled: Whether the caller opted into task support.
+
+    Returns:
+        Additional keyword arguments for ``ClientSession``.
+    """
+    if not enabled or not MCP_V2:
+        return {}
+
+    from mcp.client.extension import ResultClaim  # type: ignore[import-not-found]
+
+    from .mcp_tasks import _TASKS_EXTENSION, _TASKS_PROTOCOL_VERSION, MCPCreateTaskResult
+
+    async def unexpected_resolver(result: MCPCreateTaskResult, context: Any) -> Any:
+        _ = (result, context)
+        raise RuntimeError("MCP task claims are resolved by MCPClient")
+
+    claim = ResultClaim(
+        result_type="task",
+        model=MCPCreateTaskResult,
+        resolve=unexpected_resolver,
+        protocol_versions=frozenset({_TASKS_PROTOCOL_VERSION}),
+    )
+    return {
+        "extensions": {_TASKS_EXTENSION: {}},
+        "result_claims": {_TASKS_EXTENSION: (claim,)},
+    }
 
 
 async def negotiate_session(session: ClientSession) -> tuple[str | None, ServerCapabilities | None]:
