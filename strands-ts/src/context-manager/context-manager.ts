@@ -134,7 +134,6 @@ export class ContextManager implements Plugin {
     return this._stashIsDurable
   }
 
-
   private async _runStrategies(agent: LocalAgent, precomputedInputTokens?: number): Promise<boolean> {
     const messages = agent.messages
     const inputTokens = precomputedInputTokens ?? (await agent.model.countTokens(messages))

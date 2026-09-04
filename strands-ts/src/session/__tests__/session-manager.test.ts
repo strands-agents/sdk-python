@@ -1058,6 +1058,32 @@ describe('SessionManager — stash integration', () => {
       expect(preserved).not.toBeNull()
     })
 
+    it('clearSession cleans up stash data from other agents in the session', async () => {
+      sessionManager = new SessionManager({
+        sessionId: 'test-session',
+        storage: rootStorage,
+      })
+      const stashA = new Stash(rootStorage, 'test-session', 'agent-a')
+      const stashB = new Stash(rootStorage, 'test-session', 'agent-b')
+      const mockAgent = createMockAgentWithHooks({
+        extra: {
+          storage: rootStorage,
+          contextManager: { stash: stashA },
+        } as unknown as Partial<Agent>,
+      })
+      sessionManager.initAgent(mockAgent)
+
+      await stashA.store('tool-1', 0, new TextEncoder().encode(JSON.stringify('from-a')))
+      await stashB.store('tool-2', 0, new TextEncoder().encode(JSON.stringify('from-b')))
+
+      await sessionManager.deleteSession()
+
+      const keysA = await stashA.list()
+      const keysB = await stashB.list()
+      expect(keysA).toHaveLength(0)
+      expect(keysB).toHaveLength(0)
+    })
+
     it('succeeds when no stash is available', async () => {
       sessionManager = new SessionManager({
         sessionId: 'test-session',
