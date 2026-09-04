@@ -82,6 +82,39 @@ class TestTruncateToolResult:
         assert tru_result["toolUseId"] == "tool-abc"
         assert tru_result["status"] == "error"
 
+    def test_truncates_json_content(self):
+        tool_result = ToolResult(
+            toolUseId="tool-1",
+            status="success",
+            content=[{"json": {"key": "v" * 50000}}],
+        )
+        tru_result = _truncate_tool_result(tool_result, {"preview_tokens": 100})
+        assert "[Truncated:" in tru_result["content"][0]["text"]
+
+    def test_preserves_opaque_blocks(self):
+        tool_result = ToolResult(
+            toolUseId="tool-1",
+            status="success",
+            content=[{"text": "x" * 50000}, {"image": {"format": "png", "source": {"bytes": b"img"}}}],
+        )
+        tru_result = _truncate_tool_result(tool_result, {"preview_tokens": 100})
+        assert len(tru_result["content"]) == 2
+        assert "image" in tru_result["content"][1]
+
+    def test_returns_original_when_no_textual_content(self):
+        tool_result = ToolResult(
+            toolUseId="tool-1",
+            status="success",
+            content=[{"image": {"format": "png", "source": {"bytes": b"img"}}}],
+        )
+        tru_result = _truncate_tool_result(tool_result)
+        assert tru_result is tool_result
+
+    def test_returns_original_when_preview_longer_than_original(self):
+        text = "short text"
+        tru_result = _build_preview(text, 1, {"preview_tokens": 1000})
+        assert tru_result == text
+
 
 class TestTruncateTextBlock:
     """Tests for truncate_text_block."""

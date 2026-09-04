@@ -168,6 +168,24 @@ class TestContextManagerRunStrategies:
         await mock_agent.hooks.invoke_callbacks_async(event)
 
     @pytest.mark.asyncio
+    async def test_count_tokens_failure_skips_strategies(self, mock_agent):
+        mock_agent.model.count_tokens = unittest.mock.AsyncMock(side_effect=RuntimeError("counting failed"))
+        strategy = unittest.mock.AsyncMock()
+        strategy.name = "mock-strategy"
+        strategy.init = unittest.mock.MagicMock()
+        strategy.apply = unittest.mock.AsyncMock(return_value=False)
+        cm = ContextManager(strategies=[strategy])
+        cm.init_agent(mock_agent)
+
+        event = AfterModelCallEvent(
+            agent=mock_agent,
+            exception=ContextWindowOverflowException("overflow"),
+        )
+        await mock_agent.hooks.invoke_callbacks_async(event)
+        strategy.apply.assert_not_called()
+        assert event.retry is not True
+
+    @pytest.mark.asyncio
     async def test_recomputes_utilization_after_strategy_acts(self, mock_agent):
         mock_agent.model.estimate_utilization = unittest.mock.MagicMock(side_effect=[0.9, 0.4])
         mock_agent.model.count_tokens = unittest.mock.AsyncMock(side_effect=[9000, 4000])

@@ -137,6 +137,21 @@ class TestSummarizeStrategyPerBlock:
         context = ContextState(messages=messages, agent=mock_agent, utilization=0.5)
         assert await strategy.apply(context) is False
 
+    @pytest.mark.asyncio
+    async def test_replaces_media_block_with_marker(self, mock_agent):
+        strategy = Offload.summarize("*").when(threshold=100)
+        messages: Messages = [
+            Message(role="user", content=[ContentBlock(text="pin")]),
+            Message(
+                role="user",
+                content=[ContentBlock(image={"format": "png", "source": {"bytes": b"img"}})],
+            ),
+        ]
+        mock_agent.messages = messages
+        context = ContextState(messages=messages, agent=mock_agent, utilization=0.5)
+        assert await strategy.apply(context) is True
+        assert "image block" in messages[1]["content"][0]["text"]
+
 
 class TestSummarizeStrategyMessageLevel:
     """Tests for message-level summarization — only tests unique to SummarizeStrategy."""
