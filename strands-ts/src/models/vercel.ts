@@ -738,8 +738,10 @@ function formatMessages(messages: Message[], systemPrompt?: SystemPrompt): Langu
 
 /**
  * Formats a Strands user message to LanguageModelV3 format. Tool result blocks are extracted into
- * separate `tool` messages, emitted before the text/media `user` message so a mixed turn keeps the
- * tool result adjacent to the assistant tool call it answers (tool_use → tool_result).
+ * separate `tool` messages, always emitted before the text/media `user` message regardless of their
+ * order within the source message. A provider adapter re-merges the split messages in prompt order,
+ * so leading with the tool results keeps each one adjacent to the assistant tool call it answers
+ * (tool_use → tool_result) — the LanguageModelV3 prompt itself carries no such adjacency guarantee.
  *
  * @param message - The user message to format
  * @param prompt - The prompt array to push formatted messages into
