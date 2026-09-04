@@ -948,24 +948,29 @@ describe('SessionManager — stash integration', () => {
   })
 
   describe('deleteSession', () => {
-    it('deletes stash data from root storage', async () => {
+    it('deletes stash data via stash reference', async () => {
       sessionManager = new SessionManager({
         sessionId: 'test-session',
         storage: rootStorage,
       })
-      sessionManager.initAgent(createMockAgentWithHooks({ extra: { storage: rootStorage } as Partial<Agent> }))
+      const stash = new Stash(rootStorage, 'test-session', 'agent')
+      const mockAgent = createMockAgentWithHooks({
+        extra: {
+          storage: rootStorage,
+          contextManager: { stash, stashStorage: rootStorage },
+        } as unknown as Partial<Agent>,
+      })
+      sessionManager.initAgent(mockAgent)
 
-      // Write stash data directly to root storage under the expected prefix
-      const prefix = `${STASH_PREFIX}/test-session/scopes/agent/agent`
-      await rootStorage.write(`${prefix}/tool-1_0`, new TextEncoder().encode('data1'))
-      await rootStorage.write(`${prefix}/tool-2_0`, new TextEncoder().encode('data2'))
+      await stash.store('tool-1', 0, new TextEncoder().encode(JSON.stringify('data1')))
+      await stash.store('tool-2', 0, new TextEncoder().encode(JSON.stringify('data2')))
 
-      const keysBefore = await rootStorage.list(`${STASH_PREFIX}/test-session/`)
+      const keysBefore = await stash.list()
       expect(keysBefore).toHaveLength(2)
 
       await sessionManager.deleteSession()
 
-      const keysAfter = await rootStorage.list(`${STASH_PREFIX}/test-session/`)
+      const keysAfter = await stash.list()
       expect(keysAfter).toHaveLength(0)
     })
 
@@ -975,27 +980,54 @@ describe('SessionManager — stash integration', () => {
         sessionId: 'test-session',
         storage: rootStorage,
       })
+      const stash = new Stash(customStashStorage, 'test-session', 'agent')
       const mockAgent = createMockAgentWithHooks({
         extra: {
           storage: rootStorage,
-          contextManager: { stashStorage: customStashStorage },
+          contextManager: { stash, stashStorage: customStashStorage },
         } as unknown as Partial<Agent>,
       })
       sessionManager.initAgent(mockAgent)
 
-      const prefix = `${STASH_PREFIX}/test-session/scopes/agent/agent`
-      await customStashStorage.write(`${prefix}/tool-1_0`, new TextEncoder().encode('data1'))
+      await stash.store('tool-1', 0, new TextEncoder().encode(JSON.stringify('data1')))
 
-      const keysBefore = await customStashStorage.list(`${STASH_PREFIX}/test-session/`)
+      const keysBefore = await stash.list()
       expect(keysBefore).toHaveLength(1)
 
       await sessionManager.deleteSession()
 
-      const keysAfter = await customStashStorage.list(`${STASH_PREFIX}/test-session/`)
+      const keysAfter = await stash.list()
       expect(keysAfter).toHaveLength(0)
     })
 
-    it('succeeds when no root storage is available', async () => {
+    it('deletes stash data when storage is pre-namespaced', async () => {
+      const shared = new InMemoryStorage()
+      const namespacedStorage = shared.namespace('my-prefix')
+      sessionManager = new SessionManager({
+        sessionId: 'test-session',
+        storage: rootStorage,
+      })
+      const stash = new Stash(namespacedStorage, 'test-session', 'agent')
+      const mockAgent = createMockAgentWithHooks({
+        extra: {
+          storage: rootStorage,
+          contextManager: { stash, stashStorage: namespacedStorage },
+        } as unknown as Partial<Agent>,
+      })
+      sessionManager.initAgent(mockAgent)
+
+      await stash.store('tool-1', 0, new TextEncoder().encode(JSON.stringify('data1')))
+
+      const keysBefore = await stash.list()
+      expect(keysBefore).toHaveLength(1)
+
+      await sessionManager.deleteSession()
+
+      const keysAfter = await stash.list()
+      expect(keysAfter).toHaveLength(0)
+    })
+
+    it('succeeds when no stash is available', async () => {
       sessionManager = new SessionManager({
         sessionId: 'test-session',
         storage: { snapshot: snapshotStorage },

@@ -1,6 +1,6 @@
 import type { SnapshotStorage, SnapshotLocation } from './storage.js'
 import type { Storage } from '../storage/storage.js'
-import { NAMESPACED, namespace, resolveNamespace } from '../storage/storage.js'
+import { NAMESPACED, namespace } from '../storage/storage.js'
 import { SnapshotStorageAdapter } from './snapshot-storage-adapter.js'
 import { validateIdentifier } from './validation.js'
 import type { SnapshotTriggerCallback } from './types.js'
@@ -8,7 +8,7 @@ import type { Snapshot } from '../types/snapshot.js'
 import type { JSONValue } from '../types/json.js'
 import type { Plugin } from '../plugins/plugin.js'
 import type { LocalAgent } from '../types/agent.js'
-import { STASH_PREFIX } from '../context-manager/stash.js'
+import type { Stash } from '../context-manager/stash.js'
 import { AfterInvocationEvent, AfterModelCallEvent, InitializedEvent, MessageAddedEvent } from '../hooks/events.js'
 import { v7 as uuidV7 } from 'uuid'
 import { logger } from '../logging/logger.js'
@@ -126,7 +126,7 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
   private _storage!: { snapshot: SnapshotStorage }
   private readonly _configStorage?: Storage | { snapshot: SnapshotStorage } | undefined
   private _rootStorage: Storage | undefined
-  private _stashStorage: Storage | undefined
+  private _stash: Stash | undefined
   private readonly _saveLatestOn: SaveLatestStrategy
   private readonly _snapshotTrigger?: SnapshotTriggerCallback | undefined
   private readonly _multiAgentSaveLatestOn: MultiAgentSaveLatestStrategy
@@ -186,7 +186,7 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
       this._storage = { snapshot: this._resolveSnapshotStorage(agent.storage) }
     }
     this._rootStorage ??= agent.storage
-    this._stashStorage = agent.contextManager?.stashStorage
+    this._stash = agent.contextManager?.stash
     agent.addHook(InitializedEvent, async (event) => {
       await this._onAgentInitialized(event)
     })
@@ -389,11 +389,9 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
   }
 
   private async _deleteStashData(): Promise<void> {
-    const storage = this._stashStorage ?? this._rootStorage
-    if (!storage) return
-    const scoped = resolveNamespace(storage, `${STASH_PREFIX}/${this._sessionId}`)
-    const keys = await scoped.list('')
-    await Promise.all(keys.map((key) => scoped.delete(key)))
+    if (!this._stash) return
+    const keys = await this._stash.list()
+    await Promise.all(keys.map((key) => this._stash!.delete(key)))
   }
 
   // ---------------------------------------------------------------------------
