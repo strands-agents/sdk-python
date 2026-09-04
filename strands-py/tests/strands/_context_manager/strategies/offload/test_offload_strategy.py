@@ -6,7 +6,6 @@ import pytest
 
 from strands._context_manager.strategies.offload import Offload
 from strands._context_manager.strategies.offload.base import (
-    EmergencyTruncateStrategy,
     build_tool_name_map,
     collect_removable_with_pair,
     get_oldest_matches,
@@ -18,6 +17,7 @@ from strands._context_manager.strategies.offload.base import (
     tool_matches_target,
 )
 from strands._context_manager.strategies.offload.drop import DROPPED_MARKER
+from strands._context_manager.strategies.offload.truncate import EmergencyTruncateStrategy
 from strands._context_manager.types import ContextState
 from strands.hooks.events import MessageAddedEvent
 from strands.hooks.registry import HookRegistry
@@ -714,23 +714,47 @@ class TestBlockMatchesTarget:
 
 
 class TestTransformBlocks:
-    """Tests for _transform_blocks — media block offloading."""
+    """Tests for _transform_blocks — media block handling per strategy."""
 
     @pytest.mark.asyncio
-    async def test_offloads_image_block(self, mock_agent):
+    async def test_drop_image_block(self, mock_agent):
         strategy = Offload.drop("*").when(threshold=100)
         image_block = ContentBlock(image={"format": "png", "source": {"bytes": b"fake"}})
         message = Message(role="user", content=[image_block])
         assert await strategy._transform_blocks(message, [message], {}, mock_agent) is True
-        assert "[Offloaded: image block" in message["content"][0]["text"]
+        assert message["content"][0]["text"] == "[Dropped]"
 
     @pytest.mark.asyncio
-    async def test_offloads_document_block(self, mock_agent):
+    async def test_drop_document_block(self, mock_agent):
         strategy = Offload.drop("*").when(threshold=100)
         doc_block = ContentBlock(document={"format": "pdf", "name": "doc", "source": {"bytes": b"fake"}})
         message = Message(role="user", content=[doc_block])
         assert await strategy._transform_blocks(message, [message], {}, mock_agent) is True
-        assert "[Offloaded: document block" in message["content"][0]["text"]
+        assert message["content"][0]["text"] == "[Dropped]"
+
+    @pytest.mark.asyncio
+    async def test_truncate_image_block(self, mock_agent):
+        strategy = Offload.truncate("*", {"preview_tokens": 50}).when(threshold=100)
+        image_block = ContentBlock(image={"format": "png", "source": {"bytes": b"fake"}})
+        message = Message(role="user", content=[image_block])
+        assert await strategy._transform_blocks(message, [message], {}, mock_agent) is True
+        assert "[Truncated: image block" in message["content"][0]["text"]
+
+    @pytest.mark.asyncio
+    async def test_skips_reasoning_content_block(self, mock_agent):
+        strategy = Offload.drop("*").when(threshold=100)
+        reasoning_block = ContentBlock(reasoningContent={"reasoningText": {"text": "thinking..."}})
+        message = Message(role="assistant", content=[reasoning_block])
+        assert await strategy._transform_blocks(message, [message], {}, mock_agent) is False
+        assert "reasoningContent" in message["content"][0]
+
+    @pytest.mark.asyncio
+    async def test_skips_cache_point_block(self, mock_agent):
+        strategy = Offload.drop("*").when(threshold=100)
+        cache_block = ContentBlock(cachePoint={"type": "default"})
+        message = Message(role="assistant", content=[cache_block])
+        assert await strategy._transform_blocks(message, [message], {}, mock_agent) is False
+        assert "cachePoint" in message["content"][0]
 
 
 class TestGetEligibleMessages:
@@ -769,6 +793,8 @@ class TestGetEligibleMessages:
             Message(role="user", content=[ContentBlock(text="pin")]),
             Message(role="assistant", content=[ContentBlock(text="large" * 10000)]),
             Message(role="user", content=[ContentBlock(text="also large" * 10000)]),
+            Message(role="assistant", content=[ContentBlock(text="large" * 10000)]),
+            Message(role="user", content=[ContentBlock(text="recent")]),
         ]
         mock_agent.messages = messages
         context = ContextState(messages=messages, agent=mock_agent, utilization=0.9)
@@ -781,6 +807,8 @@ class TestGetEligibleMessages:
             Message(role="user", content=[ContentBlock(text="pin")]),
             Message(role="assistant", content=[ContentBlock(text="msg1")]),
             Message(role="user", content=[ContentBlock(text="msg2")]),
+            Message(role="assistant", content=[ContentBlock(text="msg3")]),
+            Message(role="user", content=[ContentBlock(text="recent")]),
         ]
         mock_agent.messages = messages
         context = ContextState(messages=messages, agent=mock_agent, utilization=0.9)

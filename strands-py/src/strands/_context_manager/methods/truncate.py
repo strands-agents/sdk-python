@@ -14,8 +14,6 @@ from typing_extensions import TypedDict
 from ...types.content import ContentBlock
 from ...types.tools import ToolResult, ToolResultContent
 
-TRUNCATED_PREFIX = "[Truncated:"
-
 DEFAULT_PREVIEW_TOKENS = 1000
 CHARS_PER_TOKEN = 4
 
@@ -32,12 +30,14 @@ class TruncateConfig(TypedDict, total=False):
     preview: Literal["head", "tail", "head_tail"]
 
 
-def build_preview(full_text: str, block_count: int, config: TruncateConfig | None = None) -> str:
+def _build_preview(full_text: str, block_count: int, config: TruncateConfig | None = None) -> str:
     """Build a head/tail preview of the text, or return the original if within budget."""
     config = config or {}
     raw_preview_tokens = config.get("preview_tokens", DEFAULT_PREVIEW_TOKENS)
     preview_tokens = (
-        max(0, int(raw_preview_tokens)) if isinstance(raw_preview_tokens, (int, float)) else DEFAULT_PREVIEW_TOKENS
+        max(0, int(raw_preview_tokens))
+        if isinstance(raw_preview_tokens, (int, float)) and math.isfinite(raw_preview_tokens)
+        else DEFAULT_PREVIEW_TOKENS
     )
     preview_chars = preview_tokens * CHARS_PER_TOKEN
     preview_mode = config.get("preview", "head_tail")
@@ -46,7 +46,7 @@ def build_preview(full_text: str, block_count: int, config: TruncateConfig | Non
     if total_chars <= preview_chars:
         return full_text
 
-    head_share = {"head": 1.0, "tail": 0.0, "head_tail": 0.6}[preview_mode]
+    head_share = {"head": 1.0, "tail": 0.0, "head_tail": 0.6}.get(preview_mode, 0.6)
     head_chars = int(preview_chars * head_share)
     tail_chars = preview_chars - head_chars
     head = full_text[:head_chars]
@@ -57,7 +57,7 @@ def build_preview(full_text: str, block_count: int, config: TruncateConfig | Non
 
     blocks_word = "block" if block_count == 1 else "blocks"
     approx_tokens = math.ceil(total_chars / CHARS_PER_TOKEN)
-    result = f"{TRUNCATED_PREFIX} {block_count} {blocks_word}, ~{approx_tokens:,} tokens]\n\n{preview}"
+    result = f"[Truncated: {block_count} {blocks_word}, ~{approx_tokens:,} tokens]\n\n{preview}"
 
     if len(result) >= total_chars:
         return full_text
@@ -65,7 +65,7 @@ def build_preview(full_text: str, block_count: int, config: TruncateConfig | Non
     return result
 
 
-def truncate_tool_result(block: ToolResult, config: TruncateConfig | None = None) -> ToolResult:
+def _truncate_tool_result(block: ToolResult, config: TruncateConfig | None = None) -> ToolResult:
     """Truncate textual content in a ToolResult, preserving opaque blocks."""
     textual: list[str] = []
     opaque: list[ToolResultContent] = []
@@ -82,7 +82,7 @@ def truncate_tool_result(block: ToolResult, config: TruncateConfig | None = None
         return block
 
     full_text = "\n".join(textual)
-    preview = build_preview(full_text, len(textual), config)
+    preview = _build_preview(full_text, len(textual), config)
 
     if preview == full_text:
         return block
@@ -95,10 +95,10 @@ def truncate_tool_result(block: ToolResult, config: TruncateConfig | None = None
     )
 
 
-def truncate_text_block(block: ContentBlock, config: TruncateConfig | None = None) -> ContentBlock:
+def _truncate_text_block(block: ContentBlock, config: TruncateConfig | None = None) -> ContentBlock:
     """Truncate a text ContentBlock, or return the original if within budget."""
     text = block["text"]
-    preview = build_preview(text, 1, config)
+    preview = _build_preview(text, 1, config)
     if preview == text:
         return block
     return ContentBlock(text=preview)

@@ -386,7 +386,7 @@ class Agent(AgentBase, LocalAgent):
         else:
             self.callback_handler = callback_handler
 
-        if self.model.stateful and (conversation_manager is not None or context_manager is not None):
+        if self.model.stateful and (conversation_manager is not None or context_manager not in (None, False)):
             raise ValueError(
                 "context_manager and conversation_manager cannot be used with a stateful model. "
                 "The model manages conversation state server-side."

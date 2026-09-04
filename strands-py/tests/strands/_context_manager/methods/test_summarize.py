@@ -6,9 +6,9 @@ import pytest
 
 from strands._context_manager.methods.summarize import (
     SUMMARIZED_PREFIX,
-    flatten_messages_to_content,
-    summarize_content,
-    tool_result_to_content_blocks,
+    _flatten_messages_to_content,
+    _summarize_content,
+    _tool_result_to_content_blocks,
 )
 from strands.types.content import ContentBlock, Message
 
@@ -39,12 +39,12 @@ class TestToolResultToContentBlocks:
 
     def test_converts_text_content(self):
         content = [{"text": "hello"}]
-        tru_result = tool_result_to_content_blocks(content)
+        tru_result = _tool_result_to_content_blocks(content)
         assert tru_result == [ContentBlock(text="hello")]
 
     def test_passes_through_non_text_content(self):
         content = [{"image": {"format": "png", "source": {"bytes": b"data"}}}]
-        tru_result = tool_result_to_content_blocks(content)
+        tru_result = _tool_result_to_content_blocks(content)
         assert len(tru_result) == 1
 
     def test_handles_mixed_content(self):
@@ -53,7 +53,7 @@ class TestToolResultToContentBlocks:
             {"image": {"format": "png", "source": {"bytes": b"data"}}},
             {"text": "second"},
         ]
-        tru_result = tool_result_to_content_blocks(content)
+        tru_result = _tool_result_to_content_blocks(content)
         assert len(tru_result) == 3
         assert tru_result[0] == ContentBlock(text="first")
         assert tru_result[2] == ContentBlock(text="second")
@@ -67,7 +67,7 @@ class TestFlattenMessagesToContent:
             Message(role="user", content=[ContentBlock(text="hello")]),
             Message(role="assistant", content=[ContentBlock(text="hi")]),
         ]
-        tru_result = flatten_messages_to_content(messages)
+        tru_result = _flatten_messages_to_content(messages)
         assert tru_result[0] == ContentBlock(text="\n---\n[user]")
         assert tru_result[1] == ContentBlock(text="hello")
         assert tru_result[2] == ContentBlock(text="\n---\n[assistant]")
@@ -88,7 +88,7 @@ class TestFlattenMessagesToContent:
                 ],
             ),
         ]
-        tru_result = flatten_messages_to_content(messages)
+        tru_result = _flatten_messages_to_content(messages)
         assert tru_result[0] == ContentBlock(text="\n---\n[user]")
         assert tru_result[1] == ContentBlock(text="result data")
 
@@ -101,7 +101,7 @@ class TestSummarizeContent:
         mock_model.stream = _make_stream_events("This is a summary.")
         content_blocks = [ContentBlock(text="Some long content to summarize.")]
 
-        tru_result = await summarize_content(content_blocks, mock_model, {})
+        tru_result = await _summarize_content(content_blocks, mock_model, {})
         assert tru_result == "This is a summary."
 
     @pytest.mark.asyncio
@@ -109,7 +109,7 @@ class TestSummarizeContent:
         mock_model.stream = _make_stream_events("")
         content_blocks = [ContentBlock(text="content")]
 
-        tru_result = await summarize_content(content_blocks, mock_model, {})
+        tru_result = await _summarize_content(content_blocks, mock_model, {})
         assert tru_result is None or tru_result == ""
 
     @pytest.mark.asyncio
@@ -118,7 +118,7 @@ class TestSummarizeContent:
         content_blocks = [ContentBlock(text="content")]
         config = {"system_prompt": "Be very brief."}
 
-        tru_result = await summarize_content(content_blocks, mock_model, config)
+        tru_result = await _summarize_content(content_blocks, mock_model, config)
         assert tru_result == "custom summary"
 
     @pytest.mark.asyncio
@@ -139,7 +139,7 @@ class TestSummarizeContent:
             ContentBlock(toolResult={"toolUseId": "t1", "status": "success", "content": [{"text": "result"}]}),
         ]
 
-        tru_result = await summarize_content(content_blocks, mock_model, {})
+        tru_result = await _summarize_content(content_blocks, mock_model, {})
         assert tru_result == "Fallback summary."
         assert call_count == 2
 
@@ -153,7 +153,7 @@ class TestSummarizeContent:
         mock_model.stream = stream_side_effect
         content_blocks = [ContentBlock(text="only text")]
 
-        tru_result = await summarize_content(content_blocks, mock_model, {})
+        tru_result = await _summarize_content(content_blocks, mock_model, {})
         assert tru_result is None
 
     @pytest.mark.asyncio
@@ -168,7 +168,7 @@ class TestSummarizeContent:
             ContentBlock(toolResult={"toolUseId": "t1", "status": "success", "content": [{"text": "result"}]}),
         ]
 
-        tru_result = await summarize_content(content_blocks, mock_model, {})
+        tru_result = await _summarize_content(content_blocks, mock_model, {})
         assert tru_result is None
 
     @pytest.mark.asyncio
@@ -185,7 +185,7 @@ class TestSummarizeContent:
         mock_model.stream = no_text_stream
         content_blocks = [ContentBlock(text="content to summarize")]
 
-        tru_result = await summarize_content(content_blocks, mock_model, {})
+        tru_result = await _summarize_content(content_blocks, mock_model, {})
         assert tru_result is None
 
     def test_summarized_prefix_is_defined(self):
@@ -197,7 +197,7 @@ class TestToolResultToContentBlocksJson:
 
     def test_converts_json_content_to_text(self):
         content = [{"json": {"key": "value", "count": 42}}]
-        tru_result = tool_result_to_content_blocks(content)
+        tru_result = _tool_result_to_content_blocks(content)
         assert len(tru_result) == 1
         assert tru_result[0]["text"] == '{\n  "key": "value",\n  "count": 42\n}'
 
@@ -206,7 +206,7 @@ class TestToolResultToContentBlocksJson:
             {"text": "plain text"},
             {"json": {"nested": True}},
         ]
-        tru_result = tool_result_to_content_blocks(content)
+        tru_result = _tool_result_to_content_blocks(content)
         assert len(tru_result) == 2
         assert tru_result[0] == ContentBlock(text="plain text")
         assert tru_result[1]["text"] == '{\n  "nested": true\n}'

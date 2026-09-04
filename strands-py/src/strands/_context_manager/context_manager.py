@@ -12,13 +12,18 @@ from ..hooks.events import AfterModelCallEvent, BeforeModelCallEvent
 from ..plugins.plugin import Plugin
 from ..types.exceptions import ContextWindowOverflowException
 from .strategies.offload import Offload
-from .strategies.offload.base import EmergencyTruncateStrategy
+from .strategies.offload.truncate import EmergencyTruncateStrategy
 from .types import ContextState, ContextStrategy
 
 if TYPE_CHECKING:
     from ..agent.agent import Agent
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_STRATEGIES: list[ContextStrategy] = [
+    Offload.truncate("tool_results").when(threshold=2500),
+    Offload.summarize("*").when(threshold=1000, utilization=0.85),
+]
 
 
 class ContextManager(Plugin):
@@ -41,14 +46,7 @@ class ContextManager(Plugin):
         """Initialize with an optional ordered list of strategies (defaults provided)."""
         super().__init__()
         self._strategies: list[ContextStrategy] = [
-            *(
-                strategies
-                if strategies is not None
-                else [
-                    Offload.truncate("tool_results").when(threshold=2500),
-                    Offload.summarize("*").when(threshold=1000, utilization=0.85),
-                ]
-            ),
+            *(strategies if strategies is not None else DEFAULT_STRATEGIES),
             EmergencyTruncateStrategy(),
         ]
 
@@ -94,7 +92,11 @@ class ContextManager(Plugin):
         if precomputed_input_tokens is not None:
             input_tokens = precomputed_input_tokens
         else:
-            input_tokens = await agent.model.count_tokens(messages)
+            try:
+                input_tokens = await agent.model.count_tokens(messages)
+            except Exception:
+                logger.warning("agent_id=<%s> | token counting failed, skipping strategies", agent.agent_id)
+                return False
 
         context = ContextState(
             messages=messages,

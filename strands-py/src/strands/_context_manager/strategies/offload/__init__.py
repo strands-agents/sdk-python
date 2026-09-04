@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 
 class _OffloadNamespace:
-    """Builder namespace for offload strategies.
+    """Factory for creating offload strategies via ``Offload.truncate(...)``, ``Offload.drop(...)``, etc.
 
     Example:
         >>> Offload.truncate("tool_results", {"preview_tokens": 750}).when(threshold=1500)

@@ -43,6 +43,23 @@ def _finite_or_none(value: int | float | None) -> int | float | None:
     return None
 
 
+def build_conditions(
+    *,
+    threshold: int | None = None,
+    utilization: float | None = None,
+    preserve_recent: int = 0,
+) -> OffloadConditions:
+    """Build an OffloadConditions dict from explicit kwargs."""
+    conditions = OffloadConditions()
+    if threshold is not None:
+        conditions["threshold"] = threshold
+    if utilization is not None:
+        conditions["utilization"] = utilization
+    if preserve_recent:
+        conditions["preserve_recent"] = preserve_recent
+    return conditions
+
+
 def build_tool_name_map(messages: Messages) -> dict[str, str]:
     """Build a toolUseId -> toolName map from all assistant messages."""
     name_map: dict[str, str] = {}
@@ -136,6 +153,7 @@ def get_oldest_matches(
     if count >= len(matching):
         return []
     return matching[:-count]
+
 
 
 def collect_removable_with_pair(messages: Messages, index: int) -> list[Message]:
@@ -272,9 +290,12 @@ class BaseOffloadStrategy(ABC):
             return
 
         async def _eager_hook(event: MessageAddedEvent) -> None:
-            messages = event.agent.messages
-            tool_name_map = build_tool_name_map(messages)
-            await self._transform_blocks(event.message, messages, tool_name_map, event.agent)
+            try:
+                messages = event.agent.messages
+                tool_name_map = build_tool_name_map(messages)
+                await self._transform_blocks(event.message, messages, tool_name_map, event.agent)
+            except Exception:
+                logger.warning("strategy=<%s> | eager hook failed, continuing", self.name, exc_info=True)
 
         agent.hooks.add_callback(MessageAddedEvent, _eager_hook)
 
@@ -313,6 +334,7 @@ class BaseOffloadStrategy(ABC):
         if not eligible:
             return False
 
+        # TODO: consider computing removal count from target utilization instead of a fixed ratio
         target_removal = max(1, int(len(eligible) * self._removal_ratio))
         to_remove = eligible[:target_removal]
 
@@ -337,6 +359,8 @@ class BaseOffloadStrategy(ABC):
     ) -> bool:
         """Check whether a block is eligible for offload given target and filters."""
         if is_tool_use_block(block):
+            return False
+        if "reasoningContent" in block or "cachePoint" in block:
             return False
         if is_text_block(block):
             return target_matches_message(self._target, message)
@@ -366,14 +390,7 @@ class BaseOffloadStrategy(ABC):
             if tokens <= effective_threshold:
                 continue
 
-            if is_text_block(block) or is_tool_result_block(block):
-                replacement = await self._replace_block(block, tokens, message, agent)
-            else:
-                block_type = next(
-                    (media_type for media_type in ("image", "document", "audio", "video") if media_type in block),
-                    "media",
-                )
-                replacement = ContentBlock(text=f"[Offloaded: {block_type} block, ~{tokens:,} tokens]")
+            replacement = await self._replace_block(block, tokens, message, agent)
             if replacement is not None and replacement is not block:
                 content[block_index] = replacement
                 acted = True
@@ -388,8 +405,12 @@ class BaseOffloadStrategy(ABC):
         oldest = get_oldest_matches(
             messages, self._target, self._preserve_recent, tool_name_map, self._include_filter, self._exclude_filter
         )
-        head_id = id(messages[0]) if messages else None
-        candidates = [msg for msg in oldest if id(msg) != head_id]
+        protected = {id(messages[0])}
+        if len(messages) > 1:
+            protected.add(id(messages[-1]))
+        if len(messages) > 2:
+            protected.add(id(messages[-2]))
+        candidates = [msg for msg in oldest if id(msg) not in protected]
 
         if self._threshold is None:
             return candidates
@@ -417,38 +438,3 @@ class BaseOffloadStrategy(ABC):
         ...
 
 
-class EmergencyTruncateStrategy(BaseOffloadStrategy):
-    """Last-resort strategy that drops the oldest 20% of messages when still overflowing."""
-
-    _removal_ratio: float = 0.2
-
-    @property
-    def name(self) -> str:
-        """Strategy name."""
-        return "offload:emergency-truncate"
-
-    def __init__(self) -> None:
-        super().__init__("*")
-
-    def init(self, agent: Agent) -> None:
-        """No eager hooks for emergency truncation."""
-
-    async def apply(self, context: ContextState) -> bool:
-        """Fire only when utilization >= 1.0 and messages > 3."""
-        if len(context.messages) <= 3:
-            return False
-        tokens = await context.agent.model.count_tokens(context.messages)
-        utilization = context.agent.model.estimate_utilization(tokens)
-        if utilization < 1.0:
-            return False
-        state = ContextState(messages=context.messages, agent=context.agent, utilization=utilization)
-        return await self._apply_per_message(state)
-
-    async def _replace_block(
-        self,
-        block: ContentBlock,
-        tokens: int,
-        message: Message,
-        agent: Agent,
-    ) -> ContentBlock | None:
-        return None

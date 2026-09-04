@@ -8,17 +8,19 @@ from typing import TYPE_CHECKING
 from ....types.content import ContentBlock, Message
 from ....types.tools import ToolResult, ToolResultContent
 from ...methods.summarize import (
-    SUMMARIZED_PREFIX,
     SummarizeConfig,
-    flatten_messages_to_content,
-    summarize_content,
-    tool_result_to_content_blocks,
+    _flatten_messages_to_content,
+    _format_summarized,
+    _summarize_content,
+    _tool_result_to_content_blocks,
 )
 from ...types import ContextState
 from .base import (
     BaseOffloadStrategy,
     OffloadConditions,
     OffloadTarget,
+    build_conditions,
+    collect_removable_with_pair,
     repair_alternation,
     splice_with_pairs,
 )
@@ -47,9 +49,19 @@ class SummarizeStrategy(BaseOffloadStrategy):
         super().__init__(target, conditions)
         self._config: SummarizeConfig = config or {}
 
-    def when(self, **conditions: int | float) -> SummarizeStrategy:
+    def when(
+        self,
+        *,
+        threshold: int | None = None,
+        utilization: float | None = None,
+        preserve_recent: int = 0,
+    ) -> SummarizeStrategy:
         """Return a new instance with the given conditions applied."""
-        return SummarizeStrategy(self._target, self._config, OffloadConditions(**conditions))  # type: ignore[typeddict-item]
+        return SummarizeStrategy(
+            self._target,
+            self._config,
+            build_conditions(threshold=threshold, utilization=utilization, preserve_recent=preserve_recent),
+        )
 
     async def apply(self, context: ContextState) -> bool:
         """Apply summarization. Returns False if no model is available."""
@@ -75,22 +87,33 @@ class SummarizeStrategy(BaseOffloadStrategy):
         summarize_count = max(1, int(len(eligible) * self._removal_ratio))
         to_summarize = eligible[:summarize_count]
 
-        content_blocks = flatten_messages_to_content(to_summarize)
-        summary = await summarize_content(content_blocks, model, self._config)
+        identity_map = {id(msg): index for index, msg in enumerate(messages)}
+        safe_ids: set[int] = set()
+        for message in to_summarize:
+            index = identity_map.get(id(message))
+            if index is None:
+                continue
+            for removable in collect_removable_with_pair(messages, index):
+                safe_ids.add(id(removable))
+        safe = [msg for msg in messages if id(msg) in safe_ids]
+        if not safe:
+            return False
+
+        content_blocks = _flatten_messages_to_content(safe)
+        summary = await _summarize_content(content_blocks, model, self._config)
         if not summary:
             return False
 
-        total_tokens = await model.count_tokens(to_summarize)
-        prefix = f"{SUMMARIZED_PREFIX} {len(to_summarize)} messages, ~{total_tokens:,} tokens]"
-        summary_message = Message(
-            role="user",
-            content=[ContentBlock(text=f"{prefix}\n\n{summary}")],
-        )
+        total_tokens = await model.count_tokens(safe)
 
-        removed, lowest_index = splice_with_pairs(messages, to_summarize)
+        removed, lowest_index = splice_with_pairs(messages, safe)
         if removed == 0:
             return False
 
+        summary_message = Message(
+            role="user",
+            content=[ContentBlock(text=_format_summarized(f"{removed} messages", total_tokens, summary))],
+        )
         insert_index = max(1, min(lowest_index, len(messages)))
         messages.insert(insert_index, summary_message)
 
@@ -111,14 +134,13 @@ class SummarizeStrategy(BaseOffloadStrategy):
 
         if "toolResult" in block:
             tool_result = block["toolResult"]
-            content_blocks = tool_result_to_content_blocks(tool_result["content"])
-            summary = await summarize_content(content_blocks, model, self._config)
+            content_blocks = _tool_result_to_content_blocks(tool_result["content"])
+            summary = await _summarize_content(content_blocks, model, self._config)
             if not summary:
                 return None
 
             logger.debug("tool_use_id=<%s>, tokens=<%s> | summarized tool result", tool_result["toolUseId"], tokens)
-            text = f"{SUMMARIZED_PREFIX} ~{tokens:,} tokens]\n\n{summary}"
-            summarized_content: list[ToolResultContent] = [{"text": text}]
+            summarized_content: list[ToolResultContent] = [{"text": _format_summarized("tool result", tokens, summary)}]
             return ContentBlock(
                 toolResult=ToolResult(
                     toolUseId=tool_result["toolUseId"],
@@ -127,12 +149,19 @@ class SummarizeStrategy(BaseOffloadStrategy):
                 )
             )
 
-        summary = await summarize_content([ContentBlock(text=block["text"])], model, self._config)
+        if "text" not in block:
+            block_type = next(
+                (media_type for media_type in ("image", "document", "audio", "video") if media_type in block),
+                "media",
+            )
+            return ContentBlock(text=_format_summarized(f"{block_type} block", tokens))
+
+        summary = await _summarize_content([ContentBlock(text=block["text"])], model, self._config)
         if not summary:
             return None
 
         logger.debug("tracking_id=<%s>, tokens=<%s> | summarized text block", message.get("tracking_id"), tokens)
-        return ContentBlock(text=f"{SUMMARIZED_PREFIX} ~{tokens:,} tokens]\n\n{summary}")
+        return ContentBlock(text=_format_summarized("text block", tokens, summary))
 
     def _resolve_model(self, agent: Agent) -> Model | None:
         return self._config.get("model") or agent.model

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from ....types.content import ContentBlock, Message
 from ....types.tools import ToolResult, ToolResultContent
-from .base import BaseOffloadStrategy, OffloadConditions, OffloadTarget
+from .base import BaseOffloadStrategy, OffloadConditions, OffloadTarget, build_conditions
 
 if TYPE_CHECKING:
     from ....agent.agent import Agent
@@ -28,9 +28,18 @@ class DropStrategy(BaseOffloadStrategy):
     def __init__(self, target: OffloadTarget | None = None, conditions: OffloadConditions | None = None) -> None:
         super().__init__(target, conditions)
 
-    def when(self, **conditions: int | float) -> DropStrategy:
+    def when(
+        self,
+        *,
+        threshold: int | None = None,
+        utilization: float | None = None,
+        preserve_recent: int = 0,
+    ) -> DropStrategy:
         """Return a new instance with the given conditions applied."""
-        return DropStrategy(self._target, OffloadConditions(**conditions))  # type: ignore[typeddict-item]
+        return DropStrategy(
+            self._target,
+            build_conditions(threshold=threshold, utilization=utilization, preserve_recent=preserve_recent),
+        )
 
     def _make_removal_marker(self, count: int) -> str:
         word = "message" if count == 1 else "messages"
@@ -54,5 +63,5 @@ class DropStrategy(BaseOffloadStrategy):
                     content=dropped_content,
                 )
             )
-        logger.debug("tracking_id=<%s> | dropped text block from context window", message.get("tracking_id"))
+        logger.debug("tracking_id=<%s> | dropped block from context window", message.get("tracking_id"))
         return ContentBlock(text=DROPPED_MARKER)

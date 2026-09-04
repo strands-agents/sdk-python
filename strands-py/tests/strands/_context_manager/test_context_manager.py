@@ -6,7 +6,7 @@ import pytest
 
 from strands._context_manager.context_manager import ContextManager
 from strands._context_manager.strategies.offload import Offload
-from strands._context_manager.strategies.offload.base import EmergencyTruncateStrategy
+from strands._context_manager.strategies.offload.truncate import EmergencyTruncateStrategy
 from strands.hooks import HookRegistry
 from strands.hooks.events import AfterModelCallEvent, BeforeModelCallEvent
 from strands.types.content import ContentBlock, Message

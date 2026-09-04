@@ -7,11 +7,13 @@ import math
 from typing import TYPE_CHECKING
 
 from ....types.content import ContentBlock, Message
-from ...methods.truncate import TruncateConfig, truncate_text_block, truncate_tool_result
+from ...methods.truncate import TruncateConfig, _truncate_text_block, _truncate_tool_result
+from ...types import is_text_block
 from .base import (
     BaseOffloadStrategy,
     OffloadConditions,
     OffloadTarget,
+    build_conditions,
     repair_alternation,
     splice_with_pairs,
 )
@@ -55,11 +57,21 @@ class TruncateStrategy(BaseOffloadStrategy):
                 "to ensure truncation converges"
             )
 
-    def when(self, **conditions: int | float) -> TruncateStrategy:
+    def when(
+        self,
+        *,
+        threshold: int | None = None,
+        utilization: float | None = None,
+        preserve_recent: int = 0,
+    ) -> TruncateStrategy:
         """Return a new instance with the given conditions applied."""
-        return TruncateStrategy(self._target, self._truncate_config, OffloadConditions(**conditions))  # type: ignore[typeddict-item]
+        return TruncateStrategy(
+            self._target,
+            self._truncate_config,
+            build_conditions(threshold=threshold, utilization=utilization, preserve_recent=preserve_recent),
+        )
 
-    def _make_removal_marker(self, count: int) -> str:
+    def _make_removal_marker(self, count: int) -> str | None:
         word = "message" if count == 1 else "messages"
         return f"[... {count} {word} elided ...]"
 
@@ -74,7 +86,7 @@ class TruncateStrategy(BaseOffloadStrategy):
             return False
 
         preview_mode = self._truncate_config.get("preview", "head_tail")
-        head_share = {"head": 1.0, "tail": 0.0, "head_tail": 0.3}[preview_mode]
+        head_share = {"head": 1.0, "tail": 0.0, "head_tail": 0.3}.get(preview_mode, 0.3)
         target_removal = max(1, int(len(eligible) * self._removal_ratio))
         keep_count = len(eligible) - target_removal
 
@@ -92,8 +104,9 @@ class TruncateStrategy(BaseOffloadStrategy):
             return False
 
         marker = self._make_removal_marker(removed)
-        insert_index = max(1, min(lowest_index, len(messages)))
-        messages.insert(insert_index, Message(role="user", content=[ContentBlock(text=marker)]))
+        if marker:
+            insert_index = max(1, min(lowest_index, len(messages)))
+            messages.insert(insert_index, Message(role="user", content=[ContentBlock(text=marker)]))
 
         repair_alternation(messages)
         return True
@@ -108,8 +121,45 @@ class TruncateStrategy(BaseOffloadStrategy):
         if "toolResult" in block:
             tool_use_id = block["toolResult"]["toolUseId"]
             logger.debug("tool_use_id=<%s>, tokens=<%s> | truncated tool result", tool_use_id, tokens)
-            return ContentBlock(toolResult=truncate_tool_result(block["toolResult"], self._truncate_config))
-        logger.debug(
-            "tracking_id=<%s>, tokens=<%s> | truncated text block", message.get("tracking_id"), tokens
+            return ContentBlock(toolResult=_truncate_tool_result(block["toolResult"], self._truncate_config))
+        if is_text_block(block):
+            logger.debug(
+                "tracking_id=<%s>, tokens=<%s> | truncated text block", message.get("tracking_id"), tokens
+            )
+            return _truncate_text_block(block, self._truncate_config)
+        block_type = next(
+            (media_type for media_type in ("image", "document", "audio", "video") if media_type in block),
+            "media",
         )
-        return truncate_text_block(block, self._truncate_config)
+        return ContentBlock(text=f"[Truncated: {block_type} block, ~{tokens:,} tokens]")
+
+
+class EmergencyTruncateStrategy(TruncateStrategy):
+    """Last-resort strategy that drops the oldest 20% of messages when still overflowing."""
+
+    _removal_ratio: float = 0.2
+
+    @property
+    def name(self) -> str:
+        """Strategy name."""
+        return "offload:emergency-truncate"
+
+    def __init__(self) -> None:
+        super().__init__("*", {"preview": "tail"})
+
+    def init(self, agent: Agent) -> None:
+        """No eager hooks for emergency truncation."""
+
+    def _make_removal_marker(self, count: int) -> str | None:
+        return None
+
+    async def apply(self, context: ContextState) -> bool:
+        """Fire only when utilization >= 1.0 and messages > 3."""
+        if len(context.messages) <= 3:
+            return False
+        tokens = await context.agent.model.count_tokens(context.messages)
+        utilization = context.agent.model.estimate_utilization(tokens)
+        if utilization < 1.0:
+            return False
+        state = ContextState(messages=context.messages, agent=context.agent, utilization=utilization)
+        return await self._apply_per_message(state)

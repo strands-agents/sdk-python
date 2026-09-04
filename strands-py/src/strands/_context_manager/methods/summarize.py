@@ -24,6 +24,14 @@ logger = logging.getLogger(__name__)
 
 SUMMARIZED_PREFIX = "[Summarized:"
 
+
+def _format_summarized(description: str, tokens: int, summary: str | None = None) -> str:
+    """Format a ``[Summarized: ...]`` marker with an optional summary body."""
+    header = f"{SUMMARIZED_PREFIX} {description}, ~{tokens:,} tokens]"
+    if summary:
+        return f"{header}\n\n{summary}"
+    return header
+
 # Subject to change based on benchmarking.
 DEFAULT_SYSTEM_PROMPT = (
     "You are a summarization assistant. Produce a concise factual summary that preserves:\n"
@@ -50,7 +58,7 @@ class SummarizeConfig(TypedDict, total=False):
     system_prompt: str
 
 
-async def summarize_content(
+async def _summarize_content(
     content: list[ContentBlock],
     model: Model,
     config: SummarizeConfig | None = None,
@@ -70,7 +78,7 @@ async def summarize_content(
     return fallback_result
 
 
-def tool_result_to_content_blocks(content: list[ToolResultContent]) -> list[ContentBlock]:
+def _tool_result_to_content_blocks(content: list[ToolResultContent]) -> list[ContentBlock]:
     """Convert ToolResultContent list to ContentBlocks, serializing JSON to text."""
     blocks: list[ContentBlock] = []
     for item in content:
@@ -83,14 +91,14 @@ def tool_result_to_content_blocks(content: list[ToolResultContent]) -> list[Cont
     return blocks
 
 
-def flatten_messages_to_content(messages: Messages) -> list[ContentBlock]:
+def _flatten_messages_to_content(messages: Messages) -> list[ContentBlock]:
     """Flatten messages into a single ContentBlock list with role markers."""
     blocks: list[ContentBlock] = []
     for message in messages:
         blocks.append(ContentBlock(text=f"\n---\n[{message['role']}]"))
         for block in message["content"]:
             if "toolResult" in block:
-                blocks.extend(tool_result_to_content_blocks(block["toolResult"]["content"]))
+                blocks.extend(_tool_result_to_content_blocks(block["toolResult"]["content"]))
             else:
                 blocks.append(block)
     return blocks
@@ -128,7 +136,7 @@ async def _call_summarizer(
             if "text" in block:
                 parts.append(block["text"])
 
-        return "\n".join(parts) or None, True
+        return "\n".join(parts).strip() or None, True
 
     except Exception as error:
         logger.debug("error=<%s> | summarization failed", error)
