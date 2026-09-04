@@ -93,12 +93,11 @@ jobs:
     # The dependency pin is `mcp<2`, so the unit-test matrix only ever
     # exercises the 1.x line and the 2.x branches of `_compat` run against
     # mocks there. This job force-installs the 2.x line over the pin to verify
-    # against the real package that `import strands` succeeds and the MCP
-    # client suite passes. The task tests are excluded: 2.x moved tasks to the
-    # SEP-2663 extension and the client still implements the 1.x experimental
-    # API, so the task workflow is 1.x-only until that lands. Pinned to
-    # `2.0.*` so upstream 2.x releases cannot break unrelated PRs; bump
-    # deliberately.
+    # against the real package that `import strands` succeeds, the MCP client
+    # suite passes, and SEP-2663 task support works. The 1.x experimental task
+    # tests are excluded: 2.x moved tasks to the SEP-2663 extension, so that
+    # workflow is 1.x-only. Pinned exactly so upstream 2.x releases cannot
+    # break unrelated PRs; bump deliberately.
     runs-on: strands-agents_ubuntu-latest_4-core
     timeout-minutes: 10
     permissions:
@@ -126,7 +125,7 @@ jobs:
             "pytest-timeout>=2.0.0,<3.0.0" \
             "pytest-cov>=6.0.0,<8.0.0" \
             "moto>=5.1.0,<6.0.0"
-          pip install --no-cache-dir "mcp==2.0.*"
+          pip install --no-cache-dir "mcp==2.0.1"
 
       - name: Verify import and version flag
         run: python -c "import strands; from strands.tools.mcp import _compat; assert _compat.MCP_V2"
