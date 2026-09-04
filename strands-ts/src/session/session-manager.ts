@@ -389,16 +389,12 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
   }
 
   private async _deleteStashData(): Promise<void> {
-    // Agent-scoped: delete via the Stash's own namespaced storage, which handles
-    // pre-namespaced backends correctly. Only covers the agent registered with
-    // this SessionManager — orchestrator children with custom stash storage
-    // distinct from rootStorage are not reached here.
+    // Stash handles pre-namespaced storage; only covers this agent's data.
     if (this._stash) {
       const keys = await this._stash.list()
       await Promise.all(keys.map((key) => this._stash!.delete(key)))
     }
-    // Session-scoped: sweep rootStorage for any remaining stash data under this
-    // session (e.g. other agents sharing root storage).
+    // Catch stash data from other agents sharing rootStorage in this session.
     if (!this._rootStorage) return
     const scoped = resolveNamespace(this._rootStorage, `${STASH_PREFIX}/${this._sessionId}`)
     const keys = await scoped.list('')
