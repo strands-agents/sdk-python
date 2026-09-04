@@ -2,10 +2,14 @@
 
 from typing import Any
 
-from .model import BidiModel, BidiModelTimeoutError, Restartable
+from ..types.model import AudioConfig
+from .model import AudioCapable, BidiModel, BidiModelConfig, BidiModelTimeoutError, Restartable
 
 __all__ = [
+    "AudioCapable",
+    "AudioConfig",
     "BidiModel",
+    "BidiModelConfig",
     "BidiModelTimeoutError",
     "Restartable",
 ]

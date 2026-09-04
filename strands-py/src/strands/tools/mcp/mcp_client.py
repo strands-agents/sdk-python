@@ -1750,13 +1750,17 @@ class MCPClient(ToolProvider):
         try:
             cancellation: Coroutine[Any, Any, Any]
             if task_id := cancellation_state.get("task_id"):
-                cancellation = self._cancel_task_async(task_id) if MCP_V2 else session.experimental.cancel_task(task_id)
+                if MCP_V2:
+                    cancellation = self._cancel_task_async(task_id)
+                else:
+                    cancellation = session.experimental.cancel_task(task_id)  # type: ignore[attr-defined]
             elif (request_id := cancellation_state.get("request_id")) is not None:
                 cancellation = session.send_notification(
                     ClientNotification(
-                        CancelledNotification(
+                        CancelledNotification(  # type: ignore[operator]
                             params=CancelledNotificationParams(
-                                requestId=request_id, reason="Strands agent invocation cancelled"
+                                requestId=request_id,  # type: ignore[call-arg]
+                                reason="Strands agent invocation cancelled",
                             )
                         )
                     )
@@ -1950,7 +1954,7 @@ class MCPClient(ToolProvider):
             return self._has_server_task_support()
 
         # Local import to avoid errors on old SDK versions that don't support Tasks
-        from mcp.types import TASK_OPTIONAL, TASK_REQUIRED
+        from mcp.types import TASK_OPTIONAL, TASK_REQUIRED  # type: ignore[attr-defined]
 
         # Server capability check (per MCP spec)
         if not self._has_server_task_support():
@@ -1977,7 +1981,7 @@ class MCPClient(ToolProvider):
         Returns:
             MCPCallToolResult with isError=True and the message as text content.
         """
-        return MCPCallToolResult(
+        return MCPCallToolResult(  # type: ignore[call-arg]
             isError=True,
             content=[MCPTextContent(type="text", text=message)],
         )
@@ -2309,7 +2313,12 @@ class MCPClient(ToolProvider):
             MCPCallToolResult: The final tool result after task completion.
         """
         # Local import to avoid errors on old SDK versions that don't support Tasks
-        from mcp.types import TASK_STATUS_CANCELLED, TASK_STATUS_COMPLETED, TASK_STATUS_FAILED, GetTaskResult
+        from mcp.types import (  # type: ignore[attr-defined]
+            TASK_STATUS_CANCELLED,
+            TASK_STATUS_COMPLETED,
+            TASK_STATUS_FAILED,
+            GetTaskResult,
+        )
 
         session = cast(ClientSession, self._background_thread_session)
 
@@ -2323,7 +2332,7 @@ class MCPClient(ToolProvider):
         if cancellation_state is not None:
             cancellation_state["session"] = session
         create_task = asyncio.create_task(
-            session.experimental.call_tool_as_task(
+            session.experimental.call_tool_as_task(  # type: ignore[attr-defined]
                 name=name,
                 arguments=arguments,
                 ttl=ttl_ms,
@@ -2366,7 +2375,7 @@ class MCPClient(ToolProvider):
         async def _poll_until_terminal() -> GetTaskResult | None:
             """Inner function to poll task status until terminal state."""
             final = None
-            async for task in session.experimental.poll_task(task_id):
+            async for task in session.experimental.poll_task(task_id):  # type: ignore[attr-defined]
                 self._log_debug_with_thread(
                     "tool=<%s>, task_id=<%s>, status=<%s> | task status update",
                     name,
@@ -2395,7 +2404,7 @@ class MCPClient(ToolProvider):
             return self._create_task_error_result(f"Task {task_id} polling completed without status")
 
         if final_status.status == TASK_STATUS_FAILED:
-            error_msg = final_status.statusMessage or "Task failed"
+            error_msg = final_status.statusMessage or "Task failed"  # type: ignore[attr-defined]
             self._log_debug_with_thread("tool=<%s>, task_id=<%s>, error=<%s> | task failed", name, task_id, error_msg)
             return self._create_task_error_result(error_msg)
 
@@ -2407,9 +2416,10 @@ class MCPClient(ToolProvider):
         if final_status.status == TASK_STATUS_COMPLETED:
             self._log_debug_with_thread("tool=<%s>, task_id=<%s> | task completed, fetching result", name, task_id)
             try:
-                result = await session.experimental.get_task_result(task_id, MCPCallToolResult)
+                experimental_session = session.experimental  # type: ignore[attr-defined]
+                result = await experimental_session.get_task_result(task_id, MCPCallToolResult)
                 self._log_debug_with_thread("tool=<%s>, task_id=<%s> | task result retrieved", name, task_id)
-                return result
+                return result  # type: ignore[no-any-return]
             except Exception as e:
                 # Handle race condition: task completed but result retrieval failed
                 # (e.g., result expired, network error, server restarted)
@@ -2596,7 +2606,7 @@ def _config_transport_callable(name: str, transport: str, server: dict[str, Any]
                 env=server.get("env"),
                 cwd=os.path.expanduser(server["cwd"]) if server.get("cwd") else None,
             )
-            return lambda: stdio_client(params)
+            return lambda: stdio_client(params)  # type: ignore[return-value]
 
         case "streamable-http":
             url = server.get("url")

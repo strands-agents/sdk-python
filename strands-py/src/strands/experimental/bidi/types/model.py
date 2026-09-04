@@ -13,20 +13,19 @@ from .events import AudioChannel, AudioFormat, AudioSampleRate
 class AudioConfig(TypedDict, total=False):
     """Audio configuration for bidirectional streaming models.
 
-    Defines standard audio parameters that model providers use to specify
-    their audio processing requirements. All fields are optional to support
-    models that may not use audio or only need specific parameters.
+    Defines common audio parameters supported by bidirectional model providers.
+    All fields are optional to support models that only need specific parameters.
 
     Model providers build this configuration by merging user-provided values
-    with their own defaults. The resulting configuration is then used by
-    audio I/O implementations to configure hardware appropriately.
+    with their own defaults. Audio I/O implementations use the stream settings
+    to configure hardware, while model providers apply settings such as voice.
 
     Attributes:
         input_rate: Input sample rate in Hz (e.g., 8000, 16000, 24000, 48000)
         output_rate: Output sample rate in Hz (e.g., 8000, 16000, 24000, 48000)
         channels: Number of audio channels (1=mono, 2=stereo)
         format: Audio encoding format
-        voice: Voice identifier for text-to-speech (e.g., "alloy", "matthew")
+        voice: Voice used for model audio output.
     """
 
     input_rate: AudioSampleRate

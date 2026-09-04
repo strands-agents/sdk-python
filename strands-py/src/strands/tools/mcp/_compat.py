@@ -93,7 +93,7 @@ async def _drive_input_required(session: ClientSession, call_once: Callable[[Any
         The terminal result.
 
     Raises:
-        MCPError: An embedded input request's callback declined it.
+        MCPError: An embedded input request's callback answered with an error.
         InputRequiredRoundsExceededError: The server kept returning `InputRequiredResult` past the round cap.
     """
     from mcp.client import ClientRequestContext, InputRequiredRoundsExceededError  # type: ignore[attr-defined]
@@ -150,12 +150,16 @@ async def call_tool(
         ``allow_claimed`` is enabled.
 
     Raises:
-        MCPError: An embedded input request's callback declined it.
+        MCPError: An embedded input request's callback answered with an error.
         InputRequiredRoundsExceededError: The server kept returning `InputRequiredResult` past the round cap.
     """
     if not MCP_V2:
         return await session.call_tool(
-            name, arguments, read_timeout_seconds, progress_callback=progress_callback, meta=meta
+            name,
+            arguments,
+            read_timeout_seconds,  # type: ignore[arg-type]
+            progress_callback=progress_callback,
+            meta=meta,
         )
 
     timeout = read_timeout(read_timeout_seconds)
@@ -205,7 +209,7 @@ def client_credentials_auth(
             client_secret=client_secret,
             scope=scope,  # type: ignore[call-arg]
         )
-    return ClientCredentialsOAuthProvider(
+    return ClientCredentialsOAuthProvider(  # type: ignore[return-value]
         server_url=server_url,
         storage=storage,
         client_id=client_id,
@@ -229,7 +233,7 @@ async def get_prompt(session: ClientSession, name: str, arguments: dict[str, str
         The terminal `GetPromptResult`.
 
     Raises:
-        MCPError: An embedded input request's callback declined it.
+        MCPError: An embedded input request's callback answered with an error.
         InputRequiredRoundsExceededError: The server kept returning `InputRequiredResult` past the round cap.
     """
     if not MCP_V2:
@@ -262,7 +266,7 @@ async def read_resource(session: ClientSession, uri: Any) -> Any:
         The terminal `ReadResourceResult`.
 
     Raises:
-        MCPError: An embedded input request's callback declined it.
+        MCPError: An embedded input request's callback answered with an error.
         InputRequiredRoundsExceededError: The server kept returning `InputRequiredResult` past the round cap.
     """
     if not MCP_V2:
@@ -614,7 +618,7 @@ def streamable_http_transport(
         @asynccontextmanager
         async def _owned_client_transport() -> AsyncIterator[Any]:
             async with (
-                create_mcp_http_client(headers=headers, auth=auth) as http_client,
+                create_mcp_http_client(headers=headers, auth=auth) as http_client,  # type: ignore[arg-type]
                 streamable_http_client(url=url, http_client=http_client) as transport_streams,
             ):
                 yield transport_streams
