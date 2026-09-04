@@ -13,10 +13,12 @@ Features:
 - Support for audio, text, image, and tool result streaming
 """
 
+import abc
 import logging
 from collections.abc import AsyncIterable
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, NoReturn, Protocol, runtime_checkable
 
+from ....models.model import Model
 from ....types._events import ToolResultEvent
 from ....types.content import Messages
 from ....types.tools import ToolSpec
@@ -30,8 +32,29 @@ logger = logging.getLogger(__name__)
 
 
 @runtime_checkable
-class BidiModel(Protocol):
-    """Protocol for bidirectional streaming models.
+class Restartable(Protocol):
+    """A bidirectional model that can replace its active connection while preserving context."""
+
+    async def restart(
+        self,
+        system_prompt: str | None = None,
+        tools: list[ToolSpec] | None = None,
+        messages: Messages | None = None,
+        **restart_kwargs: Any,
+    ) -> None:
+        """Replace the active connection while preserving conversation context.
+
+        Args:
+            system_prompt: System instructions for the new connection.
+            tools: Tool specifications for the new connection.
+            messages: Conversation history to replay when required by the provider.
+            **restart_kwargs: Provider-specific restart options.
+        """
+        ...
+
+
+class BidiModel(Model, abc.ABC):
+    """Abstract base class for bidirectional streaming models.
 
     This interface defines the contract for models that support persistent streaming
     connections with real-time audio and text communication. Implementations handle
@@ -51,6 +74,28 @@ class BidiModel(Protocol):
     connection_config: BidiConnectionConfig
     usage_is_cumulative: bool
 
+    def update_config(self, **model_config: Any) -> None:
+        """Update the model configuration with the provided arguments.
+
+        Args:
+            **model_config: Configuration overrides.
+        """
+        self.config.update(model_config)
+
+    def get_config(self) -> dict[str, Any]:
+        """Return a copy of the model configuration."""
+        return self.config.copy()
+
+    def structured_output(self, *args: Any, **kwargs: Any) -> NoReturn:
+        """Raise because bidirectional models do not support structured output."""
+        raise NotImplementedError("structured output is not supported by bidirectional models")
+
+    def stream(self, *args: Any, **kwargs: Any) -> NoReturn:
+        """Raise because bidirectional models use their persistent streaming API."""
+        raise NotImplementedError("regular streaming is not supported by bidirectional models")
+
+    @abc.abstractmethod
+    # pragma: no cover
     async def start(
         self,
         system_prompt: str | None = None,
@@ -70,8 +115,10 @@ class BidiModel(Protocol):
             messages: Initial conversation history to provide context.
             **kwargs: Provider-specific configuration options.
         """
-        ...
+        pass
 
+    @abc.abstractmethod
+    # pragma: no cover
     async def stop(self) -> None:
         """Close the streaming connection and release resources.
 
@@ -79,8 +126,10 @@ class BidiModel(Protocol):
         resources such as network connections, buffers, or background tasks. After
         calling close(), the model instance cannot be used until start() is called again.
         """
-        ...
+        pass
 
+    @abc.abstractmethod
+    # pragma: no cover
     def receive(self) -> AsyncIterable[BidiOutputEvent]:
         """Receive streaming events from the model.
 
@@ -94,8 +143,10 @@ class BidiModel(Protocol):
             BidiOutputEvent: Standardized event objects containing audio output,
                 transcripts, tool calls, or control signals.
         """
-        ...
+        pass
 
+    @abc.abstractmethod
+    # pragma: no cover
     async def send(
         self,
         content: BidiInputEvent | ToolResultEvent,
@@ -122,35 +173,15 @@ class BidiModel(Protocol):
             await model.send(ToolResultEvent(tool_result))
             ```
         """
-        ...
-
-    async def reconnect(
-        self,
-        system_prompt: str | None = None,
-        tools: list[ToolSpec] | None = None,
-        messages: Messages | None = None,
-        **restart_kwargs: Any,
-    ) -> None:
-        """Close the current connection and establish a new one, preserving context.
-
-        Equivalent to ``stop()`` then ``start()``, but implemented by the provider so it
-        can apply its own resume mechanism (e.g. a session handle).
-
-        Args:
-            system_prompt: System instructions to configure model behavior.
-            tools: Tool specifications that the model can invoke during the conversation.
-            messages: Conversation history to replay for providers that resume via replay.
-            **restart_kwargs: Provider-specific restart options (e.g. from a timeout error).
-        """
-        ...
+        pass
 
 
 class BidiModelTimeoutError(Exception):
     """Model timeout error.
 
-    Bidirectional models are often configured with a connection time limit. Nova sonic for example keeps the connection
-    open for 8 minutes max. Upon receiving a timeout, the agent loop is configured to restart the model connection so as
-    to create a seamless, uninterrupted experience for the user.
+    Bidirectional models are often configured with a connection time limit. Bedrock Nova Sonic, for example, keeps the
+    connection open for 8 minutes max. Upon receiving a timeout, the agent loop is configured to restart the model
+    connection so as to create a seamless, uninterrupted experience for the user.
     """
 
     def __init__(self, message: str, **restart_config: Any) -> None:

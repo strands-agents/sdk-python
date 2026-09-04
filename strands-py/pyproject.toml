@@ -54,6 +54,7 @@ litellm = ["litellm>=1.75.9,<=1.96.0", "openai>=1.68.0,<3.0.0"]
 llamaapi = ["llama-api-client>=0.1.0,<1.0.0"]
 mistral = ["mistralai>=2.0.0,<3.0.0"]
 ollama = ["ollama>=0.4.8,<1.0.0"]
+web-fetch = ["markdownify>=1.1.0,<2.0.0", "beautifulsoup4>=4.9.0,<5.0.0"]
 openai = ["openai>=1.68.0,<3.0.0", "aws-bedrock-token-generator>=1.1.0,<2.0.0"]
 writer = ["writer-sdk>=2.2.0,<4.0.0"]
 sagemaker = [
@@ -92,7 +93,7 @@ bidi-pyaudio = ["pyaudio>=0.2.0,<0.3.0"]
 bidi-all = ["strands-agents[a2a,bidi,bidi-aec,bidi-google,bidi-openai,docs,otel]"]
 
 all = [
-    "strands-agents[a2a,anthropic,bidi-all,cedar,docs,gemini,litellm,llamaapi,mistral,ollama,openai,writer,sagemaker,otel]"
+    "strands-agents[a2a,anthropic,bidi-all,cedar,docs,gemini,litellm,llamaapi,mistral,ollama,openai,writer,sagemaker,otel,web-fetch]"
 ]
 
 dev = [
@@ -150,7 +151,7 @@ format-fix = [
 ]
 lint-check = [
     "ruff check",
-    "mypy ./src"
+    "mypy ./src ./tests_typing"
 ]
 lint-fix = [
     "ruff check --fix"
@@ -251,7 +252,7 @@ warn_unused_ignores = false
 
 [tool.ruff]
 line-length = 120
-include = ["examples/**/*.py", "src/**/*.py", "tests/**/*.py", "tests_integ/**/*.py"]
+include = ["examples/**/*.py", "src/**/*.py", "tests/**/*.py", "tests_integ/**/*.py", "tests_typing/**/*.py"]
 
 [tool.ruff.lint]
 select = [

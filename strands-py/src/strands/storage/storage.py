@@ -43,7 +43,7 @@ def _normalize_key(key: str) -> str:
     """Validate and normalize a storage key for path-based backends.
 
     Collapses runs of '/', strips leading and trailing '/', rejects empty
-    keys, and rejects any '..' segment.
+    keys, rejects backslashes, and rejects any '..' segment.
 
     Used by the shipped path-based backends (InMemoryStorage, LocalFileStorage,
     S3Storage), not required by the Storage protocol itself.
@@ -55,8 +55,10 @@ def _normalize_key(key: str) -> str:
         The normalized key.
 
     Raises:
-        StorageError: If the key is empty or contains a '..' segment.
+        StorageError: If the key is empty, contains backslashes, or contains a '..' segment.
     """
+    if "\\" in key:
+        raise StorageError(f"Invalid storage key '{key}': backslashes are not allowed")
     normalized = re.sub(r"/+", "/", key).strip("/")
     if not normalized:
         raise StorageError("Storage key must not be empty")
@@ -81,8 +83,10 @@ def _normalize_prefix(prefix: str) -> str:
         The normalized prefix.
 
     Raises:
-        StorageError: If the prefix contains a '..' segment.
+        StorageError: If the prefix contains backslashes or a '..' segment.
     """
+    if "\\" in prefix:
+        raise StorageError(f"Invalid storage prefix '{prefix}': backslashes are not allowed")
     normalized = re.sub(r"/+", "/", prefix).lstrip("/")
     if ".." in normalized.split("/"):
         raise StorageError(f"Invalid storage prefix '{prefix}': '..' path segments are not allowed")

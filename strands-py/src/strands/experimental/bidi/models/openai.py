@@ -38,7 +38,7 @@ from ..types.events import (
     Role,
     StopReason,
 )
-from ..types.model import AudioConfig
+from ..types.model import AudioConfig, BidiConnectionConfig
 from .model import BidiModel, BidiModelTimeoutError
 
 logger = logging.getLogger(__name__)
@@ -54,6 +54,10 @@ OpenAI documents a 60 minute limit on realtime sessions
 not emit any warnings when approaching the limit. As a workaround, we configure a max timeout client side to gracefully
 handle the connection closure. We set the max to 50 minutes to provide enough buffer before hitting the real limit.
 """
+# Proactive reconnect fires this many seconds below the reader's reactive timeout, leaving room for
+# the turn-boundary alignment wait so a mid-turn swap stays graceful instead of being preempted by
+# the reactive timeout firing at the same instant.
+OPENAI_PROACTIVE_RECONNECT_MARGIN_S = 300
 OPENAI_REALTIME_URL = "wss://api.openai.com/v1/realtime"
 DEFAULT_MODEL = "gpt-realtime"
 DEFAULT_SAMPLE_RATE = 24000
@@ -77,8 +81,16 @@ DEFAULT_SESSION_CONFIG = {
     },
 }
 
+# Sent as a system message after a restart. Replay restores the conversation text but not the
+# live audio state, so the fresh session can drift language or re-introduce itself; this steers it
+# to continue seamlessly.
+_RESTART_INSTRUCTION = (
+    "The connection was re-established mid-conversation. Continue seamlessly from the prior "
+    "context: do not greet or re-introduce yourself, and keep replying in the language already in use."
+)
 
-class BidiOpenAIRealtimeModel(BidiModel):
+
+class OpenAIRealtimeModel(BidiModel):
     """OpenAI Realtime API implementation for bidirectional streaming.
 
     Combines model configuration and connection state in a single class.
@@ -109,6 +121,9 @@ class BidiOpenAIRealtimeModel(BidiModel):
         # Store model ID
         self.model_id = model_id
 
+        # OpenAI reports per-response token usage on response.done, not cumulative session totals.
+        self.usage_is_cumulative = False
+
         # Resolve client config with defaults and env vars
         self._client_config = self._resolve_client_config(client_config or {})
 
@@ -125,6 +140,17 @@ class BidiOpenAIRealtimeModel(BidiModel):
             raise ValueError(
                 f"timeout_s=<{self.timeout_s}>, max_timeout_s=<{OPENAI_MAX_TIMEOUT_S}> | timeout exceeds max limit"
             )
+
+        # OpenAI emits no approaching-limit warning, so reconnect proactively a margin below the
+        # reader's reactive timeout: the swap can then align to a turn boundary before the reactive
+        # path fires. Deriving from timeout_s keeps that headroom even when a caller lowers it.
+        # Tunable via provider_config["connection"], e.g. to lower restart_after_s for tests.
+        default_connection: BidiConnectionConfig = {
+            "restart_after_s": self.timeout_s - OPENAI_PROACTIVE_RECONNECT_MARGIN_S
+        }
+        self.connection_config = cast(
+            BidiConnectionConfig, {**default_connection, **(provider_config or {}).get("connection", {})}
+        )
 
         # Connection state (initialized in start())
         self._connection_id: str | None = None
@@ -424,13 +450,19 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
         yield BidiConnectionStartEvent(connection_id=self._connection_id, model=self.model_id)
 
+        # Bind this reader to the connection it started on. After a reconnect swaps self._websocket,
+        # a still-draining superseded reader keeps reading its own (now-closed) socket rather than
+        # stealing messages from the connection that replaced it.
+        websocket = self._websocket
+        start_time = self._start_time
+
         while True:
-            duration = time.time() - self._start_time
+            duration = time.time() - start_time
             if duration >= self.timeout_s:
                 raise BidiModelTimeoutError(f"timeout_s=<{self.timeout_s}>")
 
             try:
-                message = await asyncio.wait_for(self._websocket.recv(), timeout=10)
+                message = await asyncio.wait_for(websocket.recv(), timeout=10)
             except asyncio.TimeoutError:
                 continue
 
@@ -795,6 +827,46 @@ class BidiOpenAIRealtimeModel(BidiModel):
         await stop_all(stop_websocket, stop_connection)
 
         logger.debug("openai realtime connection closed")
+
+    async def restart(
+        self,
+        system_prompt: str | None = None,
+        tools: list[ToolSpec] | None = None,
+        messages: Messages | None = None,
+        **restart_kwargs: Any,
+    ) -> None:
+        """Restart by closing the connection and starting a new one, replaying history.
+
+        OpenAI's Realtime API exposes no server-side resume handle, so a restart re-establishes
+        the session and replays the accumulated conversation history to preserve context across the
+        swap.
+
+        Args:
+            system_prompt: System instructions for the new connection.
+            tools: Tool specifications for the new connection.
+            messages: Conversation history to replay into the new connection.
+            **restart_kwargs: Reserved for provider-specific restart options.
+        """
+        logger.debug("openai realtime restart starting")
+        await self.stop()
+        await self.start(system_prompt, tools, messages, **restart_kwargs)
+        # Re-anchor the fresh session so it continues the conversation rather than drifting. This is
+        # a best-effort nudge: if the send fails, the connection is still healthy, so log and move on
+        # rather than let a failed nudge tear down the session.
+        try:
+            await self._send_event(
+                {
+                    "type": "conversation.item.create",
+                    "item": {
+                        "type": "message",
+                        "role": "system",
+                        "content": [{"type": "input_text", "text": _RESTART_INSTRUCTION}],
+                    },
+                }
+            )
+        except Exception as error:
+            logger.warning("error=<%s> | failed to send restart re-anchor message | continuing", error)
+        logger.debug("connection_id=<%s> | openai realtime restart complete", self._connection_id)
 
     async def _send_event(self, event: dict[str, Any]) -> None:
         """Send event to OpenAI via WebSocket."""
