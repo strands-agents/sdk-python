@@ -175,11 +175,7 @@ class TestCollectRemovableWithPair:
         )
         user_msg = Message(
             role="user",
-            content=[
-                ContentBlock(
-                    toolResult=ToolResult(toolUseId="tu-1", status="success", content=[{"text": "ok"}])
-                )
-            ],
+            content=[ContentBlock(toolResult=ToolResult(toolUseId="tu-1", status="success", content=[{"text": "ok"}]))],
         )
         messages: Messages = [
             Message(role="user", content=[ContentBlock(text="start")]),

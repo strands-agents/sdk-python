@@ -123,9 +123,7 @@ class TruncateStrategy(BaseOffloadStrategy):
             logger.debug("tool_use_id=<%s>, tokens=<%s> | truncated tool result", tool_use_id, tokens)
             return ContentBlock(toolResult=_truncate_tool_result(block["toolResult"], self._truncate_config))
         if is_text_block(block):
-            logger.debug(
-                "tracking_id=<%s>, tokens=<%s> | truncated text block", message.get("tracking_id"), tokens
-            )
+            logger.debug("tracking_id=<%s>, tokens=<%s> | truncated text block", message.get("tracking_id"), tokens)
             return _truncate_text_block(block, self._truncate_config)
         block_type = next(
             (media_type for media_type in ("image", "document", "audio", "video") if media_type in block),

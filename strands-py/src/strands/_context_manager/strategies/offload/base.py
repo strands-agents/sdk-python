@@ -36,7 +36,6 @@ class OffloadConditions(TypedDict, total=False):
     preserve_recent: int
 
 
-
 def _finite_or_none(value: int | float | None) -> int | float | None:
     if isinstance(value, (int, float)) and math.isfinite(value):
         return max(0, value)
@@ -155,7 +154,6 @@ def get_oldest_matches(
     return matching[:-count]
 
 
-
 def collect_removable_with_pair(messages: Messages, index: int) -> list[Message]:
     """Collect a message and its tool-use/tool-result pair partner for safe removal."""
     if index <= 0 or index >= len(messages):
@@ -252,6 +250,12 @@ def resolve_tool_filter(target: OffloadTarget | None) -> tuple[set[str] | None, 
 
 class BaseOffloadStrategy(ABC):
     """Shared offload logic: target routing, eager hooks, preserveRecent."""
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Strategy name."""
+        ...
 
     _target: OffloadTarget | None
     _threshold: int | None
@@ -354,9 +358,7 @@ class BaseOffloadStrategy(ABC):
         """Override to insert a marker when messages are removed. Return None for no marker."""
         return None
 
-    def _block_matches_target(
-        self, block: ContentBlock, message: Message, tool_name_map: dict[str, str]
-    ) -> bool:
+    def _block_matches_target(self, block: ContentBlock, message: Message, tool_name_map: dict[str, str]) -> bool:
         """Check whether a block is eligible for offload given target and filters."""
         if is_tool_use_block(block):
             return False
@@ -436,5 +438,3 @@ class BaseOffloadStrategy(ABC):
     ) -> ContentBlock | None:
         """Transform a block. Return the replacement, or None to skip."""
         ...
-
-

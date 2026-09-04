@@ -32,6 +32,7 @@ def _format_summarized(description: str, tokens: int, summary: str | None = None
         return f"{header}\n\n{summary}"
     return header
 
+
 # Subject to change based on benchmarking.
 DEFAULT_SYSTEM_PROMPT = (
     "You are a summarization assistant. Produce a concise factual summary that preserves:\n"
