@@ -32,7 +32,6 @@ from urllib.parse import urlparse
 import anyio
 import httpx
 from mcp import ClientSession, ListToolsResult, StdioServerParameters, stdio_client
-from mcp.client.auth.extensions.client_credentials import ClientCredentialsOAuthProvider
 from mcp.client.session import ElicitationFnT, ProgressFnT
 from mcp.client.sse import sse_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
@@ -64,7 +63,9 @@ from ...types.media import ImageFormat
 from ...types.tools import AgentTool, ToolResultContent, ToolResultStatus
 from ..tool_provider import ToolProvider
 from ._compat import (
+    MCP_V2,
     MCPError,
+    client_credentials_auth,
     is_error,
     is_tools_list_changed,
     mime_type,
@@ -77,6 +78,8 @@ from ._compat import (
     tools_changed_subscription,
 )
 from ._compat import call_tool as compat_call_tool
+from ._compat import get_prompt as compat_get_prompt
+from ._compat import read_resource as compat_read_resource
 from .mcp_agent_tool import MCPAgentTool
 from .mcp_instrumentation import inject_trace_context, mcp_instrumentation
 from .mcp_tasks import DEFAULT_TASK_CONFIG, DEFAULT_TASK_POLL_TIMEOUT, DEFAULT_TASK_TTL, TasksConfig
@@ -766,7 +769,8 @@ class MCPClient(ToolProvider):
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         async def _get_prompt_async() -> GetPromptResult:
-            return await cast(ClientSession, self._background_thread_session).get_prompt(prompt_id, arguments=args)
+            session = cast(ClientSession, self._background_thread_session)
+            return cast(GetPromptResult, await compat_get_prompt(session, prompt_id, args))
 
         get_prompt_result: GetPromptResult = self._invoke_on_background_thread(_get_prompt_async()).result()
         self._log_debug_with_thread("received prompt from MCP server")
@@ -815,7 +819,8 @@ class MCPClient(ToolProvider):
         async def _read_resource_async() -> ReadResourceResult:
             # Convert string to AnyUrl if needed
             resource_uri = AnyUrl(uri) if isinstance(uri, str) else uri
-            return await cast(ClientSession, self._background_thread_session).read_resource(resource_uri)
+            session = cast(ClientSession, self._background_thread_session)
+            return cast(ReadResourceResult, await compat_read_resource(session, resource_uri))
 
         read_resource_result: ReadResourceResult = self._invoke_on_background_thread(_read_resource_async()).result()
         self._log_debug_with_thread("received resource content from MCP server")
@@ -921,12 +926,16 @@ class MCPClient(ToolProvider):
                 session = cast(ClientSession, self._background_thread_session)
                 if cancellation_state is not None:
                     cancellation_state["session"] = session
-                    # MCP assigns the captured private ID synchronously at the start of
-                    # send_request(). If that invariant changes, omit remote notification rather
-                    # than risk cancelling a different request; local cancellation still works.
-                    request_id = getattr(session, "_request_id", None)
-                    if isinstance(request_id, int):
-                        cancellation_state["request_id"] = request_id
+                    # Only 1.x needs the request id: the client must hand-send notifications/cancelled itself
+                    # there. The 2.x dispatcher sends the cancel with the right id when the awaiting task is
+                    # cancelled.
+                    if not MCP_V2:
+                        # MCP assigns the captured private ID synchronously at the start of
+                        # send_request(). If that invariant changes, omit remote notification rather
+                        # than risk cancelling a different request; local cancellation still works.
+                        request_id = getattr(session, "_request_id", None)
+                        if isinstance(request_id, int):
+                            cancellation_state["request_id"] = request_id
                 result = await compat_call_tool(
                     session,
                     name,
@@ -1454,7 +1463,12 @@ class MCPClient(ToolProvider):
         self._background_cleanup_tasks.clear()
 
     async def _cancel_tool_call(self, cancellation_state: _CallCancellationState) -> None:
-        """Cancel the exact MCP task or request represented by the per-call state."""
+        """Cancel the exact MCP task or request represented by the per-call state.
+
+        Hand-sending `notifications/cancelled` is 1.x-only work: on 2.x no request id is captured, so this returns
+        without sending, and the dispatcher sends the cancel itself when the task awaiting the request is cancelled
+        (SEP-2575 scopes hand-sent cancellation to STDIO).
+        """
         session = cancellation_state.get("session")
         if session is None or cancellation_state.get("notification_sent"):
             return
@@ -1891,12 +1905,12 @@ def _build_client_credentials_auth(url: str, auth: MCPClientCredentials) -> http
     scopes = values.get("scopes")
     if scopes is not None and not (isinstance(scopes, list) and all(isinstance(scope, str) for scope in scopes)):
         raise ValueError("MCPClient: 'auth' requires 'scopes' to be a list of strings")
-    return ClientCredentialsOAuthProvider(
+    return client_credentials_auth(
         server_url=url,
         storage=_InMemoryTokenStorage(),
         client_id=values["client_id"],
         client_secret=values["client_secret"],
-        scopes=" ".join(scopes) if scopes else None,
+        scope=" ".join(scopes) if scopes else None,
     )
 
 

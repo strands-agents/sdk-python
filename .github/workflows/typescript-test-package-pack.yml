@@ -31,7 +31,7 @@ jobs:
     name: Pack Install
     permissions:
       contents: read
-    runs-on: ubuntu-latest
+    runs-on: strands-agents_ubuntu-latest_4-core
 
     steps:
       - name: Checkout code
@@ -43,7 +43,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 22
           package-manager-cache: false
 
       - name: Install dependencies

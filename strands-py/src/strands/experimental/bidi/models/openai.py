@@ -81,10 +81,10 @@ DEFAULT_SESSION_CONFIG = {
     },
 }
 
-# Sent as a system message after a reconnect. Replay restores the conversation text but not the
+# Sent as a system message after a restart. Replay restores the conversation text but not the
 # live audio state, so the fresh session can drift language or re-introduce itself; this steers it
 # to continue seamlessly.
-_RECONNECT_INSTRUCTION = (
+_RESTART_INSTRUCTION = (
     "The connection was re-established mid-conversation. Continue seamlessly from the prior "
     "context: do not greet or re-introduce yourself, and keep replying in the language already in use."
 )
@@ -828,16 +828,16 @@ class OpenAIRealtimeModel(BidiModel):
 
         logger.debug("openai realtime connection closed")
 
-    async def reconnect(
+    async def restart(
         self,
         system_prompt: str | None = None,
         tools: list[ToolSpec] | None = None,
         messages: Messages | None = None,
         **restart_kwargs: Any,
     ) -> None:
-        """Reconnect by closing the connection and starting a new one, replaying history.
+        """Restart by closing the connection and starting a new one, replaying history.
 
-        OpenAI's Realtime API exposes no server-side resume handle, so a reconnect re-establishes
+        OpenAI's Realtime API exposes no server-side resume handle, so a restart re-establishes
         the session and replays the accumulated conversation history to preserve context across the
         swap.
 
@@ -847,7 +847,7 @@ class OpenAIRealtimeModel(BidiModel):
             messages: Conversation history to replay into the new connection.
             **restart_kwargs: Reserved for provider-specific restart options.
         """
-        logger.debug("openai realtime reconnect starting")
+        logger.debug("openai realtime restart starting")
         await self.stop()
         await self.start(system_prompt, tools, messages, **restart_kwargs)
         # Re-anchor the fresh session so it continues the conversation rather than drifting. This is
@@ -860,13 +860,13 @@ class OpenAIRealtimeModel(BidiModel):
                     "item": {
                         "type": "message",
                         "role": "system",
-                        "content": [{"type": "input_text", "text": _RECONNECT_INSTRUCTION}],
+                        "content": [{"type": "input_text", "text": _RESTART_INSTRUCTION}],
                     },
                 }
             )
         except Exception as error:
-            logger.warning("error=<%s> | failed to send reconnect re-anchor message | continuing", error)
-        logger.debug("connection_id=<%s> | openai realtime reconnect complete", self._connection_id)
+            logger.warning("error=<%s> | failed to send restart re-anchor message | continuing", error)
+        logger.debug("connection_id=<%s> | openai realtime restart complete", self._connection_id)
 
     async def _send_event(self, event: dict[str, Any]) -> None:
         """Send event to OpenAI via WebSocket."""
