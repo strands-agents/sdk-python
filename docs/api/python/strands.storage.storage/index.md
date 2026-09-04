@@ -24,7 +24,7 @@ A single result from a storage search call.
 class Storage(Protocol[ListQuery, SearchQuery])
 ```
 
-Defined in: [src/strands/storage/storage.py:93](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L93)
+Defined in: [src/strands/storage/storage.py:97](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L97)
 
 A backend for storing and retrieving raw bytes under string keys.
 
@@ -40,7 +40,7 @@ Implement this to add a custom backend; the SDK ships :class:`InMemoryStorage`, 
 async def write(key: str, data: bytes) -> None
 ```
 
-Defined in: [src/strands/storage/storage.py:111](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L111)
+Defined in: [src/strands/storage/storage.py:115](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L115)
 
 Store data under key, overwriting any existing value.
 
@@ -59,7 +59,7 @@ Store data under key, overwriting any existing value.
 async def read(key: str) -> bytes | None
 ```
 
-Defined in: [src/strands/storage/storage.py:123](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L123)
+Defined in: [src/strands/storage/storage.py:127](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L127)
 
 Retrieve the bytes previously stored under key.
 
@@ -81,7 +81,7 @@ The stored bytes, or None if no value exists for key.
 async def delete(key: str) -> None
 ```
 
-Defined in: [src/strands/storage/storage.py:137](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L137)
+Defined in: [src/strands/storage/storage.py:141](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L141)
 
 Delete the value stored under key. A no-op if the key does not exist.
 
@@ -99,7 +99,7 @@ Delete the value stored under key. A no-op if the key does not exist.
 async def list(query: ListQuery) -> builtins.list[str]
 ```
 
-Defined in: [src/strands/storage/storage.py:148](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L148)
+Defined in: [src/strands/storage/storage.py:152](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L152)
 
 List keys matching the given prefix query.
 
@@ -123,7 +123,7 @@ The matching keys, sorted ascending.
 async def search(query: SearchQuery) -> builtins.list[StorageSearchResult]
 ```
 
-Defined in: [src/strands/storage/storage.py:165](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L165)
+Defined in: [src/strands/storage/storage.py:169](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L169)
 
 Search stored content by query.
 
@@ -145,7 +145,7 @@ Matched keys with relevance scores, ranked best-first.
 class _NamespacedStorage()
 ```
 
-Defined in: [src/strands/storage/storage.py:187](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L187)
+Defined in: [src/strands/storage/storage.py:191](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L191)
 
 A storage view that prepends a prefix to all keys.
 
@@ -157,7 +157,7 @@ Composable — calling `.namespace()` on the result nests prefixes. Uses :func:`
 async def write(key: str, data: bytes) -> None
 ```
 
-Defined in: [src/strands/storage/storage.py:203](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L203)
+Defined in: [src/strands/storage/storage.py:207](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L207)
 
 Store data under the prefixed key.
 
@@ -167,7 +167,7 @@ Store data under the prefixed key.
 async def read(key: str) -> bytes | None
 ```
 
-Defined in: [src/strands/storage/storage.py:207](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L207)
+Defined in: [src/strands/storage/storage.py:211](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L211)
 
 Read from the prefixed key.
 
@@ -177,7 +177,7 @@ Read from the prefixed key.
 async def delete(key: str) -> None
 ```
 
-Defined in: [src/strands/storage/storage.py:211](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L211)
+Defined in: [src/strands/storage/storage.py:215](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L215)
 
 Delete the prefixed key.
 
@@ -187,7 +187,7 @@ Delete the prefixed key.
 async def list(query: str = "") -> builtins.list[str]
 ```
 
-Defined in: [src/strands/storage/storage.py:215](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L215)
+Defined in: [src/strands/storage/storage.py:219](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L219)
 
 List keys under the prefix, stripping it from results.
 
@@ -197,7 +197,7 @@ List keys under the prefix, stripping it from results.
 async def search(query: str) -> builtins.list[StorageSearchResult]
 ```
 
-Defined in: [src/strands/storage/storage.py:220](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L220)
+Defined in: [src/strands/storage/storage.py:224](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L224)
 
 Search within this namespace, filtering results to the prefix.
 
@@ -207,7 +207,7 @@ Search within this namespace, filtering results to the prefix.
 def namespace(prefix: str) -> _NamespacedStorage
 ```
 
-Defined in: [src/strands/storage/storage.py:235](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L235)
+Defined in: [src/strands/storage/storage.py:239](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L239)
 
 Return a further-scoped view by nesting prefixes.
 
@@ -217,6 +217,6 @@ Return a further-scoped view by nesting prefixes.
 def for_sandbox(sandbox: object) -> _NamespacedStorage
 ```
 
-Defined in: [src/strands/storage/storage.py:239](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L239)
+Defined in: [src/strands/storage/storage.py:243](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py#L243)
 
 Delegate sandbox binding to the underlying storage and re-wrap.

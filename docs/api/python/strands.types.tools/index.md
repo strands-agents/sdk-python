@@ -14,7 +14,7 @@ Type alias for JSON Schema dictionaries.
 class ToolSpec(TypedDict)
 ```
 
-Defined in: [src/strands/types/tools.py:24](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L24)
+Defined in: [src/strands/types/tools.py:30](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L30)
 
 Specification for a tool that can be used by an agent.
 
@@ -33,7 +33,7 @@ Specification for a tool that can be used by an agent.
 class Tool(TypedDict)
 ```
 
-Defined in: [src/strands/types/tools.py:53](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L53)
+Defined in: [src/strands/types/tools.py:59](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L59)
 
 A tool that can be provided to a model.
 
@@ -49,7 +49,7 @@ This type wraps a tool specification for inclusion in a model request.
 class ToolUse(TypedDict)
 ```
 
-Defined in: [src/strands/types/tools.py:65](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L65)
+Defined in: [src/strands/types/tools.py:71](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L71)
 
 A request from the model to use a specific tool with the provided input.
 
@@ -66,7 +66,7 @@ A request from the model to use a specific tool with the provided input.
 class ToolResultContent(TypedDict)
 ```
 
-Defined in: [src/strands/types/tools.py:82](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L82)
+Defined in: [src/strands/types/tools.py:88](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L88)
 
 Content returned by a tool execution.
 
@@ -87,7 +87,7 @@ Status of a tool execution result.
 class ToolResult(TypedDict)
 ```
 
-Defined in: [src/strands/types/tools.py:102](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L102)
+Defined in: [src/strands/types/tools.py:108](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L108)
 
 Result of a tool execution.
 
@@ -103,7 +103,7 @@ Result of a tool execution.
 class ToolChoiceAuto(TypedDict)
 ```
 
-Defined in: [src/strands/types/tools.py:116](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L116)
+Defined in: [src/strands/types/tools.py:122](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L122)
 
 Configuration for automatic tool selection.
 
@@ -115,7 +115,7 @@ This represents the configuration for automatic tool selection, where the model 
 class ToolChoiceAny(TypedDict)
 ```
 
-Defined in: [src/strands/types/tools.py:126](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L126)
+Defined in: [src/strands/types/tools.py:132](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L132)
 
 Configuration indicating that the model must request at least one tool.
 
@@ -125,7 +125,7 @@ Configuration indicating that the model must request at least one tool.
 class ToolChoiceTool(TypedDict)
 ```
 
-Defined in: [src/strands/types/tools.py:132](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L132)
+Defined in: [src/strands/types/tools.py:138](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L138)
 
 Configuration for forcing the use of a specific tool.
 
@@ -137,10 +137,10 @@ Configuration for forcing the use of a specific tool.
 
 ```python
 @dataclass
-class ToolContext(_Interruptible)
+class ToolContext(_Interruptible, Generic[_LocalAgentT])
 ```
 
-Defined in: [src/strands/types/tools.py:143](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L143)
+Defined in: [src/strands/types/tools.py:149](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L149)
 
 Context object containing framework-provided data for decorated tools.
 
@@ -156,10 +156,6 @@ This object provides access to framework-level information that may be useful fo
 **Notes**:
 
 This class is intended to be instantiated by the SDK. Direct construction by users is not supported and may break in future versions as new fields are added.
-
-#### agent
-
-Agent or BidiAgent - using Any for backwards compatibility
 
 #### ToolChoice
 
@@ -183,7 +179,7 @@ Generator of tool events with the last being the tool result.
 class ToolConfig(TypedDict)
 ```
 
-Defined in: [src/strands/types/tools.py:207](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L207)
+Defined in: [src/strands/types/tools.py:213](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L213)
 
 Configuration for tools in a model request.
 
@@ -198,7 +194,7 @@ Configuration for tools in a model request.
 class ToolFunc(Protocol)
 ```
 
-Defined in: [src/strands/types/tools.py:219](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L219)
+Defined in: [src/strands/types/tools.py:225](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L225)
 
 Function signature for Python decorated and module based tools.
 
@@ -208,7 +204,7 @@ Function signature for Python decorated and module based tools.
 def __call__(*args: Any, **kwargs: Any) -> ToolResult | Awaitable[ToolResult]
 ```
 
-Defined in: [src/strands/types/tools.py:224](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L224)
+Defined in: [src/strands/types/tools.py:230](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L230)
 
 Function signature for Python decorated and module based tools.
 
@@ -222,7 +218,7 @@ Tool result or awaitable tool result.
 class AgentTool(ABC)
 ```
 
-Defined in: [src/strands/types/tools.py:233](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L233)
+Defined in: [src/strands/types/tools.py:239](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L239)
 
 Abstract base class for all SDK tools.
 
@@ -234,7 +230,7 @@ This class defines the interface that all tool implementations must follow. Each
 def __init__() -> None
 ```
 
-Defined in: [src/strands/types/tools.py:242](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L242)
+Defined in: [src/strands/types/tools.py:248](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L248)
 
 Initialize the base agent tool with default dynamic state.
 
@@ -246,7 +242,7 @@ Initialize the base agent tool with default dynamic state.
 def tool_name() -> str
 ```
 
-Defined in: [src/strands/types/tools.py:249](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L249)
+Defined in: [src/strands/types/tools.py:255](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L255)
 
 The unique name of the tool used for identification and invocation.
 
@@ -258,7 +254,7 @@ The unique name of the tool used for identification and invocation.
 def tool_spec() -> ToolSpec
 ```
 
-Defined in: [src/strands/types/tools.py:256](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L256)
+Defined in: [src/strands/types/tools.py:262](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L262)
 
 Tool specification that describes its functionality and parameters.
 
@@ -270,7 +266,7 @@ Tool specification that describes its functionality and parameters.
 def tool_type() -> str
 ```
 
-Defined in: [src/strands/types/tools.py:263](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L263)
+Defined in: [src/strands/types/tools.py:269](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L269)
 
 The type of the tool implementation (e.g., ‘python’, ‘javascript’, ‘lambda’).
 
@@ -283,7 +279,7 @@ Used for categorization and appropriate handling.
 def supports_hot_reload() -> bool
 ```
 
-Defined in: [src/strands/types/tools.py:271](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L271)
+Defined in: [src/strands/types/tools.py:277](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L277)
 
 Whether the tool supports automatic reloading when modified.
 
@@ -299,7 +295,7 @@ def stream(tool_use: ToolUse, invocation_state: dict[str, Any],
            **kwargs: Any) -> ToolGenerator
 ```
 
-Defined in: [src/strands/types/tools.py:281](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L281)
+Defined in: [src/strands/types/tools.py:287](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L287)
 
 Stream tool events and return the final result.
 
@@ -320,7 +316,7 @@ Tool events with the last being the tool result.
 def is_dynamic() -> bool
 ```
 
-Defined in: [src/strands/types/tools.py:296](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L296)
+Defined in: [src/strands/types/tools.py:302](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L302)
 
 Whether the tool was dynamically loaded during runtime.
 
@@ -336,7 +332,7 @@ True if loaded dynamically, False otherwise.
 def mark_dynamic() -> None
 ```
 
-Defined in: [src/strands/types/tools.py:306](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L306)
+Defined in: [src/strands/types/tools.py:312](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L312)
 
 Mark this tool as dynamically loaded.
 
@@ -346,7 +342,7 @@ Mark this tool as dynamically loaded.
 def get_display_properties() -> dict[str, str]
 ```
 
-Defined in: [src/strands/types/tools.py:310](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L310)
+Defined in: [src/strands/types/tools.py:316](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/tools.py#L316)
 
 Get properties to display in UI representations of this tool.
 

@@ -74,6 +74,37 @@ async def log_message(event: BidiMessageAddedEvent):
 agent.hooks.add_callback(BidiMessageAddedEvent, log_message)
 ```
 
+### Shared Tool Call Hooks
+
+`BidiAgent` uses the same `BeforeToolCallEvent` and `AfterToolCallEvent` types as `Agent`. Callbacks and tools that support both agent types can use `LocalAgent` for their agent type:
+
+```python
+from strands import LocalAgent, ToolContext, tool
+from strands.experimental.bidi import BidiAgent
+from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent
+
+
+@tool(context=True)
+def inspect_agent(tool_context: ToolContext[LocalAgent]) -> str:
+    return tool_context.agent.name
+
+
+def log_tool_call(event: BeforeToolCallEvent[LocalAgent]) -> None:
+    print(f"Calling {event.tool_use['name']} on {event.agent.name}")
+
+
+def retry_failed_tool(event: AfterToolCallEvent[LocalAgent]) -> None:
+    if event.exception is not None:
+        event.retry = True
+
+
+agent = BidiAgent(model=model, tools=[inspect_agent])
+agent.add_hook(log_tool_call)
+agent.add_hook(retry_failed_tool)
+```
+
+`add_hook()` infers the event type from the callback annotation. You can also pass an event type, or a list of event types, explicitly. For more registration patterns and retry guidance, see the [Hooks documentation](/docs/user-guide/concepts/agents/hooks/index.md).
+
 ## Hook Event Lifecycle
 
 The following diagram shows when hook events are emitted during a bidirectional streaming session:
@@ -128,6 +159,8 @@ The bidirectional streaming hooks system provides events for different stages of
 | `BidiBeforeInvocationEvent` | Triggered when the agent connection starts (before `model.start()`) |
 | `BidiAfterInvocationEvent` | Triggered when the agent connection ends (after `model.stop()`), regardless of success or failure |
 | `BidiMessageAddedEvent` | Triggered when a message is added to the agent’s conversation history |
+| `BeforeToolCallEvent` | Triggered before a tool is invoked |
+| `AfterToolCallEvent` | Triggered after tool invocation completes. Uses reverse callback ordering |
 | `BidiInterruptionEvent` | Triggered when the model’s response is interrupted by user speech |
 | `BidiBeforeConnectionRestartEvent` | Triggered before the model connection is restarted due to timeout |
 | `BidiAfterConnectionRestartEvent` | Triggered after the model connection has been restarted |
@@ -349,10 +382,10 @@ For additional best practices on performance considerations, error handling, com
 
 - [BidiAgent](/docs/user-guide/concepts/bidirectional-streaming/agent/index.md) (1 shared tag)
 - [Events](/docs/user-guide/concepts/bidirectional-streaming/events/index.md) (1 shared tag)
-- [Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/gemini_live/index.md) (1 shared tag)
+- [Google Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/google/index.md) (1 shared tag)
 - [I/O Channels](/docs/user-guide/concepts/bidirectional-streaming/io/index.md) (1 shared tag)
 - [Interruptions](/docs/user-guide/concepts/bidirectional-streaming/interruption/index.md) (1 shared tag)
-- [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai_realtime/index.md) (1 shared tag)
+- [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai/index.md) (1 shared tag)
 - [Bidirectional Streaming Observability](/docs/user-guide/concepts/bidirectional-streaming/observability/index.md) (1 shared tag)
 - [Plugins](/docs/user-guide/concepts/plugins/index.md) (1 shared tag)
 - [Voice & Realtime Quickstart](/docs/user-guide/concepts/bidirectional-streaming/quickstart/index.md) (1 shared tag)
@@ -364,3 +397,5 @@ For additional best practices on performance considerations, error handling, com
 ### Python
 
 - [harness-sdk/strands-py/src/strands/experimental/hooks/events.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/hooks/events.py)
+- [harness-sdk/strands-py/src/strands/hooks/events.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/events.py)
+- [harness-sdk/strands-py/src/strands/types/agent.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/agent.py)

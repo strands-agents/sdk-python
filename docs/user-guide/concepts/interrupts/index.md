@@ -921,8 +921,8 @@ Strands enforces the following rules for interrupts in graph:
 - [Retry Strategies](/docs/user-guide/concepts/agents/retry-strategies/index.md) (2 shared tags)
 - [Tool Executors](/docs/user-guide/concepts/tools/executors/index.md) (2 shared tags)
 - [GoalLoop](/docs/user-guide/concepts/plugins/goal-loop/index.md) (2 shared tags)
+- [Model Routing](/docs/user-guide/concepts/model-providers/model-routing/index.md) (1 shared tag)
 - [Creating a Custom Model Provider](/docs/user-guide/concepts/model-providers/custom_model_provider/index.md) (1 shared tag)
-- [Bidirectional Streaming Hooks](/docs/user-guide/concepts/bidirectional-streaming/hooks/index.md) (1 shared tag)
 
 
 ## Implementation

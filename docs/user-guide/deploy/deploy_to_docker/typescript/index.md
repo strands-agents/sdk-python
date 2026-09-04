@@ -2,7 +2,7 @@ This guide covers deploying TypeScript-based Strands agents using Docker for loc
 
 ## Prerequisites
 
--   Node.js 20+
+-   Node.js 22+
 -   [Docker](https://www.docker.com/) installed and running
 -   Model provider credentials
 
@@ -129,8 +129,8 @@ EOF
 
 # Create Docker configuration
 cat > Dockerfile << 'EOF'
-# Use Node 20+
-FROM node:20
+# Use Node 22+
+FROM node:22
 
 WORKDIR /app
 
@@ -271,8 +271,8 @@ app.listen(PORT, '0.0.0.0', () => {
 Step 6: Create Dockerfile
 
 ```dockerfile
-# Use Node 20+
-FROM node:20
+# Use Node 22+
+FROM node:22
 
 WORKDIR /app
 

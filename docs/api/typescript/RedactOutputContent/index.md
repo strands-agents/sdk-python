@@ -1,4 +1,4 @@
-Defined in: [src/models/streaming.ts:307](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/models/streaming.ts#L307)
+Defined in: [src/models/streaming.ts:307](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/models/streaming.ts#L307)
 
 Information about output content redaction. May include the original content if captured during streaming.
 
@@ -10,7 +10,7 @@ Information about output content redaction. May include the original content if 
 optional redactedContent?: string;
 ```
 
-Defined in: [src/models/streaming.ts:312](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/models/streaming.ts#L312)
+Defined in: [src/models/streaming.ts:312](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/models/streaming.ts#L312)
 
 The original content that was blocked by guardrails. May not be available for all providers.
 
@@ -22,6 +22,6 @@ The original content that was blocked by guardrails. May not be available for al
 replaceContent: string;
 ```
 
-Defined in: [src/models/streaming.ts:317](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/models/streaming.ts#L317)
+Defined in: [src/models/streaming.ts:317](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/models/streaming.ts#L317)
 
 The content to replace the redacted output with.

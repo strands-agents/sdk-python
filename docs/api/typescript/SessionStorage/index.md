@@ -4,7 +4,7 @@ type SessionStorage = {
 };
 ```
 
-Defined in: [src/session/storage.ts:21](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/session/storage.ts#L21)
+Defined in: [src/session/storage.ts:21](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/session/storage.ts#L21)
 
 SessionStorage configuration for pluggable storage backends. Allows users to configure snapshot and transcript storage independently.
 
@@ -20,4 +20,4 @@ Prefer passing a unified `Storage` directly to `SessionManagerConfig.storage`.
 snapshot: SnapshotStorage;
 ```
 
-Defined in: [src/session/storage.ts:22](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/session/storage.ts#L22)
+Defined in: [src/session/storage.ts:22](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/session/storage.ts#L22)

@@ -445,7 +445,7 @@ A collection of sample implementations to help you get started with Strands Agen
 
 1.  Set up the SDK for your language:
     -   [Python quickstart](/docs/user-guide/quickstart/python/index.md) (Python 3.10+, pip)
-    -   [TypeScript quickstart](/docs/user-guide/quickstart/typescript/index.md) (Node.js 20+, npm)
+    -   [TypeScript quickstart](/docs/user-guide/quickstart/typescript/index.md) (Node.js 22+, npm)
 2.  Configure AWS credentials for Amazon Bedrock (covered in both quickstart guides above), or set up an [alternative model provider](/docs/user-guide/concepts/model-providers/index.md)
 3.  Clone the examples:
     
@@ -15042,6 +15042,7 @@ See [Hooks](/docs/user-guide/concepts/agents/hooks/index.md#model-call-retry) fo
 ## Related pages
 
 - [Interrupts](/docs/user-guide/concepts/interrupts/index.md) (2 shared tags)
+- [Model Routing](/docs/user-guide/concepts/model-providers/model-routing/index.md) (1 shared tag)
 - [Tool Executors](/docs/user-guide/concepts/tools/executors/index.md) (1 shared tag)
 - [Plugins](/docs/user-guide/concepts/plugins/index.md) (1 shared tag)
 - [Chaos Testing](/docs/user-guide/evals-sdk/chaos_testing/index.md) (1 shared tag)
@@ -15050,7 +15051,6 @@ See [Hooks](/docs/user-guide/concepts/agents/hooks/index.md#model-call-retry) fo
 - [Agent Loop](/docs/user-guide/concepts/agents/agent-loop/index.md) (1 shared tag)
 - [Hooks](/docs/user-guide/concepts/agents/hooks/index.md) (1 shared tag)
 - [Steering (Interventions)](/docs/user-guide/concepts/agents/interventions/steering/index.md) (1 shared tag)
-- [Operating Agents in Production](/docs/user-guide/deploy/operating-agents-in-production/index.md) (1 shared tag)
 
 
 ## Implementation
@@ -15102,10 +15102,14 @@ Simply create an agent with a session manager and use it:
 (( tab "Python" ))
 ```python
 from strands import Agent
-from strands.session.file_session_manager import FileSessionManager
+from strands.session import SnapshotSessionManager
+from strands.storage import LocalFileStorage
 
-# Create a session manager with a unique session ID
-session_manager = FileSessionManager(session_id="test-session")
+# Create a snapshot session manager with a unique session ID
+session_manager = SnapshotSessionManager(
+    session_id="test-session",
+    storage=LocalFileStorage("./sessions/"),
+)
 
 # Create an agent with the session manager
 agent = Agent(session_manager=session_manager)
@@ -15144,6 +15148,8 @@ await agent.invoke('Hello!')
 
 The conversation, and associated state, is persisted to the underlying storage backend.
 
+`FileSessionManager` and `S3SessionManager` remain supported in Python, but use `SnapshotSessionManager` for new single-agent sessions.
+
 ### Multi-Agent Sessions
 
 Multi-agent systems (Graph/Swarm) can also use session management to persist their state.
@@ -15151,26 +15157,28 @@ Multi-agent systems (Graph/Swarm) can also use session management to persist the
 (( tab "Python" ))
 Caution
 
-Agents inside a multi-agent system must not have their own session manager — only the orchestrator should have one. Python will raise a `ValueError` if an agent with a session manager is added to a Graph or Swarm.
+`SnapshotSessionManager` does not support Graph or Swarm. Use a repository-based session manager on the orchestrator. Agents inside a multi-agent system must not have their own session manager.
 
 ```python
+from strands import Agent
 from strands.multiagent import GraphBuilder
-from strands.session.file_session_manager import FileSessionManager
+from strands.session import FileSessionManager
 
 # Create agents
 agent1 = Agent(name="researcher")
 agent2 = Agent(name="writer")
 
-# Create a session manager for the graph
+# Create a repository-based session manager for the graph
 session_manager = FileSessionManager(session_id="multi-agent-session")
 
-# Create graph with session management
-graph = Graph(
-    agents={"researcher": agent1, "writer": agent2},
-    session_manager=session_manager
-)
+# Build the graph with session management on the orchestrator
+builder = GraphBuilder()
+builder.add_node(agent1, "researcher")
+builder.add_node(agent2, "writer")
+builder.add_edge("researcher", "writer")
+builder.set_session_manager(session_manager)
+graph = builder.build()
 
-# Use the graph - all orchestrator state is persisted
 result = graph("Research and write about AI")
 ```
 (( /tab "Python" ))
@@ -15239,139 +15247,54 @@ Multi-agent session managers only track the current state of the Graph/Swarm exe
 
 ## Storage Backends
 
+Snapshot-based session managers accept any [Storage](/docs/user-guide/concepts/storage/index.md) backend, including `InMemoryStorage`, `LocalFileStorage`, `S3Storage`, and custom implementations. See [Storage](/docs/user-guide/concepts/storage/index.md) for backend configuration, tradeoffs, custom backends, and required S3 permissions.
+
 (( tab "Python" ))
-Strands offers two built-in session managers:
+Pass storage to `SnapshotSessionManager` or to the agent. Manager-level storage takes precedence over agent-level storage. If neither provides storage, `SnapshotSessionManager` uses `LocalFileStorage("./.strands/")`.
 
-| Session Manager | Persistence | Best for |
-| --- | --- | --- |
-| [`FileSessionManager`](/docs/api/python/strands.session.file_session_manager#FileSessionManager) | Local disk | Development, single-machine |
-| [`S3SessionManager`](/docs/api/python/strands.session.s3_session_manager#S3SessionManager) | Amazon S3 | Production, distributed |
-
-```python
-from strands import Agent
-from strands.session.file_session_manager import FileSessionManager
-from strands.session.s3_session_manager import S3SessionManager
-
-# File-based persistence
-session_manager = FileSessionManager(
-    session_id="user-123",
-    storage_dir="/path/to/sessions"
-)
-
-# S3-based persistence
-session_manager = S3SessionManager(
-    session_id="user-123",
-    bucket="my-agent-sessions",
-    prefix="production/",
-)
-
-agent = Agent(session_manager=session_manager)
-```
+Repository-based managers configure storage directly through `FileSessionManager`, `S3SessionManager`, or a custom `SessionRepository`. They do not use the unified `Storage` backend.
 (( /tab "Python" ))
 
 (( tab "TypeScript" ))
-Session management accepts any [Storage](/docs/user-guide/concepts/storage/index.md) backend. Choose one based on your durability needs:
-
-| Backend | Persistence | Best for |
-| --- | --- | --- |
-| `LocalFileStorage` | Local disk | Development, single-machine |
-| `S3Storage` | Amazon S3 | Production, distributed |
-
-See [Storage](/docs/user-guide/concepts/storage/index.md) for full details on each backend.
-
-```typescript
-const session = new SessionManager({
-  sessionId: 'user-123',
-  storage: new LocalFileStorage('./sessions/'),
-})
-
-const agent = new Agent({ sessionManager: session })
-await agent.invoke("Hello, I'm a new user!")
-```
-
-```typescript
-const session = new SessionManager({
-  sessionId: 'user-456',
-  storage: new S3Storage('my-agent-sessions', {
-    prefix: 'production/',
-    s3Client: new S3Client({ region: 'us-west-2' }),
-  }),
-})
-
-const agent = new Agent({ sessionManager: session })
-await agent.invoke('Tell me about AWS S3')
-```
+Pass storage to `SessionManager` or to the agent. Manager-level storage takes precedence over agent-level storage. If neither provides storage, initialization fails.
 (( /tab "TypeScript" ))
-
-### Required S3 Permissions
-
-To use S3-backed session storage, your AWS credentials must have the following permissions:
-
--   `s3:PutObject` - To create and update session data
--   `s3:GetObject` - To retrieve session data
--   `s3:DeleteObject` - To delete session data
--   `s3:ListBucket` - To list objects in the bucket
-
-Here’s a sample IAM policy that grants these permissions for a specific bucket:
-
-```json
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": [
-                "s3:PutObject",
-                "s3:GetObject",
-                "s3:DeleteObject"
-            ],
-            "Resource": "arn:aws:s3:::my-agent-sessions/*"
-        },
-        {
-            "Effect": "Allow",
-            "Action": "s3:ListBucket",
-            "Resource": "arn:aws:s3:::my-agent-sessions"
-        }
-    ]
-}
-```
 
 ## How Session Management Works
 
-### Session Persistence Triggers
+### Snapshot-based Session Managers
 
-Session persistence is automatically triggered by lifecycle events in the agent:
+`SnapshotSessionManager` in Python and `SessionManager` in TypeScript persist a complete point-in-time snapshot. Both restore `snapshot_latest` during initialization and support immutable checkpoints.
 
 **Single Agent Events**
 
 (( tab "Python" ))
--   **Agent Initialization**: When an agent is created with a session manager, it automatically restores any existing state and messages from the session.
--   **Message Addition**: When a new message is added to the conversation, it’s automatically persisted to the session.
--   **Agent Invocation**: After each agent invocation, the agent state is synchronized with the session to capture any updates.
--   **Message Redaction**: When sensitive information needs to be redacted, the session manager can replace the original message with a redacted version while maintaining conversation flow.
+-   **Agent Initialization**: Restores state from `snapshot_latest` if it exists.
+-   **Message Addition** (`save_latest_on="message"`): Saves after each message and again when the invocation ends.
+-   **Agent Invocation** (`save_latest_on="invocation"`, default): Saves when the invocation ends.
+-   **Snapshot Trigger**: Creates an immutable checkpoint when `snapshot_trigger` returns `True`.
+-   **Message Redaction**: Flushes redacted content to the latest snapshot under every strategy.
 (( /tab "Python" ))
 
 (( tab "TypeScript" ))
 -   **Agent Initialization**: Restores state from `snapshot_latest` if it exists.
--   **Message Addition** (`saveLatestOn: 'message'`): Saves after every message and after model calls with guardrail redactions.
--   **Agent Invocation** (`saveLatestOn: 'invocation'`, default): Saves after each invocation completes.
--   **Snapshot Trigger**: Creates an immutable checkpoint when the `snapshotTrigger` callback returns `true`.
+-   **Message Addition** (`saveLatestOn: 'message'`): Saves after each message and again when the invocation ends.
+-   **Agent Invocation** (`saveLatestOn: 'invocation'`, default): Saves when the invocation ends.
+-   **Snapshot Trigger**: Creates an immutable checkpoint when `snapshotTrigger` returns `true`.
+-   **Message Redaction**: Saves redacted content for the `message` and `invocation` strategies, but not for `trigger`.
 
 See [Basic Usage](#basic-usage) for configuration examples.
 (( /tab "TypeScript" ))
 
-**Multi-Agent Events**:
+**Multi-Agent Events**
 
 (( tab "Python" ))
--   **Multi-Agent Initialization**: Restores orchestrator state from the session.
--   **Node Execution**: Synchronizes orchestrator state after node transitions.
--   **Multi-Agent Invocation**: Captures final orchestrator state after execution.
+`SnapshotSessionManager` does not support Graph or Swarm. Use a repository-based manager for Python multi-agent persistence.
 (( /tab "Python" ))
 
 (( tab "TypeScript" ))
--   **Before Multi-Agent Invocation**: Restores orchestrator state from `snapshot_latest` on first invocation.
--   **After Node Call** (`multiAgentSaveLatestOn: 'node'`, default): Saves after each node completes, enabling resume from the last completed node after a crash.
--   **After Multi-Agent Invocation** (`multiAgentSaveLatestOn: 'invocation'`): Saves after the full orchestrator invocation completes (lower I/O, but only captures state at invocation boundaries).
+-   **Before Multi-Agent Invocation**: Restores orchestrator state from `snapshot_latest` on the first invocation.
+-   **After Node Call** (`multiAgentSaveLatestOn: 'node'`, default): Saves after each node and again when the invocation ends.
+-   **After Multi-Agent Invocation** (`multiAgentSaveLatestOn: 'invocation'`): Saves only when the full invocation ends.
 
 ```typescript
 const session = new SessionManager({
@@ -15385,18 +15308,69 @@ const session = new SessionManager({
 ```
 (( /tab "TypeScript" ))
 
-Direct Message Modifications Not Persisted
+### Repository-based Session Managers
 
-After initializing the agent, direct modifications to `agent.messages` will not be persisted. Utilize the [Conversation Manager](/docs/user-guide/concepts/agents/conversation-management/index.md) to help manage context of the agent in a way that can be persisted.
+Python only
 
-## Immutable Snapshots *(TypeScript only)*
+Repository-based session managers are available in the Python SDK only.
 
-In addition to `snapshot_latest`, the TypeScript SDK supports **immutable snapshots** — append-only checkpoints identified by UUID v7. These enable time-travel restore: you can restore the agent to any prior checkpoint, not just the latest state.
+`FileSessionManager`, `S3SessionManager`, and `RepositorySessionManager` store individual message records and agent metadata. Use them for existing repository-format sessions, Graph, Swarm, or bidirectional streaming.
+
+`SnapshotSessionManager` remains the recommended option for new single-agent sessions. Use the repository-based managers when you need one of the compatibility cases above:
+
+```python
+from strands import Agent
+from strands.session import FileSessionManager, S3SessionManager
+
+file_session_manager = FileSessionManager(
+    session_id="file-session",
+    storage_dir="./sessions/",
+)
+file_agent = Agent(session_manager=file_session_manager)
+
+s3_session_manager = S3SessionManager(
+    session_id="s3-session",
+    bucket="my-agent-sessions",
+    prefix="production/",
+)
+s3_agent = Agent(session_manager=s3_session_manager)
+```
+
+-   **Agent Initialization**: Restores stored messages, agent state, conversation manager state, interrupt state, and model state.
+-   **Message Addition**: Appends the message record and synchronizes changed agent state.
+-   **Agent Invocation**: Synchronizes changed agent and conversation manager state.
+-   **Message Redaction**: Updates the latest stored message record.
+-   **Multi-Agent and Bidirectional Events**: Restore state during initialization and synchronize state after node, message, and invocation events.
+
+Direct Message Modifications
+
+Changing `agent.messages` directly does not trigger persistence. A later snapshot save captures the current list, but repository-based managers do not create message records for direct changes. Use the agent and [Conversation Manager](/docs/user-guide/concepts/agents/conversation-management/index.md) APIs so persistence follows normal lifecycle events.
+
+## Immutable Snapshots
+
+In addition to `snapshot_latest`, snapshot-based session managers support **immutable snapshots**. Strands assigns each append-only checkpoint a UUIDv7 identifier, which lets you restore the agent to any prior checkpoint instead of only the latest state.
 
 ### Creating Immutable Snapshots
 
-Use the `snapshotTrigger` callback to control when an immutable snapshot is created. The callback receives the current agent data and returns `true` to trigger a snapshot:
+Use the snapshot trigger callback to control when an immutable snapshot is created. The callback receives the current agent data and returns a boolean:
 
+(( tab "Python" ))
+```python
+from strands import Agent
+from strands.session import SnapshotSessionManager
+from strands.storage import LocalFileStorage
+
+session_manager = SnapshotSessionManager(
+    session_id="my-session",
+    storage=LocalFileStorage("./sessions/"),
+    snapshot_trigger=lambda *, agent_data, **_: len(agent_data.messages) % 4 == 0,
+)
+
+agent = Agent(session_manager=session_manager)
+```
+(( /tab "Python" ))
+
+(( tab "TypeScript" ))
 ```typescript
 const session = new SessionManager({
   sessionId: 'my-session',
@@ -15409,11 +15383,40 @@ const agent = new Agent({ sessionManager: session })
 await agent.invoke('First message') // 2 messages — no snapshot
 await agent.invoke('Second message') // 4 messages — immutable snapshot created
 ```
+(( /tab "TypeScript" ))
 
 ### Listing and Restoring Snapshots
 
-Snapshot IDs are UUID v7, so they sort lexicographically in chronological order. Use `listSnapshotIds` on the `SessionManager` to retrieve them, then pass a `snapshotId` to `restoreSnapshot`:
+Snapshot IDs are UUID v7, so they sort lexicographically in chronological order. Use `list_snapshot_ids``listSnapshotIds` on the session manager to retrieve them, then pass a `snapshot_id``snapshotId` to `restore_snapshot``restoreSnapshot`:
 
+(( tab "Python" ))
+```python
+import asyncio
+
+from strands import Agent
+from strands.session import SnapshotSessionManager
+from strands.storage import LocalFileStorage
+
+session_manager = SnapshotSessionManager(
+    session_id="my-session",
+    storage=LocalFileStorage("./sessions/"),
+)
+agent = Agent(session_manager=session_manager)
+
+
+async def restore_snapshot() -> None:
+    snapshot_id = await session_manager.save_snapshot(agent, is_latest=False)
+    assert snapshot_id is not None
+    snapshot_ids = await session_manager.list_snapshot_ids(agent)
+    assert snapshot_id in snapshot_ids
+    await session_manager.restore_snapshot(agent, snapshot_id=snapshot_id)
+
+
+asyncio.run(restore_snapshot())
+```
+(( /tab "Python" ))
+
+(( tab "TypeScript" ))
 ```typescript
 const storage = new LocalFileStorage('./sessions/')
 
@@ -15435,11 +15438,28 @@ await session.restoreSnapshot({
   snapshotId: snapshotIds[0]!,
 })
 ```
+(( /tab "TypeScript" ))
 
-## Deleting Sessions *(TypeScript only)*
+## Deleting Sessions
 
-To remove all snapshots and manifests for a session, call `deleteSession()` on the `SessionManager`. This removes the entire session root directory (filesystem) or all objects under the session prefix (S3):
+To remove all snapshots for a session, call the session manager’s delete method:
 
+(( tab "Python" ))
+```python
+import asyncio
+
+from strands.session import SnapshotSessionManager
+from strands.storage import LocalFileStorage
+
+session_manager = SnapshotSessionManager(
+    session_id="my-session",
+    storage=LocalFileStorage("./sessions/"),
+)
+asyncio.run(session_manager.delete_session())
+```
+(( /tab "Python" ))
+
+(( tab "TypeScript" ))
 ```typescript
 const session = new SessionManager({
   sessionId: 'my-session',
@@ -15449,11 +15469,14 @@ const session = new SessionManager({
 // Remove all snapshots and manifests for this session
 await session.deleteSession()
 ```
+(( /tab "TypeScript" ))
 
 ## Data Models
 
 (( tab "Python" ))
-Session data is stored using these key data models:
+`SnapshotSessionManager` stores a versioned `Snapshot` JSON object. Its `data` field contains managed messages, agent state, conversation manager state, interrupt state, model state, and the system prompt.
+
+The following record-based models apply to `FileSessionManager`, `S3SessionManager`, and `RepositorySessionManager`:
 
 **Session**
 
@@ -15530,7 +15553,9 @@ The following third-party session managers extend Strands with additional storag
 For advanced use cases, you can implement your own session storage backend.
 
 (( tab "Python" ))
-Create a custom session repository by implementing the `SessionRepository` interface:
+For new single-agent sessions, implement the unified [`Storage`](/docs/api/python/strands.storage.storage#Storage) protocol and pass it to `SnapshotSessionManager`.
+
+For repository-based sessions, create a custom session repository by implementing the `SessionRepository` interface:
 
 ```python
 from typing import Optional
@@ -15657,6 +15682,23 @@ This approach allows you to store session data in any backend system while lever
 Both file and S3 backends use the same key structure:
 
 (( tab "Python" ))
+**Snapshot-based layout (recommended for new single-agent sessions):**
+
+```plaintext
+<root>/
+└── session/
+    └── <session_id>/
+        └── scopes/
+            └── agent/
+                └── <agent_id>/
+                    └── snapshots/
+                        ├── snapshot_latest.json
+                        └── immutable_history/
+                            └── snapshot_<uuid7>.json
+```
+
+**Repository-based layout:**
+
 ```plaintext
 <root>/
 └── session_<session_id>/
@@ -15690,6 +15732,8 @@ Both file and S3 backends use the same key structure:
                     └── snapshot_latest.json
 ```
 (( /tab "TypeScript" ))
+
+Using the same session ID and storage location does not migrate repository-based Python data to `SnapshotSessionManager`. Existing sessions can continue using their current manager, or applications can migrate the required state explicitly.
 
 ## Sessions, Agents, and Concurrency
 
@@ -15735,6 +15779,8 @@ When implementing session persistence in your applications, consider these best 
 ### Python
 
 - [harness-sdk/strands-py/src/strands/session/session_manager.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/session_manager.py)
+- [harness-sdk/strands-py/src/strands/session/snapshot_session_manager.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/snapshot_session_manager.py)
+- [harness-sdk/strands-py/src/strands/storage/storage.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py)
 - [harness-sdk/strands-py/src/strands/session/file_session_manager.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/file_session_manager.py)
 - [harness-sdk/strands-py/src/strands/session/s3_session_manager.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/s3_session_manager.py)
 
@@ -17246,9 +17292,9 @@ print(result.message)  # "The result is 1200"
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
-model = BidiNovaSonicModel()
+model = BedrockNovaSonicModel()
 agent = BidiAgent(model=model, tools=[calculator])
 audio_io = BidiAudioIO()
 
@@ -17372,9 +17418,9 @@ User → send() → Model → receive() → Model Task → Event Queue → recei
 
 ```python
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
-model = BidiNovaSonicModel()
+model = BedrockNovaSonicModel()
 
 agent = BidiAgent(
     model=model,
@@ -17392,9 +17438,9 @@ agent = BidiAgent(
 Each model provider has specific configuration options:
 
 ```python
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
-model = BidiNovaSonicModel(
+model = BedrockNovaSonicModel(
     model_id="amazon.nova-2-sonic-v1:0",
     provider_config={
         "audio": {
@@ -17411,7 +17457,7 @@ model = BidiNovaSonicModel(
 )
 ```
 
-See [Model Providers](/docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic/index.md) for provider-specific options.
+See [Model Providers](/docs/user-guide/concepts/bidirectional-streaming/models/bedrock/index.md) for provider-specific options.
 
 `BidiAgent` supports many of the same constructs as `Agent`:
 
@@ -17622,7 +17668,7 @@ The agent automatically cleans up background tasks, model connections, I/O chann
 
 -   [Events](/docs/user-guide/concepts/bidirectional-streaming/events/index.md) - Complete guide to bidirectional streaming events
 -   [I/O Channels](/docs/user-guide/concepts/bidirectional-streaming/io/index.md) - Building custom input/output channels
--   [Model Providers](/docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic/index.md) - Provider-specific configuration
+-   [Model Providers](/docs/user-guide/concepts/bidirectional-streaming/models/bedrock/index.md) - Provider-specific configuration
 -   [Observability](/docs/user-guide/concepts/bidirectional-streaming/observability/index.md) - Trace sessions, responses, and interruptions
 -   [Quickstart](/docs/user-guide/concepts/bidirectional-streaming/quickstart/index.md) - Getting started guide
 -   [Python API Reference](/docs/api/python/strands.experimental.bidi.agent.agent) - Complete API documentation
@@ -17630,14 +17676,14 @@ The agent automatically cleans up background tasks, model connections, I/O chann
 ## Related pages
 
 - [Events](/docs/user-guide/concepts/bidirectional-streaming/events/index.md) (1 shared tag)
-- [Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/gemini_live/index.md) (1 shared tag)
+- [Google Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/google/index.md) (1 shared tag)
 - [I/O Channels](/docs/user-guide/concepts/bidirectional-streaming/io/index.md) (1 shared tag)
 - [Interruptions](/docs/user-guide/concepts/bidirectional-streaming/interruption/index.md) (1 shared tag)
-- [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai_realtime/index.md) (1 shared tag)
+- [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai/index.md) (1 shared tag)
 - [Bidirectional Streaming Observability](/docs/user-guide/concepts/bidirectional-streaming/observability/index.md) (1 shared tag)
 - [Bidirectional Streaming Hooks](/docs/user-guide/concepts/bidirectional-streaming/hooks/index.md) (1 shared tag)
 - [Voice & Realtime Quickstart](/docs/user-guide/concepts/bidirectional-streaming/quickstart/index.md) (1 shared tag)
-- [Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic/index.md) (1 shared tag)
+- [Bedrock Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/bedrock/index.md) (1 shared tag)
 - [Bidirectional Streaming Session Management](/docs/user-guide/concepts/bidirectional-streaming/session-management/index.md) (1 shared tag)
 
 
@@ -17676,10 +17722,10 @@ Bidirectional streaming uses a different event model than [standard streaming](/
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
 async def main():
-    model = BidiNovaSonicModel()
+    model = BedrockNovaSonicModel()
 
     async with BidiAgent(model=model) as agent:
         # Send input to model
@@ -18071,10 +18117,10 @@ async for event in agent.receive():
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
 async def main():
-    model = BidiNovaSonicModel()
+    model = BedrockNovaSonicModel()
     agent = BidiAgent(model=model)
     audio_io = BidiAudioIO()
 
@@ -18108,10 +18154,10 @@ asyncio.run(main())
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
 async def main():
-    model = BidiNovaSonicModel()
+    model = BedrockNovaSonicModel()
 
     async with BidiAgent(model=model) as agent:
         await agent.send("Tell me about Python")
@@ -18144,11 +18190,11 @@ asyncio.run(main())
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 from strands_tools import calculator
 
 async def main():
-    model = BidiNovaSonicModel()
+    model = BedrockNovaSonicModel()
     agent = BidiAgent(model=model, tools=[calculator])
 
     async with agent as agent:
@@ -18177,10 +18223,10 @@ asyncio.run(main())
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
 async def main():
-    model = BidiNovaSonicModel()
+    model = BedrockNovaSonicModel()
 
     async with BidiAgent(model=model) as agent:
         await agent.send("Tell me a long story about space exploration")
@@ -18207,10 +18253,10 @@ asyncio.run(main())
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
 async def main():
-    model = BidiNovaSonicModel()  # 8-minute timeout
+    model = BedrockNovaSonicModel()  # 8-minute timeout
 
     async with BidiAgent(model=model) as agent:
         # Continuous conversation that handles restarts
@@ -18238,14 +18284,14 @@ For details on hook events and usage patterns, see the [Hooks](/docs/user-guide/
 ## Related pages
 
 - [BidiAgent](/docs/user-guide/concepts/bidirectional-streaming/agent/index.md) (1 shared tag)
-- [Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/gemini_live/index.md) (1 shared tag)
+- [Google Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/google/index.md) (1 shared tag)
 - [I/O Channels](/docs/user-guide/concepts/bidirectional-streaming/io/index.md) (1 shared tag)
 - [Interruptions](/docs/user-guide/concepts/bidirectional-streaming/interruption/index.md) (1 shared tag)
-- [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai_realtime/index.md) (1 shared tag)
+- [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai/index.md) (1 shared tag)
 - [Bidirectional Streaming Observability](/docs/user-guide/concepts/bidirectional-streaming/observability/index.md) (1 shared tag)
 - [Bidirectional Streaming Hooks](/docs/user-guide/concepts/bidirectional-streaming/hooks/index.md) (1 shared tag)
 - [Voice & Realtime Quickstart](/docs/user-guide/concepts/bidirectional-streaming/quickstart/index.md) (1 shared tag)
-- [Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic/index.md) (1 shared tag)
+- [Bedrock Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/bedrock/index.md) (1 shared tag)
 - [Bidirectional Streaming Session Management](/docs/user-guide/concepts/bidirectional-streaming/session-management/index.md) (1 shared tag)
 
 
@@ -18338,6 +18384,37 @@ async def log_message(event: BidiMessageAddedEvent):
 agent.hooks.add_callback(BidiMessageAddedEvent, log_message)
 ```
 
+### Shared Tool Call Hooks
+
+`BidiAgent` uses the same `BeforeToolCallEvent` and `AfterToolCallEvent` types as `Agent`. Callbacks and tools that support both agent types can use `LocalAgent` for their agent type:
+
+```python
+from strands import LocalAgent, ToolContext, tool
+from strands.experimental.bidi import BidiAgent
+from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent
+
+
+@tool(context=True)
+def inspect_agent(tool_context: ToolContext[LocalAgent]) -> str:
+    return tool_context.agent.name
+
+
+def log_tool_call(event: BeforeToolCallEvent[LocalAgent]) -> None:
+    print(f"Calling {event.tool_use['name']} on {event.agent.name}")
+
+
+def retry_failed_tool(event: AfterToolCallEvent[LocalAgent]) -> None:
+    if event.exception is not None:
+        event.retry = True
+
+
+agent = BidiAgent(model=model, tools=[inspect_agent])
+agent.add_hook(log_tool_call)
+agent.add_hook(retry_failed_tool)
+```
+
+`add_hook()` infers the event type from the callback annotation. You can also pass an event type, or a list of event types, explicitly. For more registration patterns and retry guidance, see the [Hooks documentation](/docs/user-guide/concepts/agents/hooks/index.md).
+
 ## Hook Event Lifecycle
 
 The following diagram shows when hook events are emitted during a bidirectional streaming session:
@@ -18392,6 +18469,8 @@ The bidirectional streaming hooks system provides events for different stages of
 | `BidiBeforeInvocationEvent` | Triggered when the agent connection starts (before `model.start()`) |
 | `BidiAfterInvocationEvent` | Triggered when the agent connection ends (after `model.stop()`), regardless of success or failure |
 | `BidiMessageAddedEvent` | Triggered when a message is added to the agent’s conversation history |
+| `BeforeToolCallEvent` | Triggered before a tool is invoked |
+| `AfterToolCallEvent` | Triggered after tool invocation completes. Uses reverse callback ordering |
 | `BidiInterruptionEvent` | Triggered when the model’s response is interrupted by user speech |
 | `BidiBeforeConnectionRestartEvent` | Triggered before the model connection is restarted due to timeout |
 | `BidiAfterConnectionRestartEvent` | Triggered after the model connection has been restarted |
@@ -18613,10 +18692,10 @@ For additional best practices on performance considerations, error handling, com
 
 - [BidiAgent](/docs/user-guide/concepts/bidirectional-streaming/agent/index.md) (1 shared tag)
 - [Events](/docs/user-guide/concepts/bidirectional-streaming/events/index.md) (1 shared tag)
-- [Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/gemini_live/index.md) (1 shared tag)
+- [Google Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/google/index.md) (1 shared tag)
 - [I/O Channels](/docs/user-guide/concepts/bidirectional-streaming/io/index.md) (1 shared tag)
 - [Interruptions](/docs/user-guide/concepts/bidirectional-streaming/interruption/index.md) (1 shared tag)
-- [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai_realtime/index.md) (1 shared tag)
+- [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai/index.md) (1 shared tag)
 - [Bidirectional Streaming Observability](/docs/user-guide/concepts/bidirectional-streaming/observability/index.md) (1 shared tag)
 - [Plugins](/docs/user-guide/concepts/plugins/index.md) (1 shared tag)
 - [Voice & Realtime Quickstart](/docs/user-guide/concepts/bidirectional-streaming/quickstart/index.md) (1 shared tag)
@@ -18628,6 +18707,8 @@ For additional best practices on performance considerations, error handling, com
 ### Python
 
 - [harness-sdk/strands-py/src/strands/experimental/hooks/events.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/hooks/events.py)
+- [harness-sdk/strands-py/src/strands/hooks/events.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/events.py)
+- [harness-sdk/strands-py/src/strands/types/agent.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/agent.py)
 
 Source: https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/hooks/index.md
 
@@ -18665,9 +18746,9 @@ When using `BidiAudioIO`, interruptions are handled automatically:
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
-model = BidiNovaSonicModel()
+model = BedrockNovaSonicModel()
 agent = BidiAgent(model=model)
 audio_io = BidiAudioIO()
 
@@ -18690,13 +18771,13 @@ For custom behavior, process interruption events manually:
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 from strands.experimental.bidi.types.events import (
     BidiInterruptionEvent,
     BidiResponseCompleteEvent
 )
 
-model = BidiNovaSonicModel()
+model = BedrockNovaSonicModel()
 agent = BidiAgent(model=model)
 
 async def main():
@@ -18767,8 +18848,10 @@ agent = BidiAgent(
 If interruptions aren’t being detected:
 
 ```python
+from strands.experimental.bidi.models import OpenAIRealtimeModel
+
 # Check VAD configuration (OpenAI)
-model = BidiOpenAIRealtimeModel(
+model = OpenAIRealtimeModel(
     provider_config={
         "turn_detection": {
             "type": "server_vad",
@@ -18802,8 +18885,10 @@ async def __call__(self, event: BidiOutputEvent):
 If the model is interrupted too easily:
 
 ```python
+from strands.experimental.bidi.models import OpenAIRealtimeModel
+
 # Increase VAD threshold (OpenAI)
-model = BidiOpenAIRealtimeModel(
+model = OpenAIRealtimeModel(
     provider_config={
         "turn_detection": {
             "threshold": 0.7,  # Higher = less sensitive
@@ -18818,13 +18903,13 @@ model = BidiOpenAIRealtimeModel(
 
 - [BidiAgent](/docs/user-guide/concepts/bidirectional-streaming/agent/index.md) (1 shared tag)
 - [Events](/docs/user-guide/concepts/bidirectional-streaming/events/index.md) (1 shared tag)
-- [Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/gemini_live/index.md) (1 shared tag)
+- [Google Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/google/index.md) (1 shared tag)
 - [I/O Channels](/docs/user-guide/concepts/bidirectional-streaming/io/index.md) (1 shared tag)
-- [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai_realtime/index.md) (1 shared tag)
+- [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai/index.md) (1 shared tag)
 - [Bidirectional Streaming Observability](/docs/user-guide/concepts/bidirectional-streaming/observability/index.md) (1 shared tag)
 - [Bidirectional Streaming Hooks](/docs/user-guide/concepts/bidirectional-streaming/hooks/index.md) (1 shared tag)
 - [Voice & Realtime Quickstart](/docs/user-guide/concepts/bidirectional-streaming/quickstart/index.md) (1 shared tag)
-- [Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic/index.md) (1 shared tag)
+- [Bedrock Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/bedrock/index.md) (1 shared tag)
 - [Bidirectional Streaming Session Management](/docs/user-guide/concepts/bidirectional-streaming/session-management/index.md) (1 shared tag)
 
 
@@ -19028,14 +19113,14 @@ server.py
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models.openai_realtime import BidiOpenAIRealtimeModel
+from strands.experimental.bidi.models import OpenAIRealtimeModel
 
 app = FastAPI()
 
 
 @app.websocket("/text-chat")
 async def text_chat(websocket: WebSocket) -> None:
-    model = BidiOpenAIRealtimeModel(client_config={"api_key": "<OPENAI_API_KEY>"})
+    model = OpenAIRealtimeModel(client_config={"api_key": "<OPENAI_API_KEY>"})
     agent = BidiAgent(model=model)
 
     try:
@@ -19079,13 +19164,13 @@ if __name__ == "__main__":
 
 - [BidiAgent](/docs/user-guide/concepts/bidirectional-streaming/agent/index.md) (1 shared tag)
 - [Events](/docs/user-guide/concepts/bidirectional-streaming/events/index.md) (1 shared tag)
-- [Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/gemini_live/index.md) (1 shared tag)
+- [Google Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/google/index.md) (1 shared tag)
 - [Interruptions](/docs/user-guide/concepts/bidirectional-streaming/interruption/index.md) (1 shared tag)
-- [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai_realtime/index.md) (1 shared tag)
+- [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai/index.md) (1 shared tag)
 - [Bidirectional Streaming Observability](/docs/user-guide/concepts/bidirectional-streaming/observability/index.md) (1 shared tag)
 - [Bidirectional Streaming Hooks](/docs/user-guide/concepts/bidirectional-streaming/hooks/index.md) (1 shared tag)
 - [Voice & Realtime Quickstart](/docs/user-guide/concepts/bidirectional-streaming/quickstart/index.md) (1 shared tag)
-- [Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic/index.md) (1 shared tag)
+- [Bedrock Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/bedrock/index.md) (1 shared tag)
 - [Bidirectional Streaming Session Management](/docs/user-guide/concepts/bidirectional-streaming/session-management/index.md) (1 shared tag)
 
 
@@ -19100,130 +19185,7 @@ Source: https://strandsagents.com/docs/user-guide/concepts/bidirectional-streami
 
 ---
 
-## Gemini Live
-
-The [Gemini Live API](https://ai.google.dev/gemini-api/docs/live) lets developers create natural conversations by enabling a two-way WebSocket connection with the Gemini models. The Live API processes data streams in real time. Users can interrupt the AI’s responses with new input, similar to a real conversation. Key features include:
-
--   **Multimodal Streaming**: The API supports streaming of text, audio, and video data.
--   **Bidirectional Interaction**: The user and the model can provide input and output at the same time.
--   **Interruptibility**: Users can interrupt the model’s response, and the model adjusts its response.
--   **Tool Use and Function Calling**: The API can use external tools to perform actions and get context while maintaining a real-time connection.
--   **Session Management**: Supports managing long conversations through sessions, providing context and continuity.
--   **Secure Authentication**: Uses tokens for secure client-side authentication.
-
-## Installation
-
-Gemini Live is configured as an optional dependency in Strands Agents.
-
-To install it, run:
-
-```bash
-pip install 'strands-agents[bidi-google]'
-```
-
-Or to install all bidirectional streaming providers at once:
-
-```bash
-pip install 'strands-agents[bidi-all]'
-```
-
-## Usage
-
-After installing `strands-agents[bidi-google]`, import and initialize the Gemini Live model provider:
-
-```python
-import asyncio
-
-from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.io import BidiAudioIO, BidiTextIO
-from strands.experimental.bidi.models import BidiGeminiLiveModel
-from strands_tools import stop
-
-from strands_tools import calculator
-
-
-async def main() -> None:
-    model = BidiGeminiLiveModel(
-        model_id="gemini-2.5-flash-native-audio-preview-09-2025",
-        provider_config={
-            "audio": {
-                "voice": "Kore",
-            },
-        },
-        client_config={"api_key": "<GOOGLE_AI_API_KEY>"},
-    )
-    # stop tool allows user to verbally stop agent execution.
-    agent = BidiAgent(model=model, tools=[calculator, stop])
-
-    audio_io = BidiAudioIO()
-    text_io = BidiTextIO()
-    await agent.run(inputs=[audio_io.input()], outputs=[audio_io.output(), text_io.output()])
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-
-## Configuration
-
-### Client Configs
-
-For details on the supported client configs, see [here](https://googleapis.github.io/python-genai/genai.html#genai.client.Client).
-
-### Provider Configs
-
-| Parameter | Description | Example | Options |
-| --- | --- | --- | --- |
-| `audio` | `AudioConfig` instance. | `{"voice": "Kore"}` | [reference](/docs/api/python/strands.experimental.bidi.types.model#AudioConfig) |
-| `inference` | Dict of inference fields specified in the Gemini `LiveConnectConfig`. | `{"temperature": 0.7}` | [reference](https://googleapis.github.io/python-genai/genai.html#genai.types.LiveConnectConfig) |
-
-For the list of supported voices and languages, see [here](https://docs.cloud.google.com/text-to-speech/docs/list-voices-and-types).
-
-## Session Management
-
-Currently, `BidiGeminiLiveModel` does not produce a message history and so has limited compatability with the Strands [session manager](/docs/user-guide/concepts/bidirectional-streaming/session-management/index.md). However, the provider does utilize Gemini’s [Session Resumption](https://ai.google.dev/gemini-api/docs/live-session) as part of the [connection restart](/docs/user-guide/concepts/bidirectional-streaming/agent/index.md#connection-restart) workflow. This allows Gemini Live connections to persist up to 24 hours. After this time limit, a new `BidiGeminiLiveModel` instance must be created to continue conversations.
-
-## Troubleshooting
-
-### Module Not Found
-
-The error `ModuleNotFoundError: No module named 'google.genai'` means the `google-genai` dependency is missing. Install it with `pip install 'strands-agents[bidi-google]'`.
-
-### API Key Issues
-
-Make sure your Google AI API key is properly set in `client_config` or as the `GOOGLE_API_KEY` environment variable. You can obtain an API key from the [Google AI Studio](https://aistudio.google.com/app/apikey).
-
-## References
-
--   [Gemini Live API](https://ai.google.dev/gemini-api/docs/live)
--   [Gemini API Reference](https://googleapis.github.io/python-genai/genai.html#)
--   [Python API Reference](/docs/api/python/strands.experimental.bidi.models.gemini_live#BidiGeminiLiveModel)
-
-## Related pages
-
-- [BidiAgent](/docs/user-guide/concepts/bidirectional-streaming/agent/index.md) (1 shared tag)
-- [Events](/docs/user-guide/concepts/bidirectional-streaming/events/index.md) (1 shared tag)
-- [I/O Channels](/docs/user-guide/concepts/bidirectional-streaming/io/index.md) (1 shared tag)
-- [Interruptions](/docs/user-guide/concepts/bidirectional-streaming/interruption/index.md) (1 shared tag)
-- [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai_realtime/index.md) (1 shared tag)
-- [Bidirectional Streaming Observability](/docs/user-guide/concepts/bidirectional-streaming/observability/index.md) (1 shared tag)
-- [Bidirectional Streaming Hooks](/docs/user-guide/concepts/bidirectional-streaming/hooks/index.md) (1 shared tag)
-- [Voice & Realtime Quickstart](/docs/user-guide/concepts/bidirectional-streaming/quickstart/index.md) (1 shared tag)
-- [Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic/index.md) (1 shared tag)
-- [Bidirectional Streaming Session Management](/docs/user-guide/concepts/bidirectional-streaming/session-management/index.md) (1 shared tag)
-
-
-## Implementation
-
-### Python
-
-- [harness-sdk/strands-py/src/strands/experimental/bidi/models/gemini_live.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/gemini_live.py)
-
-Source: https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/models/gemini_live/index.md
-
----
-
-## Nova Sonic
+## Bedrock Nova Sonic
 
 [Amazon Nova Sonic](https://docs.aws.amazon.com/nova/latest/nova2-userguide/using-conversational-speech.html) provides real-time, conversational interactions through bidirectional audio streaming. Amazon Nova Sonic processes and responds to real-time speech as it occurs, enabling natural, human-like conversational experiences. Key capabilities and features include:
 
@@ -19238,9 +19200,9 @@ Source: https://strandsagents.com/docs/user-guide/concepts/bidirectional-streami
 
 Python 3.12+ Required
 
-Nova Sonic requires Python 3.12 or higher due to its experimental AWS SDK dependency.
+The Bedrock Nova Sonic provider requires Python 3.12 or higher due to its experimental AWS SDK dependency.
 
-Nova Sonic is included in the base bidirectional streaming dependencies for Strands Agents.
+Bedrock Nova Sonic is configured as an optional dependency in Strands Agents.
 
 To install it, run:
 
@@ -19256,21 +19218,21 @@ pip install 'strands-agents[bidi-all]'
 
 ## Usage
 
-After installing `strands-agents[bidi]`, you can import and initialize the Strands Agents’ Nova Sonic provider as follows:
+After installing `strands-agents[bidi]`, you can import and initialize the Strands Agents’ Bedrock Nova Sonic provider as follows:
 
 ```python
 import asyncio
 
 from strands.experimental.bidi import BidiAgent
 from strands.experimental.bidi.io import BidiAudioIO, BidiTextIO
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 from strands_tools import stop
 
 from strands_tools import calculator
 
 
 async def main() -> None:
-    model = BidiNovaSonicModel(
+    model = BedrockNovaSonicModel(
         model_id="amazon.nova-2-sonic-v1:0",
         provider_config={
             "audio": {
@@ -19307,7 +19269,7 @@ Text and audio input can be interleaved freely; sending text does not require pa
 
 Nova Sonic is available in us-east-1, us-west-2, eu-north-1, and ap-northeast-1.
 
-Nova Sonic requires AWS credentials for access. Under the hook, `BidiNovaSonicModel` uses an experimental [Bedrock client](https://github.com/aws/aws-sdk-python/tree/develop/clients/aws-sdk-bedrock-runtime/src/aws_sdk_bedrock_runtime), which allows for credentials to be configured in the following ways:
+Nova Sonic requires AWS credentials for access. Under the hook, `BedrockNovaSonicModel` uses an experimental [Bedrock client](https://github.com/aws/aws-sdk-python/tree/develop/clients/aws-sdk-bedrock-runtime/src/aws_sdk_bedrock_runtime), which allows for credentials to be configured in the following ways:
 
 **Option 1: Environment Variables**
 
@@ -19322,7 +19284,7 @@ export AWS_REGION=your_region_name
 
 ```python
 import boto3
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
 
 boto_session = boto3.Session(
@@ -19332,7 +19294,7 @@ boto_session = boto3.Session(
     region_name="your_region_name",
     profile_name="your_profile"  # Optional: Use a specific profile
 )
-model = BidiNovaSonicModel(client_config={"boto_session": boto_session})
+model = BedrockNovaSonicModel(client_config={"boto_session": boto_session})
 ```
 
 For more details on this approach, please refer to the [boto3 session docs](https://boto3.amazonaws.com/v1/documentation/api/latest/reference/core/session.html).
@@ -19382,7 +19344,7 @@ As a reminder, Nova Sonic is only available in us-east-1, us-west-2, eu-north-1,
 
 -   [Nova Sonic](https://docs.aws.amazon.com/nova/latest/nova2-userguide/using-conversational-speech.html)
 -   [Experimental Bedrock Client](https://github.com/aws/aws-sdk-python/tree/develop/clients/aws-sdk-bedrock-runtime)
--   [Python API Reference](/docs/api/python/strands.experimental.bidi.models.nova_sonic#BidiNovaSonicModel)
+-   [Python API Reference](/docs/api/python/strands.experimental.bidi.models.bedrock#BedrockNovaSonicModel)
 
 ## Related pages
 
@@ -19395,16 +19357,139 @@ As a reminder, Nova Sonic is only available in us-east-1, us-west-2, eu-north-1,
 - [AgentCore Evaluation Dashboard Configuration](/docs/user-guide/evals-sdk/how-to/agentcore_evaluation_dashboard/index.md) (2 shared tags)
 - [BidiAgent](/docs/user-guide/concepts/bidirectional-streaming/agent/index.md) (1 shared tag)
 - [Events](/docs/user-guide/concepts/bidirectional-streaming/events/index.md) (1 shared tag)
-- [Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/gemini_live/index.md) (1 shared tag)
+- [Google Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/google/index.md) (1 shared tag)
 
 
 ## Implementation
 
 ### Python
 
-- [harness-sdk/strands-py/src/strands/experimental/bidi/models/nova_sonic.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/nova_sonic.py)
+- [harness-sdk/strands-py/src/strands/experimental/bidi/models/bedrock.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/bedrock.py)
 
-Source: https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic/index.md
+Source: https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/models/bedrock/index.md
+
+---
+
+## Google Gemini Live
+
+The [Gemini Live API](https://ai.google.dev/gemini-api/docs/live) lets developers create natural conversations by enabling a two-way WebSocket connection with the Gemini models. The Live API processes data streams in real time. Users can interrupt the AI’s responses with new input, similar to a real conversation. Key features include:
+
+-   **Multimodal Streaming**: The API supports streaming of text, audio, and video data.
+-   **Bidirectional Interaction**: The user and the model can provide input and output at the same time.
+-   **Interruptibility**: Users can interrupt the model’s response, and the model adjusts its response.
+-   **Tool Use and Function Calling**: The API can use external tools to perform actions and get context while maintaining a real-time connection.
+-   **Session Management**: Supports managing long conversations through sessions, providing context and continuity.
+-   **Secure Authentication**: Uses tokens for secure client-side authentication.
+
+## Installation
+
+The Google Gemini Live provider is configured as an optional dependency in Strands Agents.
+
+To install it, run:
+
+```bash
+pip install 'strands-agents[bidi-google]'
+```
+
+Or to install all bidirectional streaming providers at once:
+
+```bash
+pip install 'strands-agents[bidi-all]'
+```
+
+## Usage
+
+After installing `strands-agents[bidi-google]`, import and initialize the Gemini Live model provider:
+
+```python
+import asyncio
+
+from strands.experimental.bidi import BidiAgent
+from strands.experimental.bidi.io import BidiAudioIO, BidiTextIO
+from strands.experimental.bidi.models import GoogleGeminiLiveModel
+from strands_tools import stop
+
+from strands_tools import calculator
+
+
+async def main() -> None:
+    model = GoogleGeminiLiveModel(
+        model_id="gemini-2.5-flash-native-audio-preview-09-2025",
+        provider_config={
+            "audio": {
+                "voice": "Kore",
+            },
+        },
+        client_config={"api_key": "<GOOGLE_API_KEY>"},
+    )
+    # stop tool allows user to verbally stop agent execution.
+    agent = BidiAgent(model=model, tools=[calculator, stop])
+
+    audio_io = BidiAudioIO()
+    text_io = BidiTextIO()
+    await agent.run(inputs=[audio_io.input()], outputs=[audio_io.output(), text_io.output()])
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Configuration
+
+### Client Configs
+
+For details on the supported client configs, see [here](https://googleapis.github.io/python-genai/genai.html#genai.client.Client).
+
+### Provider Configs
+
+| Parameter | Description | Example | Options |
+| --- | --- | --- | --- |
+| `audio` | `AudioConfig` instance. | `{"voice": "Kore"}` | [reference](/docs/api/python/strands.experimental.bidi.types.model#AudioConfig) |
+| `inference` | Dict of inference fields specified in the Gemini `LiveConnectConfig`. | `{"temperature": 0.7}` | [reference](https://googleapis.github.io/python-genai/genai.html#genai.types.LiveConnectConfig) |
+
+For the list of supported voices and languages, see [here](https://docs.cloud.google.com/text-to-speech/docs/list-voices-and-types).
+
+## Session Management
+
+Currently, `GoogleGeminiLiveModel` does not produce a message history and so has limited compatibility with the Strands [session manager](/docs/user-guide/concepts/bidirectional-streaming/session-management/index.md). However, the provider does utilize Gemini’s [Session Resumption](https://ai.google.dev/gemini-api/docs/live-session) as part of the [connection restart](/docs/user-guide/concepts/bidirectional-streaming/agent/index.md#connection-restart) workflow. This allows Gemini Live connections to persist up to 24 hours. After this time limit, a new `GoogleGeminiLiveModel` instance must be created to continue conversations.
+
+## Troubleshooting
+
+### Module Not Found
+
+The error `ModuleNotFoundError: No module named 'google.genai'` means the `google-genai` dependency is missing. Install it with `pip install 'strands-agents[bidi-google]'`.
+
+### API Key Issues
+
+Make sure your Google AI API key is properly set in `client_config` or as the `GOOGLE_API_KEY` environment variable. You can obtain an API key from the [Google AI Studio](https://aistudio.google.com/app/apikey).
+
+## References
+
+-   [Gemini Live API](https://ai.google.dev/gemini-api/docs/live)
+-   [Gemini API Reference](https://googleapis.github.io/python-genai/genai.html#)
+-   [Python API Reference](/docs/api/python/strands.experimental.bidi.models.google#GoogleGeminiLiveModel)
+
+## Related pages
+
+- [BidiAgent](/docs/user-guide/concepts/bidirectional-streaming/agent/index.md) (1 shared tag)
+- [Events](/docs/user-guide/concepts/bidirectional-streaming/events/index.md) (1 shared tag)
+- [I/O Channels](/docs/user-guide/concepts/bidirectional-streaming/io/index.md) (1 shared tag)
+- [Interruptions](/docs/user-guide/concepts/bidirectional-streaming/interruption/index.md) (1 shared tag)
+- [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai/index.md) (1 shared tag)
+- [Bidirectional Streaming Observability](/docs/user-guide/concepts/bidirectional-streaming/observability/index.md) (1 shared tag)
+- [Bidirectional Streaming Hooks](/docs/user-guide/concepts/bidirectional-streaming/hooks/index.md) (1 shared tag)
+- [Voice & Realtime Quickstart](/docs/user-guide/concepts/bidirectional-streaming/quickstart/index.md) (1 shared tag)
+- [Bedrock Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/bedrock/index.md) (1 shared tag)
+- [Bidirectional Streaming Session Management](/docs/user-guide/concepts/bidirectional-streaming/session-management/index.md) (1 shared tag)
+
+
+## Implementation
+
+### Python
+
+- [harness-sdk/strands-py/src/strands/experimental/bidi/models/google.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/google.py)
+
+Source: https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/models/google/index.md
 
 ---
 
@@ -19443,14 +19528,14 @@ import asyncio
 
 from strands.experimental.bidi import BidiAgent
 from strands.experimental.bidi.io import BidiAudioIO, BidiTextIO
-from strands.experimental.bidi.models import BidiOpenAIRealtimeModel
+from strands.experimental.bidi.models import OpenAIRealtimeModel
 from strands_tools import stop
 
 from strands_tools import calculator
 
 
 async def main() -> None:
-    model = BidiOpenAIRealtimeModel(
+    model = OpenAIRealtimeModel(
         model_id="gpt-realtime",
         provider_config={
             "audio": {
@@ -19505,19 +19590,19 @@ Ensure your OpenAI API key is properly configured. Set the `OPENAI_API_KEY` envi
 
 -   [OpenAI Realtime API](https://platform.openai.com/docs/guides/realtime)
 -   [OpenAI API Reference](https://platform.openai.com/docs/api-reference/realtime)
--   [Python API Reference](/docs/api/python/strands.experimental.bidi.models.openai_realtime#BidiOpenAIRealtimeModel)
+-   [Python API Reference](/docs/api/python/strands.experimental.bidi.models.openai#OpenAIRealtimeModel)
 
 ## Related pages
 
 - [BidiAgent](/docs/user-guide/concepts/bidirectional-streaming/agent/index.md) (1 shared tag)
 - [Events](/docs/user-guide/concepts/bidirectional-streaming/events/index.md) (1 shared tag)
-- [Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/gemini_live/index.md) (1 shared tag)
+- [Google Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/google/index.md) (1 shared tag)
 - [I/O Channels](/docs/user-guide/concepts/bidirectional-streaming/io/index.md) (1 shared tag)
 - [Interruptions](/docs/user-guide/concepts/bidirectional-streaming/interruption/index.md) (1 shared tag)
 - [Bidirectional Streaming Observability](/docs/user-guide/concepts/bidirectional-streaming/observability/index.md) (1 shared tag)
 - [Bidirectional Streaming Hooks](/docs/user-guide/concepts/bidirectional-streaming/hooks/index.md) (1 shared tag)
 - [Voice & Realtime Quickstart](/docs/user-guide/concepts/bidirectional-streaming/quickstart/index.md) (1 shared tag)
-- [Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic/index.md) (1 shared tag)
+- [Bedrock Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/bedrock/index.md) (1 shared tag)
 - [Bidirectional Streaming Session Management](/docs/user-guide/concepts/bidirectional-streaming/session-management/index.md) (1 shared tag)
 
 
@@ -19525,9 +19610,9 @@ Ensure your OpenAI API key is properly configured. Set the `OPENAI_API_KEY` envi
 
 ### Python
 
-- [harness-sdk/strands-py/src/strands/experimental/bidi/models/openai_realtime.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/openai_realtime.py)
+- [harness-sdk/strands-py/src/strands/experimental/bidi/models/openai.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/openai.py)
 
-Source: https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/models/openai_realtime/index.md
+Source: https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/models/openai/index.md
 
 ---
 
@@ -19539,7 +19624,7 @@ Source: https://strandsagents.com/docs/user-guide/concepts/bidirectional-streami
 
 Install OpenTelemetry Dependencies
 
-To run the Nova Sonic example below and export OTEL data, install both optional dependencies:
+To run the Bedrock Nova Sonic example below and export OTEL data, install both optional dependencies:
 
 ```shell
 pip install 'strands-agents[bidi,otel]'
@@ -19551,7 +19636,7 @@ Tracing configuration is identical to the non-streaming agent. Configure OpenTel
 import asyncio
 
 from strands.experimental.bidi import BidiAgent, BidiConnectionStartEvent
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 from strands.telemetry import StrandsTelemetry
 
 strands_telemetry = StrandsTelemetry()
@@ -19561,7 +19646,7 @@ strands_telemetry.setup_console_exporter()  # Print spans to stdout
 
 async def main():
     agent = BidiAgent(
-        model=BidiNovaSonicModel(),
+        model=BedrockNovaSonicModel(),
         system_prompt="You are a helpful voice assistant.",
         name="Voice Assistant",
     )
@@ -19893,9 +19978,9 @@ Providers report streaming lifecycle events differently, which is reflected dire
 
 | Provider | Response spans | Notes |
 | --- | --- | --- |
-| Nova Sonic | One per content block | A single spoken turn can produce several `bidi_response` spans. All but the last close as `interrupted`, and time to first audio re-baselines on each. Count spoken turns from interruption events and finish reasons rather than by counting response spans. No cache tokens or modality breakdown reported. |
+| Bedrock Nova Sonic | One per content block | A single spoken turn can produce several `bidi_response` spans. All but the last close as `interrupted`, and time to first audio re-baselines on each. Count spoken turns from interruption events and finish reasons rather than by counting response spans. No cache tokens or modality breakdown reported. |
 | OpenAI Realtime | One per turn | Reports cache read tokens and a modality breakdown when available. |
-| Gemini Live | None | Emits no response lifecycle events, so a session produces no `bidi_response` spans. Interruptions, token usage including cache reads, and the modality breakdown are still reported. |
+| Google Gemini Live | None | Emits no response lifecycle events, so a session produces no `bidi_response` spans. Interruptions, token usage including cache reads, and the modality breakdown are still reported. |
 
 ## Best Practices
 
@@ -19911,9 +19996,9 @@ Providers report streaming lifecycle events differently, which is reflected dire
 | Issue | Solution |
 | --- | --- |
 | No spans at all | Install the `otel` extra and configure an exporter before agent start |
-| No `bidi_response` spans | Expected on Gemini Live, which emits no response lifecycle |
+| No `bidi_response` spans | Expected on Google Gemini Live, which emits no response lifecycle |
 | Session span has no token attributes | The session is still open, or usage was never reported |
-| More response spans than spoken turns | Expected on Nova Sonic, one response per content block |
+| More response spans than spoken turns | Expected on Bedrock Nova Sonic, one response per content block |
 | `gen_ai.system_instructions` reads `[REDACTED]` | Add it to the unredacted allowlist |
 | Restart span has an error message but status `OK` | The reconnect succeeded; the message is the timeout that triggered it |
 
@@ -19930,10 +20015,10 @@ Providers report streaming lifecycle events differently, which is reflected dire
 
 - [BidiAgent](/docs/user-guide/concepts/bidirectional-streaming/agent/index.md) (1 shared tag)
 - [Events](/docs/user-guide/concepts/bidirectional-streaming/events/index.md) (1 shared tag)
-- [Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/gemini_live/index.md) (1 shared tag)
+- [Google Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/google/index.md) (1 shared tag)
 - [I/O Channels](/docs/user-guide/concepts/bidirectional-streaming/io/index.md) (1 shared tag)
 - [Interruptions](/docs/user-guide/concepts/bidirectional-streaming/interruption/index.md) (1 shared tag)
-- [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai_realtime/index.md) (1 shared tag)
+- [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai/index.md) (1 shared tag)
 - [Evaluating Remote Traces](/docs/user-guide/evals-sdk/how-to/trace_providers/index.md) (1 shared tag)
 - [Metrics](/docs/user-guide/observability-evaluation/metrics/index.md) (1 shared tag)
 - [Observability](/docs/user-guide/observability-evaluation/observability/index.md) (1 shared tag)
@@ -19961,7 +20046,7 @@ After completing this guide, you can build voice assistants, interactive chatbot
 
 Before starting, ensure you have:
 
--   Python 3.10+ installed (3.12+ required for Nova Sonic)
+-   Python 3.10+ installed (3.12+ required for Bedrock Nova Sonic)
 -   Audio hardware (microphone and speakers) for voice conversations
 -   Model provider credentials configured (AWS, OpenAI, or Google)
 
@@ -19977,13 +20062,13 @@ To install all bidirectional streaming providers and portable I/O dependencies:
 pip install "strands-agents[bidi-all]"
 ```
 
-This includes all 3 supported providers (Nova Sonic, OpenAI, and Gemini Live), `BidiTextIO`, and audio processing. Local microphone and speaker access also requires the `bidi-pyaudio` extra and the PortAudio system library.
+This includes all 3 supported providers (Bedrock Nova Sonic, Google Gemini Live, and OpenAI Realtime), `BidiTextIO`, and audio processing. Local microphone and speaker access also requires the `bidi-pyaudio` extra and the PortAudio system library.
 
 ### For Specific Providers
 
 You can also install support for specific providers:
 
-(( tab "Amazon Bedrock Nova Sonic" ))
+(( tab "Bedrock Nova Sonic" ))
 ```bash
 # With local microphone and speaker I/O
 pip install "strands-agents[bidi,bidi-pyaudio]"
@@ -19991,9 +20076,9 @@ pip install "strands-agents[bidi,bidi-pyaudio]"
 # Without local microphone and speaker I/O
 pip install "strands-agents[bidi]"
 ```
-(( /tab "Amazon Bedrock Nova Sonic" ))
+(( /tab "Bedrock Nova Sonic" ))
 
-(( tab "OpenAI Realtime API" ))
+(( tab "OpenAI Realtime" ))
 ```bash
 # With local audio I/O
 pip install "strands-agents[bidi,bidi-pyaudio,bidi-openai]"
@@ -20001,7 +20086,7 @@ pip install "strands-agents[bidi,bidi-pyaudio,bidi-openai]"
 # Server-side only
 pip install "strands-agents[bidi,bidi-openai]"
 ```
-(( /tab "OpenAI Realtime API" ))
+(( /tab "OpenAI Realtime" ))
 
 (( tab "Google Gemini Live" ))
 ```bash
@@ -20045,7 +20130,7 @@ pip install "strands-agents[bidi-all,bidi-pyaudio]"
 
 Bidirectional streaming supports multiple model providers. Choose one based on your needs:
 
-(( tab "Amazon Bedrock Nova Sonic" ))
+(( tab "Bedrock Nova Sonic" ))
 Nova Sonic is Amazon’s bidirectional streaming model. Configure AWS credentials:
 
 ```bash
@@ -20055,18 +20140,18 @@ export AWS_DEFAULT_REGION=us-east-1
 ```
 
 Enable Nova Sonic model access in the [Amazon Bedrock console](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access-modify.html).
-(( /tab "Amazon Bedrock Nova Sonic" ))
+(( /tab "Bedrock Nova Sonic" ))
 
-(( tab "OpenAI Realtime API" ))
+(( tab "OpenAI Realtime" ))
 For OpenAI’s Realtime API, set your API key:
 
 ```bash
 export OPENAI_API_KEY=your_api_key
 ```
-(( /tab "OpenAI Realtime API" ))
+(( /tab "OpenAI Realtime" ))
 
 (( tab "Google Gemini Live" ))
-For Gemini Live API, set your API key:
+For Google’s Gemini Live API, set your API key:
 
 ```bash
 export GOOGLE_API_KEY=your_api_key
@@ -20080,10 +20165,10 @@ Now let’s create a simple voice-enabled agent that can have real-time conversa
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
 # Create a bidirectional streaming model
-model = BidiNovaSonicModel()
+model = BedrockNovaSonicModel()
 
 # Create the agent
 agent = BidiAgent(
@@ -20123,9 +20208,9 @@ Combine audio with text input/output for debugging or multi-modal interactions:
 import asyncio
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
 from strands.experimental.bidi.io import BidiTextIO
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
-model = BidiNovaSonicModel()
+model = BedrockNovaSonicModel()
 agent = BidiAgent(
     model=model,
     system_prompt="You are a helpful assistant."
@@ -20153,10 +20238,10 @@ The `run()` method runs indefinitely by default. The simplest way to stop conver
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
 async def main():
-    model = BidiNovaSonicModel()
+    model = BedrockNovaSonicModel()
     agent = BidiAgent(model=model)
     audio_io = BidiAudioIO()
 
@@ -20187,7 +20272,7 @@ Just like standard Strands agents, bidirectional agents can use tools during con
 import asyncio
 from strands import tool
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 from strands_tools import calculator, current_time
 
 # Define a custom tool
@@ -20206,7 +20291,7 @@ def get_weather(location: str) -> str:
     return f"The weather in {location} is sunny and 72°F"
 
 # Create agent with tools
-model = BidiNovaSonicModel()
+model = BedrockNovaSonicModel()
 agent = BidiAgent(
     model=model,
     tools=[calculator, current_time, get_weather],
@@ -20236,9 +20321,9 @@ The agent automatically determines when to use tools and executes them concurren
 
 Strands supports three bidirectional streaming providers:
 
--   **[Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic/index.md)** - Amazon’s bidirectional streaming model via AWS Bedrock
--   **[OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai_realtime/index.md)** - OpenAI’s Realtime API for voice conversations
--   **[Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/gemini_live/index.md)** - Google’s multimodal streaming API
+-   **[Bedrock Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/bedrock/index.md)** - Amazon’s bidirectional streaming model via AWS Bedrock
+-   **[OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai/index.md)** - OpenAI’s Realtime API for voice conversations
+-   **[Google Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/google/index.md)** - Google’s Gemini Live multimodal streaming API
 
 Each provider has different features, timeout limits, and audio quality. See the individual provider documentation for detailed configuration options.
 
@@ -20250,10 +20335,10 @@ Customize audio configuration for both the model and I/O:
 import asyncio
 
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
-from strands.experimental.bidi.models.gemini_live import BidiGeminiLiveModel
+from strands.experimental.bidi.models import GoogleGeminiLiveModel
 
 # Configure model audio settings
-model = BidiGeminiLiveModel(
+model = GoogleGeminiLiveModel(
     provider_config={
         "audio": {
             "input_rate": 48000,   # Higher quality input
@@ -20291,10 +20376,10 @@ Bidirectional agents automatically handle interruptions when users start speakin
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 from strands.experimental.bidi.types.events import BidiInterruptionEvent
 
-model = BidiNovaSonicModel()
+model = BedrockNovaSonicModel()
 agent = BidiAgent(model=model)
 audio_io = BidiAudioIO()
 
@@ -20326,11 +20411,11 @@ If you need more control over the agent lifecycle, you can manually call `start(
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 from strands.experimental.bidi.types.events import BidiResponseCompleteEvent
 
 async def main():
-    model = BidiNovaSonicModel()
+    model = BedrockNovaSonicModel()
     agent = BidiAgent(model=model)
 
     # Manually start the agent
@@ -20358,10 +20443,10 @@ Use the `stop` tool from `strands_tools` to allow users to end conversations nat
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 from strands_tools import stop
 
-model = BidiNovaSonicModel()
+model = BedrockNovaSonicModel()
 agent = BidiAgent(
     model=model,
     tools=[stop],
@@ -20401,7 +20486,7 @@ To enable debug logs in your agent, configure the `strands` logger:
 import asyncio
 import logging
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
 # Enable debug logs
 logging.getLogger("strands").setLevel(logging.DEBUG)
@@ -20410,7 +20495,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()]
 )
 
-model = BidiNovaSonicModel()
+model = BedrockNovaSonicModel()
 agent = BidiAgent(model=model)
 audio_io = BidiAudioIO()
 
@@ -20470,8 +20555,8 @@ If you experience frequent disconnections:
 
 ```python
 # Use OpenAI for longer timeout (60 min vs Nova's 8 min)
-from strands.experimental.bidi.models import BidiOpenAIRealtimeModel
-model = BidiOpenAIRealtimeModel()
+from strands.experimental.bidi.models import OpenAIRealtimeModel
+model = OpenAIRealtimeModel()
 
 # Or handle restarts gracefully
 from strands.experimental.bidi import BidiConnectionRestartEvent
@@ -20490,9 +20575,9 @@ Ready to learn more? Check out these resources:
 -   [Events](/docs/user-guide/concepts/bidirectional-streaming/events/index.md) - Complete guide to bidirectional streaming events
 -   [I/O Channels](/docs/user-guide/concepts/bidirectional-streaming/io/index.md) - Understanding and customizing input/output channels
 -   **Model Providers:**
-    -   [Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic/index.md) - Amazon Bedrock’s bidirectional streaming model
-    -   [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai_realtime/index.md) - OpenAI’s Realtime API
-    -   [Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/gemini_live/index.md) - Google’s Gemini Live API
+    -   [Bedrock Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/bedrock/index.md) - Amazon Bedrock’s bidirectional streaming model
+    -   [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai/index.md) - OpenAI’s Realtime API
+    -   [Google Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/google/index.md) - Google’s Gemini Live API
 -   [Python API Reference](/docs/api/python/strands.experimental.bidi.agent.agent) - Complete API documentation
 
 ## Related pages
@@ -20504,7 +20589,7 @@ Ready to learn more? Check out these resources:
 - [TypeScript Quickstart](/docs/user-guide/quickstart/typescript/index.md) (1 shared tag)
 - [BidiAgent](/docs/user-guide/concepts/bidirectional-streaming/agent/index.md) (1 shared tag)
 - [Events](/docs/user-guide/concepts/bidirectional-streaming/events/index.md) (1 shared tag)
-- [Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/gemini_live/index.md) (1 shared tag)
+- [Google Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/google/index.md) (1 shared tag)
 - [I/O Channels](/docs/user-guide/concepts/bidirectional-streaming/io/index.md) (1 shared tag)
 - [Interruptions](/docs/user-guide/concepts/bidirectional-streaming/interruption/index.md) (1 shared tag)
 
@@ -20535,14 +20620,14 @@ Create a `BidiAgent` with a session manager and use it:
 
 ```python
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 from strands.session.file_session_manager import FileSessionManager
 
 # Create a session manager with a unique session ID
 session_manager = FileSessionManager(session_id="user_123_voice_session")
 
 # Create the agent with session management
-model = BidiNovaSonicModel()
+model = BedrockNovaSonicModel()
 agent = BidiAgent(
     model=model,
     session_manager=session_manager
@@ -20560,13 +20645,13 @@ The conversation history is automatically persisted and will be restored on the 
 
 ## Provider-Specific Considerations
 
-### Nova Sonic
+### Bedrock Nova Sonic
 
 Conversation History Limits
 
 When restoring a session, Nova Sonic caps the conversation history sent at connection start to 50KB per message and 200KB total. Messages exceeding the per-message limit are truncated, and if the total exceeds 200KB, the oldest messages are dropped until it fits. Long-running or transcript-heavy sessions restored after this limit is hit will silently lose earlier context.
 
-### Gemini Live
+### Google Gemini Live
 
 Limited Session Management Support
 
@@ -20741,10 +20826,10 @@ For best practices on session ID management, session cleanup, error handling, st
 - [Storage](/docs/user-guide/concepts/storage/index.md) (1 shared tag)
 - [BidiAgent](/docs/user-guide/concepts/bidirectional-streaming/agent/index.md) (1 shared tag)
 - [Events](/docs/user-guide/concepts/bidirectional-streaming/events/index.md) (1 shared tag)
-- [Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/gemini_live/index.md) (1 shared tag)
+- [Google Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/google/index.md) (1 shared tag)
 - [I/O Channels](/docs/user-guide/concepts/bidirectional-streaming/io/index.md) (1 shared tag)
 - [Interruptions](/docs/user-guide/concepts/bidirectional-streaming/interruption/index.md) (1 shared tag)
-- [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai_realtime/index.md) (1 shared tag)
+- [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai/index.md) (1 shared tag)
 
 
 ## Implementation
@@ -22038,8 +22123,8 @@ Strands enforces the following rules for interrupts in graph:
 - [Retry Strategies](/docs/user-guide/concepts/agents/retry-strategies/index.md) (2 shared tags)
 - [Tool Executors](/docs/user-guide/concepts/tools/executors/index.md) (2 shared tags)
 - [GoalLoop](/docs/user-guide/concepts/plugins/goal-loop/index.md) (2 shared tags)
+- [Model Routing](/docs/user-guide/concepts/model-providers/model-routing/index.md) (1 shared tag)
 - [Creating a Custom Model Provider](/docs/user-guide/concepts/model-providers/custom_model_provider/index.md) (1 shared tag)
-- [Bidirectional Streaming Hooks](/docs/user-guide/concepts/bidirectional-streaming/hooks/index.md) (1 shared tag)
 
 
 ## Implementation
@@ -22465,7 +22550,7 @@ If the data source has ACL awareness enabled and no `access_control_list``access
 
 - [Guardrails](/docs/user-guide/safety-security/guardrails/index.md) (2 shared tags)
 - [Amazon Nova](/docs/user-guide/concepts/model-providers/amazon-nova/index.md) (2 shared tags)
-- [Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic/index.md) (2 shared tags)
+- [Bedrock Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/bedrock/index.md) (2 shared tags)
 - [Deploying Strands Agents to Amazon Bedrock AgentCore Runtime](/docs/user-guide/deploy/deploy_to_bedrock_agentcore/index.md) (2 shared tags)
 - [Python Deployment to Amazon Bedrock AgentCore Runtime](/docs/user-guide/deploy/deploy_to_bedrock_agentcore/python/index.md) (2 shared tags)
 - [TypeScript Deployment to Amazon Bedrock AgentCore Runtime](/docs/user-guide/deploy/deploy_to_bedrock_agentcore/typescript/index.md) (2 shared tags)
@@ -24913,7 +24998,7 @@ const agent = new Agent({ model: bedrockModel })
 
 - [Amazon Nova](/docs/user-guide/concepts/model-providers/amazon-nova/index.md) (3 shared tags)
 - [Guardrails](/docs/user-guide/safety-security/guardrails/index.md) (3 shared tags)
-- [Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic/index.md) (2 shared tags)
+- [Bedrock Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/bedrock/index.md) (2 shared tags)
 - [Bedrock Knowledge Base Store](/docs/user-guide/concepts/memory/bedrock-knowledge-base/index.md) (2 shared tags)
 - [Deploying Strands Agents to Amazon Bedrock AgentCore Runtime](/docs/user-guide/deploy/deploy_to_bedrock_agentcore/index.md) (2 shared tags)
 - [Python Deployment to Amazon Bedrock AgentCore Runtime](/docs/user-guide/deploy/deploy_to_bedrock_agentcore/python/index.md) (2 shared tags)
@@ -25021,7 +25106,7 @@ model = NovaAPIModel(
 
 - [Amazon Bedrock](/docs/user-guide/concepts/model-providers/amazon-bedrock/index.md) (3 shared tags)
 - [Guardrails](/docs/user-guide/safety-security/guardrails/index.md) (2 shared tags)
-- [Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic/index.md) (2 shared tags)
+- [Bedrock Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/bedrock/index.md) (2 shared tags)
 - [Bedrock Knowledge Base Store](/docs/user-guide/concepts/memory/bedrock-knowledge-base/index.md) (2 shared tags)
 - [Deploying Strands Agents to Amazon Bedrock AgentCore Runtime](/docs/user-guide/deploy/deploy_to_bedrock_agentcore/index.md) (2 shared tags)
 - [Python Deployment to Amazon Bedrock AgentCore Runtime](/docs/user-guide/deploy/deploy_to_bedrock_agentcore/python/index.md) (2 shared tags)
@@ -27009,7 +27094,11 @@ Source: https://strandsagents.com/docs/user-guide/concepts/model-providers/litel
 
 ## Llama API
 
-[Llama API](https://llama.developer.meta.com?utm_source=partner-strandsagent&utm_medium=website) is a Meta-hosted API service that helps you integrate Llama models into your applications quickly and efficiently.
+Deprecated
+
+The Llama API service has been deprecated by Meta, and Strands’ `LlamaAPIModel` provider is deprecated along with it. It will be removed in v2.0.0. Use [Amazon Bedrock](/docs/user-guide/concepts/model-providers/amazon-bedrock/index.md), [Ollama](/docs/user-guide/concepts/model-providers/ollama/index.md), or [OpenAI](/docs/user-guide/concepts/model-providers/openai/index.md) instead.
+
+Llama API is a Meta-hosted API service that helps you integrate Llama models into your applications quickly and efficiently.
 
 Llama API provides access to Llama models through a simple API interface, with inference provided by Meta, so you can focus on building AI-powered solutions without managing your own inference infrastructure.
 
@@ -27478,6 +27567,398 @@ If you encounter the error `ModuleNotFoundError: No module named 'mistralai'`, t
 - [harness-sdk/strands-py/src/strands/models/mistral.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/mistral.py)
 
 Source: https://strandsagents.com/docs/user-guide/concepts/model-providers/mistral/index.md
+
+---
+
+## Model Routing
+
+Use model routing to choose a model for each agent invocation from a fixed set of candidates. It fits agents that need a backup model after failures or need request content to determine which model handles the work.
+
+Configure `ModelRouter` as the agent’s model. The first candidate is the default, and the routing strategy owns the opening choice and every decision after an unclaimed model failure.
+
+The examples use [Amazon Bedrock](/docs/user-guide/concepts/model-providers/amazon-bedrock/index.md). Before running them, configure AWS credentials and model access. Model routing accepts models from any supported provider, but each candidate must be stateless: conversation history stays with the agent instead of the provider.
+
+## How model routing works
+
+To reason about a routing decision, separate the components that the router coordinates:
+
+-   **Candidate**: A stateless model or nested `ModelRouter` available for selection.
+-   **Default candidate**: The first declared candidate, used when a strategy declines the opening choice.
+-   **Routing strategy**: Selects the opening candidate and decides whether to switch after an unclaimed model failure.
+-   **Routing context**: Supplies request messages, agent instructions, tool specifications, candidates, a read-only view of invocation state, and prior attempts to a strategy.
+-   **Failure round**: Starts with the opening candidate or a candidate that just succeeded. Routing selects each candidate at most once until the next success; same-model retries do not select it again.
+
+## Choose a routing strategy
+
+Choose the strategy that matches how your application should select and recover:
+
+| Goal | Strategy |
+| --- | --- |
+| Try candidates in order, then favor healthier candidates | Default `FallbackStrategy` |
+| Choose the opening candidate from the request and evidence | `ClassifierStrategy` |
+| Define a custom candidate-selection policy | Custom `RoutingStrategy` |
+
+`ClassifierStrategy` does not select another candidate after the serving model fails. Implement a custom strategy when you need classifier-based opening selection and fallback recovery together.
+
+## Configure model routing
+
+To configure routing without changing how you invoke the agent:
+
+1.  Create the stateless model instances that can serve the request.
+2.  Wrap a model in `RoutingCandidate` when a strategy needs a name, description, or metadata as selection evidence.
+3.  Choose the default fallback, `ClassifierStrategy`, or a custom `RoutingStrategy`.
+4.  Construct `ModelRouter` with the candidates and optional strategy.
+5.  Pass the router as the agent’s model. Do not attach it through the plugin list.
+
+The agent invocation API stays the same. The following sections show each strategy with complete configuration.
+
+## Route failures to a backup model
+
+Use the default strategy when you want ordered fallback without a separate routing call. On the first failure round of each invocation, `FallbackStrategy` walks the candidates in declaration order: the first candidate opens the invocation, and each unclaimed failure moves to the next candidate. After a model succeeds, later failure rounds use health history. The strategy picks the untried candidate with the fewest recorded failures and uses declaration order to break ties.
+
+(( tab "Python" ))
+```python
+from strands import Agent
+from strands.models import BedrockModel, ModelRouter
+
+primary_model = BedrockModel(
+    model_id="us.amazon.nova-pro-v1:0",
+)
+backup_model = BedrockModel(
+    model_id="us.anthropic.claude-haiku-4-5-20251001-v1:0",
+)
+
+router = ModelRouter(
+    models=[primary_model, backup_model],
+    max_switches=1,
+)
+agent = Agent(model=router)
+
+agent("Summarize the tradeoffs of active-active deployment.")
+```
+(( /tab "Python" ))
+
+(( tab "TypeScript" ))
+```typescript
+import { Agent, BedrockModel, ModelRouter } from '@strands-agents/sdk'
+
+const primaryModel = new BedrockModel({
+  modelId: 'us.amazon.nova-pro-v1:0',
+})
+const backupModel = new BedrockModel({
+  modelId: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+})
+
+const router = new ModelRouter([primaryModel, backupModel], {
+  maxSwitches: 1,
+})
+const agent = new Agent({ model: router })
+
+await agent.invoke('Summarize the tradeoffs of active-active deployment.')
+```
+(( /tab "TypeScript" ))
+
+Set `max_switches``maxSwitches` to cap successful candidate changes during one invocation. The cap does not count retries of the same model. Omit it when the strategy should decide when routing stops.
+
+## Route each request by content
+
+Use `ClassifierStrategy` when request complexity, domain, cost, or latency should choose the opening candidate. By default, it selects the least capable candidate that can still deliver a complete and accurate result, reserving more capable candidates for work that needs them.
+
+Give each candidate a short name, a description, and optional metadata that explain where it fits. Metadata keys must be strings, and metadata values must be JSON-serializable. This example supplies metadata and overrides the default policy to prefer the lowest-latency candidate that satisfies every request requirement.
+
+(( tab "Python" ))
+```python
+from strands import Agent
+from strands.models import (
+    BedrockModel,
+    ClassifierStrategy,
+    ModelRouter,
+    RoutingCandidate,
+)
+
+routing_policy = (
+    "Choose the lowest-latency candidate that satisfies every request requirement. "
+    "Use candidate metadata as evidence."
+)
+classifier_model = BedrockModel(
+    model_id="us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    max_tokens=64,
+    streaming=False,
+    temperature=0,
+)
+routine_model = BedrockModel(model_id="us.amazon.nova-lite-v1:0")
+advanced_model = BedrockModel(model_id="us.amazon.nova-pro-v1:0")
+
+router = ModelRouter(
+    models=[
+        RoutingCandidate(
+            routine_model,
+            name="routine",
+            description="Concise factual questions and routine requests.",
+            metadata={"cost": "low", "latency": "low", "complexity": "routine"},
+        ),
+        RoutingCandidate(
+            advanced_model,
+            name="advanced",
+            description="Systems design with several interacting constraints.",
+            metadata={"cost": "high", "latency": "medium", "complexity": "advanced"},
+        ),
+    ],
+    strategy=ClassifierStrategy(
+        classifier_model,
+        system_prompt=routing_policy,
+    ),
+)
+agent = Agent(model=router)
+
+agent(
+    "Design a rollback-safe migration from regional to global idempotency keys."
+)
+```
+(( /tab "Python" ))
+
+(( tab "TypeScript" ))
+```typescript
+import {
+  Agent,
+  BedrockModel,
+  ClassifierStrategy,
+  ModelRouter,
+  RoutingCandidate,
+} from '@strands-agents/sdk'
+
+const routingPolicy =
+  'Choose the lowest-latency candidate that satisfies every request requirement. ' +
+  'Use candidate metadata as evidence.'
+const classifierModel = new BedrockModel({
+  modelId: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+  maxTokens: 64,
+  temperature: 0,
+})
+const routineModel = new BedrockModel({
+  modelId: 'us.amazon.nova-lite-v1:0',
+})
+const advancedModel = new BedrockModel({
+  modelId: 'us.amazon.nova-pro-v1:0',
+})
+
+const router = new ModelRouter(
+  [
+    new RoutingCandidate({
+      model: routineModel,
+      name: 'routine',
+      description: 'Concise factual questions and routine requests.',
+      metadata: { cost: 'low', latency: 'low', complexity: 'routine' },
+    }),
+    new RoutingCandidate({
+      model: advancedModel,
+      name: 'advanced',
+      description: 'Systems design with several interacting constraints.',
+      metadata: { cost: 'high', latency: 'medium', complexity: 'advanced' },
+    }),
+  ],
+  {
+    strategy: new ClassifierStrategy(classifierModel, {
+      systemPrompt: routingPolicy,
+    }),
+  }
+)
+const agent = new Agent({ model: router })
+
+await agent.invoke(
+  'Design a rollback-safe migration from regional to global idempotency keys.'
+)
+```
+(( /tab "TypeScript" ))
+
+With two or more candidates, the classifier makes one additional model call before the first serving call. Choose a classifier model that supports structured outputtool calling and forced tool selection.
+
+Set `system_prompt``systemPrompt` to supply your routing policy. The policy can prioritize cost, latency, region, capabilities, or another criterion represented in candidate evidence. The SDK appends mandatory isolation, valid-index, and structured-output rules to every custom policy.
+
+The classifier receives a bounded representation of the latest request-bearing user message, textual agent instructions, and candidate names, descriptions, and metadata. Keep secrets out of that evidence because it can cross a model provider boundary.
+
+The classifier prompt tells the model not to infer preference from declaration order. If the classifier call times out, fails, or returns an invalid choice, the router uses the first candidate. Candidate evidence that exceeds `max_candidate_chars``maxCandidateChars` raises `ValueError``Error` instead.
+
+`ClassifierStrategy` only chooses the opening model. If the selected model fails and no same-model retry claims the failure, the strategy declines further selection. The router surfaces the selected model’s original error instead of switching candidates.
+
+## Build a custom routing strategy
+
+Implement `RoutingStrategy`, the protocolinterface, when the built-in policies do not match your routing goal. The contract defines one asynchronous `select` method. It receives a `RoutingContext` and returns one of that context’s candidate instances or `None``undefined` to decline.
+
+`ModelRouter` decides when to call `select`, applies the selected candidate, and tracks switches and failure rounds. The strategy chooses a candidate or declines; it does not perform the transition itself.
+
+The example implements the contract by combining classifier-based opening selection with fallback after a failed serving attempt.
+
+(( tab "Python" ))
+```python
+from typing import Any
+
+from strands import Agent
+from strands.models import (
+    BedrockModel,
+    ClassifierStrategy,
+    FallbackStrategy,
+    ModelRouter,
+    RoutingCandidate,
+    RoutingContext,
+    RoutingStrategy,
+)
+
+
+class ClassifyThenFallback:
+    def __init__(self, classifier: ClassifierStrategy) -> None:
+        self._classifier = classifier
+        self._fallback = FallbackStrategy()
+
+    async def select(
+        self,
+        context: RoutingContext,
+        **kwargs: Any,
+    ) -> RoutingCandidate | None:
+        if not context.attempts:
+            return await self._classifier.select(context, **kwargs)
+        return await self._fallback.select(context, **kwargs)
+
+
+classifier_model = BedrockModel(
+    model_id="us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    max_tokens=64,
+    streaming=False,
+    temperature=0,
+)
+strategy: RoutingStrategy = ClassifyThenFallback(
+    ClassifierStrategy(classifier_model)
+)
+router = ModelRouter(
+    models=[
+        RoutingCandidate(
+            BedrockModel(model_id="us.amazon.nova-lite-v1:0"),
+            name="routine",
+            description="Concise factual questions and routine requests.",
+        ),
+        RoutingCandidate(
+            BedrockModel(model_id="us.amazon.nova-pro-v1:0"),
+            name="advanced",
+            description="Systems design with several interacting constraints.",
+        ),
+    ],
+    strategy=strategy,
+)
+agent = Agent(model=router)
+agent("Design a rollback-safe migration from regional to global idempotency keys.")
+```
+(( /tab "Python" ))
+
+(( tab "TypeScript" ))
+```typescript
+import {
+  Agent,
+  BedrockModel,
+  ClassifierStrategy,
+  FallbackStrategy,
+  ModelRouter,
+  RoutingCandidate,
+  type RoutingContext,
+  type RoutingStrategy,
+} from '@strands-agents/sdk'
+
+class ClassifyThenFallback implements RoutingStrategy {
+  private readonly _classifier: ClassifierStrategy
+  private readonly _fallback = new FallbackStrategy()
+
+  constructor(classifier: ClassifierStrategy) {
+    this._classifier = classifier
+  }
+
+  async select(context: RoutingContext): Promise<RoutingCandidate | undefined> {
+    if (context.attempts.length === 0) {
+      return this._classifier.select(context)
+    }
+    return this._fallback.select(context)
+  }
+}
+
+const classifierModel = new BedrockModel({
+  modelId: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+  maxTokens: 64,
+  temperature: 0,
+})
+const strategy = new ClassifyThenFallback(new ClassifierStrategy(classifierModel))
+const router = new ModelRouter(
+  [
+    new RoutingCandidate({
+      model: new BedrockModel({
+        modelId: 'us.amazon.nova-lite-v1:0',
+      }),
+      name: 'routine',
+      description: 'Concise factual questions and routine requests.',
+    }),
+    new RoutingCandidate({
+      model: new BedrockModel({
+        modelId: 'us.amazon.nova-pro-v1:0',
+      }),
+      name: 'advanced',
+      description: 'Systems design with several interacting constraints.',
+    }),
+  ],
+  { strategy }
+)
+const agent = new Agent({ model: router })
+await agent.invoke(
+  'Design a rollback-safe migration from regional to global idempotency keys.'
+)
+```
+(( /tab "TypeScript" ))
+
+A custom `select` method can inspect the request, tool specifications, candidate metadata, read-only invocation state, and prior attempts. Routing strategies must not mutate invocation state. The method must return one of the candidate instances in its routing context. Returning a new, equivalent candidate is an error.
+
+## Understand retries and switches
+
+To predict which model handles each call, separate same-model retries from candidate switches:
+
+1.  The routing strategy chooses a candidate before the first model call.
+2.  That model handles later calls in the same agent loop unless a call fails.
+3.  `ModelRetryStrategy` gets the first chance to retry the same model.
+4.  If no retry claims the failure, the router asks its strategy for another candidate.
+5.  A replacement model gets a fresh retry budget. A successful call starts a new failure round and makes the other candidates available again.
+
+The next agent invocation starts with a new routing decision. Routing selects each candidate at most once per failure round, though the retry strategy can call the selected model more than once. This prevents routing cycles.
+
+## Work within current limits
+
+Choose candidates with comparable context windows and tokenizers so context estimation stays aligned with the selected model.
+
+-   Model routing rejects stateful candidate models.
+-   `agent.model` remains the first candidate. Proactive context estimation also uses that default model, even when routing selects another candidate.
+-   If a candidate fails after emitting stream events and its replacement completes, streaming consumers receive the failed candidate’s emitted events followed by the replacement’s complete stream.
+
+## Related pages
+
+- [Retry Strategies](/docs/user-guide/concepts/agents/retry-strategies/index.md) (1 shared tag)
+- [Chaos Testing](/docs/user-guide/evals-sdk/chaos_testing/index.md) (1 shared tag)
+- [Detectors](/docs/user-guide/evals-sdk/detectors/index.md) (1 shared tag)
+- [Failure Detection](/docs/user-guide/evals-sdk/detectors/failure_detection/index.md) (1 shared tag)
+- [Operating Agents in Production](/docs/user-guide/deploy/operating-agents-in-production/index.md) (1 shared tag)
+- [Failure Communication Evaluator](/docs/user-guide/evals-sdk/evaluators/failure_communication_evaluator/index.md) (1 shared tag)
+- [Partial Completion Evaluator](/docs/user-guide/evals-sdk/evaluators/partial_completion_evaluator/index.md) (1 shared tag)
+- [Recovery Strategy Evaluator](/docs/user-guide/evals-sdk/evaluators/recovery_strategy_evaluator/index.md) (1 shared tag)
+- [Root Cause Analysis](/docs/user-guide/evals-sdk/detectors/root_cause_analysis/index.md) (1 shared tag)
+- [Session Diagnosis](/docs/user-guide/evals-sdk/detectors/diagnosis/index.md) (1 shared tag)
+
+
+## Implementation
+
+### Python
+
+- [harness-sdk/strands-py/src/strands/models/routing/router.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/routing/router.py)
+- [harness-sdk/strands-py/src/strands/models/routing/classifier_strategy.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/routing/classifier_strategy.py)
+
+### TypeScript
+
+- [harness-sdk/strands-ts/src/models/routing/router.ts](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/models/routing/router.ts)
+- [harness-sdk/strands-ts/src/models/routing/classifier-strategy.ts](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/models/routing/classifier-strategy.ts)
+
+Source: https://strandsagents.com/docs/user-guide/concepts/model-providers/model-routing/index.md
 
 ---
 
@@ -35587,6 +36068,35 @@ const storage = new S3Storage('my-bucket', {
 ```
 (( /tab "TypeScript" ))
 
+#### Required S3 permissions
+
+The credentials used by `S3Storage` need these permissions:
+
+-   `s3:PutObject` to create and update data
+-   `s3:GetObject` to retrieve data
+-   `s3:DeleteObject` to delete data
+-   `s3:ListBucket` to list keys under the configured prefix
+
+This policy grants the required permissions for one bucket:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::my-agent-sessions/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::my-agent-sessions"
+    }
+  ]
+}
+```
+
 You cannot pass both a region and a pre-configured client; pick one or the other.
 
 ## Custom backends
@@ -39457,11 +39967,12 @@ const agent = new Agent({
 | Tool | Description | Supported in |
 | --- | --- | --- |
 | [File Editor](#file-editor) | View, create, and edit files | Python, TypeScript (Node.js) |
-| [HTTP Request](#http-request) | Make HTTP requests to external APIs | Python, TypeScript (Node.js 20+, browsers) |
+| [HTTP Request](#http-request) | Make HTTP requests to external APIs | Python, TypeScript (Node.js 22+, browsers) |
 | [Notebook](#notebook) | Manage persistent text notebooks | TypeScript (Node.js, browsers) |
 | [Bash](#bash) | Execute shell commands with persistent sessions | Python, TypeScript (Node.js, Unix/Linux/macOS) |
 | [Sleep](#sleep) | Pause execution for a bounded, cancellable duration | Python, TypeScript (Node.js, browsers) |
 | [Stop](#stop-experimental) | Gracefully end the agent loop when the task is complete | Python, TypeScript (Node.js, browsers) |
+| [Web Fetch](#web-fetch) | Fetch a URL and return cleaned markdown for a model to read | Python |
 
 ### File Editor
 
@@ -39507,7 +40018,7 @@ agent("Create a file at /tmp/hello.txt with the contents 'Hello, world!'")
 
 Lets your agent call external APIs and fetch web content. Supports all HTTP methods, custom headers, and request bodies. Default timeout is 30 seconds.
 
-*Supported in: Python; Node.js 20+, modern browsers (TypeScript).*
+*Supported in: Python; Node.js 22+, modern browsers (TypeScript).*
 
 (( tab "Python" ))
 The Python tool delegates all networking to an `httpx.AsyncClient`. Use the `make_http_request` factory to supply a pre-configured client with authentication, timeouts, redirects, proxies, or other transport-level configuration.
@@ -39774,6 +40285,72 @@ result = agent("Summarize the changes in ./CHANGELOG.md")
 
 ---
 
+### Web Fetch
+
+Fetches an HTTP(S) URL and returns its content. Two modes are available, configured at construction time via `make_web_fetch`:
+
+-   **`agentic`** (default) — HTML is converted to markdown and passed to an analyst agent that answers a `prompt`, so the full page never enters the main agent’s context. Use when targeted answers are needed about potentially large pages.
+-   **`markdown`** — HTML is converted to clean markdown with scripts, styles, and noise stripped. Use when the agent needs full pages for reasoning.
+
+The tool delegates all networking to an `httpx.AsyncClient`. Use the `make_web_fetch` factory to supply a pre-configured client with custom timeouts, redirects, proxies, or caching. The `max_bytes` parameter caps the HTTP response size (default 5 MiB); `max_content_chars` caps the extracted content delivered to the model or analyst (default 50,000 characters). For `mode='agentic'`, the factory also accepts a `model` for the analyst; the agent’s own model is used when none is supplied.
+
+*Supported in: Python (all platforms).*
+
+Install required
+
+`web_fetch` requires the optional `web-fetch` extra:
+
+```bash
+pip install 'strands-agents[web-fetch]'
+```
+
+Security posture
+
+`web_fetch` accepts only `http://` and `https://` URLs and caps response bodies at 5 MiB by default. Egress control belongs at the layer that encapsulates the agent — a sandbox, microVM, or network policy — where it can be enforced consistently across all tools, including `shell`.
+
+**Example:**
+
+(( tab "Python" ))
+```python
+from strands import Agent
+from strands.vended_tools import web_fetch
+
+agent = Agent(tools=[web_fetch])
+agent("What is the pricing for the enterprise plan at https://example.com/pricing")
+```
+
+Reading the full page as markdown:
+
+```python
+from strands import Agent
+from strands.vended_tools import make_web_fetch
+
+tool = make_web_fetch(mode="markdown")
+agent = Agent(tools=[tool])
+agent("Read https://example.com/docs and then explain the architecture")
+```
+
+Dedicated analyst model and tighter response cap:
+
+```python
+import httpx
+from strands import Agent
+from strands.models import BedrockModel
+from strands.vended_tools import make_web_fetch
+
+tool = make_web_fetch(
+    mode="agentic",
+    client=httpx.AsyncClient(timeout=10.0),
+    max_bytes=1 * 1024 * 1024,
+    max_content_chars=25_000,
+    model=BedrockModel(model_id="us.amazon.nova-micro-v1:0"),
+)
+agent = Agent(tools=[tool])
+```
+(( /tab "Python" ))
+
+---
+
 ## Using Multiple Tools Together
 
 Combine vended tools to build powerful agent workflows:
@@ -39843,6 +40420,7 @@ Tool names are stable and will not change. In minor versions, a tool’s descrip
 - [harness-sdk/strands-py/src/strands/vended_tools/http_request/http_request.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_tools/http_request/http_request.py)
 - [harness-sdk/strands-py/src/strands/vended_tools/shell/shell.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_tools/shell/shell.py)
 - [harness-sdk/strands-py/src/strands/vended_tools/sleep/sleep.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_tools/sleep/sleep.py)
+- [harness-sdk/strands-py/src/strands/vended_tools/web_fetch/web_fetch.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_tools/web_fetch/web_fetch.py)
 - [harness-sdk/strands-py/src/strands/experimental/tools/stop/stop.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/tools/stop/stop.py)
 
 Source: https://strandsagents.com/docs/user-guide/concepts/tools/vended-tools/index.md
@@ -41348,7 +41926,7 @@ Amazon Bedrock AgentCore Runtime is a secure, serverless runtime purpose-built f
 Before you start, you need:
 
 -   An AWS account with appropriate [permissions](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-permissions.html)
--   Python 3.10+ or Node.js 20+
+-   Python 3.10+ or Node.js 22+
 -   Optional: A container engine (Docker, Finch, or Podman) - only required for local testing and advanced deployment scenarios
 
 ---
@@ -42095,7 +42673,7 @@ This guide covers deploying TypeScript-based Strands agents to [Amazon Bedrock A
 
 ## Prerequisites
 
--   Node.js 20+
+-   Node.js 22+
 -   Docker installed and running
 -   AWS CLI configured with valid credentials
 -   AWS account with appropriate [permissions](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-permissions.html)
@@ -43273,7 +43851,7 @@ This guide covers deploying TypeScript-based Strands agents using Docker for loc
 
 ## Prerequisites
 
--   Node.js 20+
+-   Node.js 22+
 -   [Docker](https://www.docker.com/) installed and running
 -   Model provider credentials
 
@@ -43400,8 +43978,8 @@ EOF
 
 # Create Docker configuration
 cat > Dockerfile << 'EOF'
-# Use Node 20+
-FROM node:20
+# Use Node 22+
+FROM node:22
 
 WORKDIR /app
 
@@ -43542,8 +44120,8 @@ app.listen(PORT, '0.0.0.0', () => {
 Step 6: Create Dockerfile
 
 ```dockerfile
-# Use Node 20+
-FROM node:20
+# Use Node 22+
+FROM node:22
 
 WORKDIR /app
 
@@ -45432,12 +46010,12 @@ Operating Strands agents in production requires careful consideration of configu
 - [Session Diagnosis](/docs/user-guide/evals-sdk/detectors/diagnosis/index.md) (2 shared tags)
 - [Evaluating Remote Traces](/docs/user-guide/evals-sdk/how-to/trace_providers/index.md) (1 shared tag)
 - [Metrics](/docs/user-guide/observability-evaluation/metrics/index.md) (1 shared tag)
+- [Model Routing](/docs/user-guide/concepts/model-providers/model-routing/index.md) (1 shared tag)
 - [Observability](/docs/user-guide/observability-evaluation/observability/index.md) (1 shared tag)
 - [Task Decorator](/docs/user-guide/evals-sdk/how-to/eval_task/index.md) (1 shared tag)
 - [Traces](/docs/user-guide/observability-evaluation/traces/index.md) (1 shared tag)
 - [Deploy to Kubernetes](/docs/user-guide/deploy/deploy_to_kubernetes/index.md) (1 shared tag)
 - [Deploy to Terraform](/docs/user-guide/deploy/deploy_to_terraform/index.md) (1 shared tag)
-- [Deploy with Nx Plugin for AWS](/docs/user-guide/deploy/deploy_with_nx_plugin_for_aws/index.md) (1 shared tag)
 
 Source: https://strandsagents.com/docs/user-guide/deploy/operating-agents-in-production/index.md
 
@@ -46023,11 +46601,11 @@ Agents under failure often burn tokens on retry storms (repeated failed tool cal
 - [Recovery Strategy Evaluator](/docs/user-guide/evals-sdk/evaluators/recovery_strategy_evaluator/index.md) (2 shared tags)
 - [Experiment Generator](/docs/user-guide/evals-sdk/experiment_generator/index.md) (1 shared tag)
 - [Simulators](/docs/user-guide/evals-sdk/simulators/index.md) (1 shared tag)
+- [Model Routing](/docs/user-guide/concepts/model-providers/model-routing/index.md) (1 shared tag)
 - [User Simulation](/docs/user-guide/evals-sdk/simulators/user_simulation/index.md) (1 shared tag)
 - [Tool Simulation](/docs/user-guide/evals-sdk/simulators/tool_simulation/index.md) (1 shared tag)
 - [Retry Strategies](/docs/user-guide/concepts/agents/retry-strategies/index.md) (1 shared tag)
 - [Detectors](/docs/user-guide/evals-sdk/detectors/index.md) (1 shared tag)
-- [Failure Detection](/docs/user-guide/evals-sdk/detectors/failure_detection/index.md) (1 shared tag)
 
 Source: https://strandsagents.com/docs/user-guide/evals-sdk/chaos_testing/index.md
 
@@ -46519,13 +47097,13 @@ Both phases handle large sessions that exceed LLM context limits through automat
 - [Failure Detection](/docs/user-guide/evals-sdk/detectors/failure_detection/index.md) (2 shared tags)
 - [Root Cause Analysis](/docs/user-guide/evals-sdk/detectors/root_cause_analysis/index.md) (2 shared tags)
 - [Session Diagnosis](/docs/user-guide/evals-sdk/detectors/diagnosis/index.md) (2 shared tags)
+- [Model Routing](/docs/user-guide/concepts/model-providers/model-routing/index.md) (1 shared tag)
 - [Retry Strategies](/docs/user-guide/concepts/agents/retry-strategies/index.md) (1 shared tag)
 - [Chaos Testing](/docs/user-guide/evals-sdk/chaos_testing/index.md) (1 shared tag)
 - [Operating Agents in Production](/docs/user-guide/deploy/operating-agents-in-production/index.md) (1 shared tag)
 - [Failure Communication Evaluator](/docs/user-guide/evals-sdk/evaluators/failure_communication_evaluator/index.md) (1 shared tag)
 - [Partial Completion Evaluator](/docs/user-guide/evals-sdk/evaluators/partial_completion_evaluator/index.md) (1 shared tag)
 - [Recovery Strategy Evaluator](/docs/user-guide/evals-sdk/evaluators/recovery_strategy_evaluator/index.md) (1 shared tag)
-- [Interrupts](/docs/user-guide/concepts/interrupts/index.md) (1 shared tag)
 
 Source: https://strandsagents.com/docs/user-guide/evals-sdk/detectors/index.md
 
@@ -46818,10 +47396,10 @@ asyncio.run(main())
 - [Operating Agents in Production](/docs/user-guide/deploy/operating-agents-in-production/index.md) (2 shared tags)
 - [Evaluating Remote Traces](/docs/user-guide/evals-sdk/how-to/trace_providers/index.md) (1 shared tag)
 - [Metrics](/docs/user-guide/observability-evaluation/metrics/index.md) (1 shared tag)
+- [Model Routing](/docs/user-guide/concepts/model-providers/model-routing/index.md) (1 shared tag)
 - [Observability](/docs/user-guide/observability-evaluation/observability/index.md) (1 shared tag)
 - [Task Decorator](/docs/user-guide/evals-sdk/how-to/eval_task/index.md) (1 shared tag)
 - [Traces](/docs/user-guide/observability-evaluation/traces/index.md) (1 shared tag)
-- [Retry Strategies](/docs/user-guide/concepts/agents/retry-strategies/index.md) (1 shared tag)
 
 Source: https://strandsagents.com/docs/user-guide/evals-sdk/detectors/diagnosis/index.md
 
@@ -46999,13 +47577,13 @@ If the pre-flight check passes but the model still returns a context error, the 
 - [Detectors](/docs/user-guide/evals-sdk/detectors/index.md) (2 shared tags)
 - [Root Cause Analysis](/docs/user-guide/evals-sdk/detectors/root_cause_analysis/index.md) (2 shared tags)
 - [Session Diagnosis](/docs/user-guide/evals-sdk/detectors/diagnosis/index.md) (2 shared tags)
+- [Model Routing](/docs/user-guide/concepts/model-providers/model-routing/index.md) (1 shared tag)
 - [Retry Strategies](/docs/user-guide/concepts/agents/retry-strategies/index.md) (1 shared tag)
 - [Chaos Testing](/docs/user-guide/evals-sdk/chaos_testing/index.md) (1 shared tag)
 - [Operating Agents in Production](/docs/user-guide/deploy/operating-agents-in-production/index.md) (1 shared tag)
 - [Failure Communication Evaluator](/docs/user-guide/evals-sdk/evaluators/failure_communication_evaluator/index.md) (1 shared tag)
 - [Partial Completion Evaluator](/docs/user-guide/evals-sdk/evaluators/partial_completion_evaluator/index.md) (1 shared tag)
 - [Recovery Strategy Evaluator](/docs/user-guide/evals-sdk/evaluators/recovery_strategy_evaluator/index.md) (1 shared tag)
-- [Interrupts](/docs/user-guide/concepts/interrupts/index.md) (1 shared tag)
 
 Source: https://strandsagents.com/docs/user-guide/evals-sdk/detectors/failure_detection/index.md
 
@@ -47226,10 +47804,10 @@ for fix_type, recs in by_type.items():
 - [Operating Agents in Production](/docs/user-guide/deploy/operating-agents-in-production/index.md) (2 shared tags)
 - [Evaluating Remote Traces](/docs/user-guide/evals-sdk/how-to/trace_providers/index.md) (1 shared tag)
 - [Metrics](/docs/user-guide/observability-evaluation/metrics/index.md) (1 shared tag)
+- [Model Routing](/docs/user-guide/concepts/model-providers/model-routing/index.md) (1 shared tag)
 - [Observability](/docs/user-guide/observability-evaluation/observability/index.md) (1 shared tag)
 - [Task Decorator](/docs/user-guide/evals-sdk/how-to/eval_task/index.md) (1 shared tag)
 - [Traces](/docs/user-guide/observability-evaluation/traces/index.md) (1 shared tag)
-- [Retry Strategies](/docs/user-guide/concepts/agents/retry-strategies/index.md) (1 shared tag)
 
 Source: https://strandsagents.com/docs/user-guide/evals-sdk/detectors/root_cause_analysis/index.md
 
@@ -54300,7 +54878,7 @@ This will output detailed ADOT logs to help identify configuration problems.
 - [TypeScript Deployment to Amazon Bedrock AgentCore Runtime](/docs/user-guide/deploy/deploy_to_bedrock_agentcore/typescript/index.md) (3 shared tags)
 - [Guardrails](/docs/user-guide/safety-security/guardrails/index.md) (2 shared tags)
 - [Amazon Nova](/docs/user-guide/concepts/model-providers/amazon-nova/index.md) (2 shared tags)
-- [Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic/index.md) (2 shared tags)
+- [Bedrock Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/bedrock/index.md) (2 shared tags)
 - [Bedrock Knowledge Base Store](/docs/user-guide/concepts/memory/bedrock-knowledge-base/index.md) (2 shared tags)
 - [PII Redaction](/docs/user-guide/safety-security/pii-redaction/index.md) (2 shared tags)
 - [Amazon Bedrock](/docs/user-guide/concepts/model-providers/amazon-bedrock/index.md) (2 shared tags)
@@ -55000,8 +55578,8 @@ with open("experiment.json", "w") as f:
 ## Related pages
 
 - [Bidirectional Streaming Session Management](/docs/user-guide/concepts/bidirectional-streaming/session-management/index.md) (1 shared tag)
-- [State Management](/docs/user-guide/concepts/agents/state/index.md) (1 shared tag)
 - [Session Management](/docs/user-guide/concepts/agents/session-management/index.md) (1 shared tag)
+- [State Management](/docs/user-guide/concepts/agents/state/index.md) (1 shared tag)
 
 Source: https://strandsagents.com/docs/user-guide/evals-sdk/how-to/serialization/index.md
 
@@ -60489,7 +61067,7 @@ After completing this guide you can integrate your agent with a web server or br
 
 ## Install the SDK
 
-First, ensure that you have Node.js 20+ and npm installed. See the [npm documentation](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) for installation instructions.
+First, ensure that you have Node.js 22+ and npm installed. See the [npm documentation](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) for installation instructions.
 
 Create a new directory for your project and initialize it:
 
@@ -60906,7 +61484,7 @@ Ollama doesn’t currently provide native guardrail capabilities like Bedrock. I
 
 - [Amazon Bedrock](/docs/user-guide/concepts/model-providers/amazon-bedrock/index.md) (3 shared tags)
 - [Amazon Nova](/docs/user-guide/concepts/model-providers/amazon-nova/index.md) (2 shared tags)
-- [Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic/index.md) (2 shared tags)
+- [Bedrock Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/bedrock/index.md) (2 shared tags)
 - [Bedrock Knowledge Base Store](/docs/user-guide/concepts/memory/bedrock-knowledge-base/index.md) (2 shared tags)
 - [Deploying Strands Agents to Amazon Bedrock AgentCore Runtime](/docs/user-guide/deploy/deploy_to_bedrock_agentcore/index.md) (2 shared tags)
 - [Python Deployment to Amazon Bedrock AgentCore Runtime](/docs/user-guide/deploy/deploy_to_bedrock_agentcore/python/index.md) (2 shared tags)
@@ -62424,6 +63002,123 @@ The Strands SDK is an open-source project that welcomes community contributions.
 -   **Share Feedback**: Your input on versioning and support policies helps shape the SDK’s future
 
 Source: https://strandsagents.com/docs/user-guide/versioning-and-support/index.md
+
+---
+
+## Our production SDK hit 99.95% on ARC-AGI-3
+
+Date: 2026-08-27T00:00:00.000Z
+Tags: Announcement, Context Management, Benchmarks, Open Source
+
+Models beating video games can feel like AGI.
+
+However, we wondered how crucial Anthropic’s harness was when they reported Fable 5 [completed](https://www.anthropic.com/research/claude-fable-5-mythos-5#:~:text=Fable%205%20is%20the,minimal%2C%20vision%2Donly%20harness.) Pokémon FireRed with a “minimal, vision-only harness”. Fable 5 beat Pokémon FireRed with an agent harness that took screenshots, but it [failed](https://arcprize.org/results/anthropic-claude-fable-5) to complete every game puzzle in ARC-AGI, an intelligence benchmark designed so humans solve 100% of games but current models can’t.
+
+Your browser does not support the video tag.
+
+*Example of ARC-AGI-3 puzzle being done by a human. Our agent harness beat all levels without screenshots.*
+
+Anthropic isn’t permitted to use a harness for its ARC-AGI set, so our team felt curious using our harness with a weaker model for ARC-AGI-3. We tested our open source Strands Harness SDK with Opus 5 and [achieved](https://arcprize.org/scorecards/8a10b024-3560-448f-ac31-becc48affe5b) a 99.95% ARC-AGI-3 score with all levels completed!
+
+Achieving a 99.95% score with Opus 5 and our harness, [compared](https://arcprize.org/results/anthropic-claude-opus-5) to Opus 5’s current 30.16% score, highlights how much intelligence gets left on the table without a harness. OpenAI’s latest model Astra [needed](https://arcprize.org/blog/astra) a custom harness to hit 99.99% on ARC-AGI-3. NVIDIA’s AVO harness with Opus 5 [scored](https://developer.nvidia.com/blog/nvidia-avo-reaches-100-on-arc-agi-3-demonstrating-a-frontier-level-general-purpose-architecture-for-long-horizon-autonomous-agents/?ncid=so-twit-543600) a 100% on ARC-AGI-3. But, a key difference with our harness is we made the code [public](https://github.com/strands-labs/benchmark-harnesses/tree/main/arc-agi-3-agent).
+
+Through the power of a well-constructed agent loop and basic tools (e.g. `bash`, `grep`, file operations), our harness enabled Opus 5 to solve all levels without needing a single screenshot.
+
+## Our agent did its own context engineering
+
+Our harness first renders ARC-AGI-3’s numeric grid as text. The runner stores the latest board in `current_board.txt` and appends it to a `logs.txt` file to keep a history of the game. The agent can start to play the puzzle.
+
+The loop kicks off when the action queue is empty, triggering the runner to invoke the agent. Opus 5 can repeatedly search logs, write and run shell or Python scripts, check the results, then adjust its strategy.
+
+```python
+def analyze(
+    self,
+    log_path: Path,
+    action_num: int,
+    retry_nudge: str = "",
+    **kwargs: Any,
+) -> Optional[dict[str, Any]]:
+    log_path = Path(log_path)
+    workspace = log_path.parent
+
+    ...
+
+    path_key = str(log_path)
+    is_first = self._call_count.get(path_key, 0) == 0
+    self._call_count[path_key] = self._call_count.get(path_key, 0) + 1
+
+    actions_path = workspace / _ACTIONS_FILE
+    if actions_path.exists():
+        actions_path.unlink()  # PRO-LONG clears it every call
+
+    active_route = self._route_for(path_key)
+
+    agent = Agent(
+        model=self._build_model(*active_route),
+        tools=make_prolong_tools(workspace),
+        system_prompt=self._build_system_prompt(),
+        callback_handler=None,
+    )
+    prompt = self._build_prompt(
+        log_path, action_num, is_first, retry_nudge=retry_nudge, **kwargs
+    )
+
+    t0 = time.time()
+    result = None
+    for attempt in range(_MAX_THROTTLE_RETRIES):
+        try:
+            result = agent(prompt)
+            break
+        except Exception as exc:
+            ...
+    if result is None:
+        return None
+    elapsed = time.time() - t0
+
+    text = str(result)
+    meta = self._extract_usage(result, active_route[0])
+
+    if not actions_path.exists():
+        ...
+        try:
+            agent(
+                f"You have not written {_ACTIONS_FILE} yet. Write it now with "
+                'the shape {"actions": ["ACTION1", "ACTION6(30,40)"]} — a list of '
+                f"1-{self._action_cap} actions to execute in order. Write the file; "
+                "do not reply with the JSON only."
+            )
+        except Exception as exc:
+            ...
+        ...
+
+    actions = self._parse_actions_json_text(
+        actions_path.read_text(errors="replace"), cap=self._action_cap
+    )
+
+    ...
+
+    return {
+        "actions": actions,
+        "hint": self._extract_tag(text, "PLAN") or text[-1500:],
+        "plan": self._extract_tag(text, "PLAN") or "",
+        "meta": meta,
+        "cost": 0.0,
+    }
+```
+
+*Source: [GitHub](https://github.com/strands-labs/benchmark-harnesses/blob/main/arc-agi-3-agent/prolong_agent/agent/strands_agent.py#L348-L494)*
+
+What if the agent made a bad move? The runner records it in `logs.txt`. This allows our agent to learn and adjust, effectively running its own context engineering. The loop continues until the agent writes its next action plan in `actions.json`. Afterwards, the runner validates and executes the plan, kicking off another loop and recording the results. This cycle continues until every level is complete.
+
+## What’s next
+
+This design demonstrated a huge improvement in token-efficiency. The underlying PRO-LONG research, used in our harness, [found](https://arxiv.org/html/2607.20064v2#S2.SS2) that keeping history in an external log and retrieving only relevant slices used 4.2–5.8× fewer billed tokens than specialized harnesses (WorldModeler and Schema) with similar ARC-AGI-3 scores.
+
+The results we got back from our agent also revealed an impressive feat of self-directed context engineering. The agent made 734 scripts across 25 games after many loops. Imagine if this pattern extended into physical AI: A Strands Agent enabling a robot to maintain a working model of its environment, predict consequences for an action, then create a goal-oriented plan.
+
+We’d love to hear your thoughts. Find us in our [Discord](https://discord.gg/strands)!
+
+Source: https://strandsagents.com/blog/our-production-sdk-hit-99-95-on-arc-agi-3/index.md
 
 ---
 

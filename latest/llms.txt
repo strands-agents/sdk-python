@@ -16,7 +16,7 @@
   - [Multi-Agent Systems](https://strandsagents.com/docs/user-guide/concepts/multi-agent/multi-agent-patterns/index.md): Coordinate multiple AI agents with handoffs, swarms, graphs, and workflow patterns. Built-in primitives for complex multi-agent orchestration.
   - [Structured Output](https://strandsagents.com/docs/user-guide/concepts/agents/structured-output/index.md): Get typed, validated responses from AI agents. Define Pydantic models and Strands returns structured data instead of raw text.
   - [Streaming Responses](https://strandsagents.com/docs/user-guide/concepts/streaming/index.md): Stream AI agent responses in real time. Handle partial results, tool invocations, and token-by-token output as the agent works.
-  - [Voice & Realtime](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/quickstart/index.md): Build voice-enabled AI agents with real-time audio streaming. Works with Amazon Nova Sonic, Gemini Live, and OpenAI Realtime.
+  - [Voice & Realtime](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/quickstart/index.md): Build voice-enabled AI agents with real-time audio streaming. Works with Bedrock Nova Sonic, Google Gemini Live, and OpenAI Realtime.
 - Concepts
   - [agent-loop](https://strandsagents.com/docs/user-guide/concepts/agents/agent-loop/index.md): How Strands agents reason, plan, and act. Understand the model-driven loop that orchestrates tool use, reflection, and goal completion.
   - [state](https://strandsagents.com/docs/user-guide/concepts/agents/state/index.md): Maintain state in Strands agents across turns and sessions: conversation history, key-value agent state, and per-request invocation state.
@@ -65,9 +65,9 @@
   - Bidirectional Streaming
     - [agent](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/agent/index.md): Build real-time voice conversations with BidiAgent. Stream audio and text over persistent connections with interruptions and concurrent tool calling.
     - Models
-      - [nova_sonic](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic/index.md): Build real-time speech-to-speech agents with Amazon Nova Sonic and Strands. Bidirectional audio streaming with interruption handling and tool calling.
-      - [gemini_live](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/models/gemini_live/index.md): Build real-time voice agents with Gemini Live and Strands. Stream audio and text over WebSocket with interruptions and tool calling.
-      - [openai_realtime](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/models/openai_realtime/index.md): Build low-latency voice agents with the OpenAI Realtime API and Strands. Configure speech-to-speech streaming, interruptions, and tool calling.
+      - [bedrock](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/models/bedrock/index.md): Build real-time speech-to-speech agents with Amazon Bedrock Nova Sonic and Strands. Bidirectional audio streaming with interruption handling and tool calling.
+      - [google](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/models/google/index.md): Build real-time voice agents with Google's Gemini Live API and Strands. Stream audio and text over WebSocket with interruptions and tool calling.
+      - [openai](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/models/openai/index.md): Build low-latency voice agents with the OpenAI Realtime API and Strands. Configure speech-to-speech streaming, interruptions, and tool calling.
     - [io](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/io/index.md): Connect microphones, speakers, consoles, and WebSockets to a Strands bidi-agent with BidiInput and BidiOutput channels for audio and text.
     - [events](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/events/index.md): Send and receive bidirectional streaming events in Strands agents. Process audio, text, and tool activity in real time over persistent connections.
     - [interruption](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/interruption/index.md): Handle real-time voice interruptions in BidiAgent. Voice Activity Detection stops responses mid-stream for natural, human-like conversations.
@@ -78,6 +78,7 @@
     - [agent-config](https://strandsagents.com/docs/user-guide/concepts/experimental/agent-config/index.md): Create Strands agents from JSON files or dictionaries with the experimental config_to_agent function, including tool loading and model settings.
 - Model Providers
   - [model-providers](https://strandsagents.com/docs/user-guide/concepts/model-providers/index.md): Use any LLM with Strands agents. Switch between Amazon Bedrock, Anthropic, OpenAI, Ollama, and more without changing your agent code.
+  - [model-routing](https://strandsagents.com/docs/user-guide/concepts/model-providers/model-routing/index.md): Route each Strands agent invocation across multiple models with ordered fallback, request classification, custom strategies, and bounded switching.
   - [amazon-bedrock](https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/index.md): Use Amazon Bedrock models in Strands agents. Configure AWS credentials, model settings, guardrails, prompt caching, and multi-modal input.
   - [amazon-nova](https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-nova/index.md): Use Amazon Nova models in Strands agents with the strands-amazon-nova package. Install the provider, configure NovaAPIModel, and generate text.
   - [anthropic](https://strandsagents.com/docs/user-guide/concepts/model-providers/anthropic/index.md): Run Strands agents on Claude models through the Anthropic API. Install the provider, configure AnthropicModel, and enable structured output and caching.
@@ -304,15 +305,14 @@
 - [strands.experimental.bidi](https://strandsagents.com/docs/api/python/strands.experimental.bidi/index.md)
 - [strands.experimental.bidi.agent.agent](https://strandsagents.com/docs/api/python/strands.experimental.bidi.agent.agent/index.md)
 - [strands.experimental.bidi.agent.loop](https://strandsagents.com/docs/api/python/strands.experimental.bidi.agent.loop/index.md)
-- [strands.experimental.bidi.audio](https://strandsagents.com/docs/api/python/strands.experimental.bidi.audio/index.md)
 - [strands.experimental.bidi.io](https://strandsagents.com/docs/api/python/strands.experimental.bidi.io/index.md)
 - [strands.experimental.bidi.io.audio](https://strandsagents.com/docs/api/python/strands.experimental.bidi.io.audio/index.md)
 - [strands.experimental.bidi.io.text](https://strandsagents.com/docs/api/python/strands.experimental.bidi.io.text/index.md)
 - [strands.experimental.bidi.models](https://strandsagents.com/docs/api/python/strands.experimental.bidi.models/index.md)
-- [strands.experimental.bidi.models.gemini_live](https://strandsagents.com/docs/api/python/strands.experimental.bidi.models.gemini_live/index.md)
+- [strands.experimental.bidi.models.bedrock](https://strandsagents.com/docs/api/python/strands.experimental.bidi.models.bedrock/index.md)
+- [strands.experimental.bidi.models.google](https://strandsagents.com/docs/api/python/strands.experimental.bidi.models.google/index.md)
 - [strands.experimental.bidi.models.model](https://strandsagents.com/docs/api/python/strands.experimental.bidi.models.model/index.md)
-- [strands.experimental.bidi.models.nova_sonic](https://strandsagents.com/docs/api/python/strands.experimental.bidi.models.nova_sonic/index.md)
-- [strands.experimental.bidi.models.openai_realtime](https://strandsagents.com/docs/api/python/strands.experimental.bidi.models.openai_realtime/index.md)
+- [strands.experimental.bidi.models.openai](https://strandsagents.com/docs/api/python/strands.experimental.bidi.models.openai/index.md)
 - [strands.experimental.bidi.tools.stop_conversation](https://strandsagents.com/docs/api/python/strands.experimental.bidi.tools.stop_conversation/index.md)
 - [strands.experimental.bidi.types.events](https://strandsagents.com/docs/api/python/strands.experimental.bidi.types.events/index.md)
 - [strands.experimental.bidi.types.io](https://strandsagents.com/docs/api/python/strands.experimental.bidi.types.io/index.md)
@@ -444,6 +444,8 @@
 - [strands.vended_tools.shell.types](https://strandsagents.com/docs/api/python/strands.vended_tools.shell.types/index.md)
 - [strands.vended_tools.sleep.sleep](https://strandsagents.com/docs/api/python/strands.vended_tools.sleep.sleep/index.md)
 - [strands.vended_tools.sleep.types](https://strandsagents.com/docs/api/python/strands.vended_tools.sleep.types/index.md)
+- [strands.vended_tools.web_fetch.types](https://strandsagents.com/docs/api/python/strands.vended_tools.web_fetch.types/index.md)
+- [strands.vended_tools.web_fetch.web_fetch](https://strandsagents.com/docs/api/python/strands.vended_tools.web_fetch.web_fetch/index.md)
 
 ## Api TypeScript
 
@@ -465,6 +467,7 @@
 - [AudioFormat](https://strandsagents.com/docs/api/typescript/AudioFormat/index.md)
 - [AudioSource](https://strandsagents.com/docs/api/typescript/AudioSource/index.md)
 - [AudioSourceData](https://strandsagents.com/docs/api/typescript/AudioSourceData/index.md)
+- [BackgroundTasksConfig](https://strandsagents.com/docs/api/typescript/BackgroundTasksConfig/index.md)
 - [BackoffContext](https://strandsagents.com/docs/api/typescript/BackoffContext/index.md)
 - [BackoffStrategy](https://strandsagents.com/docs/api/typescript/BackoffStrategy/index.md)
 - [BaseModelConfig](https://strandsagents.com/docs/api/typescript/BaseModelConfig/index.md)
@@ -490,6 +493,8 @@
 - [CitationsBlockData](https://strandsagents.com/docs/api/typescript/CitationsBlockData/index.md)
 - [CitationsDelta](https://strandsagents.com/docs/api/typescript/CitationsDelta/index.md)
 - [CitationSourceContent](https://strandsagents.com/docs/api/typescript/CitationSourceContent/index.md)
+- [ClassifierStrategy](https://strandsagents.com/docs/api/typescript/ClassifierStrategy/index.md)
+- [ClassifierStrategyOptions](https://strandsagents.com/docs/api/typescript/ClassifierStrategyOptions/index.md)
 - [ConcurrentInvocationError](https://strandsagents.com/docs/api/typescript/ConcurrentInvocationError/index.md)
 - [ConcurrentToolExecutor](https://strandsagents.com/docs/api/typescript/ConcurrentToolExecutor/index.md)
 - [configureLogging](https://strandsagents.com/docs/api/typescript/configureLogging/index.md)
@@ -758,6 +763,7 @@
 
 ## Blog
 
+- [Our production SDK hit 99.95% on ARC-AGI-3](https://strandsagents.com/blog/our-production-sdk-hit-99-95-on-arc-agi-3/index.md): Strands Agents scored 99.95% on ARC-AGI-3 using the same minimal harness that developers ship to production every day
 - [Robots working together: connecting agents to the physical world with Strands Robots and the Model Hardware Standard](https://strandsagents.com/blog/robots-working-together-model-hardware-standard-strands-robots/index.md): How Strands Robots lets agents read from and act on many robots and devices at once, across Zenoh, AWS IoT, and the new Model Hardware Standard (MHS), in simulation and the real world.
 - [Figma to Code at Scale: Building with Strands Agents](https://strandsagents.com/blog/figma-to-code-at-scale-building-with-strands-agents/index.md): A team at Amazon Ads built a multi-agent system that converts Figma designs into production ad layouts. Here's what their architecture looks like, why they chose Strands, and the lessons they learned shipping it.
 - [Hackathon Challenge: automate the one task you keep putting off](https://strandsagents.com/blog/an-agent-for-the-thing-you-keep-putting-off/index.md): Pick the recurring chore you never quite get to and hand it to an agent. It is harder, and more interesting, than a cron job. There is also $40K in it.
@@ -785,6 +791,46 @@
 ## Changelog
 
 - [Changelog](https://strandsagents.com/changelog/index.md): All releases across the Harness and Evals SDKs
+- Harness TypeScript
+  - [v1.16.0](https://strandsagents.com/changelog/harness/typescript-v1.16.0/index.md): Harness TypeScript v1.16.0 (2026-08-31)
+  - [v1.14.0](https://strandsagents.com/changelog/harness/typescript-v1.14.0/index.md): Harness TypeScript v1.14.0 (2026-08-21)
+  - [v1.13.0](https://strandsagents.com/changelog/harness/typescript-v1.13.0/index.md): Harness TypeScript v1.13.0 (2026-08-12)
+  - [v1.12.0](https://strandsagents.com/changelog/harness/typescript-v1.12.0/index.md): Harness TypeScript v1.12.0 (2026-08-07)
+  - [v1.11.2](https://strandsagents.com/changelog/harness/typescript-v1.11.2/index.md): Harness TypeScript v1.11.2 (2026-07-27)
+  - [v1.11.1](https://strandsagents.com/changelog/harness/typescript-v1.11.1/index.md): Harness TypeScript v1.11.1 (2026-07-24)
+  - [v1.11.0](https://strandsagents.com/changelog/harness/typescript-v1.11.0/index.md): Harness TypeScript v1.11.0 (2026-07-24)
+  - [v1.10.0](https://strandsagents.com/changelog/harness/typescript-v1.10.0/index.md): Harness TypeScript v1.10.0 (2026-07-17)
+  - [v1.9.0](https://strandsagents.com/changelog/harness/typescript-v1.9.0/index.md): Harness TypeScript v1.9.0 (2026-07-10)
+  - [v1.8.0](https://strandsagents.com/changelog/harness/typescript-v1.8.0/index.md): Harness TypeScript v1.8.0 (2026-07-08)
+  - [v1.7.0](https://strandsagents.com/changelog/harness/typescript-v1.7.0/index.md): Harness TypeScript v1.7.0 (2026-06-25)
+  - [v1.6.0](https://strandsagents.com/changelog/harness/typescript-v1.6.0/index.md): Harness TypeScript v1.6.0 (2026-06-16)
+  - [v1.5.0](https://strandsagents.com/changelog/harness/typescript-v1.5.0/index.md): Harness TypeScript v1.5.0 (2026-06-12)
+  - [v1.4.0](https://strandsagents.com/changelog/harness/typescript-v1.4.0/index.md): Harness TypeScript v1.4.0 (2026-06-01)
+  - [v1.3.0](https://strandsagents.com/changelog/harness/typescript-v1.3.0/index.md): Harness TypeScript v1.3.0 (2026-05-21)
+  - [v1.2.0](https://strandsagents.com/changelog/harness/typescript-v1.2.0/index.md): Harness TypeScript v1.2.0 (2026-05-14)
+  - [v1.1.0](https://strandsagents.com/changelog/harness/typescript-v1.1.0/index.md): Harness TypeScript v1.1.0 (2026-05-08)
+  - [v1.0.0](https://strandsagents.com/changelog/harness/typescript-v1.0.0/index.md): Harness TypeScript v1.0.0 (2026-04-30)
+  - [v1.0.0-rc.5](https://strandsagents.com/changelog/harness/typescript-v1.0.0-rc.5/index.md): Harness TypeScript v1.0.0-rc.5 (2026-04-22)
+  - [v1.0.0-rc.4](https://strandsagents.com/changelog/harness/typescript-v1.0.0-rc.4/index.md): Harness TypeScript v1.0.0-rc.4 (2026-04-17)
+  - [v1.0.0-rc.3](https://strandsagents.com/changelog/harness/typescript-v1.0.0-rc.3/index.md): Harness TypeScript v1.0.0-rc.3 (2026-04-08)
+  - [v1.0.0-rc.2](https://strandsagents.com/changelog/harness/typescript-v1.0.0-rc.2/index.md): Harness TypeScript v1.0.0-rc.2 (2026-03-31)
+  - [v1.0.0-rc.1](https://strandsagents.com/changelog/harness/typescript-v1.0.0-rc.1/index.md): Harness TypeScript v1.0.0-rc.1 (2026-03-26)
+  - [v1.0.0-rc.0](https://strandsagents.com/changelog/harness/typescript-v1.0.0-rc.0/index.md): Harness TypeScript v1.0.0-rc.0 (2026-03-26)
+  - [v0.7.0](https://strandsagents.com/changelog/harness/typescript-v0.7.0/index.md): Harness TypeScript v0.7.0 (2026-03-19)
+  - [v0.6.0](https://strandsagents.com/changelog/harness/typescript-v0.6.0/index.md): Harness TypeScript v0.6.0 (2026-03-11)
+  - [v0.5.0](https://strandsagents.com/changelog/harness/typescript-v0.5.0/index.md): Harness TypeScript v0.5.0 (2026-03-04)
+  - [v0.4.0](https://strandsagents.com/changelog/harness/typescript-v0.4.0/index.md): Harness TypeScript v0.4.0 (2026-02-25)
+  - [v0.3.0](https://strandsagents.com/changelog/harness/typescript-v0.3.0/index.md): Harness TypeScript v0.3.0 (2026-02-19)
+  - [v0.2.2](https://strandsagents.com/changelog/harness/typescript-v0.2.2/index.md): Harness TypeScript v0.2.2 (2026-02-11)
+  - [v0.2.1](https://strandsagents.com/changelog/harness/typescript-v0.2.1/index.md): Harness TypeScript v0.2.1 (2026-02-05)
+  - [v0.2.0](https://strandsagents.com/changelog/harness/typescript-v0.2.0/index.md): Harness TypeScript v0.2.0 (2026-01-29)
+  - [v0.1.6](https://strandsagents.com/changelog/harness/typescript-v0.1.6/index.md): Harness TypeScript v0.1.6 (2026-01-21)
+  - [v0.1.5](https://strandsagents.com/changelog/harness/typescript-v0.1.5/index.md): Harness TypeScript v0.1.5 (2026-01-13)
+  - [v0.1.4](https://strandsagents.com/changelog/harness/typescript-v0.1.4/index.md): Harness TypeScript v0.1.4 (2026-01-02)
+  - [v0.1.3](https://strandsagents.com/changelog/harness/typescript-v0.1.3/index.md): Harness TypeScript v0.1.3 (2025-12-15)
+  - [v0.1.2](https://strandsagents.com/changelog/harness/typescript-v0.1.2/index.md): Harness TypeScript v0.1.2 (2025-12-04)
+  - [v0.1.1](https://strandsagents.com/changelog/harness/typescript-v0.1.1/index.md): Harness TypeScript v0.1.1 (2025-12-03)
+  - [v0.1.0](https://strandsagents.com/changelog/harness/typescript-v0.1.0/index.md): Harness TypeScript v0.1.0 (2025-12-03)
 - Harness Python
   - [v1.54.0](https://strandsagents.com/changelog/harness/python-v1.54.0/index.md): Harness Python v1.54.0 (2026-08-27)
   - [v1.53.0](https://strandsagents.com/changelog/harness/python-v1.53.0/index.md): Harness Python v1.53.0 (2026-08-21)
@@ -859,45 +905,6 @@
   - [v0.1.2](https://strandsagents.com/changelog/harness/python-v0.1.2/index.md): Harness Python v0.1.2 (2025-05-18)
   - [v0.1.1](https://strandsagents.com/changelog/harness/python-v0.1.1/index.md): Harness Python v0.1.1 (2025-05-17)
   - [v0.1.0](https://strandsagents.com/changelog/harness/python-v0.1.0/index.md): Harness Python v0.1.0 (2025-05-16)
-- Harness TypeScript
-  - [v1.14.0](https://strandsagents.com/changelog/harness/typescript-v1.14.0/index.md): Harness TypeScript v1.14.0 (2026-08-21)
-  - [v1.13.0](https://strandsagents.com/changelog/harness/typescript-v1.13.0/index.md): Harness TypeScript v1.13.0 (2026-08-12)
-  - [v1.12.0](https://strandsagents.com/changelog/harness/typescript-v1.12.0/index.md): Harness TypeScript v1.12.0 (2026-08-07)
-  - [v1.11.2](https://strandsagents.com/changelog/harness/typescript-v1.11.2/index.md): Harness TypeScript v1.11.2 (2026-07-27)
-  - [v1.11.1](https://strandsagents.com/changelog/harness/typescript-v1.11.1/index.md): Harness TypeScript v1.11.1 (2026-07-24)
-  - [v1.11.0](https://strandsagents.com/changelog/harness/typescript-v1.11.0/index.md): Harness TypeScript v1.11.0 (2026-07-24)
-  - [v1.10.0](https://strandsagents.com/changelog/harness/typescript-v1.10.0/index.md): Harness TypeScript v1.10.0 (2026-07-17)
-  - [v1.9.0](https://strandsagents.com/changelog/harness/typescript-v1.9.0/index.md): Harness TypeScript v1.9.0 (2026-07-10)
-  - [v1.8.0](https://strandsagents.com/changelog/harness/typescript-v1.8.0/index.md): Harness TypeScript v1.8.0 (2026-07-08)
-  - [v1.7.0](https://strandsagents.com/changelog/harness/typescript-v1.7.0/index.md): Harness TypeScript v1.7.0 (2026-06-25)
-  - [v1.6.0](https://strandsagents.com/changelog/harness/typescript-v1.6.0/index.md): Harness TypeScript v1.6.0 (2026-06-16)
-  - [v1.5.0](https://strandsagents.com/changelog/harness/typescript-v1.5.0/index.md): Harness TypeScript v1.5.0 (2026-06-12)
-  - [v1.4.0](https://strandsagents.com/changelog/harness/typescript-v1.4.0/index.md): Harness TypeScript v1.4.0 (2026-06-01)
-  - [v1.3.0](https://strandsagents.com/changelog/harness/typescript-v1.3.0/index.md): Harness TypeScript v1.3.0 (2026-05-21)
-  - [v1.2.0](https://strandsagents.com/changelog/harness/typescript-v1.2.0/index.md): Harness TypeScript v1.2.0 (2026-05-14)
-  - [v1.1.0](https://strandsagents.com/changelog/harness/typescript-v1.1.0/index.md): Harness TypeScript v1.1.0 (2026-05-08)
-  - [v1.0.0](https://strandsagents.com/changelog/harness/typescript-v1.0.0/index.md): Harness TypeScript v1.0.0 (2026-04-30)
-  - [v1.0.0-rc.5](https://strandsagents.com/changelog/harness/typescript-v1.0.0-rc.5/index.md): Harness TypeScript v1.0.0-rc.5 (2026-04-22)
-  - [v1.0.0-rc.4](https://strandsagents.com/changelog/harness/typescript-v1.0.0-rc.4/index.md): Harness TypeScript v1.0.0-rc.4 (2026-04-17)
-  - [v1.0.0-rc.3](https://strandsagents.com/changelog/harness/typescript-v1.0.0-rc.3/index.md): Harness TypeScript v1.0.0-rc.3 (2026-04-08)
-  - [v1.0.0-rc.2](https://strandsagents.com/changelog/harness/typescript-v1.0.0-rc.2/index.md): Harness TypeScript v1.0.0-rc.2 (2026-03-31)
-  - [v1.0.0-rc.1](https://strandsagents.com/changelog/harness/typescript-v1.0.0-rc.1/index.md): Harness TypeScript v1.0.0-rc.1 (2026-03-26)
-  - [v1.0.0-rc.0](https://strandsagents.com/changelog/harness/typescript-v1.0.0-rc.0/index.md): Harness TypeScript v1.0.0-rc.0 (2026-03-26)
-  - [v0.7.0](https://strandsagents.com/changelog/harness/typescript-v0.7.0/index.md): Harness TypeScript v0.7.0 (2026-03-19)
-  - [v0.6.0](https://strandsagents.com/changelog/harness/typescript-v0.6.0/index.md): Harness TypeScript v0.6.0 (2026-03-11)
-  - [v0.5.0](https://strandsagents.com/changelog/harness/typescript-v0.5.0/index.md): Harness TypeScript v0.5.0 (2026-03-04)
-  - [v0.4.0](https://strandsagents.com/changelog/harness/typescript-v0.4.0/index.md): Harness TypeScript v0.4.0 (2026-02-25)
-  - [v0.3.0](https://strandsagents.com/changelog/harness/typescript-v0.3.0/index.md): Harness TypeScript v0.3.0 (2026-02-19)
-  - [v0.2.2](https://strandsagents.com/changelog/harness/typescript-v0.2.2/index.md): Harness TypeScript v0.2.2 (2026-02-11)
-  - [v0.2.1](https://strandsagents.com/changelog/harness/typescript-v0.2.1/index.md): Harness TypeScript v0.2.1 (2026-02-05)
-  - [v0.2.0](https://strandsagents.com/changelog/harness/typescript-v0.2.0/index.md): Harness TypeScript v0.2.0 (2026-01-29)
-  - [v0.1.6](https://strandsagents.com/changelog/harness/typescript-v0.1.6/index.md): Harness TypeScript v0.1.6 (2026-01-21)
-  - [v0.1.5](https://strandsagents.com/changelog/harness/typescript-v0.1.5/index.md): Harness TypeScript v0.1.5 (2026-01-13)
-  - [v0.1.4](https://strandsagents.com/changelog/harness/typescript-v0.1.4/index.md): Harness TypeScript v0.1.4 (2026-01-02)
-  - [v0.1.3](https://strandsagents.com/changelog/harness/typescript-v0.1.3/index.md): Harness TypeScript v0.1.3 (2025-12-15)
-  - [v0.1.2](https://strandsagents.com/changelog/harness/typescript-v0.1.2/index.md): Harness TypeScript v0.1.2 (2025-12-04)
-  - [v0.1.1](https://strandsagents.com/changelog/harness/typescript-v0.1.1/index.md): Harness TypeScript v0.1.1 (2025-12-03)
-  - [v0.1.0](https://strandsagents.com/changelog/harness/typescript-v0.1.0/index.md): Harness TypeScript v0.1.0 (2025-12-03)
 - Evals
   - [v1.2.0](https://strandsagents.com/changelog/evals/v1.2.0/index.md): Evals v1.2.0 (2026-08-21)
   - [v1.1.1](https://strandsagents.com/changelog/evals/v1.1.1/index.md): Evals v1.1.1 (2026-08-12)

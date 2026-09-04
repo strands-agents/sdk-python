@@ -28,9 +28,9 @@ When using `BidiAudioIO`, interruptions are handled automatically:
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
-model = BidiNovaSonicModel()
+model = BedrockNovaSonicModel()
 agent = BidiAgent(model=model)
 audio_io = BidiAudioIO()
 
@@ -53,13 +53,13 @@ For custom behavior, process interruption events manually:
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 from strands.experimental.bidi.types.events import (
     BidiInterruptionEvent,
     BidiResponseCompleteEvent
 )
 
-model = BidiNovaSonicModel()
+model = BedrockNovaSonicModel()
 agent = BidiAgent(model=model)
 
 async def main():
@@ -130,8 +130,10 @@ agent = BidiAgent(
 If interruptions aren’t being detected:
 
 ```python
+from strands.experimental.bidi.models import OpenAIRealtimeModel
+
 # Check VAD configuration (OpenAI)
-model = BidiOpenAIRealtimeModel(
+model = OpenAIRealtimeModel(
     provider_config={
         "turn_detection": {
             "type": "server_vad",
@@ -165,8 +167,10 @@ async def __call__(self, event: BidiOutputEvent):
 If the model is interrupted too easily:
 
 ```python
+from strands.experimental.bidi.models import OpenAIRealtimeModel
+
 # Increase VAD threshold (OpenAI)
-model = BidiOpenAIRealtimeModel(
+model = OpenAIRealtimeModel(
     provider_config={
         "turn_detection": {
             "threshold": 0.7,  # Higher = less sensitive
@@ -181,13 +185,13 @@ model = BidiOpenAIRealtimeModel(
 
 - [BidiAgent](/docs/user-guide/concepts/bidirectional-streaming/agent/index.md) (1 shared tag)
 - [Events](/docs/user-guide/concepts/bidirectional-streaming/events/index.md) (1 shared tag)
-- [Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/gemini_live/index.md) (1 shared tag)
+- [Google Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/google/index.md) (1 shared tag)
 - [I/O Channels](/docs/user-guide/concepts/bidirectional-streaming/io/index.md) (1 shared tag)
-- [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai_realtime/index.md) (1 shared tag)
+- [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai/index.md) (1 shared tag)
 - [Bidirectional Streaming Observability](/docs/user-guide/concepts/bidirectional-streaming/observability/index.md) (1 shared tag)
 - [Bidirectional Streaming Hooks](/docs/user-guide/concepts/bidirectional-streaming/hooks/index.md) (1 shared tag)
 - [Voice & Realtime Quickstart](/docs/user-guide/concepts/bidirectional-streaming/quickstart/index.md) (1 shared tag)
-- [Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic/index.md) (1 shared tag)
+- [Bedrock Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/bedrock/index.md) (1 shared tag)
 - [Bidirectional Streaming Session Management](/docs/user-guide/concepts/bidirectional-streaming/session-management/index.md) (1 shared tag)
 
 

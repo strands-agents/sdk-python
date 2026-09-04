@@ -30,10 +30,14 @@ Simply create an agent with a session manager and use it:
 (( tab "Python" ))
 ```python
 from strands import Agent
-from strands.session.file_session_manager import FileSessionManager
+from strands.session import SnapshotSessionManager
+from strands.storage import LocalFileStorage
 
-# Create a session manager with a unique session ID
-session_manager = FileSessionManager(session_id="test-session")
+# Create a snapshot session manager with a unique session ID
+session_manager = SnapshotSessionManager(
+    session_id="test-session",
+    storage=LocalFileStorage("./sessions/"),
+)
 
 # Create an agent with the session manager
 agent = Agent(session_manager=session_manager)
@@ -72,6 +76,8 @@ await agent.invoke('Hello!')
 
 The conversation, and associated state, is persisted to the underlying storage backend.
 
+`FileSessionManager` and `S3SessionManager` remain supported in Python, but use `SnapshotSessionManager` for new single-agent sessions.
+
 ### Multi-Agent Sessions
 
 Multi-agent systems (Graph/Swarm) can also use session management to persist their state.
@@ -79,26 +85,28 @@ Multi-agent systems (Graph/Swarm) can also use session management to persist the
 (( tab "Python" ))
 Caution
 
-Agents inside a multi-agent system must not have their own session manager — only the orchestrator should have one. Python will raise a `ValueError` if an agent with a session manager is added to a Graph or Swarm.
+`SnapshotSessionManager` does not support Graph or Swarm. Use a repository-based session manager on the orchestrator. Agents inside a multi-agent system must not have their own session manager.
 
 ```python
+from strands import Agent
 from strands.multiagent import GraphBuilder
-from strands.session.file_session_manager import FileSessionManager
+from strands.session import FileSessionManager
 
 # Create agents
 agent1 = Agent(name="researcher")
 agent2 = Agent(name="writer")
 
-# Create a session manager for the graph
+# Create a repository-based session manager for the graph
 session_manager = FileSessionManager(session_id="multi-agent-session")
 
-# Create graph with session management
-graph = Graph(
-    agents={"researcher": agent1, "writer": agent2},
-    session_manager=session_manager
-)
+# Build the graph with session management on the orchestrator
+builder = GraphBuilder()
+builder.add_node(agent1, "researcher")
+builder.add_node(agent2, "writer")
+builder.add_edge("researcher", "writer")
+builder.set_session_manager(session_manager)
+graph = builder.build()
 
-# Use the graph - all orchestrator state is persisted
 result = graph("Research and write about AI")
 ```
 (( /tab "Python" ))
@@ -167,139 +175,54 @@ Multi-agent session managers only track the current state of the Graph/Swarm exe
 
 ## Storage Backends
 
+Snapshot-based session managers accept any [Storage](/docs/user-guide/concepts/storage/index.md) backend, including `InMemoryStorage`, `LocalFileStorage`, `S3Storage`, and custom implementations. See [Storage](/docs/user-guide/concepts/storage/index.md) for backend configuration, tradeoffs, custom backends, and required S3 permissions.
+
 (( tab "Python" ))
-Strands offers two built-in session managers:
+Pass storage to `SnapshotSessionManager` or to the agent. Manager-level storage takes precedence over agent-level storage. If neither provides storage, `SnapshotSessionManager` uses `LocalFileStorage("./.strands/")`.
 
-| Session Manager | Persistence | Best for |
-| --- | --- | --- |
-| [`FileSessionManager`](/docs/api/python/strands.session.file_session_manager#FileSessionManager) | Local disk | Development, single-machine |
-| [`S3SessionManager`](/docs/api/python/strands.session.s3_session_manager#S3SessionManager) | Amazon S3 | Production, distributed |
-
-```python
-from strands import Agent
-from strands.session.file_session_manager import FileSessionManager
-from strands.session.s3_session_manager import S3SessionManager
-
-# File-based persistence
-session_manager = FileSessionManager(
-    session_id="user-123",
-    storage_dir="/path/to/sessions"
-)
-
-# S3-based persistence
-session_manager = S3SessionManager(
-    session_id="user-123",
-    bucket="my-agent-sessions",
-    prefix="production/",
-)
-
-agent = Agent(session_manager=session_manager)
-```
+Repository-based managers configure storage directly through `FileSessionManager`, `S3SessionManager`, or a custom `SessionRepository`. They do not use the unified `Storage` backend.
 (( /tab "Python" ))
 
 (( tab "TypeScript" ))
-Session management accepts any [Storage](/docs/user-guide/concepts/storage/index.md) backend. Choose one based on your durability needs:
-
-| Backend | Persistence | Best for |
-| --- | --- | --- |
-| `LocalFileStorage` | Local disk | Development, single-machine |
-| `S3Storage` | Amazon S3 | Production, distributed |
-
-See [Storage](/docs/user-guide/concepts/storage/index.md) for full details on each backend.
-
-```typescript
-const session = new SessionManager({
-  sessionId: 'user-123',
-  storage: new LocalFileStorage('./sessions/'),
-})
-
-const agent = new Agent({ sessionManager: session })
-await agent.invoke("Hello, I'm a new user!")
-```
-
-```typescript
-const session = new SessionManager({
-  sessionId: 'user-456',
-  storage: new S3Storage('my-agent-sessions', {
-    prefix: 'production/',
-    s3Client: new S3Client({ region: 'us-west-2' }),
-  }),
-})
-
-const agent = new Agent({ sessionManager: session })
-await agent.invoke('Tell me about AWS S3')
-```
+Pass storage to `SessionManager` or to the agent. Manager-level storage takes precedence over agent-level storage. If neither provides storage, initialization fails.
 (( /tab "TypeScript" ))
-
-### Required S3 Permissions
-
-To use S3-backed session storage, your AWS credentials must have the following permissions:
-
--   `s3:PutObject` - To create and update session data
--   `s3:GetObject` - To retrieve session data
--   `s3:DeleteObject` - To delete session data
--   `s3:ListBucket` - To list objects in the bucket
-
-Here’s a sample IAM policy that grants these permissions for a specific bucket:
-
-```json
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": [
-                "s3:PutObject",
-                "s3:GetObject",
-                "s3:DeleteObject"
-            ],
-            "Resource": "arn:aws:s3:::my-agent-sessions/*"
-        },
-        {
-            "Effect": "Allow",
-            "Action": "s3:ListBucket",
-            "Resource": "arn:aws:s3:::my-agent-sessions"
-        }
-    ]
-}
-```
 
 ## How Session Management Works
 
-### Session Persistence Triggers
+### Snapshot-based Session Managers
 
-Session persistence is automatically triggered by lifecycle events in the agent:
+`SnapshotSessionManager` in Python and `SessionManager` in TypeScript persist a complete point-in-time snapshot. Both restore `snapshot_latest` during initialization and support immutable checkpoints.
 
 **Single Agent Events**
 
 (( tab "Python" ))
--   **Agent Initialization**: When an agent is created with a session manager, it automatically restores any existing state and messages from the session.
--   **Message Addition**: When a new message is added to the conversation, it’s automatically persisted to the session.
--   **Agent Invocation**: After each agent invocation, the agent state is synchronized with the session to capture any updates.
--   **Message Redaction**: When sensitive information needs to be redacted, the session manager can replace the original message with a redacted version while maintaining conversation flow.
+-   **Agent Initialization**: Restores state from `snapshot_latest` if it exists.
+-   **Message Addition** (`save_latest_on="message"`): Saves after each message and again when the invocation ends.
+-   **Agent Invocation** (`save_latest_on="invocation"`, default): Saves when the invocation ends.
+-   **Snapshot Trigger**: Creates an immutable checkpoint when `snapshot_trigger` returns `True`.
+-   **Message Redaction**: Flushes redacted content to the latest snapshot under every strategy.
 (( /tab "Python" ))
 
 (( tab "TypeScript" ))
 -   **Agent Initialization**: Restores state from `snapshot_latest` if it exists.
--   **Message Addition** (`saveLatestOn: 'message'`): Saves after every message and after model calls with guardrail redactions.
--   **Agent Invocation** (`saveLatestOn: 'invocation'`, default): Saves after each invocation completes.
--   **Snapshot Trigger**: Creates an immutable checkpoint when the `snapshotTrigger` callback returns `true`.
+-   **Message Addition** (`saveLatestOn: 'message'`): Saves after each message and again when the invocation ends.
+-   **Agent Invocation** (`saveLatestOn: 'invocation'`, default): Saves when the invocation ends.
+-   **Snapshot Trigger**: Creates an immutable checkpoint when `snapshotTrigger` returns `true`.
+-   **Message Redaction**: Saves redacted content for the `message` and `invocation` strategies, but not for `trigger`.
 
 See [Basic Usage](#basic-usage) for configuration examples.
 (( /tab "TypeScript" ))
 
-**Multi-Agent Events**:
+**Multi-Agent Events**
 
 (( tab "Python" ))
--   **Multi-Agent Initialization**: Restores orchestrator state from the session.
--   **Node Execution**: Synchronizes orchestrator state after node transitions.
--   **Multi-Agent Invocation**: Captures final orchestrator state after execution.
+`SnapshotSessionManager` does not support Graph or Swarm. Use a repository-based manager for Python multi-agent persistence.
 (( /tab "Python" ))
 
 (( tab "TypeScript" ))
--   **Before Multi-Agent Invocation**: Restores orchestrator state from `snapshot_latest` on first invocation.
--   **After Node Call** (`multiAgentSaveLatestOn: 'node'`, default): Saves after each node completes, enabling resume from the last completed node after a crash.
--   **After Multi-Agent Invocation** (`multiAgentSaveLatestOn: 'invocation'`): Saves after the full orchestrator invocation completes (lower I/O, but only captures state at invocation boundaries).
+-   **Before Multi-Agent Invocation**: Restores orchestrator state from `snapshot_latest` on the first invocation.
+-   **After Node Call** (`multiAgentSaveLatestOn: 'node'`, default): Saves after each node and again when the invocation ends.
+-   **After Multi-Agent Invocation** (`multiAgentSaveLatestOn: 'invocation'`): Saves only when the full invocation ends.
 
 ```typescript
 const session = new SessionManager({
@@ -313,18 +236,69 @@ const session = new SessionManager({
 ```
 (( /tab "TypeScript" ))
 
-Direct Message Modifications Not Persisted
+### Repository-based Session Managers
 
-After initializing the agent, direct modifications to `agent.messages` will not be persisted. Utilize the [Conversation Manager](/docs/user-guide/concepts/agents/conversation-management/index.md) to help manage context of the agent in a way that can be persisted.
+Python only
 
-## Immutable Snapshots *(TypeScript only)*
+Repository-based session managers are available in the Python SDK only.
 
-In addition to `snapshot_latest`, the TypeScript SDK supports **immutable snapshots** — append-only checkpoints identified by UUID v7. These enable time-travel restore: you can restore the agent to any prior checkpoint, not just the latest state.
+`FileSessionManager`, `S3SessionManager`, and `RepositorySessionManager` store individual message records and agent metadata. Use them for existing repository-format sessions, Graph, Swarm, or bidirectional streaming.
+
+`SnapshotSessionManager` remains the recommended option for new single-agent sessions. Use the repository-based managers when you need one of the compatibility cases above:
+
+```python
+from strands import Agent
+from strands.session import FileSessionManager, S3SessionManager
+
+file_session_manager = FileSessionManager(
+    session_id="file-session",
+    storage_dir="./sessions/",
+)
+file_agent = Agent(session_manager=file_session_manager)
+
+s3_session_manager = S3SessionManager(
+    session_id="s3-session",
+    bucket="my-agent-sessions",
+    prefix="production/",
+)
+s3_agent = Agent(session_manager=s3_session_manager)
+```
+
+-   **Agent Initialization**: Restores stored messages, agent state, conversation manager state, interrupt state, and model state.
+-   **Message Addition**: Appends the message record and synchronizes changed agent state.
+-   **Agent Invocation**: Synchronizes changed agent and conversation manager state.
+-   **Message Redaction**: Updates the latest stored message record.
+-   **Multi-Agent and Bidirectional Events**: Restore state during initialization and synchronize state after node, message, and invocation events.
+
+Direct Message Modifications
+
+Changing `agent.messages` directly does not trigger persistence. A later snapshot save captures the current list, but repository-based managers do not create message records for direct changes. Use the agent and [Conversation Manager](/docs/user-guide/concepts/agents/conversation-management/index.md) APIs so persistence follows normal lifecycle events.
+
+## Immutable Snapshots
+
+In addition to `snapshot_latest`, snapshot-based session managers support **immutable snapshots**. Strands assigns each append-only checkpoint a UUIDv7 identifier, which lets you restore the agent to any prior checkpoint instead of only the latest state.
 
 ### Creating Immutable Snapshots
 
-Use the `snapshotTrigger` callback to control when an immutable snapshot is created. The callback receives the current agent data and returns `true` to trigger a snapshot:
+Use the snapshot trigger callback to control when an immutable snapshot is created. The callback receives the current agent data and returns a boolean:
 
+(( tab "Python" ))
+```python
+from strands import Agent
+from strands.session import SnapshotSessionManager
+from strands.storage import LocalFileStorage
+
+session_manager = SnapshotSessionManager(
+    session_id="my-session",
+    storage=LocalFileStorage("./sessions/"),
+    snapshot_trigger=lambda *, agent_data, **_: len(agent_data.messages) % 4 == 0,
+)
+
+agent = Agent(session_manager=session_manager)
+```
+(( /tab "Python" ))
+
+(( tab "TypeScript" ))
 ```typescript
 const session = new SessionManager({
   sessionId: 'my-session',
@@ -337,11 +311,40 @@ const agent = new Agent({ sessionManager: session })
 await agent.invoke('First message') // 2 messages — no snapshot
 await agent.invoke('Second message') // 4 messages — immutable snapshot created
 ```
+(( /tab "TypeScript" ))
 
 ### Listing and Restoring Snapshots
 
-Snapshot IDs are UUID v7, so they sort lexicographically in chronological order. Use `listSnapshotIds` on the `SessionManager` to retrieve them, then pass a `snapshotId` to `restoreSnapshot`:
+Snapshot IDs are UUID v7, so they sort lexicographically in chronological order. Use `list_snapshot_ids``listSnapshotIds` on the session manager to retrieve them, then pass a `snapshot_id``snapshotId` to `restore_snapshot``restoreSnapshot`:
 
+(( tab "Python" ))
+```python
+import asyncio
+
+from strands import Agent
+from strands.session import SnapshotSessionManager
+from strands.storage import LocalFileStorage
+
+session_manager = SnapshotSessionManager(
+    session_id="my-session",
+    storage=LocalFileStorage("./sessions/"),
+)
+agent = Agent(session_manager=session_manager)
+
+
+async def restore_snapshot() -> None:
+    snapshot_id = await session_manager.save_snapshot(agent, is_latest=False)
+    assert snapshot_id is not None
+    snapshot_ids = await session_manager.list_snapshot_ids(agent)
+    assert snapshot_id in snapshot_ids
+    await session_manager.restore_snapshot(agent, snapshot_id=snapshot_id)
+
+
+asyncio.run(restore_snapshot())
+```
+(( /tab "Python" ))
+
+(( tab "TypeScript" ))
 ```typescript
 const storage = new LocalFileStorage('./sessions/')
 
@@ -363,11 +366,28 @@ await session.restoreSnapshot({
   snapshotId: snapshotIds[0]!,
 })
 ```
+(( /tab "TypeScript" ))
 
-## Deleting Sessions *(TypeScript only)*
+## Deleting Sessions
 
-To remove all snapshots and manifests for a session, call `deleteSession()` on the `SessionManager`. This removes the entire session root directory (filesystem) or all objects under the session prefix (S3):
+To remove all snapshots for a session, call the session manager’s delete method:
 
+(( tab "Python" ))
+```python
+import asyncio
+
+from strands.session import SnapshotSessionManager
+from strands.storage import LocalFileStorage
+
+session_manager = SnapshotSessionManager(
+    session_id="my-session",
+    storage=LocalFileStorage("./sessions/"),
+)
+asyncio.run(session_manager.delete_session())
+```
+(( /tab "Python" ))
+
+(( tab "TypeScript" ))
 ```typescript
 const session = new SessionManager({
   sessionId: 'my-session',
@@ -377,11 +397,14 @@ const session = new SessionManager({
 // Remove all snapshots and manifests for this session
 await session.deleteSession()
 ```
+(( /tab "TypeScript" ))
 
 ## Data Models
 
 (( tab "Python" ))
-Session data is stored using these key data models:
+`SnapshotSessionManager` stores a versioned `Snapshot` JSON object. Its `data` field contains managed messages, agent state, conversation manager state, interrupt state, model state, and the system prompt.
+
+The following record-based models apply to `FileSessionManager`, `S3SessionManager`, and `RepositorySessionManager`:
 
 **Session**
 
@@ -458,7 +481,9 @@ The following third-party session managers extend Strands with additional storag
 For advanced use cases, you can implement your own session storage backend.
 
 (( tab "Python" ))
-Create a custom session repository by implementing the `SessionRepository` interface:
+For new single-agent sessions, implement the unified [`Storage`](/docs/api/python/strands.storage.storage#Storage) protocol and pass it to `SnapshotSessionManager`.
+
+For repository-based sessions, create a custom session repository by implementing the `SessionRepository` interface:
 
 ```python
 from typing import Optional
@@ -585,6 +610,23 @@ This approach allows you to store session data in any backend system while lever
 Both file and S3 backends use the same key structure:
 
 (( tab "Python" ))
+**Snapshot-based layout (recommended for new single-agent sessions):**
+
+```plaintext
+<root>/
+└── session/
+    └── <session_id>/
+        └── scopes/
+            └── agent/
+                └── <agent_id>/
+                    └── snapshots/
+                        ├── snapshot_latest.json
+                        └── immutable_history/
+                            └── snapshot_<uuid7>.json
+```
+
+**Repository-based layout:**
+
 ```plaintext
 <root>/
 └── session_<session_id>/
@@ -618,6 +660,8 @@ Both file and S3 backends use the same key structure:
                     └── snapshot_latest.json
 ```
 (( /tab "TypeScript" ))
+
+Using the same session ID and storage location does not migrate repository-based Python data to `SnapshotSessionManager`. Existing sessions can continue using their current manager, or applications can migrate the required state explicitly.
 
 ## Sessions, Agents, and Concurrency
 
@@ -663,6 +707,8 @@ When implementing session persistence in your applications, consider these best 
 ### Python
 
 - [harness-sdk/strands-py/src/strands/session/session_manager.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/session_manager.py)
+- [harness-sdk/strands-py/src/strands/session/snapshot_session_manager.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/snapshot_session_manager.py)
+- [harness-sdk/strands-py/src/strands/storage/storage.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/storage/storage.py)
 - [harness-sdk/strands-py/src/strands/session/file_session_manager.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/file_session_manager.py)
 - [harness-sdk/strands-py/src/strands/session/s3_session_manager.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/s3_session_manager.py)
 

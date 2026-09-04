@@ -4,7 +4,32 @@ Reads user audio from input device and sends agent audio to output device using 
 
 Audio configuration is provided by the model via agent.model.config\[“audio”\].
 
-Optional microphone audio processing (acoustic echo cancellation, noise suppression, and automatic gain control) is enabled by passing an `AudioProcessorConfig` (from `strands.experimental.bidi.audio`) to `BidiAudioIO`. It requires pywebrtc-audio (pip install strands-agents\[bidi-aec\]); see that module for the processing implementation.
+Optional microphone audio processing (acoustic echo cancellation, noise suppression, and automatic gain control) is enabled by passing `audio_processor=True` or a `BidiAudioProcessorConfig` to `BidiAudioIO`. It requires pywebrtc-audio (pip install strands-agents\[bidi-aec\]).
+
+## BidiAudioProcessorConfig
+
+```python
+class BidiAudioProcessorConfig(TypedDict)
+```
+
+Defined in: [src/strands/experimental/bidi/io/audio.py:37](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L37)
+
+Configure microphone audio processing.
+
+**Attributes**:
+
+-   `echo_cancellation` - Cancel the agent’s own speaker audio from the mic input.
+-   `stream_delay_ms` - Playback-to-capture delay hint in milliseconds for AEC. A value of 0 lets AEC3 auto-estimate the delay. Only set a non-zero value if echo cancellation is measurably failing on hardware with large or fixed playback-to-capture latency, such as Bluetooth.
+
+## BidiAudioIOConfig
+
+```python
+class BidiAudioIOConfig(TypedDict)
+```
+
+Defined in: [src/strands/experimental/bidi/io/audio.py:51](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L51)
+
+Configure bidirectional audio input and output.
 
 ## \_BidiAudioBuffer
 
@@ -12,7 +37,7 @@ Optional microphone audio processing (acoustic echo cancellation, noise suppress
 class _BidiAudioBuffer()
 ```
 
-Defined in: [src/strands/experimental/bidi/io/audio.py:51](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L51)
+Defined in: [src/strands/experimental/bidi/io/audio.py:63](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L63)
 
 Buffer chunks of audio data between agent and PyAudio.
 
@@ -22,7 +47,7 @@ Buffer chunks of audio data between agent and PyAudio.
 def __init__(size: int | None = None)
 ```
 
-Defined in: [src/strands/experimental/bidi/io/audio.py:57](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L57)
+Defined in: [src/strands/experimental/bidi/io/audio.py:69](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L69)
 
 Initialize buffer settings.
 
@@ -36,7 +61,7 @@ Initialize buffer settings.
 def start() -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/io/audio.py:65](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L65)
+Defined in: [src/strands/experimental/bidi/io/audio.py:77](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L77)
 
 Setup buffer.
 
@@ -46,7 +71,7 @@ Setup buffer.
 def stop() -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/io/audio.py:70](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L70)
+Defined in: [src/strands/experimental/bidi/io/audio.py:82](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L82)
 
 Tear down buffer.
 
@@ -56,7 +81,7 @@ Tear down buffer.
 def put(chunk: bytes) -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/io/audio.py:88](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L88)
+Defined in: [src/strands/experimental/bidi/io/audio.py:96](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L96)
 
 Put data chunk into buffer.
 
@@ -68,7 +93,7 @@ If full, removes the oldest chunk.
 def get(byte_count: int | None = None) -> bytes
 ```
 
-Defined in: [src/strands/experimental/bidi/io/audio.py:103](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L103)
+Defined in: [src/strands/experimental/bidi/io/audio.py:111](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L111)
 
 Get the number of bytes specified from the buffer.
 
@@ -89,7 +114,7 @@ Specified number of bytes.
 def clear() -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/io/audio.py:133](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L133)
+Defined in: [src/strands/experimental/bidi/io/audio.py:141](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L141)
 
 Clear the buffer.
 
@@ -99,7 +124,7 @@ Clear the buffer.
 class _BidiAudioInput(BidiInput)
 ```
 
-Defined in: [src/strands/experimental/bidi/io/audio.py:142](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L142)
+Defined in: [src/strands/experimental/bidi/io/audio.py:151](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L151)
 
 Handle audio input from user.
 
@@ -112,18 +137,18 @@ Handle audio input from user.
 #### \_\_init\_\_
 
 ```python
-def __init__(config: dict[str, Any],
-             processor: "_AudioProcessor | None" = None) -> None
+def __init__(config: BidiAudioIOConfig, *,
+             audio_processor: "_BidiAudioProcessor | None") -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/io/audio.py:158](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L158)
+Defined in: [src/strands/experimental/bidi/io/audio.py:167](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L167)
 
-Extract configs.
+Initialize input settings.
 
 **Arguments**:
 
 -   `config` - Audio device configuration.
--   `processor` - Shared audio processor for echo cancellation, or None to disable processing.
+-   `audio_processor` - Shared microphone audio processor.
 
 #### start
 
@@ -131,7 +156,7 @@ Extract configs.
 async def start(agent: "BidiAgent") -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/io/audio.py:187](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L187)
+Defined in: [src/strands/experimental/bidi/io/audio.py:186](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L186)
 
 Start input stream.
 
@@ -149,7 +174,7 @@ Start input stream.
 async def stop() -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/io/audio.py:232](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L232)
+Defined in: [src/strands/experimental/bidi/io/audio.py:224](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L224)
 
 Stop input stream.
 
@@ -159,7 +184,7 @@ Stop input stream.
 async def __call__() -> BidiAudioInputEvent
 ```
 
-Defined in: [src/strands/experimental/bidi/io/audio.py:245](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L245)
+Defined in: [src/strands/experimental/bidi/io/audio.py:237](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L237)
 
 Read audio from input stream, applying echo cancellation if enabled.
 
@@ -169,7 +194,7 @@ Read audio from input stream, applying echo cancellation if enabled.
 class _BidiAudioOutput(BidiOutput)
 ```
 
-Defined in: [src/strands/experimental/bidi/io/audio.py:269](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L269)
+Defined in: [src/strands/experimental/bidi/io/audio.py:261](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L261)
 
 Handle audio output from bidi agent.
 
@@ -182,18 +207,18 @@ Handle audio output from bidi agent.
 #### \_\_init\_\_
 
 ```python
-def __init__(config: dict[str, Any],
-             processor: "_AudioProcessor | None" = None) -> None
+def __init__(config: BidiAudioIOConfig, *,
+             audio_processor: "_BidiAudioProcessor | None") -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/io/audio.py:285](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L285)
+Defined in: [src/strands/experimental/bidi/io/audio.py:277](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L277)
 
-Extract configs.
+Initialize output settings.
 
 **Arguments**:
 
 -   `config` - Audio device configuration.
--   `processor` - Shared audio processor — output records played frames as the AEC reference.
+-   `audio_processor` - Shared audio processor that receives played audio for echo cancellation.
 
 #### start
 
@@ -201,7 +226,7 @@ Extract configs.
 async def start(agent: "BidiAgent") -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/io/audio.py:303](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L303)
+Defined in: [src/strands/experimental/bidi/io/audio.py:296](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L296)
 
 Start output stream.
 
@@ -215,7 +240,7 @@ Start output stream.
 async def stop() -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/io/audio.py:337](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L337)
+Defined in: [src/strands/experimental/bidi/io/audio.py:324](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L324)
 
 Stop output stream.
 
@@ -225,7 +250,7 @@ Stop output stream.
 async def __call__(event: BidiOutputEvent) -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/io/audio.py:350](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L350)
+Defined in: [src/strands/experimental/bidi/io/audio.py:337](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L337)
 
 Send audio to output stream.
 
@@ -235,13 +260,13 @@ Send audio to output stream.
 class BidiAudioIO()
 ```
 
-Defined in: [src/strands/experimental/bidi/io/audio.py:383](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L383)
+Defined in: [src/strands/experimental/bidi/io/audio.py:370](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L370)
 
 Send and receive audio data from devices using PyAudio.
 
 Reads microphone audio via `input()` and plays agent audio via `output()`. On interruption, the playback buffer is cleared to stop the agent mid-response.
 
-When an `AudioProcessorConfig` is passed as `processor`, the microphone signal gets noise suppression and automatic gain control, and (when echo cancellation is enabled) the agent’s speaker output is used as a reference to cancel echo from the mic input, preventing the model from hearing its own voice. The same processor instance is shared between the input and output channels this factory produces, so echo cancellation only works when both `input()` and `output()` come from the *same* `BidiAudioIO` instance.
+When `audio_processor=True` or a `BidiAudioProcessorConfig` is passed, the microphone signal gets audio processing and, when echo cancellation is enabled, the agent’s speaker output is used as a reference to cancel echo from the mic input. A shared processor coordinates the input and output channels, so echo cancellation only works when both come from the *same* `BidiAudioIO` instance.
 
 Audio processing requires pywebrtc-audio (`pip install strands-agents[bidi-aec]`) and a microphone sample rate of 16000, 32000, or 48000 Hz (set via the model’s audio config).
 
@@ -250,33 +275,33 @@ Device audio requires PyAudio. Install the PortAudio system library, then instal
 **Example**:
 
 ```python
-from strands.experimental.bidi.audio import AudioProcessorConfig
+from strands.experimental.bidi import BidiAudioProcessorConfig
 from strands.experimental.bidi.io import BidiAudioIO
 
 # Plain mic/speaker, no processing (a headset is recommended to avoid echo):
 audio_io = BidiAudioIO()
 await agent.run(inputs=[audio_io.input()], outputs=[audio_io.output()])
 
-# Full processing: echo cancellation, noise suppression, and auto gain control:
-audio_io = BidiAudioIO(processor=AudioProcessorConfig())
+# Full processing with defaults: echo cancellation, noise suppression, and auto gain control:
+audio_io = BidiAudioIO(audio_processor=True)
 await agent.run(inputs=[audio_io.input()], outputs=[audio_io.output()])
 
 # Noise suppression and auto gain control without echo cancellation (e.g. headset users):
-audio_io = BidiAudioIO(processor=AudioProcessorConfig(echo_cancellation=False))
+audio_io = BidiAudioIO(audio_processor=BidiAudioProcessorConfig(echo_cancellation=False))
 await agent.run(inputs=[audio_io.input()], outputs=[audio_io.output()])
 
 # Processing on a specific input device:
-audio_io = BidiAudioIO(processor=AudioProcessorConfig(), input_device_index=1)
+audio_io = BidiAudioIO(audio_processor=BidiAudioProcessorConfig(), input_device_index=1)
 await agent.run(inputs=[audio_io.input()], outputs=[audio_io.output()])
 ```
 
 #### \_\_init\_\_
 
 ```python
-def __init__(**config: Any) -> None
+def __init__(**config: Unpack[BidiAudioIOConfig]) -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/io/audio.py:425](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L425)
+Defined in: [src/strands/experimental/bidi/io/audio.py:413](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L413)
 
 Initialize audio devices.
 
@@ -284,17 +309,18 @@ Initialize audio devices.
 
 -   `**config` - Optional configuration:
     
-    -   processor (AudioProcessorConfig): Enable microphone audio processing (noise suppression, automatic gain control, and optionally echo cancellation) by passing an `AudioProcessorConfig` (from `strands.experimental.bidi.audio`). Requires pywebrtc-audio (pip install strands-agents\[bidi-aec\]). Defaults to None (processing disabled).
-    -   input\_buffer\_size (int): Maximum input buffer size (default: None). Ignored when echo cancellation is on — the mic buffer is bound to the reference horizon so the two stay aligned.
+    -   audio\_processor (bool | BidiAudioProcessorConfig): Set to True to enable microphone audio processing with defaults, or supply a configuration for custom options. False and None disable processing.
+    -   input\_buffer\_size (int): Maximum input buffer size (default: None). Must be between 1 and 100 when echo cancellation is on; defaults to 100 so the mic and reference buffers remain aligned.
     -   input\_device\_index (int): Specific input device (default: None = system default)
-    -   input\_frames\_per\_buffer (int): Input buffer size (default: 512, ignored when processing is on)
+    -   input\_frames\_per\_buffer (int): Input buffer size (default: 512). Must not be provided when echo cancellation is on because it is calculated from the model’s input rate.
     -   output\_buffer\_size (int): Maximum output buffer size (default: None)
     -   output\_device\_index (int): Specific output device (default: None = system default)
-    -   output\_frames\_per\_buffer (int): Output buffer size (default: 512, ignored when processing is on)
+    -   output\_frames\_per\_buffer (int): Output buffer size (default: 512). Must not be provided when echo cancellation is on because it is calculated from the model’s output rate.
 
 **Raises**:
 
--   `ImportError` - If a processor config is set but pywebrtc-audio is not installed.
+-   `ImportError` - If audio processing is configured but its optional dependencies are unavailable.
+-   `ValueError` - If the configuration is invalid.
 
 #### input
 
@@ -302,7 +328,7 @@ Initialize audio devices.
 def input() -> _BidiAudioInput
 ```
 
-Defined in: [src/strands/experimental/bidi/io/audio.py:457](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L457)
+Defined in: [src/strands/experimental/bidi/io/audio.py:509](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L509)
 
 Return audio processing BidiInput.
 
@@ -312,6 +338,6 @@ Return audio processing BidiInput.
 def output() -> _BidiAudioOutput
 ```
 
-Defined in: [src/strands/experimental/bidi/io/audio.py:461](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L461)
+Defined in: [src/strands/experimental/bidi/io/audio.py:516](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/io/audio.py#L516)
 
 Return audio processing BidiOutput.

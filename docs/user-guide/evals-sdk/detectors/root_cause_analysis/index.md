@@ -211,7 +211,7 @@ for fix_type, recs in by_type.items():
 - [Operating Agents in Production](/docs/user-guide/deploy/operating-agents-in-production/index.md) (2 shared tags)
 - [Evaluating Remote Traces](/docs/user-guide/evals-sdk/how-to/trace_providers/index.md) (1 shared tag)
 - [Metrics](/docs/user-guide/observability-evaluation/metrics/index.md) (1 shared tag)
+- [Model Routing](/docs/user-guide/concepts/model-providers/model-routing/index.md) (1 shared tag)
 - [Observability](/docs/user-guide/observability-evaluation/observability/index.md) (1 shared tag)
 - [Task Decorator](/docs/user-guide/evals-sdk/how-to/eval_task/index.md) (1 shared tag)
 - [Traces](/docs/user-guide/observability-evaluation/traces/index.md) (1 shared tag)
-- [Retry Strategies](/docs/user-guide/concepts/agents/retry-strategies/index.md) (1 shared tag)

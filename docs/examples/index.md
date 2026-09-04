@@ -4,7 +4,7 @@ A collection of sample implementations to help you get started with Strands Agen
 
 1.  Set up the SDK for your language:
     -   [Python quickstart](/docs/user-guide/quickstart/python/index.md) (Python 3.10+, pip)
-    -   [TypeScript quickstart](/docs/user-guide/quickstart/typescript/index.md) (Node.js 20+, npm)
+    -   [TypeScript quickstart](/docs/user-guide/quickstart/typescript/index.md) (Node.js 22+, npm)
 2.  Configure AWS credentials for Amazon Bedrock (covered in both quickstart guides above), or set up an [alternative model provider](/docs/user-guide/concepts/model-providers/index.md)
 3.  Clone the examples:
     

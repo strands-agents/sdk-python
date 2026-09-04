@@ -20,10 +20,10 @@ Bidirectional streaming uses a different event model than [standard streaming](/
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
 async def main():
-    model = BidiNovaSonicModel()
+    model = BedrockNovaSonicModel()
 
     async with BidiAgent(model=model) as agent:
         # Send input to model
@@ -415,10 +415,10 @@ async for event in agent.receive():
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
 async def main():
-    model = BidiNovaSonicModel()
+    model = BedrockNovaSonicModel()
     agent = BidiAgent(model=model)
     audio_io = BidiAudioIO()
 
@@ -452,10 +452,10 @@ asyncio.run(main())
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
 async def main():
-    model = BidiNovaSonicModel()
+    model = BedrockNovaSonicModel()
 
     async with BidiAgent(model=model) as agent:
         await agent.send("Tell me about Python")
@@ -488,11 +488,11 @@ asyncio.run(main())
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 from strands_tools import calculator
 
 async def main():
-    model = BidiNovaSonicModel()
+    model = BedrockNovaSonicModel()
     agent = BidiAgent(model=model, tools=[calculator])
 
     async with agent as agent:
@@ -521,10 +521,10 @@ asyncio.run(main())
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
 async def main():
-    model = BidiNovaSonicModel()
+    model = BedrockNovaSonicModel()
 
     async with BidiAgent(model=model) as agent:
         await agent.send("Tell me a long story about space exploration")
@@ -551,10 +551,10 @@ asyncio.run(main())
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
 async def main():
-    model = BidiNovaSonicModel()  # 8-minute timeout
+    model = BedrockNovaSonicModel()  # 8-minute timeout
 
     async with BidiAgent(model=model) as agent:
         # Continuous conversation that handles restarts
@@ -582,14 +582,14 @@ For details on hook events and usage patterns, see the [Hooks](/docs/user-guide/
 ## Related pages
 
 - [BidiAgent](/docs/user-guide/concepts/bidirectional-streaming/agent/index.md) (1 shared tag)
-- [Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/gemini_live/index.md) (1 shared tag)
+- [Google Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/google/index.md) (1 shared tag)
 - [I/O Channels](/docs/user-guide/concepts/bidirectional-streaming/io/index.md) (1 shared tag)
 - [Interruptions](/docs/user-guide/concepts/bidirectional-streaming/interruption/index.md) (1 shared tag)
-- [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai_realtime/index.md) (1 shared tag)
+- [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai/index.md) (1 shared tag)
 - [Bidirectional Streaming Observability](/docs/user-guide/concepts/bidirectional-streaming/observability/index.md) (1 shared tag)
 - [Bidirectional Streaming Hooks](/docs/user-guide/concepts/bidirectional-streaming/hooks/index.md) (1 shared tag)
 - [Voice & Realtime Quickstart](/docs/user-guide/concepts/bidirectional-streaming/quickstart/index.md) (1 shared tag)
-- [Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic/index.md) (1 shared tag)
+- [Bedrock Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/bedrock/index.md) (1 shared tag)
 - [Bidirectional Streaming Session Management](/docs/user-guide/concepts/bidirectional-streaming/session-management/index.md) (1 shared tag)
 
 

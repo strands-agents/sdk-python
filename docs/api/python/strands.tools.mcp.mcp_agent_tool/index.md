@@ -8,7 +8,7 @@ This module provides the MCPAgentTool class which serves as an adapter between M
 class MCPAgentTool(AgentTool)
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_agent\_tool.py:24](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_agent_tool.py#L24)
+Defined in: [src/strands/tools/mcp/mcp\_agent\_tool.py:25](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_agent_tool.py#L25)
 
 Adapter class that wraps an MCP tool and exposes it as an AgentTool.
 
@@ -23,7 +23,7 @@ def __init__(mcp_tool: MCPTool,
              timeout: timedelta | None = None) -> None
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_agent\_tool.py:32](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_agent_tool.py#L32)
+Defined in: [src/strands/tools/mcp/mcp\_agent\_tool.py:33](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_agent_tool.py#L33)
 
 Initialize a new MCPAgentTool instance.
 
@@ -32,7 +32,7 @@ Initialize a new MCPAgentTool instance.
 -   `mcp_tool` - The MCP tool to adapt
 -   `mcp_client` - The MCP server connection to use for tool invocation
 -   `name_override` - Optional name to use for the agent tool (for disambiguation) If None, uses the original MCP tool name
--   `timeout` - Optional timeout duration for tool execution
+-   `timeout` - Optional timeout duration for tool execution. On the mcp 2.x line, the timeout bounds each request round of a multi round-trip tool call rather than the call as a whole.
 
 #### tool\_name
 
@@ -41,7 +41,7 @@ Initialize a new MCPAgentTool instance.
 def tool_name() -> str
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_agent\_tool.py:56](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_agent_tool.py#L56)
+Defined in: [src/strands/tools/mcp/mcp\_agent\_tool.py:58](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_agent_tool.py#L58)
 
 Get the name of the tool.
 
@@ -56,7 +56,7 @@ Get the name of the tool.
 def tool_spec() -> ToolSpec
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_agent\_tool.py:65](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_agent_tool.py#L65)
+Defined in: [src/strands/tools/mcp/mcp\_agent\_tool.py:67](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_agent_tool.py#L67)
 
 Get the specification of the tool.
 
@@ -73,7 +73,7 @@ This method converts the MCP tool specification to the agent framework’s ToolS
 def tool_type() -> str
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_agent\_tool.py:97](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_agent_tool.py#L97)
+Defined in: [src/strands/tools/mcp/mcp\_agent\_tool.py:102](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_agent_tool.py#L102)
 
 Get the type of the tool.
 
@@ -89,7 +89,7 @@ async def stream(tool_use: ToolUse, invocation_state: dict[str, Any],
                  **kwargs: Any) -> ToolGenerator
 ```
 
-Defined in: [src/strands/tools/mcp/mcp\_agent\_tool.py:106](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_agent_tool.py#L106)
+Defined in: [src/strands/tools/mcp/mcp\_agent\_tool.py:111](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/mcp/mcp_agent_tool.py#L111)
 
 Stream the MCP tool.
 

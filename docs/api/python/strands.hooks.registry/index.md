@@ -8,7 +8,7 @@ This module provides the core infrastructure for the typed hook system, enabling
 class HookOrder()
 ```
 
-Defined in: [src/strands/hooks/registry.py:27](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L27)
+Defined in: [src/strands/hooks/registry.py:30](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L30)
 
 Named constants for hook execution priority.
 
@@ -21,7 +21,7 @@ Lower values execute first. Hooks with the same order preserve registration orde
 class BaseHookEvent()
 ```
 
-Defined in: [src/strands/hooks/registry.py:50](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L50)
+Defined in: [src/strands/hooks/registry.py:53](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L53)
 
 Base class for all hook events.
 
@@ -32,7 +32,7 @@ Base class for all hook events.
 def should_reverse_callbacks() -> bool
 ```
 
-Defined in: [src/strands/hooks/registry.py:54](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L54)
+Defined in: [src/strands/hooks/registry.py:57](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L57)
 
 Determine if callbacks for this event should be invoked in reverse order.
 
@@ -46,7 +46,7 @@ False by default. Override to return True for events that should invoke callback
 def __post_init__() -> None
 ```
 
-Defined in: [src/strands/hooks/registry.py:74](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L74)
+Defined in: [src/strands/hooks/registry.py:77](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L77)
 
 Disallow writes to non-approved properties.
 
@@ -56,7 +56,7 @@ Disallow writes to non-approved properties.
 def __setattr__(name: str, value: Any) -> None
 ```
 
-Defined in: [src/strands/hooks/registry.py:80](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L80)
+Defined in: [src/strands/hooks/registry.py:83](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L83)
 
 Prevent setting attributes on hook events.
 
@@ -68,10 +68,10 @@ Prevent setting attributes on hook events.
 
 ```python
 @dataclass
-class HookEvent(BaseHookEvent)
+class HookEvent(BaseHookEvent, Generic[_LocalAgentT])
 ```
 
-Defined in: [src/strands/hooks/registry.py:96](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L96)
+Defined in: [src/strands/hooks/registry.py:103](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L103)
 
 Base class for single agent hook events.
 
@@ -94,7 +94,7 @@ Generic for invoking events - non-contravariant to enable returning events.
 class HookProvider(Protocol)
 ```
 
-Defined in: [src/strands/hooks/registry.py:114](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L114)
+Defined in: [src/strands/hooks/registry.py:121](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L121)
 
 Protocol for objects that provide hook callbacks to an agent.
 
@@ -117,7 +117,7 @@ agent = Agent(hooks=[MyHookProvider()])
 def register_hooks(registry: "HookRegistry", **kwargs: Any) -> None
 ```
 
-Defined in: [src/strands/hooks/registry.py:132](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L132)
+Defined in: [src/strands/hooks/registry.py:139](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L139)
 
 Register callback functions for specific event types.
 
@@ -132,7 +132,7 @@ Register callback functions for specific event types.
 class HookCallback(Protocol, Generic[TEvent])
 ```
 
-Defined in: [src/strands/hooks/registry.py:142](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L142)
+Defined in: [src/strands/hooks/registry.py:149](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L149)
 
 Protocol for callback functions that handle hook events.
 
@@ -156,7 +156,7 @@ async def my_callback(event: StartRequestEvent) -> None:
 def __call__(event: TEvent) -> None | Awaitable[None]
 ```
 
-Defined in: [src/strands/hooks/registry.py:161](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L161)
+Defined in: [src/strands/hooks/registry.py:168](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L168)
 
 Handle a hook event.
 
@@ -170,7 +170,7 @@ Handle a hook event.
 class HookRegistry()
 ```
 
-Defined in: [src/strands/hooks/registry.py:170](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L170)
+Defined in: [src/strands/hooks/registry.py:177](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L177)
 
 Registry for managing hook callbacks associated with event types.
 
@@ -184,7 +184,7 @@ The registry handles callback ordering, including reverse ordering for cleanup e
 def __init__() -> None
 ```
 
-Defined in: [src/strands/hooks/registry.py:181](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L181)
+Defined in: [src/strands/hooks/registry.py:188](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L188)
 
 Initialize an empty hook registry.
 
@@ -197,7 +197,7 @@ def add_callback(event_type: type[TEvent] | list[type[TEvent]] | None,
                  order: float = HookOrder.DEFAULT) -> None
 ```
 
-Defined in: [src/strands/hooks/registry.py:185](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L185)
+Defined in: [src/strands/hooks/registry.py:192](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L192)
 
 Register a callback function for a specific event type.
 
@@ -244,7 +244,7 @@ registry.add_callback([BeforeModelCallEvent, AfterModelCallEvent], multi_handler
 def add_hook(hook: HookProvider) -> None
 ```
 
-Defined in: [src/strands/hooks/registry.py:280](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L280)
+Defined in: [src/strands/hooks/registry.py:287](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L287)
 
 Register all callbacks from a hook provider.
 
@@ -272,7 +272,7 @@ async def invoke_callbacks_async(
         event: TInvokeEvent) -> tuple[TInvokeEvent, list[Interrupt]]
 ```
 
-Defined in: [src/strands/hooks/registry.py:302](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L302)
+Defined in: [src/strands/hooks/registry.py:309](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L309)
 
 Invoke all registered callbacks for the given event.
 
@@ -306,7 +306,7 @@ def invoke_callbacks(
         event: TInvokeEvent) -> tuple[TInvokeEvent, list[Interrupt]]
 ```
 
-Defined in: [src/strands/hooks/registry.py:348](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L348)
+Defined in: [src/strands/hooks/registry.py:355](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L355)
 
 Invoke all registered callbacks for the given event.
 
@@ -340,7 +340,7 @@ registry.invoke_callbacks(event)
 def has_callbacks() -> bool
 ```
 
-Defined in: [src/strands/hooks/registry.py:395](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L395)
+Defined in: [src/strands/hooks/registry.py:402](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L402)
 
 Check if the registry has any registered callbacks.
 
@@ -362,7 +362,7 @@ def get_callbacks_for(
         event: TEvent) -> Generator[HookCallback[TEvent], None, None]
 ```
 
-Defined in: [src/strands/hooks/registry.py:409](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L409)
+Defined in: [src/strands/hooks/registry.py:416](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/registry.py#L416)
 
 Get callbacks registered for the given event in the appropriate order.
 

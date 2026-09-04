@@ -2,13 +2,94 @@ Agent-related type definitions for the SDK.
 
 This module defines the types used for an Agent.
 
+## LocalAgent
+
+```python
+class LocalAgent(Protocol)
+```
+
+Defined in: [src/strands/types/agent.py:29](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/agent.py#L29)
+
+Interface for SDK-provided agents with locally accessible capabilities.
+
+This protocol is exported for type annotations and is not intended for external implementation.
+
+**Attributes**:
+
+-   `agent_id` - Unique identifier for the agent.
+-   `name` - Display name for the agent.
+-   `description` - Optional description of the agent.
+-   `messages` - Conversation history maintained by the agent.
+-   `state` - Application state associated with the agent.
+-   `hooks` - Registry containing the agent’s hook callbacks.
+-   `model` - Model used by the agent.
+-   `system_prompt` - String representation of the agent’s system prompt.
+-   `tool_registry` - Registry containing tools available to the agent.
+
+#### tool
+
+```python
+@property
+def tool() -> _ToolCaller
+```
+
+Defined in: [src/strands/types/agent.py:60](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/agent.py#L60)
+
+Caller for invoking registered tools directly.
+
+#### tool\_names
+
+```python
+@property
+def tool_names() -> list[str]
+```
+
+Defined in: [src/strands/types/agent.py:65](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/agent.py#L65)
+
+Names of tools registered with the agent.
+
+#### system\_prompt\_content
+
+```python
+@property
+def system_prompt_content() -> list[SystemContentBlock] | None
+```
+
+Defined in: [src/strands/types/agent.py:70](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/agent.py#L70)
+
+Structured system prompt content used by the agent.
+
+#### session\_id
+
+```python
+@property
+def session_id() -> str
+```
+
+Defined in: [src/strands/types/agent.py:75](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/agent.py#L75)
+
+Identifier for the current conversation session.
+
+#### add\_hook
+
+```python
+def add_hook(callback: HookCallback[_TEvent],
+             event_type: type[_TEvent] | list[type[_TEvent]] | None = None,
+             *,
+             order: float = ...) -> None
+```
+
+Defined in: [src/strands/types/agent.py:79](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/agent.py#L79)
+
+Register a hook callback.
+
 ## Limits
 
 ```python
 class Limits(TypedDict)
 ```
 
-Defined in: [src/strands/types/agent.py:17](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/agent.py#L17)
+Defined in: [src/strands/types/agent.py:90](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/agent.py#L90)
 
 Per-invocation budget caps for the agent loop.
 
@@ -30,7 +111,7 @@ Priority on simultaneous trip (highest first): `turns`, `total_tokens`, `output_
 class ConcurrentInvocationMode(str, Enum)
 ```
 
-Defined in: [src/strands/types/agent.py:52](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/agent.py#L52)
+Defined in: [src/strands/types/agent.py:125](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/agent.py#L125)
 
 Mode controlling concurrent invocation behavior.
 

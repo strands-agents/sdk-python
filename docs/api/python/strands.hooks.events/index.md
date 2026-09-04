@@ -154,7 +154,7 @@ True to invoke callbacks in reverse order.
 
 ```python
 @dataclass
-class BeforeToolCallEvent(HookEvent, _Interruptible)
+class BeforeToolCallEvent(HookEvent[_LocalAgentT], _Interruptible)
 ```
 
 Defined in: [src/strands/hooks/events.py:208](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/events.py#L208)
@@ -174,7 +174,7 @@ This event is fired just before the agent executes a tool, allowing hook provide
 
 ```python
 @dataclass
-class AfterToolCallEvent(HookEvent)
+class AfterToolCallEvent(HookEvent[_LocalAgentT])
 ```
 
 Defined in: [src/strands/hooks/events.py:248](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/hooks/events.py#L248)

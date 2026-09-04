@@ -1,4 +1,8 @@
-<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Strands Agents Changelog</title><description>Releases across the Strands Agents Harness and Evals SDKs.</description><link>https://strandsagents.com/</link><language>en-us</language><item><title>Harness Python v1.54.0</title><link>https://strandsagents.com/changelog/harness/python-v1.54.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.54.0/</guid><description>• refresh dependencies and isolate test results
+<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Strands Agents Changelog</title><description>Releases across the Strands Agents Harness and Evals SDKs.</description><link>https://strandsagents.com/</link><language>en-us</language><item><title>Harness TypeScript v1.16.0</title><link>https://strandsagents.com/changelog/harness/typescript-v1.16.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v1.16.0/</guid><description>• add internal BackgroundTaskManager interface + InProcessTaskManager impl
+• stop str_replace and insert from rewriting untouched bytes
+• add QmdSearchStrategy with BM25 full-text search
+• align 0016 with shipped ClassifierStrategy
+• add backgroundTasks to Agent</description><pubDate>Mon, 31 Aug 2026 00:00:00 GMT</pubDate><category>async</category><category>multiagent</category><category>tool</category><category>persistence</category><category>agent</category><category>otel</category></item><item><title>Harness Python v1.54.0</title><link>https://strandsagents.com/changelog/harness/python-v1.54.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.54.0/</guid><description>• refresh dependencies and isolate test results
 • bump dorny/paths-filter from 3.0.2 to 4.0.3
 • count Gemini tool-use tokens as input and thinking tokens as output
 • warn and skip cachePoint message blocks instead of raising

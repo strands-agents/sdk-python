@@ -19,14 +19,14 @@ Create a `BidiAgent` with a session manager and use it:
 
 ```python
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 from strands.session.file_session_manager import FileSessionManager
 
 # Create a session manager with a unique session ID
 session_manager = FileSessionManager(session_id="user_123_voice_session")
 
 # Create the agent with session management
-model = BidiNovaSonicModel()
+model = BedrockNovaSonicModel()
 agent = BidiAgent(
     model=model,
     session_manager=session_manager
@@ -44,13 +44,13 @@ The conversation history is automatically persisted and will be restored on the 
 
 ## Provider-Specific Considerations
 
-### Nova Sonic
+### Bedrock Nova Sonic
 
 Conversation History Limits
 
 When restoring a session, Nova Sonic caps the conversation history sent at connection start to 50KB per message and 200KB total. Messages exceeding the per-message limit are truncated, and if the total exceeds 200KB, the oldest messages are dropped until it fits. Long-running or transcript-heavy sessions restored after this limit is hit will silently lose earlier context.
 
-### Gemini Live
+### Google Gemini Live
 
 Limited Session Management Support
 
@@ -225,10 +225,10 @@ For best practices on session ID management, session cleanup, error handling, st
 - [Storage](/docs/user-guide/concepts/storage/index.md) (1 shared tag)
 - [BidiAgent](/docs/user-guide/concepts/bidirectional-streaming/agent/index.md) (1 shared tag)
 - [Events](/docs/user-guide/concepts/bidirectional-streaming/events/index.md) (1 shared tag)
-- [Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/gemini_live/index.md) (1 shared tag)
+- [Google Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/google/index.md) (1 shared tag)
 - [I/O Channels](/docs/user-guide/concepts/bidirectional-streaming/io/index.md) (1 shared tag)
 - [Interruptions](/docs/user-guide/concepts/bidirectional-streaming/interruption/index.md) (1 shared tag)
-- [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai_realtime/index.md) (1 shared tag)
+- [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai/index.md) (1 shared tag)
 
 
 ## Implementation

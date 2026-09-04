@@ -1,4 +1,8 @@
-[Llama API](https://llama.developer.meta.com?utm_source=partner-strandsagent&utm_medium=website) is a Meta-hosted API service that helps you integrate Llama models into your applications quickly and efficiently.
+Deprecated
+
+The Llama API service has been deprecated by Meta, and Strands’ `LlamaAPIModel` provider is deprecated along with it. It will be removed in v2.0.0. Use [Amazon Bedrock](/docs/user-guide/concepts/model-providers/amazon-bedrock/index.md), [Ollama](/docs/user-guide/concepts/model-providers/ollama/index.md), or [OpenAI](/docs/user-guide/concepts/model-providers/openai/index.md) instead.
+
+Llama API is a Meta-hosted API service that helps you integrate Llama models into your applications quickly and efficiently.
 
 Llama API provides access to Llama models through a simple API interface, with inference provided by Meta, so you can focus on building AI-powered solutions without managing your own inference infrastructure.
 

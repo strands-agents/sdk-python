@@ -4,7 +4,7 @@
 
 Install OpenTelemetry Dependencies
 
-To run the Nova Sonic example below and export OTEL data, install both optional dependencies:
+To run the Bedrock Nova Sonic example below and export OTEL data, install both optional dependencies:
 
 ```shell
 pip install 'strands-agents[bidi,otel]'
@@ -16,7 +16,7 @@ Tracing configuration is identical to the non-streaming agent. Configure OpenTel
 import asyncio
 
 from strands.experimental.bidi import BidiAgent, BidiConnectionStartEvent
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 from strands.telemetry import StrandsTelemetry
 
 strands_telemetry = StrandsTelemetry()
@@ -26,7 +26,7 @@ strands_telemetry.setup_console_exporter()  # Print spans to stdout
 
 async def main():
     agent = BidiAgent(
-        model=BidiNovaSonicModel(),
+        model=BedrockNovaSonicModel(),
         system_prompt="You are a helpful voice assistant.",
         name="Voice Assistant",
     )
@@ -358,9 +358,9 @@ Providers report streaming lifecycle events differently, which is reflected dire
 
 | Provider | Response spans | Notes |
 | --- | --- | --- |
-| Nova Sonic | One per content block | A single spoken turn can produce several `bidi_response` spans. All but the last close as `interrupted`, and time to first audio re-baselines on each. Count spoken turns from interruption events and finish reasons rather than by counting response spans. No cache tokens or modality breakdown reported. |
+| Bedrock Nova Sonic | One per content block | A single spoken turn can produce several `bidi_response` spans. All but the last close as `interrupted`, and time to first audio re-baselines on each. Count spoken turns from interruption events and finish reasons rather than by counting response spans. No cache tokens or modality breakdown reported. |
 | OpenAI Realtime | One per turn | Reports cache read tokens and a modality breakdown when available. |
-| Gemini Live | None | Emits no response lifecycle events, so a session produces no `bidi_response` spans. Interruptions, token usage including cache reads, and the modality breakdown are still reported. |
+| Google Gemini Live | None | Emits no response lifecycle events, so a session produces no `bidi_response` spans. Interruptions, token usage including cache reads, and the modality breakdown are still reported. |
 
 ## Best Practices
 
@@ -376,9 +376,9 @@ Providers report streaming lifecycle events differently, which is reflected dire
 | Issue | Solution |
 | --- | --- |
 | No spans at all | Install the `otel` extra and configure an exporter before agent start |
-| No `bidi_response` spans | Expected on Gemini Live, which emits no response lifecycle |
+| No `bidi_response` spans | Expected on Google Gemini Live, which emits no response lifecycle |
 | Session span has no token attributes | The session is still open, or usage was never reported |
-| More response spans than spoken turns | Expected on Nova Sonic, one response per content block |
+| More response spans than spoken turns | Expected on Bedrock Nova Sonic, one response per content block |
 | `gen_ai.system_instructions` reads `[REDACTED]` | Add it to the unredacted allowlist |
 | Restart span has an error message but status `OK` | The reconnect succeeded; the message is the timeout that triggered it |
 
@@ -395,10 +395,10 @@ Providers report streaming lifecycle events differently, which is reflected dire
 
 - [BidiAgent](/docs/user-guide/concepts/bidirectional-streaming/agent/index.md) (1 shared tag)
 - [Events](/docs/user-guide/concepts/bidirectional-streaming/events/index.md) (1 shared tag)
-- [Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/gemini_live/index.md) (1 shared tag)
+- [Google Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/google/index.md) (1 shared tag)
 - [I/O Channels](/docs/user-guide/concepts/bidirectional-streaming/io/index.md) (1 shared tag)
 - [Interruptions](/docs/user-guide/concepts/bidirectional-streaming/interruption/index.md) (1 shared tag)
-- [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai_realtime/index.md) (1 shared tag)
+- [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai/index.md) (1 shared tag)
 - [Evaluating Remote Traces](/docs/user-guide/evals-sdk/how-to/trace_providers/index.md) (1 shared tag)
 - [Metrics](/docs/user-guide/observability-evaluation/metrics/index.md) (1 shared tag)
 - [Observability](/docs/user-guide/observability-evaluation/observability/index.md) (1 shared tag)

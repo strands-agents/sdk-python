@@ -52,7 +52,7 @@ async def search(query: str,
                  options: SearchOptions | None = None) -> list[MemoryEntry]
 ```
 
-Defined in: [src/strands/vended\_memory\_stores/file\_memory\_store/store.py:140](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/file_memory_store/store.py#L140)
+Defined in: [src/strands/vended\_memory\_stores/file\_memory\_store/store.py:138](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/file_memory_store/store.py#L138)
 
 Search knowledge files by keyword token-overlap scoring.
 

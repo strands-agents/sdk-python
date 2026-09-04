@@ -181,6 +181,9 @@
     -   **Sleep**
         -   [Sleep](/docs/api/python/strands.vended_tools.sleep.sleep)
         -   [Types](/docs/api/python/strands.vended_tools.sleep.types)
+    -   **Web Fetch**
+        -   [Types](/docs/api/python/strands.vended_tools.web_fetch.types)
+        -   [Web Fetch](/docs/api/python/strands.vended_tools.web_fetch.web_fetch)
 -   **Experimental**
     -   [Agent Config](/docs/api/python/strands.experimental.agent_config)
     -   **Bidi**
@@ -188,17 +191,16 @@
         -   **Agent**
             -   [Agent](/docs/api/python/strands.experimental.bidi.agent.agent)
             -   [Loop](/docs/api/python/strands.experimental.bidi.agent.loop)
-        -   [Audio](/docs/api/python/strands.experimental.bidi.audio)
         -   **Io**
             -   [Overview](/docs/api/python/strands.experimental.bidi.io)
             -   [Audio](/docs/api/python/strands.experimental.bidi.io.audio)
             -   [Text](/docs/api/python/strands.experimental.bidi.io.text)
         -   **Models**
             -   [Overview](/docs/api/python/strands.experimental.bidi.models)
-            -   [Gemini Live](/docs/api/python/strands.experimental.bidi.models.gemini_live)
+            -   [Bedrock](/docs/api/python/strands.experimental.bidi.models.bedrock)
+            -   [Google](/docs/api/python/strands.experimental.bidi.models.google)
             -   [Model](/docs/api/python/strands.experimental.bidi.models.model)
-            -   [Nova Sonic](/docs/api/python/strands.experimental.bidi.models.nova_sonic)
-            -   [Openai Realtime](/docs/api/python/strands.experimental.bidi.models.openai_realtime)
+            -   [Openai](/docs/api/python/strands.experimental.bidi.models.openai)
         -   **Tools**
             -   [Stop Conversation](/docs/api/python/strands.experimental.bidi.tools.stop_conversation)
         -   **Types**

@@ -6,7 +6,7 @@ After completing this guide, you can build voice assistants, interactive chatbot
 
 Before starting, ensure you have:
 
--   Python 3.10+ installed (3.12+ required for Nova Sonic)
+-   Python 3.10+ installed (3.12+ required for Bedrock Nova Sonic)
 -   Audio hardware (microphone and speakers) for voice conversations
 -   Model provider credentials configured (AWS, OpenAI, or Google)
 
@@ -22,13 +22,13 @@ To install all bidirectional streaming providers and portable I/O dependencies:
 pip install "strands-agents[bidi-all]"
 ```
 
-This includes all 3 supported providers (Nova Sonic, OpenAI, and Gemini Live), `BidiTextIO`, and audio processing. Local microphone and speaker access also requires the `bidi-pyaudio` extra and the PortAudio system library.
+This includes all 3 supported providers (Bedrock Nova Sonic, Google Gemini Live, and OpenAI Realtime), `BidiTextIO`, and audio processing. Local microphone and speaker access also requires the `bidi-pyaudio` extra and the PortAudio system library.
 
 ### For Specific Providers
 
 You can also install support for specific providers:
 
-(( tab "Amazon Bedrock Nova Sonic" ))
+(( tab "Bedrock Nova Sonic" ))
 ```bash
 # With local microphone and speaker I/O
 pip install "strands-agents[bidi,bidi-pyaudio]"
@@ -36,9 +36,9 @@ pip install "strands-agents[bidi,bidi-pyaudio]"
 # Without local microphone and speaker I/O
 pip install "strands-agents[bidi]"
 ```
-(( /tab "Amazon Bedrock Nova Sonic" ))
+(( /tab "Bedrock Nova Sonic" ))
 
-(( tab "OpenAI Realtime API" ))
+(( tab "OpenAI Realtime" ))
 ```bash
 # With local audio I/O
 pip install "strands-agents[bidi,bidi-pyaudio,bidi-openai]"
@@ -46,7 +46,7 @@ pip install "strands-agents[bidi,bidi-pyaudio,bidi-openai]"
 # Server-side only
 pip install "strands-agents[bidi,bidi-openai]"
 ```
-(( /tab "OpenAI Realtime API" ))
+(( /tab "OpenAI Realtime" ))
 
 (( tab "Google Gemini Live" ))
 ```bash
@@ -90,7 +90,7 @@ pip install "strands-agents[bidi-all,bidi-pyaudio]"
 
 Bidirectional streaming supports multiple model providers. Choose one based on your needs:
 
-(( tab "Amazon Bedrock Nova Sonic" ))
+(( tab "Bedrock Nova Sonic" ))
 Nova Sonic is Amazon’s bidirectional streaming model. Configure AWS credentials:
 
 ```bash
@@ -100,18 +100,18 @@ export AWS_DEFAULT_REGION=us-east-1
 ```
 
 Enable Nova Sonic model access in the [Amazon Bedrock console](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access-modify.html).
-(( /tab "Amazon Bedrock Nova Sonic" ))
+(( /tab "Bedrock Nova Sonic" ))
 
-(( tab "OpenAI Realtime API" ))
+(( tab "OpenAI Realtime" ))
 For OpenAI’s Realtime API, set your API key:
 
 ```bash
 export OPENAI_API_KEY=your_api_key
 ```
-(( /tab "OpenAI Realtime API" ))
+(( /tab "OpenAI Realtime" ))
 
 (( tab "Google Gemini Live" ))
-For Gemini Live API, set your API key:
+For Google’s Gemini Live API, set your API key:
 
 ```bash
 export GOOGLE_API_KEY=your_api_key
@@ -125,10 +125,10 @@ Now let’s create a simple voice-enabled agent that can have real-time conversa
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
 # Create a bidirectional streaming model
-model = BidiNovaSonicModel()
+model = BedrockNovaSonicModel()
 
 # Create the agent
 agent = BidiAgent(
@@ -168,9 +168,9 @@ Combine audio with text input/output for debugging or multi-modal interactions:
 import asyncio
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
 from strands.experimental.bidi.io import BidiTextIO
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
-model = BidiNovaSonicModel()
+model = BedrockNovaSonicModel()
 agent = BidiAgent(
     model=model,
     system_prompt="You are a helpful assistant."
@@ -198,10 +198,10 @@ The `run()` method runs indefinitely by default. The simplest way to stop conver
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
 async def main():
-    model = BidiNovaSonicModel()
+    model = BedrockNovaSonicModel()
     agent = BidiAgent(model=model)
     audio_io = BidiAudioIO()
 
@@ -232,7 +232,7 @@ Just like standard Strands agents, bidirectional agents can use tools during con
 import asyncio
 from strands import tool
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 from strands_tools import calculator, current_time
 
 # Define a custom tool
@@ -251,7 +251,7 @@ def get_weather(location: str) -> str:
     return f"The weather in {location} is sunny and 72°F"
 
 # Create agent with tools
-model = BidiNovaSonicModel()
+model = BedrockNovaSonicModel()
 agent = BidiAgent(
     model=model,
     tools=[calculator, current_time, get_weather],
@@ -281,9 +281,9 @@ The agent automatically determines when to use tools and executes them concurren
 
 Strands supports three bidirectional streaming providers:
 
--   **[Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic/index.md)** - Amazon’s bidirectional streaming model via AWS Bedrock
--   **[OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai_realtime/index.md)** - OpenAI’s Realtime API for voice conversations
--   **[Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/gemini_live/index.md)** - Google’s multimodal streaming API
+-   **[Bedrock Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/bedrock/index.md)** - Amazon’s bidirectional streaming model via AWS Bedrock
+-   **[OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai/index.md)** - OpenAI’s Realtime API for voice conversations
+-   **[Google Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/google/index.md)** - Google’s Gemini Live multimodal streaming API
 
 Each provider has different features, timeout limits, and audio quality. See the individual provider documentation for detailed configuration options.
 
@@ -295,10 +295,10 @@ Customize audio configuration for both the model and I/O:
 import asyncio
 
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
-from strands.experimental.bidi.models.gemini_live import BidiGeminiLiveModel
+from strands.experimental.bidi.models import GoogleGeminiLiveModel
 
 # Configure model audio settings
-model = BidiGeminiLiveModel(
+model = GoogleGeminiLiveModel(
     provider_config={
         "audio": {
             "input_rate": 48000,   # Higher quality input
@@ -336,10 +336,10 @@ Bidirectional agents automatically handle interruptions when users start speakin
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 from strands.experimental.bidi.types.events import BidiInterruptionEvent
 
-model = BidiNovaSonicModel()
+model = BedrockNovaSonicModel()
 agent = BidiAgent(model=model)
 audio_io = BidiAudioIO()
 
@@ -371,11 +371,11 @@ If you need more control over the agent lifecycle, you can manually call `start(
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 from strands.experimental.bidi.types.events import BidiResponseCompleteEvent
 
 async def main():
-    model = BidiNovaSonicModel()
+    model = BedrockNovaSonicModel()
     agent = BidiAgent(model=model)
 
     # Manually start the agent
@@ -403,10 +403,10 @@ Use the `stop` tool from `strands_tools` to allow users to end conversations nat
 ```python
 import asyncio
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 from strands_tools import stop
 
-model = BidiNovaSonicModel()
+model = BedrockNovaSonicModel()
 agent = BidiAgent(
     model=model,
     tools=[stop],
@@ -446,7 +446,7 @@ To enable debug logs in your agent, configure the `strands` logger:
 import asyncio
 import logging
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
-from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.models import BedrockNovaSonicModel
 
 # Enable debug logs
 logging.getLogger("strands").setLevel(logging.DEBUG)
@@ -455,7 +455,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()]
 )
 
-model = BidiNovaSonicModel()
+model = BedrockNovaSonicModel()
 agent = BidiAgent(model=model)
 audio_io = BidiAudioIO()
 
@@ -515,8 +515,8 @@ If you experience frequent disconnections:
 
 ```python
 # Use OpenAI for longer timeout (60 min vs Nova's 8 min)
-from strands.experimental.bidi.models import BidiOpenAIRealtimeModel
-model = BidiOpenAIRealtimeModel()
+from strands.experimental.bidi.models import OpenAIRealtimeModel
+model = OpenAIRealtimeModel()
 
 # Or handle restarts gracefully
 from strands.experimental.bidi import BidiConnectionRestartEvent
@@ -535,9 +535,9 @@ Ready to learn more? Check out these resources:
 -   [Events](/docs/user-guide/concepts/bidirectional-streaming/events/index.md) - Complete guide to bidirectional streaming events
 -   [I/O Channels](/docs/user-guide/concepts/bidirectional-streaming/io/index.md) - Understanding and customizing input/output channels
 -   **Model Providers:**
-    -   [Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic/index.md) - Amazon Bedrock’s bidirectional streaming model
-    -   [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai_realtime/index.md) - OpenAI’s Realtime API
-    -   [Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/gemini_live/index.md) - Google’s Gemini Live API
+    -   [Bedrock Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/bedrock/index.md) - Amazon Bedrock’s bidirectional streaming model
+    -   [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai/index.md) - OpenAI’s Realtime API
+    -   [Google Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/google/index.md) - Google’s Gemini Live API
 -   [Python API Reference](/docs/api/python/strands.experimental.bidi.agent.agent) - Complete API documentation
 
 ## Related pages
@@ -549,6 +549,6 @@ Ready to learn more? Check out these resources:
 - [TypeScript Quickstart](/docs/user-guide/quickstart/typescript/index.md) (1 shared tag)
 - [BidiAgent](/docs/user-guide/concepts/bidirectional-streaming/agent/index.md) (1 shared tag)
 - [Events](/docs/user-guide/concepts/bidirectional-streaming/events/index.md) (1 shared tag)
-- [Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/gemini_live/index.md) (1 shared tag)
+- [Google Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/google/index.md) (1 shared tag)
 - [I/O Channels](/docs/user-guide/concepts/bidirectional-streaming/io/index.md) (1 shared tag)
 - [Interruptions](/docs/user-guide/concepts/bidirectional-streaming/interruption/index.md) (1 shared tag)

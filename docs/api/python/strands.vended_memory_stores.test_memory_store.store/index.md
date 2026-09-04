@@ -8,7 +8,7 @@ A zero-infrastructure store for prototyping and testing. It persists to disk by 
 class TestMemoryStore(MemoryStore)
 ```
 
-Defined in: [src/strands/vended\_memory\_stores/test\_memory\_store/store.py:58](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/test_memory_store/store.py#L58)
+Defined in: [src/strands/vended\_memory\_stores/test\_memory\_store/store.py:56](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/test_memory_store/store.py#L56)
 
 A :class:`~strands.memory.types.MemoryStore` backed by a local JSON file.
 
@@ -40,7 +40,7 @@ results = await store.search("what theme does the user like?")
 def __init__(**store_config: Unpack[TestMemoryStoreConfig]) -> None
 ```
 
-Defined in: [src/strands/vended\_memory\_stores/test\_memory\_store/store.py:99](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/test_memory_store/store.py#L99)
+Defined in: [src/strands/vended\_memory\_stores/test\_memory\_store/store.py:97](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/test_memory_store/store.py#L97)
 
 Initialize the store.
 
@@ -59,7 +59,7 @@ async def search(query: str,
                  options: SearchOptions | None = None) -> list[MemoryEntry]
 ```
 
-Defined in: [src/strands/vended\_memory\_stores/test\_memory\_store/store.py:152](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/test_memory_store/store.py#L152)
+Defined in: [src/strands/vended\_memory\_stores/test\_memory\_store/store.py:150](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/test_memory_store/store.py#L150)
 
 Search stored entries for those whose content overlaps the query.
 
@@ -86,7 +86,7 @@ async def add(content: str,
               metadata: Metadata | None = None) -> TestMemoryAddResult
 ```
 
-Defined in: [src/strands/vended\_memory\_stores/test\_memory\_store/store.py:196](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/test_memory_store/store.py#L196)
+Defined in: [src/strands/vended\_memory\_stores/test\_memory\_store/store.py:194](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/test_memory_store/store.py#L194)
 
 Add `content` (with optional `metadata`) to the store.
 

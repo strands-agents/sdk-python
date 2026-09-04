@@ -1,4 +1,4 @@
-Defined in: [src/models/routing/router.ts:73](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/models/routing/router.ts#L73)
+Defined in: [src/models/routing/router.ts:85](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/models/routing/router.ts#L85)
 
 Options for constructing a [ModelRouter](/docs/api/typescript/ModelRouter/index.md).
 
@@ -10,7 +10,7 @@ Options for constructing a [ModelRouter](/docs/api/typescript/ModelRouter/index.
 readonly optional strategy?: RoutingStrategy;
 ```
 
-Defined in: [src/models/routing/router.ts:75](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/models/routing/router.ts#L75)
+Defined in: [src/models/routing/router.ts:87](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/models/routing/router.ts#L87)
 
 Strategy responsible for every routing decision.
 
@@ -22,6 +22,6 @@ Strategy responsible for every routing decision.
 readonly optional maxSwitches?: number;
 ```
 
-Defined in: [src/models/routing/router.ts:77](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/models/routing/router.ts#L77)
+Defined in: [src/models/routing/router.ts:89](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/models/routing/router.ts#L89)
 
 Maximum successful candidate switches per invocation.

@@ -1,4 +1,4 @@
-Defined in: [src/hooks/types.ts:25](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/hooks/types.ts#L25)
+Defined in: [src/hooks/types.ts:25](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/hooks/types.ts#L25)
 
 Options for registering a hook callback.
 
@@ -10,4 +10,4 @@ Options for registering a hook callback.
 optional order?: number;
 ```
 
-Defined in: [src/hooks/types.ts:26](https://github.com/strands-agents/harness-sdk/blob/9062527eeda294e2f1381f385b36d0ba2fab9492/strands-ts/src/hooks/types.ts#L26)
+Defined in: [src/hooks/types.ts:26](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/hooks/types.ts#L26)
