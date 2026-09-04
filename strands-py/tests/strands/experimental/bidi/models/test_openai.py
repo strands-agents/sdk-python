@@ -133,6 +133,7 @@ def test_audio_config_defaults(api_key, model_name):
     assert model.config["audio"]["channels"] == 1
     assert model.config["audio"]["format"] == "pcm"
     assert model.config["audio"]["voice"] == "alloy"
+    assert model.audio_config == model.config["audio"]
 
 
 def test_audio_config_partial_override(api_key, model_name):
