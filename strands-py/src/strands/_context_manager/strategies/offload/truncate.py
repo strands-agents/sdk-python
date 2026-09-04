@@ -134,14 +134,19 @@ class TruncateStrategy(BaseOffloadStrategy):
         if "toolResult" in block:
             tool_use_id = block["toolResult"]["toolUseId"]
             logger.debug("tool_use_id=<%s>, tokens=<%s> | truncated tool result", tool_use_id, tokens)
-            truncated = ContentBlock(toolResult=_truncate_tool_result(block["toolResult"], self._truncate_config))
-            if truncated is not block and refs:
+            truncated_result = _truncate_tool_result(block["toolResult"], self._truncate_config)
+            if truncated_result is block["toolResult"]:
+                return block
+            truncated = ContentBlock(toolResult=truncated_result)
+            if refs:
                 _append_stash_refs_to_tool_result(truncated, refs)
             return truncated
         if is_text_block(block):
             logger.debug("tracking_id=<%s>, tokens=<%s> | truncated text block", message.get("tracking_id"), tokens)
             result = _truncate_text_block(block, self._truncate_config)
-            if result is not None and refs and "text" in result:
+            if result is block:
+                return block
+            if refs and "text" in result:
                 result = ContentBlock(text=result["text"] + f"\n\n[Stashed:{refs}]")
             return result
         logger.debug("tracking_id=<%s>, tokens=<%s> | offloaded media block", message.get("tracking_id"), tokens)
@@ -176,5 +181,7 @@ class EmergencyTruncateStrategy(TruncateStrategy):
         utilization = context.agent.model.estimate_utilization(tokens)
         if utilization < 1.0:
             return False
-        state = ContextState(messages=context.messages, agent=context.agent, utilization=utilization)
+        state = ContextState(
+            messages=context.messages, agent=context.agent, utilization=utilization, stash=context.stash
+        )
         return await self._apply_per_message(state)

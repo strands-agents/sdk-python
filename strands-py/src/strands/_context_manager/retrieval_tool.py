@@ -87,11 +87,18 @@ def _create_retrieval_tool(stash: Stash, max_result_tokens: int | None = None) -
     tool_spec = ToolSpec(
         name=RETRIEVAL_TOOL_NAME,
         description=(
-            "Retrieve offloaded content by reference.\n"
-            "Usage modes:\n"
-            "  - Full retrieval: { reference } — returns the complete stored content\n"
-            "  - Pattern search: { reference, pattern, context_lines? } — grep for matches\n"
-            "  - Line range: { reference, line_range: { start, end } } — extract lines (1-indexed)"
+            "Retrieve content that was offloaded from context.\n\n"
+            "When content is offloaded (truncated, dropped, or summarized), the original is "
+            "persisted and a reference key is left in its place. Use this tool with that "
+            "reference to access the original content.\n\n"
+            "Options:\n"
+            "  - pattern: regex/keyword to find matching lines with context\n"
+            "  - line_range: { start, end } to read a specific span\n"
+            "  - Without pattern/line_range: returns the full original content\n\n"
+            "Examples:\n"
+            '  { reference: "tu_abc123_0", pattern: "error" }\n'
+            '  { reference: "tu_abc123_0", line_range: { start: 10, end: 25 } }\n'
+            '  { reference: "tu_abc123_0" }'
         ),
         inputSchema={
             "type": "object",

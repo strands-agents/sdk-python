@@ -73,7 +73,7 @@ class TestListAndDelete:
         await stash.store("tool-1", 0, data)
         await stash.store("tool-2", 0, data)
         keys = await stash.list()
-        assert len(keys) == 2
+        assert sorted(keys) == ["tool-1_0", "tool-2_0"]
 
     @pytest.mark.asyncio
     async def test_delete_removes_entry(self, stash):
@@ -134,6 +134,17 @@ class TestStoreMessage:
         assert result == {"text": "hello world"}
 
     @pytest.mark.asyncio
+    async def test_stores_image_block_with_bytes(self, stash):
+        block = ContentBlock(
+            image={"format": "png", "source": {"bytes": b"\x89PNG\r\n\x1a\n"}}
+        )
+        message = Message(role="user", content=[block], tracking_id="track-img")
+        await stash.store_message(message)
+        result = await stash.retrieve("track-img_0")
+        assert result is not None
+        assert "image" in result
+
+    @pytest.mark.asyncio
     async def test_skips_tool_use_blocks(self, stash):
         block = ContentBlock(toolUse={"toolUseId": "tu-1", "name": "test", "input": {}})
         message = Message(role="assistant", content=[block], tracking_id="track-1")
@@ -165,7 +176,7 @@ class TestNamespacing:
         stash = Stash(storage, "sess-1", "agent-1")
         await stash.store("tool-1", 0, json.dumps({"text": "test"}).encode("utf-8"))
         raw_keys = await storage.list("")
-        assert any("context/" in key for key in raw_keys)
+        assert raw_keys == ["context/sess-1/scopes/agent/agent-1/tool-1_0"]
 
     @pytest.mark.asyncio
     async def test_different_agents_dont_conflict(self):
@@ -177,8 +188,8 @@ class TestNamespacing:
         await stash_b.store("tool-1", 0, data)
         keys_a = await stash_a.list()
         keys_b = await stash_b.list()
-        assert len(keys_a) == 1
-        assert len(keys_b) == 1
+        assert keys_a == ["tool-1_0"]
+        assert keys_b == ["tool-1_0"]
 
 
 class TestFormatStashRefs:

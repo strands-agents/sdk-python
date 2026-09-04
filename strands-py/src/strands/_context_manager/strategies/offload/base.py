@@ -310,8 +310,7 @@ class BaseOffloadStrategy(ABC):
 
     async def apply(self, context: ContextState) -> bool:
         """Apply the strategy to the context."""
-        if context.stash:
-            self._stash = context.stash
+        self._stash = context.stash
         if self._is_message_level:
             if context.utilization < self._utilization_threshold:  # type: ignore[operator]
                 return False

@@ -82,6 +82,7 @@ class ContextManager(Plugin):
             storage = self._stash_explicit_storage or getattr(agent, "storage", None) or InMemoryStorage()
             self._stash = Stash(storage, agent.session_id, agent.agent_id)
 
+        # Stash hook must register before strategy init so it captures pre-offload content.
         if self._stash is not None:
             stash = self._stash
             skip_set = self._retrieval_tool_use_ids
@@ -99,7 +100,10 @@ class ContextManager(Plugin):
         for strategy in self._strategies:
             init = getattr(strategy, "init", None)
             if init is not None:
-                init(agent, self._stash)
+                try:
+                    init(agent, stash=self._stash)
+                except TypeError:
+                    init(agent)
 
         async def _on_before_model_call(event: BeforeModelCallEvent) -> None:
             await self._run_strategies(event.agent, event.projected_input_tokens)

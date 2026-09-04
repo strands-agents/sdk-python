@@ -6,6 +6,7 @@ so the agent can retrieve it on demand via the retrieval tool.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 from typing import TYPE_CHECKING
@@ -22,8 +23,17 @@ logger = logging.getLogger(__name__)
 STASH_PREFIX = "context"
 
 
+class _BytesEncoder(json.JSONEncoder):
+    """JSON encoder that base64-encodes bytes values."""
+
+    def default(self, obj: object) -> object:
+        if isinstance(obj, (bytes, bytearray)):
+            return base64.b64encode(obj).decode("ascii")
+        return super().default(obj)
+
+
 def _encode(value: object) -> bytes:
-    return json.dumps(value).encode("utf-8")
+    return json.dumps(value, cls=_BytesEncoder).encode("utf-8")
 
 
 def _decode(data: bytes) -> object:
@@ -73,17 +83,22 @@ class Stash:
                 try:
                     await self._store_tool_result(block)
                 except Exception:
-                    logger.debug("tool_use_id=<%s> | failed to stash tool result", tool_result["toolUseId"])
+                    logger.warning(
+                        "tool_use_id=<%s> | failed to stash tool result",
+                        tool_result["toolUseId"],
+                        exc_info=True,
+                    )
             elif "toolUse" in block or "reasoningContent" in block or "cachePoint" in block:
                 continue
             else:
                 try:
                     await self.store(message.get("tracking_id", "unknown"), block_index, _encode(block))
                 except Exception:
-                    logger.debug(
+                    logger.warning(
                         "tracking_id=<%s>, block_index=<%s> | failed to stash block",
                         message.get("tracking_id"),
                         block_index,
+                        exc_info=True,
                     )
 
     async def retrieve(self, reference: str) -> object | None:
