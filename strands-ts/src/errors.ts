@@ -113,24 +113,6 @@ export class ConcurrentInvocationError extends Error {
 }
 
 /**
- * Error thrown when a call is rejected because the agent's invocation queue is full.
- *
- * Only thrown under `concurrentInvocationMode: 'enqueue'` with a `maxDepth` configured.
- * The rejection happens at submit time — a call that would overflow the queue never waits.
- */
-export class InvocationQueueFullError extends Error {
-  /**
-   * Creates a new InvocationQueueFullError.
-   *
-   * @param message - Error message describing the full queue
-   */
-  constructor(message: string) {
-    super(message)
-    this.name = 'InvocationQueueFullError'
-  }
-}
-
-/**
  * Error a queued invoke() or stream() call rejects with when it is removed from the
  * agent's invocation queue before running — via `agent.cancelPending(id)` or the
  * caller's own `cancelSignal` aborting while queued.

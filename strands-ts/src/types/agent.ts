@@ -8,7 +8,7 @@ import type { Checkpoint, CheckpointResumeContent } from '../experimental/checkp
 import type { AgentTrace } from '../telemetry/tracer.js'
 import type { Snapshot } from './snapshot.js'
 import type { TakeSnapshotOptions } from '../agent/snapshot.js'
-import type { IfBusy, PendingInvocation } from '../agent/invocation-queue.js'
+import type { ConcurrentInvocationMode, PendingInvocation } from '../agent/invocation-queue.js'
 import type {
   BeforeInvocationEvent,
   AfterInvocationEvent,
@@ -144,18 +144,17 @@ export interface InvokeOptions {
    * - `'enqueue'`: wait in the agent's FIFO invocation queue; this call runs as its own
    *   invocation — with its own result, hook events, and cancellation signal — when the
    *   current one finishes.
-   * - `'interrupt'`: cancel the running invocation via `agent.cancel()` and run this
-   *   call next, ahead of any queued invocations. The interrupted caller receives its
-   *   own result with `stopReason: 'cancelled'`.
+   * - `'cancelPrevious'`: cancel the running invocation via `agent.cancel()` and run
+   *   this call next, ahead of any queued invocations. The cancelled caller receives
+   *   its own result with `stopReason: 'cancelled'`.
    *
    * When omitted, the agent's `concurrentInvocationMode` applies.
    *
-   * Queue options (`maxDepth`, `visibleToModel`) are configured on the agent's
-   * `concurrentInvocationMode`. On an agent left in the default `'throw'` mode,
-   * per-call `'enqueue'` / `'interrupt'` waits in a queue that is unbounded and not
-   * visible to the model — attach the `PendingInvocations` plugin for visibility.
+   * On an agent left in the default `'throw'` mode, per-call `'enqueue'` /
+   * `'cancelPrevious'` waits in a queue that is not rendered to the model — attach
+   * the `PendingInvocations` plugin for visibility.
    */
-  ifBusy?: IfBusy
+  ifBusy?: ConcurrentInvocationMode
 
   /**
    * Per-invocation budget caps. Each cap, when set, bounds the agent loop

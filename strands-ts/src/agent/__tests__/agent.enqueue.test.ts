@@ -3,7 +3,7 @@ import { Agent } from '../agent.js'
 import { AfterInvocationEvent, BeforeInvocationEvent } from '../../hooks/index.js'
 import { MockMessageModel } from '../../__fixtures__/mock-message-model.js'
 import { tool } from '../../tools/tool-factory.js'
-import { ConcurrentInvocationError, InvocationQueueFullError, PendingInvocationCancelledError } from '../../errors.js'
+import { ConcurrentInvocationError, PendingInvocationCancelledError } from '../../errors.js'
 import { TextBlock } from '../../types/messages.js'
 
 /**
@@ -56,20 +56,8 @@ describe('concurrentInvocationMode', () => {
       )
     })
 
-    it('rejects a non-positive or fractional maxDepth', () => {
-      expect(() => new Agent({ concurrentInvocationMode: { mode: 'enqueue', maxDepth: 0 } })).toThrow(
-        /maxDepth must be a positive integer/
-      )
-      expect(() => new Agent({ concurrentInvocationMode: { mode: 'enqueue', maxDepth: 1.5 } })).toThrow(
-        /maxDepth must be a positive integer/
-      )
-      expect(() => new Agent({ concurrentInvocationMode: { mode: 'enqueue', maxDepth: -1 } })).toThrow(
-        /maxDepth must be a positive integer/
-      )
-    })
-
-    it("rejects the object form with a mode other than 'enqueue'", () => {
-      expect(() => new Agent({ concurrentInvocationMode: { mode: 'throw' } as never })).toThrow(
+    it('rejects the deleted object form', () => {
+      expect(() => new Agent({ concurrentInvocationMode: { mode: 'enqueue' } as never })).toThrow(
         /Unsupported concurrentInvocationMode/
       )
     })
@@ -102,6 +90,48 @@ describe('concurrentInvocationMode', () => {
       expect(
         new Agent({ model: new MockMessageModel(), concurrentInvocationMode: 'enqueue' }).concurrentInvocationMode
       ).toBe('enqueue')
+      expect(
+        new Agent({ model: new MockMessageModel(), concurrentInvocationMode: 'cancelPrevious' })
+          .concurrentInvocationMode
+      ).toBe('cancelPrevious')
+    })
+  })
+
+  describe("'cancelPrevious' as the agent-level mode", () => {
+    it('a plain concurrent invoke cancels the running invocation and runs next', async () => {
+      const gate = createGate()
+      const model = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'gate', toolUseId: 't1', input: {} })
+        .addTurn({ type: 'textBlock', text: 'B' })
+      const agent = new Agent({ model, tools: [gate.tool], printer: false, concurrentInvocationMode: 'cancelPrevious' })
+
+      const first = agent.invoke('a')
+      await gate.started
+      const second = agent.invoke('b') // no per-call ifBusy: the agent mode applies
+
+      expect((await first).stopReason).toBe('cancelled')
+      const resultB = await second
+      expect(resultB.stopReason).toBe('endTurn')
+      expect(resultText(resultB)).toBe('B')
+    })
+
+    it("per-call ifBusy: 'enqueue' opts a single call back into waiting", async () => {
+      const gate = createGate()
+      const model = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'gate', toolUseId: 't1', input: {} })
+        .addTurn({ type: 'textBlock', text: 'A' })
+        .addTurn({ type: 'textBlock', text: 'B' })
+      const agent = new Agent({ model, tools: [gate.tool], printer: false, concurrentInvocationMode: 'cancelPrevious' })
+
+      const first = agent.invoke('a')
+      await gate.started
+      const second = agent.invoke('b', { ifBusy: 'enqueue' })
+      await until(() => agent.pendingInvocations.length === 1, 'b queued')
+
+      gate.release()
+      // The first invocation was NOT cancelled; both run to completion in order.
+      expect((await first).stopReason).toBe('endTurn')
+      expect(resultText(await second)).toBe('B')
     })
   })
 
@@ -279,31 +309,6 @@ describe('concurrentInvocationMode', () => {
       await first
     })
 
-    it('rejects at submit time with InvocationQueueFullError when maxDepth is reached', async () => {
-      const gate = createGate()
-      const model = new MockMessageModel()
-        .addTurn({ type: 'toolUseBlock', name: 'gate', toolUseId: 't1', input: {} })
-        .addTurn({ type: 'textBlock', text: 'A' })
-        .addTurn({ type: 'textBlock', text: 'B' })
-      const agent = new Agent({
-        model,
-        tools: [gate.tool],
-        printer: false,
-        concurrentInvocationMode: { mode: 'enqueue', maxDepth: 1 },
-      })
-
-      const first = agent.invoke('a')
-      await gate.started
-      const second = agent.invoke('b')
-      await until(() => agent.pendingInvocations.length === 1, 'b queued')
-
-      // Rejected while the first call is still running — the overflow caller never waits.
-      await expect(agent.invoke('c')).rejects.toThrow(InvocationQueueFullError)
-
-      gate.release()
-      await Promise.all([first, second])
-    })
-
     it('cancelPending removes a queued call without disturbing the others', async () => {
       const gate = createGate()
       const model = new MockMessageModel()
@@ -459,7 +464,7 @@ describe('concurrentInvocationMode', () => {
     })
   })
 
-  describe("ifBusy: 'interrupt'", () => {
+  describe("ifBusy: 'cancelPrevious'", () => {
     it('cancels the running invocation and runs the new call as a fresh invocation', async () => {
       const gate = createGate()
       const model = new MockMessageModel()
@@ -469,7 +474,7 @@ describe('concurrentInvocationMode', () => {
 
       const first = agent.invoke('a')
       await gate.started
-      const interrupter = agent.invoke('supersede', { ifBusy: 'interrupt' })
+      const interrupter = agent.invoke('supersede', { ifBusy: 'cancelPrevious' })
 
       const resultA = await first
       expect(resultA.stopReason).toBe('cancelled')
@@ -491,7 +496,7 @@ describe('concurrentInvocationMode', () => {
       await gate.started
       const second = agent.invoke('b')
       await until(() => agent.pendingInvocations.length === 1, 'b queued')
-      const interrupter = agent.invoke('c', { ifBusy: 'interrupt' })
+      const interrupter = agent.invoke('c', { ifBusy: 'cancelPrevious' })
       await until(() => agent.pendingInvocations.length === 2, 'c queued at front')
 
       expect(agent.pendingInvocations[0]!.preview).toBe('c')
@@ -505,7 +510,7 @@ describe('concurrentInvocationMode', () => {
       const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'solo' })
       const agent = new Agent({ model, printer: false })
 
-      const result = await agent.invoke('a', { ifBusy: 'interrupt' })
+      const result = await agent.invoke('a', { ifBusy: 'cancelPrevious' })
       expect(result.stopReason).toBe('endTurn')
       expect(resultText(result)).toBe('solo')
     })
@@ -529,7 +534,7 @@ describe('concurrentInvocationMode', () => {
       // target the controller installed for b at handoff time. Without that, the
       // interrupt is silently discarded and c waits behind the very invocation it
       // asked to supersede.
-      const third = first.then(() => agent.invoke('c', { ifBusy: 'interrupt' }))
+      const third = first.then(() => agent.invoke('c', { ifBusy: 'cancelPrevious' }))
 
       const secondResult = await second
       expect(secondResult.stopReason).toBe('cancelled')
@@ -553,7 +558,7 @@ describe('concurrentInvocationMode', () => {
       // damage with no beneficiary.
       const controller = new AbortController()
       controller.abort()
-      await expect(agent.invoke('x', { ifBusy: 'interrupt', cancelSignal: controller.signal })).rejects.toThrow(
+      await expect(agent.invoke('x', { ifBusy: 'cancelPrevious', cancelSignal: controller.signal })).rejects.toThrow(
         PendingInvocationCancelledError
       )
 
@@ -561,34 +566,6 @@ describe('concurrentInvocationMode', () => {
       const firstResult = await first
       expect(firstResult.stopReason).toBe('endTurn')
       expect(resultText(firstResult)).toBe('A')
-    })
-
-    it('rejects on a full queue without cancelling the running invocation', async () => {
-      const gate = createGate()
-      const model = new MockMessageModel()
-        .addTurn({ type: 'toolUseBlock', name: 'gate', toolUseId: 't1', input: {} })
-        .addTurn({ type: 'textBlock', text: 'A' })
-        .addTurn({ type: 'textBlock', text: 'B' })
-      const agent = new Agent({
-        model,
-        tools: [gate.tool],
-        printer: false,
-        concurrentInvocationMode: { mode: 'enqueue', maxDepth: 1 },
-      })
-
-      const first = agent.invoke('a')
-      await gate.started
-      const second = agent.invoke('b')
-      await until(() => agent.pendingInvocations.length === 1, 'b queued')
-
-      // The interrupter cannot run (queue full), so it rejects at submit time —
-      // BEFORE any cancellation: "interrupt" is not guaranteed to interrupt, and the
-      // running invocation must not be cancelled for a caller that cannot benefit.
-      await expect(agent.invoke('c', { ifBusy: 'interrupt' })).rejects.toThrow(InvocationQueueFullError)
-
-      gate.release()
-      expect((await first).stopReason).toBe('endTurn')
-      expect(resultText(await second)).toBe('B')
     })
   })
 })

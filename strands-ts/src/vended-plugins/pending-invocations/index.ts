@@ -11,9 +11,11 @@
  * import { Agent } from '@strands-agents/sdk'
  * import { PendingInvocations } from '@strands-agents/sdk/vended-plugins/pending-invocations'
  *
+ * // Registered automatically when concurrentInvocationMode is 'enqueue' or
+ * // 'cancelPrevious'. Attach manually on a 'throw'-mode agent whose callers
+ * // use per-call `ifBusy`:
  * const agent = new Agent({
  *   model,
- *   concurrentInvocationMode: { mode: 'enqueue', visibleToModel: false },
  *   plugins: [new PendingInvocations({ name: 'my-queue-view' })],
  * })
  * ```

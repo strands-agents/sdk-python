@@ -338,7 +338,7 @@ describe('concurrentInvocationMode enqueue × backgroundTasks', () => {
     // The interrupt must actually end the running invocation: the prepared delivery
     // continuation must not resurrect it for further model passes (which would
     // strand this caller behind the still-running slow task).
-    const urgent = agent.invoke('urgent', { ifBusy: 'interrupt' })
+    const urgent = agent.invoke('urgent', { ifBusy: 'cancelPrevious' })
     const firstResult = await first
     expect(firstResult.stopReason).toBe('endTurn')
     expect(resultText(firstResult)).toBe('first done')

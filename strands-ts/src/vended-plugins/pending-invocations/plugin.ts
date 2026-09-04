@@ -60,9 +60,9 @@ function renderPendingBlock(pending: readonly PendingInvocation[]): string | und
  * is injected for that one call only and never persists into durable history or the
  * session. When the queue is empty, nothing is injected and no tokens are spent.
  *
- * Attached automatically when the agent is configured with
- * `concurrentInvocationMode: 'enqueue'` (opt out with `visibleToModel: false`); attach
- * manually when using per-call `ifBusy: 'enqueue'` on a `'throw'`-mode agent.
+ * Attached automatically when the agent's `concurrentInvocationMode` is `'enqueue'`
+ * or `'cancelPrevious'`; attach manually when using per-call `ifBusy` on a
+ * `'throw'`-mode agent.
  *
  * @example
  * ```typescript

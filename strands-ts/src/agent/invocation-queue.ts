@@ -1,5 +1,5 @@
 /**
- * Invocation queueing for agents configured with `concurrentInvocationMode: 'enqueue'`.
+ * Invocation queueing for agents using `'enqueue'` or `'cancelPrevious'` concurrency.
  *
  * The queue lives at the invocation lock: entries are added when `invoke()`/`stream()`
  * is called while the agent is busy, and the lock is handed to the next entry inside
@@ -7,60 +7,24 @@
  * gets the lock or lands in the queue the current owner is about to pop.
  */
 
-import { InvocationQueueFullError, PendingInvocationCancelledError } from '../errors.js'
+import { PendingInvocationCancelledError } from '../errors.js'
 import type { InvokeArgs } from '../types/agent.js'
 
 /**
  * Supported values for the `concurrentInvocationMode` parameter.
  */
-export const CONCURRENT_INVOCATION_MODES = ['throw', 'enqueue'] as const
+export const CONCURRENT_INVOCATION_MODES = ['throw', 'enqueue', 'cancelPrevious'] as const
 
 /**
- * Agent-level behavior when `invoke()` or `stream()` is called while an invocation
- * is already in progress.
+ * Behavior when `invoke()` or `stream()` is called while an invocation is already in
+ * progress. Set agent-wide via `concurrentInvocationMode`, or per call via
+ * `InvokeOptions.ifBusy` (same values).
  *
  * - `'throw'`: reject the new call with `ConcurrentInvocationError` (default).
  * - `'enqueue'`: queue the new call FIFO; it runs as its own invocation — with its own
  *   result, hook events, and cancellation signal — when the current one finishes.
- */
-export type ConcurrentInvocationMode = (typeof CONCURRENT_INVOCATION_MODES)[number]
-
-/**
- * Object form of the `concurrentInvocationMode` parameter, for configuring queue options.
- */
-export interface ConcurrentInvocationModeConfig {
-  /** The concurrency mode. The object form exists to carry queue options, so only `'enqueue'` is accepted. */
-  mode: 'enqueue'
-  /**
-   * Maximum number of invocations that may wait in the queue. When the queue is full,
-   * a new call rejects with {@link InvocationQueueFullError} at submit time (it never waits).
-   * Must be a positive integer. Defaults to unbounded.
-   */
-  maxDepth?: number
-  /**
-   * Whether the pending queue is rendered into the model input of the running invocation
-   * (ephemerally, via the `PendingInvocations` vended plugin) so the model can decide to
-   * wrap up early when a queued request supersedes its current work. Costs tokens only
-   * while the queue is non-empty. Defaults to `true`.
-   */
-  visibleToModel?: boolean
-}
-
-/**
- * Supported values for the per-call `ifBusy` option.
- *
- * Deliberately a literal list rather than `[...CONCURRENT_INVOCATION_MODES, 'interrupt']`:
- * a future agent-level mode must be added here (and to the dispatch in `Agent`)
- * explicitly, not silently inherited as a per-call value with fall-through semantics.
- */
-export const IF_BUSY_BEHAVIORS = ['throw', 'enqueue', 'interrupt'] as const
-
-/**
- * Per-call behavior when the agent is already processing an invocation.
- * Extends {@link ConcurrentInvocationMode} with `'interrupt'`:
- *
- * - `'interrupt'`: cancel the running invocation via `agent.cancel()` and run this call
- *   next, ahead of any queued invocations. The interrupted caller receives its own
+ * - `'cancelPrevious'`: cancel the running invocation via `agent.cancel()` and run this
+ *   call next, ahead of any queued invocations. The cancelled caller receives its own
  *   result with `stopReason: 'cancelled'`; this call runs as a fresh invocation with a
  *   fresh cancellation signal. When the running invocation has already completed its
  *   final model pass and is only awaiting background work (e.g. background-task
@@ -68,7 +32,7 @@ export const IF_BUSY_BEHAVIORS = ['throw', 'enqueue', 'interrupt'] as const
  *   `stopReason: 'endTurn'` instead; undelivered background results are delivered
  *   in a later invocation.
  */
-export type IfBusy = (typeof IF_BUSY_BEHAVIORS)[number]
+export type ConcurrentInvocationMode = (typeof CONCURRENT_INVOCATION_MODES)[number]
 
 /**
  * A queued invocation, as surfaced by `agent.pendingInvocations`.
@@ -139,13 +103,8 @@ export function previewInvokeArgs(args: InvokeArgs): string {
  */
 export class InvocationQueue {
   private readonly _entries: QueueEntry[] = []
-  private readonly _maxDepth: number
   private _nextSequence = 1
   private readonly _enqueueListeners = new Set<() => void>()
-
-  constructor(maxDepth?: number) {
-    this._maxDepth = maxDepth ?? Number.POSITIVE_INFINITY
-  }
 
   /** Number of invocations currently waiting. */
   get size(): number {
@@ -176,17 +135,11 @@ export class InvocationQueue {
    * handed to it (via {@link handoff}), or rejects when the entry is removed first.
    *
    * @param args - The invocation arguments, used to derive the entry's preview
-   * @param options - `front` inserts at the front of the queue (for `ifBusy: 'interrupt'`);
+   * @param options - `front` inserts at the front of the queue (for `'cancelPrevious'`);
    *   `cancelSignal` is the caller's signal — aborting while queued removes the entry and
    *   rejects with {@link PendingInvocationCancelledError}
-   * @throws InvocationQueueFullError when the queue is at `maxDepth`
    */
   wait(args: InvokeArgs, options?: { front?: boolean; cancelSignal?: AbortSignal }): Promise<void> {
-    if (this._entries.length >= this._maxDepth) {
-      throw new InvocationQueueFullError(
-        `Invocation queue is full (maxDepth: ${this._maxDepth}). The call was rejected at submit time.`
-      )
-    }
     const id = `pending-${this._nextSequence++}`
     return new Promise<void>((resolve, reject) => {
       const entry: QueueEntry = {

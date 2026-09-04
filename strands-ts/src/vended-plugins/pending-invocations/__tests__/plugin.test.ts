@@ -117,7 +117,7 @@ describe('PendingInvocations', () => {
 
   describe('end to end with an enqueue agent', () => {
     /** Gated tool + model script: A calls the gate, then answers; B answers. */
-    function setup(config?: { visibleToModel?: boolean }) {
+    function setup(config?: { mode?: 'enqueue' | 'throw' }) {
       let release!: () => void
       const released = new Promise<void>((resolve) => (release = resolve))
       let signalStarted!: () => void
@@ -140,8 +140,7 @@ describe('PendingInvocations', () => {
         model,
         tools: [gate],
         printer: false,
-        concurrentInvocationMode:
-          config?.visibleToModel === false ? { mode: 'enqueue', visibleToModel: false } : 'enqueue',
+        concurrentInvocationMode: config?.mode ?? 'enqueue',
       })
       return { agent, streamSpy, started, release }
     }
@@ -179,12 +178,12 @@ describe('PendingInvocations', () => {
       expect(history.join('\n')).not.toContain('<pending_invocations>')
     })
 
-    it('injects nothing when visibleToModel is false', async () => {
-      const { agent, streamSpy, started, release } = setup({ visibleToModel: false })
+    it("injects nothing on a 'throw'-mode agent (queue used via per-call ifBusy, no plugin attached)", async () => {
+      const { agent, streamSpy, started, release } = setup({ mode: 'throw' })
 
       const first = agent.invoke('review the PR')
       await started
-      const second = agent.invoke('stop — wrong repo')
+      const second = agent.invoke('stop — wrong repo', { ifBusy: 'enqueue' })
       for (let i = 0; i < 2000 && agent.pendingInvocations.length === 0; i++) {
         await new Promise((resolve) => setTimeout(resolve, 0))
       }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { InvocationQueue, previewInvokeArgs } from '../invocation-queue.js'
-import { InvocationQueueFullError, PendingInvocationCancelledError } from '../../errors.js'
+import { PendingInvocationCancelledError } from '../../errors.js'
 import { Message, TextBlock } from '../../types/messages.js'
 
 describe('previewInvokeArgs', () => {
@@ -84,13 +84,6 @@ describe('InvocationQueue', () => {
     queue.handoff()
     await normal
     expect(order).toEqual(['urgent', 'normal'])
-  })
-
-  it('throws InvocationQueueFullError at submit when maxDepth is reached', () => {
-    const queue = new InvocationQueue(1)
-    void queue.wait('fits').catch(() => {})
-    expect(() => queue.wait('overflow')).toThrow(InvocationQueueFullError)
-    expect(queue.size).toBe(1)
   })
 
   it('cancel removes the entry and rejects its waiter with the entry id', async () => {
