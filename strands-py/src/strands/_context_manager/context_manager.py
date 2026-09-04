@@ -65,9 +65,8 @@ class ContextManager(Plugin):
         ]
 
         stash_obj: StashConfig | None = stash if isinstance(stash, dict) else None
-        self._stash_storage: Storage | None | bool = (
-            False if stash is False else (stash_obj.get("storage") if stash_obj else InMemoryStorage())
-        )
+        self._stash_disabled = stash is False
+        self._stash_explicit_storage: Storage | None = stash_obj.get("storage") if stash_obj else None
         self._enable_retrieval_tool: bool = stash is not False and (
             stash_obj.get("retrieval_tool", True) if stash_obj else True
         )
@@ -79,8 +78,9 @@ class ContextManager(Plugin):
 
     def init_agent(self, agent: Agent) -> None:
         """Register strategy hooks for proactive compression and overflow recovery."""
-        if self._stash_storage is not False and self._stash_storage is not None:
-            self._stash = Stash(self._stash_storage, agent.session_id, agent.agent_id)
+        if not self._stash_disabled:
+            storage = self._stash_explicit_storage or getattr(agent, "storage", None) or InMemoryStorage()
+            self._stash = Stash(storage, agent.session_id, agent.agent_id)
 
         if self._stash is not None:
             stash = self._stash

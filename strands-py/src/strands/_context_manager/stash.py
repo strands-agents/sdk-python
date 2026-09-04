@@ -60,7 +60,7 @@ class Stash:
         """Compute deterministic reference keys for a content block."""
         if "toolResult" in block:
             tool_result = block["toolResult"]
-            return [f"{tool_result['toolUseId']}_{i}" for i in range(len(tool_result["content"]))]
+            return [f"{tool_result['toolUseId']}_{index}" for index in range(len(tool_result["content"]))]
         return [f"{message.get('tracking_id', 'unknown')}_{block_index}"]
 
     async def store_message(self, message: Message, skip_tool_use_ids: frozenset[str] | None = None) -> None:

@@ -1,5 +1,7 @@
 """Tests for the Stash class."""
 
+import json
+
 import pytest
 
 from strands._context_manager.stash import Stash, _format_stash_refs
@@ -23,8 +25,6 @@ class TestStoreAndRetrieve:
 
     @pytest.mark.asyncio
     async def test_round_trips_text_content(self, stash):
-        import json
-
         data = json.dumps({"text": "hello world"}).encode("utf-8")
         ref = await stash.store("tool-1", 0, data)
         result = await stash.retrieve(ref)
@@ -32,8 +32,6 @@ class TestStoreAndRetrieve:
 
     @pytest.mark.asyncio
     async def test_round_trips_json_content(self, stash):
-        import json
-
         data = json.dumps({"json": {"key": "value"}}).encode("utf-8")
         ref = await stash.store("tool-1", 0, data)
         result = await stash.retrieve(ref)
@@ -46,8 +44,6 @@ class TestStoreAndRetrieve:
 
     @pytest.mark.asyncio
     async def test_deterministic_keys(self, stash):
-        import json
-
         data = json.dumps({"text": "test"}).encode("utf-8")
         ref1 = await stash.store("tool-1", 0, data)
         ref2 = await stash.store("tool-1", 0, data)
@@ -55,8 +51,6 @@ class TestStoreAndRetrieve:
 
     @pytest.mark.asyncio
     async def test_different_keys_for_different_ids(self, stash):
-        import json
-
         data = json.dumps({"text": "test"}).encode("utf-8")
         ref1 = await stash.store("tool-1", 0, data)
         ref2 = await stash.store("tool-2", 0, data)
@@ -64,8 +58,6 @@ class TestStoreAndRetrieve:
 
     @pytest.mark.asyncio
     async def test_different_keys_for_different_indices(self, stash):
-        import json
-
         data = json.dumps({"text": "test"}).encode("utf-8")
         ref1 = await stash.store("tool-1", 0, data)
         ref2 = await stash.store("tool-1", 1, data)
@@ -77,8 +69,6 @@ class TestListAndDelete:
 
     @pytest.mark.asyncio
     async def test_lists_stored_references(self, stash):
-        import json
-
         data = json.dumps({"text": "test"}).encode("utf-8")
         await stash.store("tool-1", 0, data)
         await stash.store("tool-2", 0, data)
@@ -87,8 +77,6 @@ class TestListAndDelete:
 
     @pytest.mark.asyncio
     async def test_delete_removes_entry(self, stash):
-        import json
-
         data = json.dumps({"text": "test"}).encode("utf-8")
         ref = await stash.store("tool-1", 0, data)
         await stash.delete(ref)
@@ -175,8 +163,6 @@ class TestNamespacing:
     async def test_stash_keys_are_namespaced(self):
         storage = InMemoryStorage()
         stash = Stash(storage, "sess-1", "agent-1")
-        import json
-
         await stash.store("tool-1", 0, json.dumps({"text": "test"}).encode("utf-8"))
         raw_keys = await storage.list("")
         assert any("context/" in key for key in raw_keys)
@@ -186,8 +172,6 @@ class TestNamespacing:
         storage = InMemoryStorage()
         stash_a = Stash(storage, "sess-1", "agent-a")
         stash_b = Stash(storage, "sess-1", "agent-b")
-        import json
-
         data = json.dumps({"text": "test"}).encode("utf-8")
         await stash_a.store("tool-1", 0, data)
         await stash_b.store("tool-1", 0, data)

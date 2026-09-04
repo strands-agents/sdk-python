@@ -11,7 +11,8 @@ from typing import TYPE_CHECKING, Any
 
 from ..tools.tools import PythonAgentTool
 from ..types.tools import ToolResult, ToolResultContent, ToolSpec
-from ..vended_plugins.context_offloader.search import _is_searchable_content, _search_content
+from ..vended_plugins.context_offloader.search import _search_content
+from .methods.truncate import CHARS_PER_TOKEN
 
 if TYPE_CHECKING:
     from .stash import Stash
@@ -21,7 +22,6 @@ logger = logging.getLogger(__name__)
 RETRIEVAL_TOOL_NAME = "retrieve_context"
 
 _DEFAULT_MAX_RESULT_TOKENS = 10_000
-_CHARS_PER_TOKEN = 4
 
 
 def _extract_text(data: object) -> str | None:
@@ -40,7 +40,7 @@ def _extract_text(data: object) -> str | None:
 
 def _create_retrieval_tool(stash: Stash, max_result_tokens: int | None = None) -> PythonAgentTool:
     """Create the ``retrieve_context`` tool backed by the given stash."""
-    max_chars = (max_result_tokens or _DEFAULT_MAX_RESULT_TOKENS) * _CHARS_PER_TOKEN
+    max_chars = (max_result_tokens or _DEFAULT_MAX_RESULT_TOKENS) * CHARS_PER_TOKEN
 
     async def _invoke(tool_use: dict[str, Any], **kwargs: Any) -> ToolResult:
         tool_use_id = tool_use["toolUseId"]
@@ -60,18 +60,25 @@ def _create_retrieval_tool(stash: Stash, max_result_tokens: int | None = None) -
             return ToolResult(toolUseId=tool_use_id, status="success", content=content)
 
         text_content = _extract_text(result)
-        if text_content is None or not _is_searchable_content("text/plain"):
+        if text_content is None:
             text = "Error: cannot search non-text content. Omit pattern/line_range to retrieve full content."
             return ToolResult(toolUseId=tool_use_id, status="error", content=[ToolResultContent(text=text)])
 
-        ctx = context_lines if context_lines is not None else 5
-        lr: tuple[int, int] | None = None
+        resolved_context_lines = context_lines if context_lines is not None else 5
+        line_range_pair: tuple[int, int] | None = None
         if line_range is not None:
-            lr = (int(line_range["start"]), int(line_range["end"]))
+            line_range_pair = (int(line_range["start"]), int(line_range["end"]))
 
-        search_result = _search_content(
-            text_content, pattern=pattern, line_range=lr, context_lines=ctx, max_chars=max_chars
-        )
+        try:
+            search_result = _search_content(
+                text_content,
+                pattern=pattern,
+                line_range=line_range_pair,
+                context_lines=resolved_context_lines,
+                max_chars=max_chars,
+            )
+        except ValueError as error:
+            return ToolResult(toolUseId=tool_use_id, status="error", content=[ToolResultContent(text=str(error))])
         return ToolResult(toolUseId=tool_use_id, status="success", content=[ToolResultContent(text=search_result)])
 
     _invoke.__name__ = RETRIEVAL_TOOL_NAME
