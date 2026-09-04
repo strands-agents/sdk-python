@@ -1,6 +1,6 @@
 """Shared types and constants for the notebook tool."""
 
-NotebookState = dict[str, str]
+_NotebookState = dict[str, str]
 """Type alias for the notebooks map stored under the ``"notebooks"`` state key."""
 
 

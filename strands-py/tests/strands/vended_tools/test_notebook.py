@@ -6,8 +6,7 @@ import pytest
 
 from strands.agent.state import AgentState
 from strands.types.tools import ToolContext
-from strands.vended_tools import notebook
-from strands.vended_tools.notebook import make_notebook
+from strands.vended_tools import make_notebook, notebook
 from strands.vended_tools.notebook.notebook import (
     _DEFAULT_MAX_NOTEBOOK_SIZE_BYTES,
 )

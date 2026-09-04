@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Literal
 
 from ...tools.decorator import tool
 from ...types.tools import ToolContext
-from .types import DEFAULT_NOTEBOOK_DESCRIPTION, NotebookState
+from .types import DEFAULT_NOTEBOOK_DESCRIPTION, _NotebookState
 
 if TYPE_CHECKING:
     from ...tools.decorator import DecoratedFunctionTool
@@ -93,10 +93,10 @@ def make_notebook(
         """
         state = tool_context.agent.state
 
-        notebooks_obj: NotebookState | None = state.get(_STATE_KEY)
+        notebooks_obj: _NotebookState | None = state.get(_STATE_KEY)
         # AgentState.get deep-copies; guard shape strictly to catch corruption from sibling tools.
         if notebooks_obj is None:
-            notebooks: NotebookState = {}
+            notebooks: _NotebookState = {}
         elif isinstance(notebooks_obj, dict):
             for k, v in notebooks_obj.items():
                 if not isinstance(k, str) or not isinstance(v, str):
@@ -175,13 +175,13 @@ def _validate_write_params(old_str: str | None, new_str: str | None, insert_line
         )
 
 
-def _handle_create(notebooks: NotebookState, name: str, new_str: str | None) -> str:
+def _handle_create(notebooks: _NotebookState, name: str, new_str: str | None) -> str:
     notebooks[name] = new_str if new_str is not None else ""
     suffix = " with specified content" if new_str else " (empty)"
     return f"Created notebook '{name}'{suffix}"
 
 
-def _handle_list(notebooks: NotebookState) -> str:
+def _handle_list(notebooks: _NotebookState) -> str:
     lines = []
     for nb_name, content in notebooks.items():
         line_count = len(content.split("\n")) if content else 0
@@ -190,7 +190,7 @@ def _handle_list(notebooks: NotebookState) -> str:
     return "Available notebooks:\n" + "\n".join(lines)
 
 
-def _handle_read(notebooks: NotebookState, name: str, read_range: list[int] | None) -> str:
+def _handle_read(notebooks: _NotebookState, name: str, read_range: list[int] | None) -> str:
     if name not in notebooks:
         raise ValueError(f"Notebook '{name}' not found")
 
@@ -222,7 +222,7 @@ def _handle_read(notebooks: NotebookState, name: str, read_range: list[int] | No
 
 
 def _handle_write(
-    notebooks: NotebookState,
+    notebooks: _NotebookState,
     name: str,
     old_str: str | None,
     new_str: str | None,
@@ -277,7 +277,7 @@ def _handle_write(
     raise ValueError("Invalid write operation")
 
 
-def _handle_clear(notebooks: NotebookState, name: str) -> str:
+def _handle_clear(notebooks: _NotebookState, name: str) -> str:
     if name not in notebooks:
         raise ValueError(f"Notebook '{name}' not found")
     notebooks[name] = ""
