@@ -1,11 +1,10 @@
 """Tests for the shared auxiliary model call instrumentation helper."""
 
 import asyncio
-
-from pydantic import BaseModel
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic import BaseModel
 
 from strands import Agent
 from strands.event_loop._auxiliary_model_call import auxiliary_structured_output, instrument_auxiliary_model_call
