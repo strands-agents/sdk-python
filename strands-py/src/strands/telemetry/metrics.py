@@ -222,7 +222,8 @@ class EventLoopMetrics:
             invocations only — auxiliary calls contribute usage, not latency.
         accumulated_usage_by_source: Accumulated token usage broken down by source — ``"main"`` for
             main-event-loop model calls, or the auxiliary feature that made the call (e.g.
-            ``"summarization"``, ``"routing"``, ``"extraction"``, ``"web_fetch"``).
+            ``"summarization"``, ``"routing"``, ``"extraction"``, ``"web_fetch"``, ``"hitl_classifier"``,
+            ``"goal_judge"``, ``"steering"``).
     """
 
     cycle_count: int = 0
@@ -424,19 +425,6 @@ class EventLoopMetrics:
         if self.agent_invocations[-1].cycles:
             current_cycle = self.agent_invocations[-1].cycles[-1]
             self._accumulate_usage(current_cycle.usage, usage)
-
-    def _accumulate_source_usage(self, usage: Usage, *, source: UsageSource) -> None:
-        """Roll usage into the accumulated totals without re-recording OTel telemetry.
-
-        For auxiliary calls made through an inner ``Agent`` (e.g. the web fetch analyst),
-        whose own event loop has already recorded the tokens to the OTel histograms under
-        ``"main"`` — re-recording here would double-count them in exported metrics.
-        """
-        self._accumulate_usage(self.accumulated_usage, usage)
-        source_usage = self.accumulated_usage_by_source.setdefault(
-            source, Usage(inputTokens=0, outputTokens=0, totalTokens=0)
-        )
-        self._accumulate_usage(source_usage, usage)
 
     def reset_usage_metrics(self) -> None:
         """Start a new agent invocation by creating a new AgentInvocation.

@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from ...event_loop._auxiliary_model_call import instrument_auxiliary_model_call
+from ...event_loop._auxiliary_model_call import auxiliary_structured_output
 from ...types.content import Message, Messages, SystemPrompt
 from ..model import Model
 from .router import RoutingCandidate
@@ -86,29 +86,16 @@ async def _invoke_classifier(
     context: RoutingContext,
 ) -> _ClassifierSelection:
     """Invoke a model directly and return its structured classification."""
-    request_messages: Messages = [{"role": "user", "content": [{"text": request}]}]
-    events = instrument_auxiliary_model_call(
-        model.structured_output(
-            _ClassifierSelection,
-            request_messages,
-            system_prompt=system_prompt,
-        ),
+    return await auxiliary_structured_output(
+        model,
+        _ClassifierSelection,
+        request,
         source="routing",
         agent=context._agent,
-        messages=request_messages,
+        system_prompt=system_prompt,
         # A shallow copy, so hooks can't add or remove keys in the read-only invocation_state.
         invocation_state=dict(context.invocation_state),
-        model_id=model.config.get("model_id") if hasattr(model, "config") else None,
-        system_prompt=system_prompt,
     )
-
-    output: object | None = None
-    async for event in events:
-        if isinstance(event, Mapping) and "output" in event:
-            output = event["output"]
-    if not isinstance(output, _ClassifierSelection):
-        raise ValueError("classifier returned an invalid structured result")
-    return output
 
 
 class ClassifierStrategy:
