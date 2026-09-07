@@ -386,7 +386,7 @@ class GoalLoop(Plugin):
         assert goal_description is not None
 
         async def _judge_validator(_response: Message) -> ValidationOutcome:
-            from ...event_loop._auxiliary_model_call import auxiliary_structured_output
+            from ...event_loop._auxiliary_model_call import NoStructuredOutputError, auxiliary_structured_output
 
             try:
                 outcome = await auxiliary_structured_output(
@@ -397,7 +397,7 @@ class GoalLoop(Plugin):
                     agent=host_agent,
                     system_prompt=self._judge_system_prompt,
                 )
-            except ValueError:
+            except NoStructuredOutputError:
                 return ValidationOutcome(passed=False, feedback="Judge produced no structured outcome.")
             return ValidationOutcome(passed=outcome.passed, feedback=outcome.feedback)
 

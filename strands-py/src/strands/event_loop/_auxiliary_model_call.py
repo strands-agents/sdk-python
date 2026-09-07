@@ -178,6 +178,10 @@ def _is_usable_usage(usage: Any) -> bool:
     return isinstance(usage, dict) and required_keys <= usage.keys()
 
 
+class NoStructuredOutputError(ValueError):
+    """The model finished an auxiliary structured-output call without producing the requested type."""
+
+
 async def auxiliary_structured_output(
     model: "Model",
     output_model: type[TOutput],
@@ -194,7 +198,7 @@ async def auxiliary_structured_output(
     by :func:`instrument_auxiliary_model_call`, and returns the parsed ``output_model``.
 
     Raises:
-        ValueError: If the model produced no ``output_model`` instance.
+        NoStructuredOutputError: If the model produced no ``output_model`` instance.
     """
     messages: Messages = [{"role": "user", "content": [{"text": prompt}]}]
     events = instrument_auxiliary_model_call(
@@ -212,5 +216,5 @@ async def auxiliary_structured_output(
         if isinstance(event, Mapping) and "output" in event:
             output = event["output"]
     if not isinstance(output, output_model):
-        raise ValueError(f"source=<{source}> | auxiliary model call produced no {output_model.__name__}")
+        raise NoStructuredOutputError(f"source=<{source}> | auxiliary model call produced no {output_model.__name__}")
     return output

@@ -430,7 +430,7 @@ async def test_select_custom_policy_preserves_mandatory_framing():
     ("classifier", "reason", "error_type"),
     [
         (_ClassifierModel(selected_index=2), "classifier_error", "ValueError"),
-        (_ClassifierModel(output={"selected_candidate_index": 1}), "classifier_error", "ValueError"),
+        (_ClassifierModel(output={"selected_candidate_index": 1}), "classifier_error", "NoStructuredOutputError"),
         (_ClassifierModel(error=RuntimeError("provider-secret")), "classifier_error", "RuntimeError"),
         (_ClassifierModel(delay=1), "classifier_timeout", "TimeoutError"),
     ],
