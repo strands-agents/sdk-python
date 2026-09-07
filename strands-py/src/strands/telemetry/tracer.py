@@ -738,6 +738,8 @@ class Tracer:
         tools: list | None = None,
         custom_trace_attributes: Mapping[str, AttributeValue] | None = None,
         tools_config: dict | None = None,
+        system_prompt: str | None = None,
+        system_prompt_content: list | None = None,
         **kwargs: Any,
     ) -> Span:
         """Start a new span for an agent invocation.
@@ -749,6 +751,8 @@ class Tracer:
             tools: Optional list of tools being used.
             custom_trace_attributes: Optional mapping of custom trace attributes to include in the span.
             tools_config: Optional dictionary of tool configurations.
+            system_prompt: Optional system prompt string.
+            system_prompt_content: Optional list of system prompt content blocks.
             **kwargs: Additional attributes to add to the span.
 
         Returns:
@@ -781,6 +785,13 @@ class Tracer:
 
         # Add additional kwargs as attributes
         attributes.update({k: v for k, v in kwargs.items() if isinstance(v, (str, int, float, bool))})
+
+        if system_prompt is not None or system_prompt_content is not None:
+            content_blocks: list[ContentBlock] = (
+                system_prompt_content if system_prompt_content else [{"text": system_prompt or ""}]
+            )
+            parts = self._map_content_blocks_to_otel_parts(content_blocks)
+            attributes["gen_ai.system_instructions"] = self._redact("gen_ai.system_instructions", serialize(parts))
 
         span = self._start_span(
             f"invoke_agent {agent_name}", attributes=attributes, span_kind=trace_api.SpanKind.INTERNAL
