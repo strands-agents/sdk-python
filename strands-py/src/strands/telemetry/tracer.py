@@ -738,6 +738,7 @@ class Tracer:
         tools: list | None = None,
         custom_trace_attributes: Mapping[str, AttributeValue] | None = None,
         tools_config: dict | None = None,
+        system_prompt: str | None = None,
         **kwargs: Any,
     ) -> Span:
         """Start a new span for an agent invocation.
@@ -749,6 +750,8 @@ class Tracer:
             tools: Optional list of tools being used.
             custom_trace_attributes: Optional mapping of custom trace attributes to include in the span.
             tools_config: Optional dictionary of tool configurations.
+            system_prompt: Optional system prompt. Recorded under the existing ``system_prompt`` attribute
+                key, but policed by the redaction allowlist as ``gen_ai.system_instructions``.
             **kwargs: Additional attributes to add to the span.
 
         Returns:
@@ -781,6 +784,11 @@ class Tracer:
 
         # Add additional kwargs as attributes
         attributes.update({k: v for k, v in kwargs.items() if isinstance(v, (str, int, float, bool))})
+
+        # system prompts are sensitive and policed under gen_ai.system_instructions, even though this
+        # span records them under the legacy `system_prompt` key
+        if system_prompt is not None:
+            attributes["system_prompt"] = self._redact("gen_ai.system_instructions", system_prompt)
 
         span = self._start_span(
             f"invoke_agent {agent_name}", attributes=attributes, span_kind=trace_api.SpanKind.INTERNAL
