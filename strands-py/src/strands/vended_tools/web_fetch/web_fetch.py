@@ -19,7 +19,8 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from typing import TYPE_CHECKING, Literal, cast
+from collections.abc import AsyncGenerator
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import httpx
 
@@ -182,14 +183,26 @@ def make_web_fetch(
         from ...event_loop.streaming import stream_messages
 
         analyst_messages: Messages = [{"role": "user", "content": [{"text": invoke_prompt}]}]
+
+        async def _analyst_stream() -> AsyncGenerator[Any, None]:
+            # Wrap only the provider stream: a hook/metrics failure in the instrumentation
+            # must surface as itself, not be relabelled an analyst failure.
+            try:
+                async for event in stream_messages(
+                    effective_model, _ANALYST_PROMPT, analyst_messages, tool_specs=[], cancel_signal=cancel_signal
+                ):
+                    yield event
+            except Exception as exc:
+                raise WebFetchError(f"Web fetch analyst failed for {url}: {exc}") from exc
+
         # A single direct model call: the analyst has no tools or history, so it is an
-        # auxiliary call on the host agent's behalf, not an agent of its own.
+        # auxiliary call on the host agent's behalf, not an agent of its own. A host without
+        # hooks and metrics (notably BidiAgent) runs uninstrumented.
+        instrumentable = hasattr(host_agent, "hooks") and hasattr(host_agent, "event_loop_metrics")
         events = instrument_auxiliary_model_call(
-            stream_messages(
-                effective_model, _ANALYST_PROMPT, analyst_messages, tool_specs=[], cancel_signal=cancel_signal
-            ),
+            _analyst_stream(),
             source="web_fetch",
-            agent=cast("Agent | None", host_agent if hasattr(host_agent, "event_loop_metrics") else None),
+            agent=cast("Agent | None", host_agent if instrumentable else None),
             messages=analyst_messages,
             invocation_state=tool_context.invocation_state if tool_context else None,
             model_id=effective_model.config.get("model_id") if hasattr(effective_model, "config") else None,
@@ -197,15 +210,12 @@ def make_web_fetch(
         )
 
         answer: Message | None = None
-        try:
-            async for event in events:
-                if "stop" in event:
-                    _, answer, _, _ = event["stop"]
-        except Exception as exc:
-            raise WebFetchError(f"Web fetch analyst failed for {url}: {exc}") from exc
+        async for event in events:
+            if "stop" in event:
+                _, answer, _, _ = event["stop"]
         if answer is None:
             raise WebFetchError(f"Web fetch analyst failed for {url}: no response from model")
-        return "".join(block.get("text", "") for block in answer["content"] if "text" in block)
+        return "\n".join(block["text"] for block in answer["content"] if "text" in block)
 
     return web_fetch_tool_markdown if mode == "markdown" else web_fetch_tool_agentic
 

@@ -127,7 +127,8 @@ def _create_llm_risk_classifier(config: LLMClassifierConfig | None = None) -> Hu
             source="hitl_classifier",
             agent=event.agent,
             system_prompt=system_prompt,
-            invocation_state=event.invocation_state,
+            # A shallow copy, so hooks can't add or remove keys in the live invocation_state.
+            invocation_state=dict(event.invocation_state),
         )
 
         return ClassifierResult(

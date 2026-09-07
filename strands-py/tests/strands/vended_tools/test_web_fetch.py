@@ -530,9 +530,28 @@ class TestAgenticAuxiliaryInstrumentation:
             await tool(url="https://example.com/", prompt="Summarize", tool_context=ctx)
 
         _, after = events
-        # The raw provider error reaches the After event; the tool wraps it afterwards.
-        assert isinstance(after.exception, RuntimeError)
+        # The wrap happens inside the instrumented stream, so the After event carries the
+        # WebFetchError with the provider's original error as its cause.
+        assert isinstance(after.exception, WebFetchError)
+        assert isinstance(after.exception.__cause__, RuntimeError)
         assert host_agent.event_loop_metrics.accumulated_usage_by_source == {}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("failing_event", ["before", "after"])
+    async def test_hook_error_surfaces_as_itself_not_analyst_failure(self, failing_event):
+        from strands.hooks import AfterAuxiliaryModelCallEvent, BeforeAuxiliaryModelCallEvent
+
+        host_agent, ctx, _ = self._host()
+
+        def broken_hook(_event):
+            raise RuntimeError("telemetry exporter down")
+
+        event_type = BeforeAuxiliaryModelCallEvent if failing_event == "before" else AfterAuxiliaryModelCallEvent
+        host_agent.hooks.add_callback(event_type, broken_hook)
+
+        tool = make_web_fetch(client=self._page_client(), model=_AnalystModel(), mode="agentic")
+        with pytest.raises(RuntimeError, match="telemetry exporter down"):
+            await tool(url="https://example.com/", prompt="Summarize", tool_context=ctx)
 
     @pytest.mark.asyncio
     async def test_no_tool_context_runs_uninstrumented(self):
