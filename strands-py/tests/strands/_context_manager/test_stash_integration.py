@@ -297,7 +297,7 @@ class TestSummarizeWithStash:
         context = ContextState(messages=messages, agent=mock_agent, utilization=0.5, stash=stash)
         assert await strategy.apply(context) is True
         text = messages[1]["content"][0]["text"]
-        assert "[Offloaded:" in text
+        assert "[Summarized:" in text
         assert "ref:" in text
 
 
