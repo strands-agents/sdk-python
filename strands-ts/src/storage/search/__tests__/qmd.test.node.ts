@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import type { LocalFileStorage } from '../../local-file-storage.js'
 import { QmdSearchStrategy } from '../qmd.js'
 
 vi.mock('@tobilu/qmd', () => ({
@@ -24,7 +25,7 @@ describe('QmdSearchStrategy', () => {
     read: vi.fn(),
     delete: vi.fn(),
     list: vi.fn(),
-  }
+  } as unknown as LocalFileStorage
 
   beforeEach(async () => {
     vi.clearAllMocks()

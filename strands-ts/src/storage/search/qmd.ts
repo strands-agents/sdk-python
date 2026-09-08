@@ -1,4 +1,5 @@
-import type { Storage, StorageSearchResult } from '../storage.js'
+import type { LocalFileStorage } from '../local-file-storage.js'
+import type { StorageSearchResult } from '../storage.js'
 import type { SearchStrategy } from './types.js'
 
 import { STOP_WORDS, tokenize } from './keyword.js'
@@ -38,7 +39,7 @@ export interface QmdSearchStrategyConfig {
  * const results = await store.search('authentication flow')
  * ```
  */
-export class QmdSearchStrategy implements SearchStrategy<Storage & { baseDir: string }> {
+export class QmdSearchStrategy implements SearchStrategy<LocalFileStorage> {
   private _store: QmdStore | undefined
   private _storagePath: string | undefined
   private readonly _config: QmdSearchStrategyConfig
@@ -59,7 +60,7 @@ export class QmdSearchStrategy implements SearchStrategy<Storage & { baseDir: st
    * @returns Matched keys with BM25 relevance scores, ranked best-first
    * @throws Error if storage is not a filesystem storage or `@tobilu/qmd` is not installed
    */
-  async search(storage: Storage & { baseDir: string }, query: string): Promise<StorageSearchResult[]> {
+  async search(storage: LocalFileStorage, query: string): Promise<StorageSearchResult[]> {
     const store = await this._ensureStore(storage)
     await store.update()
     const ftsQuery = buildQuery(query)
@@ -76,7 +77,7 @@ export class QmdSearchStrategy implements SearchStrategy<Storage & { baseDir: st
    *
    * @param storage - A LocalFileStorage instance
    */
-  async update(storage: Storage & { baseDir: string }): Promise<void> {
+  async update(storage: LocalFileStorage): Promise<void> {
     const store = await this._ensureStore(storage)
     await store.update()
   }
@@ -92,7 +93,7 @@ export class QmdSearchStrategy implements SearchStrategy<Storage & { baseDir: st
     }
   }
 
-  private async _ensureStore(storage: Storage & { baseDir: string }): Promise<QmdStore> {
+  private async _ensureStore(storage: LocalFileStorage): Promise<QmdStore> {
     const storagePath = this._resolveStoragePath(storage)
     if (this._store && this._storagePath === storagePath) return this._store
     if (this._store) await this.close()
@@ -121,7 +122,7 @@ export class QmdSearchStrategy implements SearchStrategy<Storage & { baseDir: st
     return this._store
   }
 
-  private _resolveStoragePath(storage: Storage & { baseDir: string }): string {
+  private _resolveStoragePath(storage: LocalFileStorage): string {
     return storage.baseDir
   }
 }
