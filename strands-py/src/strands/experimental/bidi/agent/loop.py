@@ -61,6 +61,9 @@ _MODEL_RESTART_WARNING_S = 10
 # Max seconds a proactive reconnect waits for a turn boundary before forcing the swap.
 _MODEL_RESTART_TURN_TIMEOUT_S = 10
 
+# Do not let provider I/O hold the transition lock beyond the reconnect alignment budget.
+_TOOL_RESULT_SEND_TIMEOUT_S = _MODEL_RESTART_TURN_TIMEOUT_S
+
 # Limit one synthetic recovery turn independently of provider context-window size.
 _MAX_TOOL_RECOVERY_BYTES = 50 * 1024
 _TOOL_RECOVERY_PREFIX = (
@@ -123,7 +126,7 @@ class _RunningTool:
     """A running tool call that may span a reconnect."""
 
     tool_use: ToolUse
-    tool_use_keys: list[_ToolUseKey]
+    replacement_key: _ToolUseKey | None = None
 
 
 class _BidiAgentLoop:
@@ -666,25 +669,28 @@ class _BidiAgentLoop:
             self._current_cache_read_tokens += cache_read
 
     async def _register_tool_use(self, tool_use: ToolUse, generation: int) -> _ToolUseKey | None:
-        """Register a tool call or coalesce one exact older-generation match."""
+        """Register a tool call or coalesce one exact previous-generation reissue."""
         async with self._tool_lock:
             if generation != self._generation:
                 return None
 
             tool_use_key = (generation, tool_use["toolUseId"])
-            if any(tool_use_key in running.tool_use_keys for running in self._running_tools.values()):
+            if tool_use_key in self._running_tools or any(
+                running.replacement_key == tool_use_key for running in self._running_tools.values()
+            ):
                 return None
 
             matches = [
                 (original_key, running)
                 for original_key, running in self._running_tools.items()
-                if original_key[0] < generation
+                if original_key[0] == generation - 1
+                and running.replacement_key is None
                 and running.tool_use["name"] == tool_use["name"]
                 and running.tool_use["input"] == tool_use["input"]
             ]
             if len(matches) == 1:
                 original_key, running_tool = matches[0]
-                running_tool.tool_use_keys.append(tool_use_key)
+                running_tool.replacement_key = tool_use_key
                 logger.info(
                     "tool_name=<%s>, original_tool_use_id=<%s>, matched_tool_use_id=<%s> | "
                     "coalescing matching tool use after reconnect",
@@ -705,7 +711,7 @@ class _BidiAgentLoop:
                     len(matches),
                 )
 
-            self._running_tools[tool_use_key] = _RunningTool(tool_use=tool_use, tool_use_keys=[tool_use_key])
+            self._running_tools[tool_use_key] = _RunningTool(tool_use=tool_use)
             return tool_use_key
 
     async def _deliver_tool_result(
@@ -714,17 +720,32 @@ class _BidiAgentLoop:
         tool_result_event: ToolResultEvent,
     ) -> None:
         """Wait out reconnect activity, then deliver the completed tool result."""
+        while self._started:
+            await self._send_gate.wait()
+            async with self._connection_lock:
+                if not self._send_gate.is_set():
+                    continue
+                await self._deliver_tool_result_on_connection(original_key, tool_result_event)
+                return
+
+    async def _send_tool_delivery(
+        self,
+        event: BidiTextInputEvent | ToolResultEvent,
+        original_key: _ToolUseKey,
+        mode: Literal["native", "recovery"],
+    ) -> bool:
+        """Send one tool result without allowing provider I/O to block reconnect indefinitely."""
         try:
-            while self._started:
-                await self._send_gate.wait()
-                async with self._connection_lock:
-                    if not self._send_gate.is_set():
-                        continue
-                    await self._deliver_tool_result_on_connection(original_key, tool_result_event)
-                    return
-        finally:
-            async with self._tool_lock:
-                self._running_tools.pop(original_key, None)
+            await asyncio.wait_for(self._agent.model.send(event), timeout=_TOOL_RESULT_SEND_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "tool_use_id=<%s>, mode=<%s>, timeout_s=<%s> | tool result delivery timed out",
+                original_key[1],
+                mode,
+                _TOOL_RESULT_SEND_TIMEOUT_S,
+            )
+            return False
+        return True
 
     async def _deliver_tool_result_on_connection(
         self,
@@ -732,56 +753,54 @@ class _BidiAgentLoop:
         tool_result_event: ToolResultEvent,
     ) -> None:
         """Deliver a result while the active model connection is stable."""
-        sent_ids: set[str] = set()
-        recovery_sent = False
+        async with self._tool_lock:
+            running_tool = self._running_tools.pop(original_key, None)
+        if not self._started or running_tool is None:
+            return
 
-        while True:
-            async with self._tool_lock:
-                running_tool = self._running_tools.get(original_key)
-                if not self._started or running_tool is None:
-                    return
-                current_ids = [
-                    tool_use_id
-                    for tool_generation, tool_use_id in running_tool.tool_use_keys
-                    if tool_generation == self._generation and tool_use_id not in sent_ids
-                ]
-                if not current_ids and (sent_ids or recovery_sent):
-                    return
-
-            tool_result = tool_result_event.tool_result
-            for tool_use_id in current_ids:
-                result = ToolResult(
-                    toolUseId=tool_use_id,
-                    status=tool_result["status"],
-                    content=tool_result["content"],
-                )
-                await self.send(ToolResultEvent(result))
-                sent_ids.add(tool_use_id)
-                self._awaiting_response = True
-                self._update_turn_state()
-                logger.info(
-                    "tool_use_id=<%s>, issuing_generation=<%d>, delivery_generation=<%d>, mode=<native> | "
-                    "tool result delivered",
-                    tool_use_id,
-                    original_key[0],
-                    self._generation,
-                )
-
-            if current_ids:
-                continue
-
-            recovery = _format_tool_recovery(running_tool.tool_use, tool_result)
-            await self.send(BidiTextInputEvent(text=recovery))
-            recovery_sent = True
+        tool_result = tool_result_event.tool_result
+        delivery_key = running_tool.replacement_key or original_key
+        if delivery_key[0] == self._generation:
+            tool_use_id = delivery_key[1]
+            result = ToolResult(
+                toolUseId=tool_use_id,
+                status=tool_result["status"],
+                content=tool_result["content"],
+            )
+            if not await self._send_tool_delivery(ToolResultEvent(result), original_key, "native"):
+                return
             self._awaiting_response = True
             self._update_turn_state()
             logger.info(
-                "tool_use_id=<%s>, issuing_generation=<%d>, delivery_generation=<%d>, mode=<recovery> | "
+                "tool_use_id=<%s>, issuing_generation=<%d>, delivery_generation=<%d>, mode=<native> | "
                 "tool result delivered",
-                original_key[1],
+                tool_use_id,
                 original_key[0],
                 self._generation,
             )
+            return
+
+        try:
+            recovery = _format_tool_recovery(running_tool.tool_use, tool_result)
+        except ValueError as error:
+            logger.warning(
+                "tool_use_id=<%s>, error=<%s> | tool result recovery unavailable | result retained in history",
+                original_key[1],
+                error,
+            )
+            return
+
+        if not await self._send_tool_delivery(BidiTextInputEvent(text=recovery), original_key, "recovery"):
+            return
+        self._awaiting_response = True
+        self._update_turn_state()
+        logger.info(
+            "tool_use_id=<%s>, issuing_generation=<%d>, delivery_generation=<%d>, mode=<recovery> | "
+            "tool result delivered",
+            original_key[1],
+            original_key[0],
+            self._generation,
+        )
 
     async def _run_model(self, generation: int) -> None:
         """Task for running the model.
@@ -807,16 +826,29 @@ class _BidiAgentLoop:
                     tool_use = event["current_tool_use"]
                     original_tool_use_key = await self._register_tool_use(tool_use, generation)
                     if original_tool_use_key is None:
+                        # A replacement ID for an existing logical call is protocol recovery,
+                        # not a second consumer-visible tool execution.
                         continue
 
-                await self._event_queue.put(event)
-                if original_tool_use_key is not None:
-                    self._task_pool.create(self._run_tool(event["current_tool_use"], original_tool_use_key))
+                queued = False
+                try:
+                    await self._event_queue.put(event)
+                    queued = True
+                finally:
+                    if not queued and original_tool_use_key is not None:
+                        async with self._tool_lock:
+                            self._running_tools.pop(original_tool_use_key, None)
 
                 # The put can suspend on the full queue across a reconnect; re-check so a stale
                 # event from the closed connection is not applied to the new connection's state.
                 if generation != self._generation:
+                    if original_tool_use_key is not None:
+                        async with self._tool_lock:
+                            self._running_tools.pop(original_tool_use_key, None)
                     return
+
+                if original_tool_use_key is not None:
+                    self._task_pool.create(self._run_tool(event["current_tool_use"], original_tool_use_key))
 
                 if isinstance(event, BidiResponseStartEvent):
                     if response_span:
