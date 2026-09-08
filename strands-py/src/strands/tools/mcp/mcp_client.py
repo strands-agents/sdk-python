@@ -476,6 +476,14 @@ class MCPClient(ToolProvider):
         return self
 
     @property
+    def client_name(self) -> str | None:
+        """The ``application_name`` reported to the server, or ``None`` when unset (see ``__init__``).
+
+        Defaults to the config key for ``load_servers`` clients.
+        """
+        return self._application_name
+
+    @property
     def continue_on_error(self) -> bool:
         """Whether a connection failure is swallowed instead of raised (see ``__init__``)."""
         return self._continue_on_error
