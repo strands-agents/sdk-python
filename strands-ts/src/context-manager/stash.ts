@@ -101,9 +101,7 @@ export class Stash {
       const block = message.content[blockIndex]!
       if (block instanceof ToolResultBlock) {
         if (skipToolUseIds?.has(block.toolUseId)) continue
-        await this._storeToolResult(block).catch((error) => {
-          logger.warn(`toolUseId=<${block.toolUseId}>, error=<${error}> | failed to stash tool result`)
-        })
+        await this._storeToolResult(block)
       } else if (block instanceof ToolUseBlock || block instanceof CachePointBlock || block instanceof ReasoningBlock) {
         continue
       } else {
