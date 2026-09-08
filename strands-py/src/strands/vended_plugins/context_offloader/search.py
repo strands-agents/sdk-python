@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 
 _MAX_PATTERN_LENGTH = 200
-_NESTED_QUANTIFIER = re.compile(r"[+*}]\s*\)\s*[+*?{]")
+_NESTED_QUANTIFIER = re.compile(r"[+*]\s*\)\s*[+*]")
 
 _TEXT_APPLICATION_TYPES = frozenset(
     {

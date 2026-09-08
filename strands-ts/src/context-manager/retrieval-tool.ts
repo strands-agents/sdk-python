@@ -9,7 +9,7 @@
 import { z } from 'zod'
 import { tool } from '../tools/tool-factory.js'
 import { isSearchableContent, searchContent } from '../vended-plugins/context-offloader/search.js'
-import { AudioBlock, DocumentBlock, ImageBlock, VideoBlock } from '../types/media.js'
+import { DocumentBlock, ImageBlock, VideoBlock } from '../types/media.js'
 import type { JSONValue } from '../types/json.js'
 import type { Tool } from '../tools/tool.js'
 import { Message, ToolUseBlock } from '../types/messages.js'
@@ -108,11 +108,10 @@ export function trackRetrievalToolUseIds(message: Message, skipSet: Set<string>)
   }
 }
 
-function restoreMedia(data: Record<string, unknown>): ImageBlock | DocumentBlock | VideoBlock | AudioBlock | null {
+function restoreMedia(data: Record<string, unknown>): ImageBlock | DocumentBlock | VideoBlock | null {
   if ('image' in data) return ImageBlock.fromJSON(data as Parameters<typeof ImageBlock.fromJSON>[0])
   if ('document' in data) return DocumentBlock.fromJSON(data as Parameters<typeof DocumentBlock.fromJSON>[0])
   if ('video' in data) return VideoBlock.fromJSON(data as Parameters<typeof VideoBlock.fromJSON>[0])
-  if ('audio' in data) return AudioBlock.fromJSON(data as Parameters<typeof AudioBlock.fromJSON>[0])
   return null
 }
 

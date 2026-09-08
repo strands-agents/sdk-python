@@ -31,7 +31,7 @@ function formatLines(lines: string[], indices: number[], matchedSet: Set<number>
 }
 
 const MAX_PATTERN_LENGTH = 200
-const NESTED_QUANTIFIER = /[+*}]\s*\)\s*[+*?{]/
+const NESTED_QUANTIFIER = /[+*]\s*\)\s*[+*]/
 
 /** Finds lines matching a pattern, expands with context, and formats with truncation. */
 function searchByPattern(

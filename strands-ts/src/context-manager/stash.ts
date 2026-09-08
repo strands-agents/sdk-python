@@ -102,7 +102,7 @@ export class Stash {
       if (block instanceof ToolResultBlock) {
         if (skipToolUseIds?.has(block.toolUseId)) continue
         await this._storeToolResult(block).catch((error) => {
-          logger.debug(`toolUseId=<${block.toolUseId}>, error=<${error}> | failed to stash tool result`)
+          logger.warn(`toolUseId=<${block.toolUseId}>, error=<${error}> | failed to stash tool result`)
         })
       } else if (block instanceof ToolUseBlock || block instanceof CachePointBlock || block instanceof ReasoningBlock) {
         continue
@@ -110,7 +110,7 @@ export class Stash {
         try {
           await this.store(message.trackingId, blockIndex, encode(block.toJSON()))
         } catch (error) {
-          logger.debug(`trackingId=<${message.trackingId}>, error=<${error}> | failed to stash block`)
+          logger.warn(`trackingId=<${message.trackingId}>, error=<${error}> | failed to stash block`)
         }
       }
     }
@@ -196,7 +196,7 @@ export class Stash {
       try {
         await this.store(block.toolUseId, blockIndex, encode(item.toJSON()))
       } catch (error) {
-        logger.debug(
+        logger.warn(
           `toolUseId=<${block.toolUseId}>, blockIndex=<${blockIndex}>, error=<${error}> | failed to stash sub-block`
         )
       }

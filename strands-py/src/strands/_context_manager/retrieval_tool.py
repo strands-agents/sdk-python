@@ -5,6 +5,7 @@ Registered automatically when the ContextManager has storage configured.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 from typing import TYPE_CHECKING, Any
@@ -25,14 +26,18 @@ RETRIEVAL_TOOL_NAME = "retrieve_context"
 _DEFAULT_MAX_RESULT_TOKENS = 10_000
 
 
-_MEDIA_KEYS = frozenset({"image", "document", "video", "audio"})
+_MEDIA_KEYS = frozenset({"image", "document", "video"})
 
 
 def _restore_media(data: dict[str, Any]) -> ToolResultContent | None:
     """Reconstruct a media ToolResultContent from stash data, or None if not media."""
     for key in _MEDIA_KEYS:
         if key in data:
-            return ToolResultContent(**{key: data[key]})  # type: ignore[misc]
+            media = data[key]
+            source = media.get("source", {})
+            if isinstance(source.get("bytes"), str):
+                media = {**media, "source": {**source, "bytes": base64.b64decode(source["bytes"])}}
+            return ToolResultContent(**{key: media})  # type: ignore[misc]
     return None
 
 
