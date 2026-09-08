@@ -65,7 +65,7 @@ export class ContextManager implements Plugin {
     return [this._retrievalTool]
   }
 
-  initAgent(agent: LocalAgent): void {
+  async initAgent(agent: LocalAgent): Promise<void> {
     if (this._stashStorage !== false) {
       const storage = this._stashStorage ?? agent.storage ?? new InMemoryStorage()
       this._stashIsDurable = !(EPHEMERAL in storage)
@@ -75,6 +75,12 @@ export class ContextManager implements Plugin {
     if (this._stash) {
       const stash = this._stash
       const skipSet = this._retrievalToolUseIds
+
+      for (const message of agent.messages) {
+        trackRetrievalToolUseIds(message, skipSet)
+        await stash.storeMessage(message, skipSet)
+      }
+
       agent.addHook(MessageAddedEvent, async (event) => {
         trackRetrievalToolUseIds(event.message, skipSet)
         await stash.storeMessage(event.message, skipSet)

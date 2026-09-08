@@ -28,8 +28,8 @@ function decode(bytes: Uint8Array): unknown {
 /** Format stash refs for display in placeholders. Returns '' when refs is empty. */
 export function formatStashRefs(refs: string[]): string {
   if (refs.length === 0) return ''
-  if (refs.length === 1) return ` ref: ${refs[0]!}`
-  return ` refs: ${refs.join(', ')}`
+  if (refs.length === 1) return ` [ref: ${refs[0]!}]`
+  return ` [refs: ${refs.join(', ')}]`
 }
 
 /**
@@ -193,7 +193,13 @@ export class Stash {
   private async _storeToolResult(block: ToolResultBlock): Promise<void> {
     for (let blockIndex = 0; blockIndex < block.content.length; blockIndex++) {
       const item = block.content[blockIndex]!
-      await this.store(block.toolUseId, blockIndex, encode(item.toJSON()))
+      try {
+        await this.store(block.toolUseId, blockIndex, encode(item.toJSON()))
+      } catch (error) {
+        logger.debug(
+          `toolUseId=<${block.toolUseId}>, blockIndex=<${blockIndex}>, error=<${error}> | failed to stash sub-block`
+        )
+      }
     }
   }
 }

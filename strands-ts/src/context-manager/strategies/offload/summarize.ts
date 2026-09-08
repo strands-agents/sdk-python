@@ -118,7 +118,7 @@ export class SummarizeStrategy extends BaseOffloadStrategy {
         status: block.status,
         content: [
           new TextBlock(
-            `${SUMMARIZED_PREFIX} ~${tokens.toLocaleString()} tokens |${formatStashRefs(stashRefs)}]\n\n${summary}`
+            `${SUMMARIZED_PREFIX} ~${tokens.toLocaleString()} tokens]${formatStashRefs(stashRefs)}\n\n${summary}`
           ),
         ],
       })
@@ -130,12 +130,12 @@ export class SummarizeStrategy extends BaseOffloadStrategy {
 
       logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | summarized text block`)
       return new TextBlock(
-        `${SUMMARIZED_PREFIX} ~${tokens.toLocaleString()} tokens |${formatStashRefs(stashRefs)}]\n\n${summary}`
+        `${SUMMARIZED_PREFIX} ~${tokens.toLocaleString()} tokens]${formatStashRefs(stashRefs)}\n\n${summary}`
       )
     }
 
     logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | offloaded media block`)
-    return new TextBlock(`[Offloaded: ~${tokens} tokens${formatStashRefs(stashRefs)}]`)
+    return new TextBlock(`[Offloaded: ~${tokens} tokens]${formatStashRefs(stashRefs)}`)
   }
 
   private _resolveModel(agent: LocalAgent): Model | undefined {

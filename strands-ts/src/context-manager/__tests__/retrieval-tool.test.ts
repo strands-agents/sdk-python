@@ -67,14 +67,15 @@ describe('retrieval tool', () => {
     expect(result).toContain('Error: reference not found')
   })
 
-  it('retrieves image content as JSON', async () => {
+  it('returns media description error for image content instead of raw data', async () => {
     const stash = new Stash(new InMemoryStorage(), 'test-session', 'test-agent')
     const imageData = { image: { format: 'png', source: { bytes: 'iVBORw0KGgo=' } } }
     const ref = await stash.store('tool-img', 0, encodeJSON(imageData))
     const retrievalTool = createRetrievalTool(stash)
 
     const result = await invoke(retrievalTool, { reference: ref })
-    expect(result).toEqual(imageData)
+    expect(result).toContain('image (png,')
+    expect(result).toContain('cannot be returned as text')
   })
 
   it('retrieves JSON content as parsed object', async () => {
