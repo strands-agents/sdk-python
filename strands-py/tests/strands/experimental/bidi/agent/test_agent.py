@@ -7,7 +7,9 @@ from uuid import uuid4
 
 import pytest
 
+from strands import LocalAgent, ToolContext, tool
 from strands.experimental.bidi.agent.agent import BidiAgent
+from strands.experimental.bidi.models.model import BidiModel
 from strands.experimental.bidi.types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
@@ -16,9 +18,11 @@ from strands.experimental.bidi.types.events import (
     BidiTextInputEvent,
     BidiTranscriptStreamEvent,
 )
+from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent
+from strands.types.content import SystemContentBlock
 
 
-class MockBidiModel:
+class MockBidiModel(BidiModel):
     """Mock bidirectional model for testing."""
 
     def __init__(self, config=None, model_id="mock-model"):
@@ -41,7 +45,7 @@ class MockBidiModel:
             self._started = False
             self._connection_id = None
 
-    async def reconnect(self, system_prompt=None, tools=None, messages=None, **restart_kwargs):
+    async def restart(self, system_prompt=None, tools=None, messages=None, **restart_kwargs):
         await self.stop()
         await self.start(system_prompt, tools, messages, **restart_kwargs)
 
@@ -121,6 +125,7 @@ def test_bidi_agent_init_with_various_configurations():
 
     assert agent.model == mock_model
     assert agent.system_prompt is None
+    assert agent.system_prompt_content is None
     assert not agent._started
     assert agent.model._connection_id is None
 
@@ -129,6 +134,7 @@ def test_bidi_agent_init_with_various_configurations():
     agent_with_config = BidiAgent(model=mock_model, system_prompt=system_prompt, agent_id="test_agent")
 
     assert agent_with_config.system_prompt == system_prompt
+    assert agent_with_config.system_prompt_content == [{"text": system_prompt}]
     assert agent_with_config.agent_id == "test_agent"
 
     # Test model config access
@@ -136,6 +142,108 @@ def test_bidi_agent_init_with_various_configurations():
     assert config["audio"]["input_rate"] == 16000
     assert config["audio"]["output_rate"] == 24000
     assert config["audio"]["channels"] == 1
+
+
+def test_bidi_agent_system_prompt_setter(mock_model):
+    """Test setting the system prompt updates its content blocks."""
+    agent = BidiAgent(model=mock_model, system_prompt="initial prompt")
+    content_blocks: list[SystemContentBlock] = [
+        {"text": "updated prompt"},
+        {"cachePoint": {"type": "default"}},
+        {"text": "additional instructions"},
+    ]
+
+    agent.system_prompt = content_blocks
+
+    assert agent.system_prompt == "updated prompt\nadditional instructions"
+    assert agent.system_prompt_content == content_blocks
+
+
+def test_bidi_agent_tool_emits_shared_hook_events_and_retries(mock_model):
+    """Test BidiAgent emits shared tool hook events and honors retry requests."""
+    call_count = 0
+    hook_events: list[BeforeToolCallEvent[LocalAgent] | AfterToolCallEvent[LocalAgent]] = []
+
+    @tool
+    def counting_tool() -> str:
+        nonlocal call_count
+        call_count += 1
+        return f"attempt_{call_count}"
+
+    agent = BidiAgent(model=mock_model, tools=[counting_tool])
+
+    def record_before(event: BeforeToolCallEvent[LocalAgent]) -> None:
+        hook_events.append(event)
+
+    def retry_once(event: AfterToolCallEvent[LocalAgent]) -> None:
+        hook_events.append(event)
+        event.retry = call_count == 1
+
+    agent.add_hook(record_before)
+    agent.add_hook(retry_once)
+
+    result = agent.tool.counting_tool(record_direct_tool_call=False)
+
+    assert call_count == 2
+    assert [type(event) for event in hook_events] == [
+        BeforeToolCallEvent,
+        AfterToolCallEvent,
+        BeforeToolCallEvent,
+        AfterToolCallEvent,
+    ]
+    assert all(event.agent is agent for event in hook_events)
+    assert result["content"] == [{"text": "attempt_2"}]
+
+
+def test_bidi_agent_tool_injects_local_agent(mock_model):
+    """Test context-aware tools receive BidiAgent through LocalAgent."""
+
+    @tool(context=True)
+    def context_tool(tool_context: ToolContext[LocalAgent]) -> str:
+        assert tool_context.agent is agent
+        return tool_context.agent.name
+
+    agent = BidiAgent(model=mock_model, tools=[context_tool], name="test_agent")
+
+    result = agent.tool.context_tool(record_direct_tool_call=False)
+
+    assert result["content"] == [{"text": "test_agent"}]
+
+
+def test_bidi_agent_init_with_unsupported_model():
+    """Test agent initialization rejects unsupported model types."""
+    with pytest.raises(TypeError, match="model must be a BidiModel, string, or None"):
+        BidiAgent(model=object())
+
+
+def test_bidi_agent_session_id_without_session_manager(mock_model):
+    """Test the generated session identifier remains stable."""
+    agent = BidiAgent(model=mock_model)
+
+    first = agent.session_id
+    second = agent.session_id
+
+    assert first == second
+    assert len(first) == 8
+
+
+def test_bidi_agent_session_id_delegates_to_session_manager(mock_model):
+    """Test the session manager's persistent identifier is exposed."""
+    session_manager = unittest.mock.Mock()
+    session_manager.session_id = "test-session"
+
+    agent = BidiAgent(model=mock_model, session_manager=session_manager)
+
+    assert agent.session_id == "test-session"
+
+
+@pytest.mark.skipif(sys.version_info < (3, 12), reason="BedrockNovaSonicModel is only supported for Python 3.12+")
+def test_bidi_agent_init_with_default_model():
+    from strands.experimental.bidi.models.bedrock import BedrockNovaSonicModel
+
+    agent = BidiAgent(model=None)
+
+    assert isinstance(agent.model, BedrockNovaSonicModel)
 
 
 @pytest.mark.skipif(sys.version_info < (3, 12), reason="BedrockNovaSonicModel is only supported for Python 3.12+")
