@@ -4,19 +4,28 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
+from typing_extensions import TypeVar
+
 from ..storage import Storage, StorageSearchResult
 
+S = TypeVar("S", bound=Storage, default=Storage, contravariant=True)
 
-class SearchStrategy(Protocol):
+
+class SearchStrategy(Protocol[S]):
     """A pluggable search strategy for storage backends.
 
     Strategies encapsulate a single approach to searching stored content --
     keyword/lexical scan, vector similarity, full-text index, etc. Storage
     backends delegate their ``search()`` to a strategy, and consumers (memory
     stores, context offloaders) can override the default.
+
+    The ``S`` type parameter controls which storage backends the strategy is
+    compatible with. Defaults to :class:`Storage` (any backend). Strategies
+    that require specific backend features (e.g. ``base_dir``) can narrow
+    this to a concrete type like :class:`LocalFileStorage`.
     """
 
-    async def index(self, storage: Storage, key: str, data: bytes, **kwargs: Any) -> None:
+    async def index(self, storage: S, key: str, data: bytes, **kwargs: Any) -> None:
         """Index a single entry for future searches.
 
         Consumers should call this on each write so strategies that maintain
@@ -31,7 +40,7 @@ class SearchStrategy(Protocol):
         """
         ...
 
-    async def search(self, storage: Storage, query: str, **kwargs: Any) -> list[StorageSearchResult]:
+    async def search(self, storage: S, query: str, **kwargs: Any) -> list[StorageSearchResult]:
         """Search content in storage matching query.
 
         Args:

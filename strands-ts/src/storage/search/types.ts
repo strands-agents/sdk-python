@@ -12,7 +12,7 @@ import type { Storage, StorageSearchResult } from '../storage.js'
  * to `string` (a natural-language query). Strategies that support richer queries
  * (e.g. a pre-computed embedding vector with metadata filters) can widen this type.
  */
-export interface SearchStrategy<SearchQuery = string> {
+export interface SearchStrategy<S extends Storage = Storage, SearchQuery = string> {
   /**
    * Indexes a single entry for future searches.
    *
@@ -24,7 +24,7 @@ export interface SearchStrategy<SearchQuery = string> {
    * @param key - The storage key being written
    * @param data - The raw bytes being stored
    */
-  index?: (storage: Storage, key: string, data: Uint8Array) => Promise<void>
+  index?: (storage: S, key: string, data: Uint8Array) => Promise<void>
 
   /**
    * Searches content in `storage` matching `query`.
@@ -33,5 +33,5 @@ export interface SearchStrategy<SearchQuery = string> {
    * @param query - A string query or strategy-specific query object
    * @returns Matched keys with relevance scores, ranked best-first
    */
-  search(storage: Storage, query: SearchQuery): Promise<StorageSearchResult[]>
+  search(storage: S, query: SearchQuery): Promise<StorageSearchResult[]>
 }

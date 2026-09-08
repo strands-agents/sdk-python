@@ -20,10 +20,13 @@ import hashlib
 import os
 import sqlite3
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..storage import Storage, StorageSearchResult
+from ..storage import StorageSearchResult
 from .keyword import tokenize
+
+if TYPE_CHECKING:
+    from ..local_file_storage import LocalFileStorage
 
 STOP_WORDS: frozenset[str] = frozenset(
     {
@@ -224,7 +227,7 @@ class Bm25SearchStrategy:
         self._hashes: dict[str, str] = {}
         self._lock = asyncio.Lock()
 
-    async def index(self, storage: Storage, key: str, data: bytes, **kwargs: Any) -> None:
+    async def index(self, storage: LocalFileStorage, key: str, data: bytes, **kwargs: Any) -> None:
         """Index a single entry for future searches.
 
         Skips hidden files (keys whose final segment starts with '.').
@@ -249,7 +252,7 @@ class Bm25SearchStrategy:
                 return
             await asyncio.to_thread(self._upsert, conn, key, content, content_hash)
 
-    async def search(self, storage: Storage, query: str, **kwargs: Any) -> list[StorageSearchResult]:
+    async def search(self, storage: LocalFileStorage, query: str, **kwargs: Any) -> list[StorageSearchResult]:
         """Search the index using BM25 full-text search.
 
         Args:
@@ -279,7 +282,7 @@ class Bm25SearchStrategy:
             self._storage_path = None
             self._hashes.clear()
 
-    def _ensure_connection(self, storage: Storage) -> sqlite3.Connection:
+    def _ensure_connection(self, storage: LocalFileStorage) -> sqlite3.Connection:
         """Lazily initialize the SQLite connection from the storage backend."""
         storage_path = self._resolve_storage_path(storage)
 
@@ -339,11 +342,6 @@ class Bm25SearchStrategy:
         return results
 
     @staticmethod
-    def _resolve_storage_path(storage: Storage) -> str:
+    def _resolve_storage_path(storage: LocalFileStorage) -> str:
         """Extract base_dir from the storage instance."""
-        base_dir = getattr(storage, "base_dir", None)
-        if isinstance(base_dir, str):
-            return base_dir
-        raise RuntimeError(
-            "Bm25SearchStrategy requires a storage backend with a base_dir property (e.g. LocalFileStorage)"
-        )
+        return storage.base_dir

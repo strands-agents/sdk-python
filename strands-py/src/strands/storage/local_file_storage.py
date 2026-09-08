@@ -40,7 +40,7 @@ class LocalFileStorage:
         base_dir: str = "./.strands/",
         *,
         sandbox: Sandbox | None = None,
-        search_strategy: SearchStrategy | None = None,
+        search_strategy: SearchStrategy[LocalFileStorage] | None = None,
     ) -> None:
         """Initialize local file storage.
 

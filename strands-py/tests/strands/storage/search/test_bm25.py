@@ -142,28 +142,6 @@ class TestBm25SearchStrategy:
         assert os.path.exists(db_path)
 
     @pytest.mark.asyncio
-    async def test_raises_for_storage_without_base_dir(self):
-        class NoBaseDirStorage:
-            async def write(self, key, data):
-                pass
-
-            async def read(self, key):
-                return None
-
-            async def delete(self, key):
-                pass
-
-            async def list(self, query=""):
-                return []
-
-            async def search(self, query):
-                return []
-
-        strategy = Bm25SearchStrategy()
-        with pytest.raises(RuntimeError, match="base_dir"):
-            await strategy.search(NoBaseDirStorage(), "test query")
-
-    @pytest.mark.asyncio
     async def test_returns_empty_for_stop_words_only_query(self, storage, strategy):
         await strategy.index(storage, "doc.md", b"Some content here.")
 

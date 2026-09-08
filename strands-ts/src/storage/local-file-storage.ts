@@ -38,7 +38,7 @@ function isNotFoundError(error: unknown): boolean {
 export class LocalFileStorage implements Storage {
   private readonly _baseDir: string
   private readonly _sandbox: Sandbox | undefined
-  private readonly _searchStrategy: SearchStrategy | undefined
+  private readonly _searchStrategy: SearchStrategy<LocalFileStorage> | undefined
 
   /** The resolved root directory for this storage instance. */
   get baseDir(): string {
@@ -51,7 +51,7 @@ export class LocalFileStorage implements Storage {
    * @param searchStrategy - Optional search strategy. When set, `write()` automatically indexes
    *   entries and `search()` delegates to the strategy instead of the default keyword scan.
    */
-  constructor(baseDir: string = './.strands/', sandbox?: Sandbox, searchStrategy?: SearchStrategy) {
+  constructor(baseDir: string = './.strands/', sandbox?: Sandbox, searchStrategy?: SearchStrategy<LocalFileStorage>) {
     this._baseDir = baseDir.replace(/\/{2,}/g, '/').replace(/(.)\/$/, '$1')
     this._sandbox = sandbox
     this._searchStrategy = searchStrategy
