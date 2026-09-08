@@ -9,6 +9,7 @@ import pytest_asyncio
 
 from strands.experimental.bidi._audio import _BidiAudioProcessor
 from strands.experimental.bidi.io.audio import BidiAudioIO, BidiAudioProcessorConfig, _BidiAudioBuffer
+from strands.experimental.bidi.models import AudioCapable
 from strands.experimental.bidi.types.events import BidiAudioInputEvent, BidiAudioStreamEvent, BidiInterruptionEvent
 
 
@@ -54,6 +55,7 @@ def audio_buffer():
 @pytest.fixture
 def agent():
     mock = unittest.mock.MagicMock()
+    mock.model = unittest.mock.MagicMock(spec=AudioCapable)
     mock.model.audio_config = {
         "input_rate": 24000,
         "output_rate": 16000,
@@ -66,6 +68,7 @@ def agent():
 @pytest.fixture
 def aec_agent():
     mock = unittest.mock.MagicMock()
+    mock.model = unittest.mock.MagicMock(spec=AudioCapable)
     mock.model.audio_config = {
         "input_rate": 16000,
         "output_rate": 16000,
@@ -78,6 +81,7 @@ def aec_agent():
 @pytest.fixture
 def agent_mixed_rates():
     mock = unittest.mock.MagicMock()
+    mock.model = unittest.mock.MagicMock(spec=AudioCapable)
     mock.model.audio_config = {
         "input_rate": 16000,
         "output_rate": 24000,
