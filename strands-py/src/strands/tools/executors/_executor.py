@@ -126,6 +126,14 @@ class ToolExecutor(abc.ABC):
                     "Ensure middleware forwards events from next()."
                 )
             tracer.end_tool_call_span(tool_call_span, result_event.tool_result, error=result_event.exception)
+            # The cycle that dispatched this call has already ended, so the trace has no parent.
+            agent.event_loop_metrics.add_tool_usage(
+                tool_use,
+                time.monotonic() - tool_start_time,
+                Trace(f"Tool: {tool_use['name']}", raw_name=tool_use["name"]),
+                result_event.tool_result.get("status") == "success",
+                Message(role="user", content=[{"toolResult": result_event.tool_result}]),
+            )
             after_event, _ = await agent.hooks.invoke_callbacks_async(
                 AfterToolCallEvent[LocalAgent](
                     agent=agent,
@@ -267,7 +275,7 @@ class ToolExecutor(abc.ABC):
                     result = await background_tasks.submit_tool_call(
                         tool_use, invocation_state, pass_id, cast(AgentTool, selected_tool)
                     )
-                    yield ToolResultEvent(result)
+                    yield ToolResultEvent(result, background_dispatch=True)
                     tool_results.append(result)
                     return
                 admission_error = route
@@ -461,7 +469,8 @@ class ToolExecutor(abc.ABC):
             tool_success = result.get("status") == "success"
             tool_duration = time.time() - tool_start_time
             message = Message(role="user", content=[{"toolResult": result}])
-            if ToolExecutor._is_agent(agent):
+            # A background dispatch acknowledgement is not the tool running; the run records its own metrics.
+            if ToolExecutor._is_agent(agent) and not result_event.background_dispatch:
                 agent.event_loop_metrics.add_tool_usage(tool_use, tool_duration, tool_trace, tool_success, message)
             cycle_trace.add_child(tool_trace)
 

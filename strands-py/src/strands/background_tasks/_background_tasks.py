@@ -443,11 +443,13 @@ class _BackgroundTasks(Plugin):
             return list(self._tasks.values())
 
     def _persist_tasks(self) -> None:
-        tasks = self._task_snapshots()
-        if tasks:
-            self._agent.state.set(_BACKGROUND_TASKS_STATE_KEY, tasks)
-        else:
-            self._agent.state.delete(_BACKGROUND_TASKS_STATE_KEY)
+        # Snapshot and write under one lock so a concurrent remove cannot be overwritten by a stale snapshot.
+        with self._tasks_lock:
+            tasks = list(self._tasks.values())
+            if tasks:
+                self._agent.state.set(_BACKGROUND_TASKS_STATE_KEY, tasks)
+            else:
+                self._agent.state.delete(_BACKGROUND_TASKS_STATE_KEY)
 
 
 def _resolve_policy(config: BackgroundTasksConfig) -> dict[str, _BackgroundMode]:

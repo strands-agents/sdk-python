@@ -364,11 +364,15 @@ async def test_dispatches_selected_calls_through_tool_pipeline_and_delivers_resu
     agent.add_hook(retry_once, AfterToolCallEvent)
     agent._middleware_registry.add_middleware(ExecuteToolStage, count_execution)
 
-    await agent.invoke_async("Run work.")
+    result = await agent.invoke_async("Run work.")
 
     tru_middleware_calls = middleware_calls
     exp_middleware_calls = 2
     assert tru_middleware_calls == exp_middleware_calls
+
+    tru_metrics = (result.metrics.tool_metrics["work"].call_count, result.metrics.tool_metrics["work"].success_count)
+    exp_metrics = (2, 2)
+    assert tru_metrics == exp_metrics
 
     work_spec = next(spec for spec in tool_specs[0] if spec["name"] == "work")
     assert "_background_execution" in _schema_properties(work_spec)
