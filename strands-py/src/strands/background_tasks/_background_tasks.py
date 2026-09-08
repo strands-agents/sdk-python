@@ -90,10 +90,9 @@ class _BackgroundTasks(Plugin):
             policy = self._policy_for(tool_instance)
             if policy is None or not policy.exact or policy.mode == "never":
                 continue
-            if not _can_execute_in_background(tool_instance):
-                raise TypeError(f"Tool '{tool_instance.tool_name}' cannot run in the background")
-            if policy.mode == "agentic" and not _can_select_background(tool_instance):
-                raise TypeError(f"Tool '{tool_instance.tool_name}' cannot use agentic background selection")
+            rejection = self._rejection_reason(tool_instance, policy.mode)
+            if rejection is not None:
+                raise TypeError(f"Tool '{tool_instance.tool_name}' {rejection}")
 
         async def execute_tool(
             selected_tool: AgentTool,
@@ -179,18 +178,9 @@ class _BackgroundTasks(Plugin):
         policy = self._policy_for(effective_tool)
         if policy is None or policy.mode == "never":
             return None
-        if not _can_execute_in_background(effective_tool):
-            return (
-                _tool_error(tool_use, f"Tool '{tool_use['name']}' cannot run in the background")
-                if policy.exact
-                else None
-            )
-        if policy.mode == "agentic" and not _can_select_background(effective_tool):
-            return (
-                _tool_error(tool_use, f"Tool '{tool_use['name']}' cannot use agentic background selection")
-                if policy.exact
-                else None
-            )
+        rejection = self._rejection_reason(effective_tool, policy.mode)
+        if rejection is not None:
+            return _tool_error(tool_use, f"Tool '{tool_use['name']}' {rejection}") if policy.exact else None
         return True if policy.mode == "always" or selected else None
 
     async def submit_tool_call(
@@ -228,8 +218,7 @@ class _BackgroundTasks(Plugin):
         Raises:
             RuntimeError: If the tool is unknown, foreground-only, or configured as ``never``.
         """
-        policy = self._policy_for(tool_instance)
-        if not _can_execute_in_background(tool_instance) or policy is None or policy.mode == "never":
+        if not self._supports_background_execution(tool_instance):
             raise RuntimeError("Tool cannot run in the background")
 
     def assert_can_load_snapshot(self) -> None:
@@ -277,7 +266,7 @@ class _BackgroundTasks(Plugin):
             if policy is None or policy.mode != "agentic":
                 transformed.append(spec)
                 continue
-            if not _can_execute_in_background(tool_instance):
+            if not self._supports_background_execution(tool_instance):
                 if policy.exact:
                     raise TypeError(f"Tool '{spec['name']}' cannot use agentic background selection")
                 transformed.append(spec)
@@ -433,6 +422,25 @@ class _BackgroundTasks(Plugin):
         wildcard = self._policy.get("*")
         return _Policy(mode=wildcard, exact=False) if wildcard is not None else None
 
+    def _rejection_reason(self, tool_instance: AgentTool | None, mode: _BackgroundMode) -> str | None:
+        """Return why the tool cannot honor ``mode``, or None if it can."""
+        if not self._supports_background_execution(tool_instance):
+            return "cannot run in the background"
+        if mode == "agentic" and _add_background_selection(tool_instance.tool_spec) is None:
+            return "cannot use agentic background selection"
+        return None
+
+    def _supports_background_execution(self, tool_instance: AgentTool | None) -> TypeGuard[AgentTool]:
+        policy = self._policy_for(tool_instance)
+        return (
+            tool_instance is not None
+            and policy is not None
+            and policy.mode != "never"
+            and tool_instance.tool_name not in _FOREGROUND_TOOL_NAMES
+            and tool_instance.tool_type != "structured_output"
+            and not (isinstance(tool_instance, _AgentAsTool) and tool_instance.delegate)
+        )
+
     def _store_task(self, task: BackgroundTask) -> None:
         with self._tasks_lock:
             self._tasks[task["task_id"]] = task
@@ -468,19 +476,6 @@ def _resolve_policy(config: BackgroundTasksConfig) -> dict[str, _BackgroundMode]
                 raise TypeError(f"Tool '{name}' cannot be configured as both '{existing}' and '{mode}'")
             policy[name] = mode
     return policy
-
-
-def _can_execute_in_background(tool_instance: AgentTool | None) -> TypeGuard[AgentTool]:
-    return (
-        tool_instance is not None
-        and tool_instance.tool_name not in _FOREGROUND_TOOL_NAMES
-        and tool_instance.tool_type != "structured_output"
-        and not (isinstance(tool_instance, _AgentAsTool) and tool_instance.delegate)
-    )
-
-
-def _can_select_background(tool_instance: AgentTool) -> bool:
-    return _add_background_selection(tool_instance.tool_spec) is not None
 
 
 def _add_background_selection(tool_spec: ToolSpec) -> ToolSpec | None:

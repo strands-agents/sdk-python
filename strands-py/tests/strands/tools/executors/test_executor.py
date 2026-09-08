@@ -264,6 +264,25 @@ async def test_executor_stream_with_trace(
 
 
 @pytest.mark.asyncio
+async def test_executor_stream_with_trace_marks_backgrounded_without_metrics_or_trace(
+    executor, tracer, agent, tool_results, cycle_trace, cycle_span, invocation_state, alist, agenerator
+):
+    """A background dispatch acknowledgement marks its span but records no metrics and no cycle trace node."""
+    tool_use: ToolUse = {"name": "weather_tool", "toolUseId": "1", "input": {}}
+    result = {"toolUseId": "1", "status": "success", "content": [{"text": "queued"}]}
+    with unittest.mock.patch.object(
+        ToolExecutor, "_stream", return_value=agenerator([ToolResultEvent(result, backgrounded=True)])
+    ):
+        stream = executor._stream_with_trace(agent, tool_use, tool_results, cycle_trace, cycle_span, invocation_state)
+        await alist(stream)
+
+    agent.event_loop_metrics.add_tool_usage.assert_not_called()
+    cycle_trace.add_child.assert_not_called()
+    tracer.start_tool_call_span.return_value.set_attribute.assert_called_once_with("strands.tool.backgrounded", True)
+    tracer.end_tool_call_span.assert_called_once_with(tracer.start_tool_call_span.return_value, result, error=None)
+
+
+@pytest.mark.asyncio
 async def test_executor_stream_with_trace_records_metrics_on_interrupt(
     executor, agent, tool_results, cycle_trace, cycle_span, invocation_state, alist
 ):

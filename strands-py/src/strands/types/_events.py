@@ -283,17 +283,17 @@ class ToolResultEvent(TypedEvent):
     """Event emitted when a tool execution completes."""
 
     def __init__(
-        self, tool_result: ToolResult, exception: Exception | None = None, *, background_dispatch: bool = False
+        self, tool_result: ToolResult, exception: Exception | None = None, *, backgrounded: bool = False
     ) -> None:
         """Initialize tool result event."""
         super().__init__({"type": "tool_result", "tool_result": tool_result})
         self._exception = exception
-        self._background_dispatch = background_dispatch
+        self._backgrounded = backgrounded
 
     @property
-    def background_dispatch(self) -> bool:
+    def backgrounded(self) -> bool:
         """Whether this result only acknowledges that the tool was dispatched to the background."""
-        return self._background_dispatch
+        return self._backgrounded
 
     @property
     def exception(self) -> Exception | None:

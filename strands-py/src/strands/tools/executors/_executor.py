@@ -275,7 +275,7 @@ class ToolExecutor(abc.ABC):
                     result = await background_tasks.submit_tool_call(
                         tool_use, invocation_state, pass_id, cast(AgentTool, selected_tool)
                     )
-                    yield ToolResultEvent(result, background_dispatch=True)
+                    yield ToolResultEvent(result, backgrounded=True)
                     tool_results.append(result)
                     return
                 admission_error = route
@@ -469,10 +469,14 @@ class ToolExecutor(abc.ABC):
             tool_success = result.get("status") == "success"
             tool_duration = time.time() - tool_start_time
             message = Message(role="user", content=[{"toolResult": result}])
-            # A background dispatch acknowledgement is not the tool running; the run records its own metrics.
-            if ToolExecutor._is_agent(agent) and not result_event.background_dispatch:
-                agent.event_loop_metrics.add_tool_usage(tool_use, tool_duration, tool_trace, tool_success, message)
-            cycle_trace.add_child(tool_trace)
+            # A background dispatch acknowledgement is not the tool running; the run records its own
+            # metrics and trace, so the ack only marks its span.
+            if result_event.backgrounded:
+                tool_call_span.set_attribute("strands.tool.backgrounded", True)
+            else:
+                if ToolExecutor._is_agent(agent):
+                    agent.event_loop_metrics.add_tool_usage(tool_use, tool_duration, tool_trace, tool_success, message)
+                cycle_trace.add_child(tool_trace)
 
             tracer.end_tool_call_span(tool_call_span, result, error=result_event.exception)
 
