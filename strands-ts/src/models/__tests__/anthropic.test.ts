@@ -2329,6 +2329,58 @@ describe('AnthropicModel', () => {
       warnSpy.mockRestore()
     })
 
+    it('treats message_delta usage as cumulative within a response and sums across continuations', async () => {
+      const paused = async function* (): AsyncGenerator<unknown> {
+        yield { type: 'message_start', message: { role: 'assistant', usage: { input_tokens: 10 } } }
+        yield { type: 'content_block_start', index: 0, content_block: pausedContent[0] }
+        yield { type: 'content_block_stop', index: 0 }
+        yield { type: 'message_delta', delta: {}, usage: { output_tokens: 3 } }
+        yield { type: 'message_delta', delta: { stop_reason: 'pause_turn' }, usage: { output_tokens: 5 } }
+        yield { type: 'message_stop' }
+      }
+      const resumed = async function* (): AsyncGenerator<unknown> {
+        yield { type: 'message_start', message: { role: 'assistant', usage: { input_tokens: 20 } } }
+        yield { type: 'message_delta', delta: {}, usage: { output_tokens: 4 } }
+        yield { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 7 } }
+        yield { type: 'message_stop' }
+      }
+      const stream = vi
+        .fn()
+        .mockImplementationOnce(() => withFinalMessage(paused()))
+        .mockImplementationOnce(() => resumed())
+      const client = { messages: { stream } } as unknown as Anthropic
+
+      const events = await collectIterator(
+        new AnthropicModel({ client }).stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })])
+      )
+
+      expect(events).toContainEqual({
+        type: 'modelMetadataEvent',
+        usage: { inputTokens: 30, outputTokens: 12, totalTokens: 42 },
+      })
+    })
+
+    it('does not synthesize a stop event when the stream ends without message_stop', async () => {
+      const client = createMockClient(async function* () {
+        yield { type: 'message_start', message: { role: 'assistant', usage: { input_tokens: 1 } } }
+        yield { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }
+        yield { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'half of the' } }
+      })
+      const provider = new AnthropicModel({ client })
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hi')] })]
+
+      const events = await collectIterator(provider.stream(messages))
+
+      expect(events.map((event) => event.type)).toEqual([
+        'modelMessageStartEvent',
+        'modelContentBlockStartEvent',
+        'modelContentBlockDeltaEvent',
+      ])
+      await expect(collectGenerator(provider.streamAggregated(messages))).rejects.toThrow(
+        'Stream ended without completing a message'
+      )
+    })
+
     it.each([
       [
         {

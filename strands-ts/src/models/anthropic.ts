@@ -232,6 +232,8 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
           : this._client.messages.stream(request)
 
         let stopReason = 'endTurn'
+        let messageStopped = false
+        let outputTokens = 0
 
         const serverToolBlockIndexes = new Set<number>()
 
@@ -347,14 +349,23 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
 
             case 'message_delta':
               if (event.usage) {
-                usage.outputTokens += event.usage.output_tokens
+                // Cumulative within one response; only the final value counts toward the total.
+                outputTokens = event.usage.output_tokens
               }
               if (event.delta.stop_reason) {
                 stopReason = this._mapStopReason(event.delta.stop_reason)
               }
               break
+
+            case 'message_stop':
+              messageStopped = true
+              break
           }
         }
+
+        // A stream that ends without message_stop is incomplete; emit no stop event so the caller can tell.
+        if (!messageStopped) return
+        usage.outputTokens += outputTokens
 
         if (stopReason === 'pauseTurn') {
           if (continuations < MAX_PAUSE_TURN_CONTINUATIONS) {
