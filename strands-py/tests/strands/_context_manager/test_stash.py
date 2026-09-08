@@ -1,9 +1,11 @@
 """Tests for the Stash class."""
 
 import json
+import unittest.mock
 
 import pytest
-from strands._context_manager.stash import Stash, _format_stash_refs
+
+from strands._context_manager.stash import Stash, _BytesEncoder, _format_stash_refs
 from strands.storage.in_memory_storage import InMemoryStorage
 from strands.types.content import ContentBlock, Message
 from strands.types.tools import ToolResult
@@ -203,3 +205,38 @@ class TestFormatStashRefs:
     def test_multiple_refs(self):
         result = _format_stash_refs(["tu-1_0", "tu-1_1"])
         assert result == " refs: tu-1_0, tu-1_1"
+
+
+class TestBytesEncoder:
+    """Tests for _BytesEncoder."""
+
+    def test_raises_for_non_serializable_type(self):
+        encoder = _BytesEncoder()
+        with pytest.raises(TypeError):
+            encoder.default(object())
+
+
+class TestStoreMessageErrorHandling:
+    """Tests for error handling in store_message."""
+
+    @pytest.mark.asyncio
+    async def test_logs_warning_on_text_block_store_failure(self):
+        stash = Stash(InMemoryStorage(), "s", "a")
+        stash._storage.write = unittest.mock.AsyncMock(side_effect=RuntimeError("write failed"))
+        block = ContentBlock(text="hello")
+        message = Message(role="assistant", content=[block], tracking_id="track-1")
+        await stash.store_message(message)
+
+    @pytest.mark.asyncio
+    async def test_logs_warning_on_tool_result_sub_block_store_failure(self):
+        stash = Stash(InMemoryStorage(), "s", "a")
+        stash._storage.write = unittest.mock.AsyncMock(side_effect=RuntimeError("write failed"))
+        block = ContentBlock(
+            toolResult=ToolResult(
+                toolUseId="tu-1",
+                status="success",
+                content=[{"text": "data"}],
+            )
+        )
+        message = Message(role="user", content=[block])
+        await stash.store_message(message)

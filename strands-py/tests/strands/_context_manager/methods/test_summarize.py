@@ -3,6 +3,7 @@
 import unittest.mock
 
 import pytest
+
 from strands._context_manager.methods.summarize import (
     _flatten_messages_to_content,
     _summarize_content,

@@ -3,9 +3,17 @@
 import json
 
 import pytest
-from strands._context_manager.retrieval_tool import RETRIEVAL_TOOL_NAME, _create_retrieval_tool, _extract_text
+
+from strands._context_manager.retrieval_tool import (
+    RETRIEVAL_TOOL_NAME,
+    _create_retrieval_tool,
+    _extract_text,
+    _track_retrieval_tool_use_ids,
+)
 from strands._context_manager.stash import Stash
 from strands.storage.in_memory_storage import InMemoryStorage
+from strands.types.content import ContentBlock, Message
+from strands.types.tools import ToolUse
 
 
 @pytest.fixture
@@ -112,3 +120,72 @@ class TestExtractText:
 
     def test_returns_none_for_non_dict(self):
         assert _extract_text(42) is None
+
+
+class TestFullTextTruncation:
+    """Tests for full-content retrieval truncation."""
+
+    @pytest.mark.asyncio
+    async def test_truncates_large_full_content(self, stash):
+        ref = await _store_text(stash, "x" * 50_000)
+        tool = _create_retrieval_tool(stash, max_result_tokens=10)
+        result = await tool._tool_func({"toolUseId": "t1", "input": {"reference": ref}})
+        assert result["status"] == "success"
+        text = result["content"][0]["text"]
+        assert text.endswith("\n\n[truncated]")
+
+
+class TestInvalidLineRange:
+    """Tests for malformed line_range input."""
+
+    @pytest.mark.asyncio
+    async def test_returns_error_for_missing_start_key(self, stash):
+        ref = await _store_text(stash, "line 1\nline 2")
+        tool = _create_retrieval_tool(stash)
+        result = await tool._tool_func(
+            {"toolUseId": "t1", "input": {"reference": ref, "line_range": {"end": 2}}}
+        )
+        assert result["status"] == "error"
+        assert "invalid line_range" in result["content"][0]["text"]
+
+    @pytest.mark.asyncio
+    async def test_returns_error_for_non_numeric_values(self, stash):
+        ref = await _store_text(stash, "line 1\nline 2")
+        tool = _create_retrieval_tool(stash)
+        result = await tool._tool_func(
+            {"toolUseId": "t1", "input": {"reference": ref, "line_range": {"start": "abc", "end": 2}}}
+        )
+        assert result["status"] == "error"
+        assert "invalid line_range" in result["content"][0]["text"]
+
+
+class TestTrackRetrievalToolUseIds:
+    """Tests for _track_retrieval_tool_use_ids."""
+
+    def test_tracks_retrieve_context_tool_use_ids(self):
+        skip_set: set[str] = set()
+        message = Message(
+            role="assistant",
+            content=[
+                ContentBlock(toolUse=ToolUse(toolUseId="tu-ret", name=RETRIEVAL_TOOL_NAME, input={})),
+            ],
+        )
+        _track_retrieval_tool_use_ids(message, skip_set)
+        assert "tu-ret" in skip_set
+
+    def test_ignores_non_retrieval_tool_uses(self):
+        skip_set: set[str] = set()
+        message = Message(
+            role="assistant",
+            content=[
+                ContentBlock(toolUse=ToolUse(toolUseId="tu-other", name="bash", input={})),
+            ],
+        )
+        _track_retrieval_tool_use_ids(message, skip_set)
+        assert len(skip_set) == 0
+
+    def test_ignores_user_messages(self):
+        skip_set: set[str] = set()
+        message = Message(role="user", content=[ContentBlock(text="hello")])
+        _track_retrieval_tool_use_ids(message, skip_set)
+        assert len(skip_set) == 0

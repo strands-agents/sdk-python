@@ -1,8 +1,12 @@
 """Integration tests for stash + offload strategies."""
 
+import json
+import re
 import unittest.mock
 
 import pytest
+
+from strands._context_manager.retrieval_tool import _create_retrieval_tool
 from strands._context_manager.stash import Stash
 from strands._context_manager.strategies.offload import Offload
 from strands._context_manager.strategies.offload.drop import DROPPED_MARKER
@@ -295,3 +299,51 @@ class TestSummarizeWithStash:
         text = messages[1]["content"][0]["text"]
         assert "[Offloaded:" in text
         assert "ref:" in text
+
+
+class TestStashRefRoundTrip:
+    """Tests proving that a ref left by a strategy resolves via the retrieval tool."""
+
+    @pytest.mark.asyncio
+    async def test_truncated_ref_resolves_via_retrieval_tool(self, mock_agent, stash):
+        original_text = "x" * 50_000
+        strategy = Offload.truncate("tool_results", {"preview_tokens": 100}).when(threshold=200)
+        strategy._stash = stash
+
+        assistant_msg = Message(
+            role="assistant",
+            content=[ContentBlock(toolUse=ToolUse(toolUseId="tu-1", name="bash", input={}))],
+        )
+        user_msg = Message(
+            role="user",
+            content=[
+                ContentBlock(
+                    toolResult=ToolResult(
+                        toolUseId="tu-1",
+                        status="success",
+                        content=[{"text": original_text}],
+                    )
+                )
+            ],
+        )
+        await stash.store_message(user_msg)
+
+        messages: Messages = [
+            Message(role="user", content=[ContentBlock(text="pin")]),
+            assistant_msg,
+            user_msg,
+        ]
+        mock_agent.messages = messages
+        context = ContextState(messages=messages, agent=mock_agent, utilization=0.5, stash=stash)
+        await strategy.apply(context)
+
+        result_text = messages[2]["content"][0]["toolResult"]["content"][0]["text"]
+        ref_match = re.search(r"ref: ([^\s\]]+)", result_text)
+        assert ref_match is not None
+        ref = ref_match.group(1)
+
+        tool = _create_retrieval_tool(stash, max_result_tokens=100_000)
+        retrieval_result = await tool._tool_func({"toolUseId": "t-ret", "input": {"reference": ref}})
+        assert retrieval_result["status"] == "success"
+        parsed = json.loads(retrieval_result["content"][0]["text"])
+        assert parsed["text"] == original_text

@@ -71,7 +71,11 @@ def _create_retrieval_tool(stash: Stash, max_result_tokens: int | None = None) -
         resolved_context_lines = context_lines if context_lines is not None else 5
         line_range_pair: tuple[int, int] | None = None
         if line_range is not None:
-            line_range_pair = (int(line_range["start"]), int(line_range["end"]))
+            try:
+                line_range_pair = (int(line_range["start"]), int(line_range["end"]))
+            except (KeyError, TypeError, ValueError) as error:
+                text = f"Error: invalid line_range: {error}"
+                return ToolResult(toolUseId=tool_use_id, status="error", content=[ToolResultContent(text=text)])
 
         try:
             search_result = _search_content(
