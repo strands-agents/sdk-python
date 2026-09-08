@@ -609,7 +609,8 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
       )
     }
 
-    return formatted
+    // The API rejects an empty message anywhere but the trailing assistant turn.
+    return formatted.filter((msg) => msg.content.length > 0)
   }
 
   private _isCacheableBlock(

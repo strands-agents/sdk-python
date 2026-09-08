@@ -2592,7 +2592,7 @@ def test_format_chunk_citations_delta(model, citation, exp_citation):
 def test_format_chunk_message_stop_pause_turn(model):
     chunk = model.format_chunk({"type": "message_stop", "message": {"stop_reason": "pause_turn"}})
 
-    assert chunk == {"messageStop": {"stopReason": "end_turn"}}
+    assert chunk == {"messageStop": {"stopReason": "pause_turn"}}
 
 
 def test_format_request_with_citations_content(model, model_id, max_tokens):
@@ -2622,16 +2622,25 @@ def mock_final_message():
 
 
 @pytest.mark.asyncio
-async def test_stream_skips_server_tool_blocks(anthropic_client, model, alist, caplog):
+async def test_stream_skips_server_tool_blocks(anthropic_client, model, agenerator, alist, caplog):
     caplog.set_level(logging.WARNING, logger="strands.event_loop.streaming")
     anthropic_client.messages.stream.return_value = generate_mock_stream_context(
         web_search_stream_events(), final_message=mock_final_message()
     )
 
-    stream = model.stream([{"role": "user", "content": [{"text": "hi"}]}])
-    events = await alist(strands.event_loop.streaming.process_stream(stream))
+    chunks = await alist(model.stream([{"role": "user", "content": [{"text": "hi"}]}]))
+    events = await alist(strands.event_loop.streaming.process_stream(agenerator(chunks)))
     stop_reason, message, _, _ = events[-1]["stop"]
 
+    assert [next(iter(chunk)) for chunk in chunks] == [
+        "messageStart",
+        "contentBlockStart",
+        "contentBlockDelta",
+        "contentBlockDelta",
+        "contentBlockStop",
+        "messageStop",
+        "metadata",
+    ]
     assert stop_reason == "end_turn"
     assert message["content"] == [
         {

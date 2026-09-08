@@ -780,8 +780,7 @@ describe('AnthropicModel', () => {
 
         await collectIterator(provider.stream(messages))
 
-        // Should result in empty content if blocked
-        expect(captured.request.messages[0].content).toHaveLength(0)
+        expect(captured.request.messages).toHaveLength(0)
         warnSpy.mockRestore()
       })
     })
@@ -2238,10 +2237,18 @@ describe('AnthropicModel', () => {
         provider.streamAggregated([new Message({ role: 'user', content: [new TextBlock('Hi')] })])
       )
 
-      expect(events.filter((event) => event.type === 'modelContentBlockStartEvent')).toHaveLength(1)
-      expect(events.some((event) => event.type === 'modelContentBlockDeltaEvent' && 'toolUse' in event.delta)).toBe(
-        false
-      )
+      expect(
+        events.map((event) => (event.type === 'modelContentBlockDeltaEvent' ? `delta:${event.delta.type}` : event.type))
+      ).toEqual([
+        'modelMessageStartEvent',
+        'modelContentBlockStartEvent',
+        'delta:textDelta',
+        'delta:citationsDelta',
+        'modelContentBlockStopEvent',
+        'citationsBlock',
+        'modelMetadataEvent',
+        'modelMessageStopEvent',
+      ])
       expect(result.stopReason).toBe('endTurn')
       expect(result.message.content).toEqual([
         new CitationsBlock({
@@ -2255,6 +2262,37 @@ describe('AnthropicModel', () => {
           ],
           content: [{ text: 'Agents are autonomous.' }],
         }),
+      ])
+    })
+
+    it('drops a paused server-tool-only turn from the next request', async () => {
+      async function* pausedStream(): AsyncGenerator<unknown> {
+        yield { type: 'message_start', message: { role: 'assistant', usage: { input_tokens: 10 } } }
+        yield {
+          type: 'content_block_start',
+          index: 0,
+          content_block: { type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search', input: {} },
+        }
+        yield { type: 'content_block_stop', index: 0 }
+        yield { type: 'message_delta', delta: { stop_reason: 'pause_turn' }, usage: { output_tokens: 5 } }
+        yield { type: 'message_stop' }
+      }
+      const userMessage = new Message({ role: 'user', content: [new TextBlock('Hi')] })
+      const { result } = await collectGenerator(
+        new AnthropicModel({ client: createMockClient(pausedStream) }).streamAggregated([userMessage])
+      )
+
+      expect(result.stopReason).toBe('pauseTurn')
+      expect(result.message.content).toEqual([])
+
+      const { captured, mockClient } = setupCapture()
+      await collectIterator(
+        new AnthropicModel({ client: mockClient }).stream([userMessage, result.message, userMessage])
+      )
+
+      expect(captured.request.messages).toEqual([
+        { role: 'user', content: [{ type: 'text', text: 'Hi' }] },
+        { role: 'user', content: [{ type: 'text', text: 'Hi' }] },
       ])
     })
 

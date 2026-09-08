@@ -789,13 +789,8 @@ class AnthropicModel(Model):
 
             case "message_stop":
                 message = event["message"]
-                stop_reason = message["stop_reason"]
 
-                if stop_reason == "pause_turn":
-                    logger.warning("stop_reason=<pause_turn> | server-side tool turn paused, reporting as end_turn")
-                    stop_reason = "end_turn"
-
-                return {"messageStop": {"stopReason": stop_reason}}
+                return {"messageStop": {"stopReason": message["stop_reason"]}}
 
             case "metadata":
                 usage = event["usage"]

@@ -246,6 +246,12 @@ Anthropic's built-in server-side tools (web search, web fetch, code execution) c
 
 Web search results are surfaced as citations on the response text. For available built-in tools and their versioned `type` strings, see the [Anthropic tool use documentation](https://platform.claude.com/docs/en/docs/agents-and-tools/tool-use/overview).
 
+Limitations:
+
+- The raw server-tool blocks (search results, fetched pages, code output) are not kept in the conversation history, so on a later turn the model cannot refer back to them and will call the tool again if it needs them.
+- If Anthropic pauses a long-running server-tool turn, the agent stops with a <Syntax py="pause_turn" ts="pauseTurn" /> stop reason and the response may be partial or empty.
+- Server-tool calls are billed separately by Anthropic and are not included in Strands usage metrics.
+
 ### Prompt Caching
 
 [Prompt caching](https://docs.claude.com/en/docs/build-with-claude/prompt-caching) lets
