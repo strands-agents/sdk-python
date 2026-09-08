@@ -16,15 +16,15 @@ export interface SearchStrategy<SearchQuery = string> {
   /**
    * Indexes a single entry for future searches.
    *
-   * Consumers should call this on each write so strategies that maintain
-   * an index (FTS5, vector, etc.) can update incrementally. Strategies
-   * that search on the fly (keyword) may no-op.
+   * Called on each write so strategies that maintain an index (FTS5, vector,
+   * etc.) can update incrementally. Strategies that search on the fly
+   * (keyword) or manage their own indexing (QMD) can omit this.
    *
    * @param storage - The storage backend the entry belongs to
    * @param key - The storage key being written
    * @param data - The raw bytes being stored
    */
-  index(storage: Storage, key: string, data: Uint8Array): Promise<void>
+  index?: (storage: Storage, key: string, data: Uint8Array) => Promise<void>
 
   /**
    * Searches content in `storage` matching `query`.

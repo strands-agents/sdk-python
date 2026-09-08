@@ -162,8 +162,6 @@ export const STOP_WORDS = new Set([
  * ```
  */
 export const KeywordSearchStrategy: SearchStrategy = {
-  async index(): Promise<void> {},
-
   async search(storage: Storage, query: string): Promise<StorageSearchResult[]> {
     const queryTokens = tokenize(query)
     if (queryTokens.size === 0) return []

@@ -87,7 +87,7 @@ export class LocalFileStorage implements Storage {
         throw new StorageError(`Failed to write '${normalized}' to sandbox storage`, { cause: error })
       }
       if (this._searchStrategy) {
-        await this._searchStrategy.index(this, normalized, data)
+        await this._searchStrategy.index?.(this, normalized, data)
       }
       return
     }
@@ -109,7 +109,7 @@ export class LocalFileStorage implements Storage {
     }
 
     if (this._searchStrategy) {
-      await this._searchStrategy.index(this, normalized, data)
+      await this._searchStrategy.index?.(this, normalized, data)
     }
   }
 
