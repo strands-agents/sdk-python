@@ -9,6 +9,7 @@
 import { z } from 'zod'
 import { tool } from '../tools/tool-factory.js'
 import { isSearchableContent, searchContent } from '../vended-plugins/context-offloader/search.js'
+import { AudioBlock, DocumentBlock, ImageBlock, VideoBlock } from '../types/media.js'
 import type { JSONValue } from '../types/json.js'
 import type { Tool } from '../tools/tool.js'
 import { Message, ToolUseBlock } from '../types/messages.js'
@@ -18,8 +19,6 @@ export const RETRIEVAL_TOOL_NAME = 'retrieve_context'
 
 const DEFAULT_MAX_RESULT_TOKENS = 10_000
 const CHARS_PER_TOKEN = 4
-
-const MEDIA_KEYS = ['image', 'document', 'video', 'audio'] as const
 
 const retrievalInputSchema = z.object({
   reference: z.string().describe('The reference key from the offload placeholder.'),
@@ -70,10 +69,8 @@ export function createRetrievalTool(stash: Stash, maxResultTokens?: number): Too
 
       if (!input.pattern && !input.line_range) {
         if (result.data && typeof result.data === 'object' && !Array.isArray(result.data)) {
-          const mediaDesc = describeMedia(result.data as Record<string, unknown>)
-          if (mediaDesc) {
-            return `Reference ${input.reference} is ${mediaDesc} and cannot be returned as text.`
-          }
+          const media = restoreMedia(result.data as Record<string, unknown>)
+          if (media) return media as unknown as JSONValue
         }
         const serialized = JSON.stringify(result.data)
         if (serialized.length <= maxChars) return result.data as JSONValue
@@ -111,22 +108,11 @@ export function trackRetrievalToolUseIds(message: Message, skipSet: Set<string>)
   }
 }
 
-function describeMedia(data: Record<string, unknown>): string | null {
-  for (const key of MEDIA_KEYS) {
-    const media = data[key]
-    if (!media || typeof media !== 'object') continue
-    const record = media as Record<string, unknown>
-    const format = typeof record.format === 'string' ? record.format : 'unknown'
-    const source = record.source as Record<string, unknown> | undefined
-    const bytes = source?.bytes
-    const sizeDesc =
-      typeof bytes === 'string'
-        ? `, ${bytes.length} bytes`
-        : bytes instanceof Uint8Array
-          ? `, ${bytes.length} bytes`
-          : ''
-    return `${key} (${format}${sizeDesc})`
-  }
+function restoreMedia(data: Record<string, unknown>): ImageBlock | DocumentBlock | VideoBlock | AudioBlock | null {
+  if ('image' in data) return ImageBlock.fromJSON(data as Parameters<typeof ImageBlock.fromJSON>[0])
+  if ('document' in data) return DocumentBlock.fromJSON(data as Parameters<typeof DocumentBlock.fromJSON>[0])
+  if ('video' in data) return VideoBlock.fromJSON(data as Parameters<typeof VideoBlock.fromJSON>[0])
+  if ('audio' in data) return AudioBlock.fromJSON(data as Parameters<typeof AudioBlock.fromJSON>[0])
   return null
 }
 

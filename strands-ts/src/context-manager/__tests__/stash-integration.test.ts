@@ -6,7 +6,7 @@ import { createRetrievalTool, RETRIEVAL_TOOL_NAME } from '../retrieval-tool.js'
 import { PluginRegistry } from '../../plugins/registry.js'
 import { InMemoryStorage } from '../../storage/in-memory-storage.js'
 import { Message, TextBlock, ToolResultBlock, ToolUseBlock } from '../../types/messages.js'
-import { ImageBlock } from '../../types/media.js'
+import { DocumentBlock, ImageBlock } from '../../types/media.js'
 import { createMockAgent } from '../../__fixtures__/agent-helpers.js'
 import type { Tool } from '../../tools/tool.js'
 import type { ContextState } from '../types.js'
@@ -298,8 +298,8 @@ describe('Offload strategies with stash', () => {
     })
   })
 
-  describe('media description in retrieval', () => {
-    it('returns error with description for image blocks instead of raw data', async () => {
+  describe('media restoration in retrieval', () => {
+    it('restores image blocks as ImageBlock instances', async () => {
       const stash = new Stash(new InMemoryStorage(), 'test-session', 'test-agent')
       const imageBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
       const messages = [
@@ -320,8 +320,8 @@ describe('Offload strategies with stash', () => {
       const keys = await stash.list()
       const result = await invokeRetrievalTool(retrievalTool, { reference: keys[0]! })
 
-      expect(result).toContain('image (png,')
-      expect(result).toContain('cannot be returned as text')
+      expect(result).toBeInstanceOf(ImageBlock)
+      expect((result as ImageBlock).format).toBe('png')
     })
 
     it('returns text content normally (not treated as media)', async () => {
@@ -336,7 +336,7 @@ describe('Offload strategies with stash', () => {
       expect(result).toEqual({ text: 'hello world' })
     })
 
-    it('returns error with description for document blocks', async () => {
+    it('restores document blocks as DocumentBlock instances', async () => {
       const stash = new Stash(new InMemoryStorage(), 'test-session', 'test-agent')
       const docData = { document: { format: 'pdf', source: { bytes: 'base64encodedcontent' } } }
       await stash.store('tool-doc', 0, new TextEncoder().encode(JSON.stringify(docData)))
@@ -345,8 +345,8 @@ describe('Offload strategies with stash', () => {
       const keys = await stash.list()
       const result = await invokeRetrievalTool(retrievalTool, { reference: keys[0]! })
 
-      expect(result).toContain('document (pdf,')
-      expect(result).toContain('cannot be returned as text')
+      expect(result).toBeInstanceOf(DocumentBlock)
+      expect((result as DocumentBlock).format).toBe('pdf')
     })
   })
 

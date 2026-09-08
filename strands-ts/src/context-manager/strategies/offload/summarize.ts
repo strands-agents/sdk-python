@@ -134,6 +134,14 @@ export class SummarizeStrategy extends BaseOffloadStrategy {
       )
     }
 
+    const summary = await summarizeContent([block], model, this._config)
+    if (summary) {
+      logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | summarized media block`)
+      return new TextBlock(
+        `${SUMMARIZED_PREFIX} ~${tokens.toLocaleString()} tokens]${formatStashRefs(stashRefs)}\n\n${summary}`
+      )
+    }
+
     logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | offloaded media block`)
     return new TextBlock(`[Offloaded: ~${tokens} tokens]${formatStashRefs(stashRefs)}`)
   }

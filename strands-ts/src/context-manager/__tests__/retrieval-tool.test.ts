@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { createRetrievalTool, RETRIEVAL_TOOL_NAME } from '../retrieval-tool.js'
 import { Stash } from '../stash.js'
 import { InMemoryStorage } from '../../storage/in-memory-storage.js'
+import { ImageBlock } from '../../types/media.js'
 
 function invoke(retrievalTool: ReturnType<typeof createRetrievalTool>, input: unknown): Promise<unknown> {
   return (retrievalTool as unknown as { invoke(input: unknown): Promise<unknown> }).invoke(input)
@@ -67,15 +68,15 @@ describe('retrieval tool', () => {
     expect(result).toContain('Error: reference not found')
   })
 
-  it('returns media description error for image content instead of raw data', async () => {
+  it('restores image content as an ImageBlock instead of raw JSON', async () => {
     const stash = new Stash(new InMemoryStorage(), 'test-session', 'test-agent')
     const imageData = { image: { format: 'png', source: { bytes: 'iVBORw0KGgo=' } } }
     const ref = await stash.store('tool-img', 0, encodeJSON(imageData))
     const retrievalTool = createRetrievalTool(stash)
 
     const result = await invoke(retrievalTool, { reference: ref })
-    expect(result).toContain('image (png,')
-    expect(result).toContain('cannot be returned as text')
+    expect(result).toBeInstanceOf(ImageBlock)
+    expect((result as ImageBlock).format).toBe('png')
   })
 
   it('retrieves JSON content as parsed object', async () => {
