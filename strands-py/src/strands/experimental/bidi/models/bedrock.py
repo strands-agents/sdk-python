@@ -27,6 +27,7 @@ import json
 import logging
 import uuid
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from typing import Any, cast
 
 import boto3
@@ -60,6 +61,7 @@ from ..types.events import (
     BidiResponseCompleteEvent,
     BidiResponseStartEvent,
     BidiTextInputEvent,
+    BidiTranscriptCompleteEvent,
     BidiTranscriptStreamEvent,
     BidiUsageEvent,
 )
@@ -84,6 +86,34 @@ _MAX_HISTORY_MESSAGE_BYTES = 50 * 1024  # 50KB per message
 _MAX_HISTORY_TOTAL_BYTES = 200 * 1024  # 200KB total history
 
 _STRANDS_USER_AGENT_EXTRA = "strands-agents"
+
+
+@dataclass
+class _ResponseState:
+    """Track transcript state for one Nova event stream.
+
+    Attributes:
+        role: Role of the current content block.
+        generation_stage: Generation stage of the current text block.
+        transcript: Accumulated user transcript or final assistant transcript.
+    """
+
+    role: str | None = None
+    generation_stage: str | None = None
+    transcript: str = ""
+
+    def append_transcript(self, delta: str) -> str:
+        """Append a transcript block while preserving word boundaries."""
+        if self.transcript and delta and not self.transcript[-1].isspace() and not delta[0].isspace():
+            delta = f" {delta}"
+        self.transcript += delta
+        return delta
+
+    def reset(self) -> None:
+        """Reset the response state."""
+        self.role = None
+        self.generation_stage = None
+        self.transcript = ""
 
 
 class BedrockNovaSonicModel(BidiModel, AudioCapable):
@@ -150,9 +180,6 @@ class BedrockNovaSonicModel(BidiModel, AudioCapable):
         self._connection_id: str | None = None
         self._audio_content_name: str | None = None
         self._current_completion_id: str | None = None
-
-        # Indicates if model is done generating transcript
-        self._generation_stage: str | None = None
 
         # Ensure certain events are sent in sequence when required
         self._send_lock = asyncio.Lock()
@@ -314,6 +341,7 @@ class BedrockNovaSonicModel(BidiModel, AudioCapable):
         yield BidiConnectionStartEvent(connection_id=self._connection_id, model=self.model_id)
 
         _, output = await self._stream.await_output()
+        response_state = _ResponseState()
         while True:
             try:
                 event_data = await output.receive()
@@ -342,15 +370,17 @@ class BedrockNovaSonicModel(BidiModel, AudioCapable):
             nova_event = json.loads(raw_bytes)["event"]
             self._log_event_type(nova_event)
 
-            model_event = self._convert_nova_event(nova_event)
-            if model_event:
+            converted = self._convert_nova_event(
+                nova_event,
+                response_state,
+            )
+            model_events = converted if isinstance(converted, list) else [converted] if converted else []
+            for model_event in model_events:
                 event_type = (
                     model_event.get("type", "unknown") if isinstance(model_event, dict) else type(model_event).__name__
                 )
                 logger.debug("converted_event_type=<%s> | yielding converted event", event_type)
                 yield model_event
-            else:
-                logger.debug("event_not_converted | nova event did not produce output event")
 
     async def send(self, content: BidiInputEvent | ToolResultEvent) -> None:
         """Unified send method for all content types. Sends the given content to Nova Sonic.
@@ -555,7 +585,11 @@ class BedrockNovaSonicModel(BidiModel, AudioCapable):
         await self.start(system_prompt, tools, messages, **restart_kwargs)
         logger.debug("connection_id=<%s> | nova restart complete", self._connection_id)
 
-    def _convert_nova_event(self, nova_event: dict[str, Any]) -> BidiOutputEvent | None:
+    def _convert_nova_event(
+        self,
+        nova_event: dict[str, Any],
+        response_state: _ResponseState,
+    ) -> BidiOutputEvent | list[BidiOutputEvent] | None:
         """Convert Nova Sonic events to TypedEvent format."""
         # Handle completion start - track completionId
         if "completionStart" in nova_event:
@@ -569,6 +603,7 @@ class BedrockNovaSonicModel(BidiModel, AudioCapable):
         # so only clear completion tracking here.
         if "completionEnd" in nova_event:
             self._current_completion_id = None
+            response_state.reset()
             return None
 
         # Handle audio output
@@ -586,18 +621,23 @@ class BedrockNovaSonicModel(BidiModel, AudioCapable):
         elif "textOutput" in nova_event:
             text_output = nova_event["textOutput"]
             text_content = text_output["content"]
+            role = text_output["role"].strip().lower()
             # Check for Nova Sonic interruption pattern
             if '{ "interrupted" : true }' in text_content:
                 logger.debug("nova interruption detected in text output")
+                response_state.reset()
                 return BidiInterruptionEvent(reason="user_speech")
 
-            return BidiTranscriptStreamEvent(
-                delta={"text": text_content},
-                text=text_content,
-                role=text_output["role"],
-                is_final=self._generation_stage == "FINAL",
-                current_transcript=text_content,
-            )
+            if role == "user":
+                return BidiTranscriptStreamEvent(delta=response_state.append_transcript(text_content), role="user")
+
+            # Accumulate FINAL text for the completed assistant transcript.
+            if response_state.generation_stage == "FINAL":
+                response_state.append_transcript(text_content)
+                return None
+
+            # Separately, stream speculative assistant text for low-latency updates.
+            return BidiTranscriptStreamEvent(delta=text_content, role="assistant")
 
         # Handle tool use
         if "toolUse" in nova_event:
@@ -621,6 +661,7 @@ class BedrockNovaSonicModel(BidiModel, AudioCapable):
         # Handle interruption
         if nova_event.get("stopReason") == "INTERRUPTED":
             logger.debug("nova interruption detected via stop reason")
+            response_state.reset()
             return BidiInterruptionEvent(reason="user_speech")
 
         # Handle usage events - convert to multimodal usage format
@@ -638,14 +679,21 @@ class BedrockNovaSonicModel(BidiModel, AudioCapable):
         # Handle content start events (emit response start)
         if "contentStart" in nova_event:
             content_data = nova_event["contentStart"]
+            role = content_data["role"].strip().lower()
             if content_data["type"] == "TEXT":
-                self._generation_stage = json.loads(content_data["additionalModelFields"])["generationStage"]
+                response_state.generation_stage = json.loads(content_data["additionalModelFields"])["generationStage"]
 
-            # Emit response start event using API-provided completionId
-            # completionId should already be tracked from completionStart event
-            return BidiResponseStartEvent(
+            response_start = BidiResponseStartEvent(
                 response_id=self._current_completion_id or str(uuid.uuid4())  # Fallback to UUID if missing
             )
+            previous_role = response_state.role
+            response_state.role = role
+            if previous_role == "user" and role != "user":
+                transcript_complete = BidiTranscriptCompleteEvent(response_state.transcript, "user")
+                response_state.transcript = ""
+                return [transcript_complete, response_start]
+
+            return response_start
 
         if "contentEnd" in nova_event:
             content_end = nova_event["contentEnd"]
@@ -654,13 +702,20 @@ class BedrockNovaSonicModel(BidiModel, AudioCapable):
             # Both that text block and the preceding audio block carry END_TURN, so gate on
             # the FINAL text to emit exactly one per-turn complete, after that text is in
             # history. INTERRUPTED (barge-in) ends the turn regardless of block.
-            is_final_text = content_end.get("type") == "TEXT" and self._generation_stage == "FINAL"
-            self._generation_stage = None
+            is_final_text = content_end.get("type") == "TEXT" and response_state.generation_stage == "FINAL"
+            response_state.generation_stage = None
             if stop_reason == "INTERRUPTED" or (stop_reason == "END_TURN" and is_final_text):
-                return BidiResponseCompleteEvent(
+                response_complete = BidiResponseCompleteEvent(
                     response_id=self._current_completion_id or str(uuid.uuid4()),
                     stop_reason="interrupted" if stop_reason == "INTERRUPTED" else "complete",
                 )
+                if stop_reason != "INTERRUPTED" and response_state.transcript:
+                    transcript_complete = BidiTranscriptCompleteEvent(response_state.transcript, "assistant")
+                    response_state.reset()
+                    return [transcript_complete, response_complete]
+
+                response_state.reset()
+                return response_complete
 
         # Ignore all other events
         return None

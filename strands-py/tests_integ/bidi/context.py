@@ -235,7 +235,11 @@ class BidirectionalTestContext:
         for event in self.get_events():  # Drain queue first
             # Handle new TypedEvent format (bidi_transcript_stream)
             if event.get("type") == "bidi_transcript_stream":
-                text = event.get("text", "")
+                text = event.get("delta", "")
+                if text:
+                    texts.append(text)
+            elif event.get("type") == "bidi_transcript_complete":
+                text = event.get("transcript", "")
                 if text:
                     texts.append(text)
             # Handle legacy textOutput events (Nova Sonic, OpenAI)
