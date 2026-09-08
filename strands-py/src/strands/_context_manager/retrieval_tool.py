@@ -28,18 +28,11 @@ _DEFAULT_MAX_RESULT_TOKENS = 10_000
 _MEDIA_KEYS = frozenset({"image", "document", "video", "audio"})
 
 
-def _describe_media(data: dict[str, Any]) -> str | None:
-    """Return a short human-readable description if data is a media block, else None."""
+def _restore_media(data: dict[str, Any]) -> ToolResultContent | None:
+    """Reconstruct a media ToolResultContent from stash data, or None if not media."""
     for key in _MEDIA_KEYS:
-        media = data.get(key)
-        if media is None:
-            continue
-        fmt = media.get("format", "unknown")
-        source = media.get("source", {})
-        byte_val = source.get("bytes")
-        size = len(byte_val) if isinstance(byte_val, (str, bytes, bytearray)) else None
-        size_desc = f", {size} bytes" if size is not None else ""
-        return f"{key} ({fmt}{size_desc})"
+        if key in data:
+            return ToolResultContent(**{key: data[key]})  # type: ignore[misc]
     return None
 
 
@@ -76,12 +69,9 @@ def _create_retrieval_tool(stash: Stash, max_result_tokens: int | None = None) -
 
         if pattern is None and line_range is None:
             if isinstance(result, dict):
-                media_desc = _describe_media(result)
-                if media_desc is not None:
-                    text = f"Reference {reference} is {media_desc} and cannot be returned as text."
-                    return ToolResult(
-                        toolUseId=tool_use_id, status="error", content=[ToolResultContent(text=text)]
-                    )
+                media = _restore_media(result)
+                if media is not None:
+                    return ToolResult(toolUseId=tool_use_id, status="success", content=[media])
             full_text = json.dumps(result)
             if len(full_text) > max_chars:
                 full_text = full_text[:max_chars] + "\n\n[truncated]"

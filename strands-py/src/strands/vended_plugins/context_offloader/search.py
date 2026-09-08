@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 
 _MAX_PATTERN_LENGTH = 200
+_NESTED_QUANTIFIER = re.compile(r"[+*}]\s*\)\s*[+*?{]")
 
 _TEXT_APPLICATION_TYPES = frozenset(
     {
@@ -122,6 +123,8 @@ def _search_by_pattern(
     safe_input = pattern[:_MAX_PATTERN_LENGTH] if len(pattern) > _MAX_PATTERN_LENGTH else pattern
 
     try:
+        if _NESTED_QUANTIFIER.search(safe_input):
+            raise re.error("nested quantifier")
         regex = re.compile(safe_input)
     except re.error:
         regex = re.compile(re.escape(safe_input))

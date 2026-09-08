@@ -149,7 +149,7 @@ class TestSummarizeStrategyPerBlock:
         mock_agent.messages = messages
         context = ContextState(messages=messages, agent=mock_agent, utilization=0.5)
         assert await strategy.apply(context) is True
-        assert "[Offloaded: ~" in messages[1]["content"][0]["text"]
+        assert "[Summarized:" in messages[1]["content"][0]["text"]
 
 
 class TestSummarizeStrategyMessageLevel:
