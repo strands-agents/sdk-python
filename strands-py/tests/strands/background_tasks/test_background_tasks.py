@@ -89,7 +89,16 @@ def _delivered_result(agent: Agent) -> ToolResult:
 def _unselectable_tool(tool_name: str) -> PythonAgentTool:
     spec: ToolSpec = {
         "name": tool_name,
-        "description": "Schema already declares the selection flag.",
+        "description": "Composite schema cannot take the selection flag.",
+        "inputSchema": {"json": {"anyOf": [{"type": "object"}, {"type": "string"}]}},
+    }
+    return PythonAgentTool(tool_name, spec, lambda tool_use, **kwargs: {"status": "success", "content": []})
+
+
+def _conflicting_tool(tool_name: str) -> PythonAgentTool:
+    spec: ToolSpec = {
+        "name": tool_name,
+        "description": "Schema already declares the reserved selection flag.",
         "inputSchema": {"json": {"type": "object", "properties": {"_background_execution": {"type": "boolean"}}}},
     }
     return PythonAgentTool(tool_name, spec, lambda tool_use, **kwargs: {"status": "success", "content": []})
@@ -146,6 +155,22 @@ def test__init__registers_management_tool_only_when_enabled(background_tasks: An
             {"agentic": ["custom"]},
             "Tool 'custom' cannot use agentic background selection",
         ),
+        (
+            [_conflicting_tool("custom")],
+            {},
+            "Tool 'custom' declares reserved parameter '_background_execution'",
+        ),
+        (
+            [_conflicting_tool("custom")],
+            {"never": ["custom"]},
+            "Tool 'custom' declares reserved parameter '_background_execution'",
+        ),
+        (
+            [tool(name="summarize_context")(lambda: None), _unselectable_tool("custom")],
+            {"always": ["summarize_context"], "agentic": ["custom"]},
+            "^Tool 'summarize_context' cannot run in the background; "
+            "Tool 'custom' cannot use agentic background selection$",
+        ),
     ],
 )
 def test__init__rejects_invalid_policies(tools: list[Any], config: dict[str, Any], message: str) -> None:
@@ -166,6 +191,15 @@ async def test_rejects_exact_agentic_policy_on_tool_registered_after_init(policy
     agent.tool_registry.register_tool(late_tool)
 
     with pytest.raises(TypeError, match=f"Tool '{policy}' cannot use agentic background selection"):
+        await agent.invoke_async("Run.")
+
+
+@pytest.mark.asyncio
+async def test_rejects_reserved_parameter_on_tool_registered_after_init() -> None:
+    agent = Agent(model=MockedModelProvider([]), background_tasks=True, callback_handler=None)
+    agent.tool_registry.register_tool(_conflicting_tool("custom"))
+
+    with pytest.raises(TypeError, match="Tool 'custom' declares reserved parameter '_background_execution'"):
         await agent.invoke_async("Run.")
 
 

@@ -83,16 +83,23 @@ class _BackgroundTasks(Plugin):
         """Validate exact policies, then attach the task manager, middleware, and lifecycle hooks.
 
         Raises:
-            TypeError: If an explicitly configured tool cannot honor its execution mode.
+            TypeError: If a tool declares the reserved ``_background_execution`` parameter or an explicitly
+                configured tool cannot honor its execution mode. Every violation is reported in the one message.
         """
         self._agent = agent
+        errors: list[str] = []
         for tool_instance in agent.tool_registry.registry.values():
+            if _declares_background_property(tool_instance.tool_spec):
+                errors.append(f"Tool '{tool_instance.tool_name}' declares reserved parameter '{_BACKGROUND_PROPERTY}'")
+                continue
             policy = self._policy_for(tool_instance)
             if policy is None or not policy.exact or policy.mode == "never":
                 continue
             rejection = self._rejection_reason(tool_instance, policy.mode)
             if rejection is not None:
-                raise TypeError(f"Tool '{tool_instance.tool_name}' {rejection}")
+                errors.append(f"Tool '{tool_instance.tool_name}' {rejection}")
+        if errors:
+            raise TypeError("; ".join(errors))
 
         async def execute_tool(
             selected_tool: AgentTool,
@@ -261,17 +268,14 @@ class _BackgroundTasks(Plugin):
     async def _transform_tool_specs(self, context: InvokeModelContext) -> InvokeModelContext:
         transformed: list[ToolSpec] = []
         for spec in context.tool_specs:
+            if _declares_background_property(spec):
+                raise TypeError(f"Tool '{spec['name']}' declares reserved parameter '{_BACKGROUND_PROPERTY}'")
             tool_instance = _lookup_tool(context.agent, spec["name"])
             policy = self._policy_for(tool_instance)
             if policy is None or policy.mode != "agentic":
                 transformed.append(spec)
                 continue
-            if not self._supports_background_execution(tool_instance):
-                if policy.exact:
-                    raise TypeError(f"Tool '{spec['name']}' cannot use agentic background selection")
-                transformed.append(spec)
-                continue
-            selectable = _add_background_selection(spec)
+            selectable = _add_background_selection(spec) if self._supports_background_execution(tool_instance) else None
             if selectable is None and policy.exact:
                 raise TypeError(f"Tool '{spec['name']}' cannot use agentic background selection")
             transformed.append(selectable or spec)
@@ -478,6 +482,15 @@ def _resolve_policy(config: BackgroundTasksConfig) -> dict[str, _BackgroundMode]
     return policy
 
 
+def _declares_background_property(tool_spec: ToolSpec) -> bool:
+    """Whether the tool's own schema uses the reserved ``_background_execution`` name."""
+    schema = tool_spec.get("inputSchema", {}).get("json", {})
+    properties = schema.get("properties")
+    return (isinstance(properties, dict) and _BACKGROUND_PROPERTY in properties) or (
+        _BACKGROUND_PROPERTY in schema.get("required", [])
+    )
+
+
 def _add_background_selection(tool_spec: ToolSpec) -> ToolSpec | None:
     """Return a copy of the spec with the ``_background_execution`` flag, or None if the schema cannot take it."""
     schema = tool_spec.get("inputSchema", {}).get("json", {})
@@ -486,8 +499,6 @@ def _add_background_selection(tool_spec: ToolSpec) -> ToolSpec | None:
         _COMPOSITE_SCHEMA_KEYS.intersection(schema)
         or schema.get("type") not in (None, "object")
         or (properties is not None and not isinstance(properties, dict))
-        or (isinstance(properties, dict) and _BACKGROUND_PROPERTY in properties)
-        or _BACKGROUND_PROPERTY in schema.get("required", [])
     ):
         return None
     selectable = copy.deepcopy(tool_spec)
