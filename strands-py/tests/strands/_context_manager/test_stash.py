@@ -3,7 +3,6 @@
 import json
 
 import pytest
-
 from strands._context_manager.stash import Stash, _format_stash_refs
 from strands.storage.in_memory_storage import InMemoryStorage
 from strands.types.content import ContentBlock, Message

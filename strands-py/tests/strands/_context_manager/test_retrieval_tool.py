@@ -3,7 +3,6 @@
 import json
 
 import pytest
-
 from strands._context_manager.retrieval_tool import RETRIEVAL_TOOL_NAME, _create_retrieval_tool, _extract_text
 from strands._context_manager.stash import Stash
 from strands.storage.in_memory_storage import InMemoryStorage

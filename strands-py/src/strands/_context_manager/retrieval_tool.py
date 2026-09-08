@@ -57,7 +57,10 @@ def _create_retrieval_tool(stash: Stash, max_result_tokens: int | None = None) -
             return ToolResult(toolUseId=tool_use_id, status="error", content=[ToolResultContent(text=text)])
 
         if pattern is None and line_range is None:
-            content: list[ToolResultContent] = [ToolResultContent(text=json.dumps(result))]
+            full_text = json.dumps(result)
+            if len(full_text) > max_chars:
+                full_text = full_text[:max_chars] + "\n\n[truncated]"
+            content: list[ToolResultContent] = [ToolResultContent(text=full_text)]
             return ToolResult(toolUseId=tool_use_id, status="success", content=content)
 
         text_content = _extract_text(result)

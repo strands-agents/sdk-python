@@ -211,10 +211,13 @@ def _repair_alternation(messages: Messages) -> None:
         current = messages[read_index]
         if write_index > 0 and messages[write_index - 1]["role"] == current["role"]:
             prev = messages[write_index - 1]
-            messages[write_index - 1] = Message(
+            merged = Message(
                 role=prev["role"],
                 content=[*prev["content"], *current["content"]],
             )
+            if "tracking_id" in prev:
+                merged["tracking_id"] = prev["tracking_id"]
+            messages[write_index - 1] = merged
         else:
             messages[write_index] = current
             write_index += 1

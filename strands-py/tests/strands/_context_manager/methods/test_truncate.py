@@ -1,7 +1,6 @@
 """Tests for the truncate method module."""
 
 import pytest
-
 from strands._context_manager.methods.truncate import (
     CHARS_PER_TOKEN,
     DEFAULT_PREVIEW_TOKENS,

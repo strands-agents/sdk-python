@@ -80,14 +80,7 @@ class Stash:
                 tool_result = block["toolResult"]
                 if skip_tool_use_ids and tool_result["toolUseId"] in skip_tool_use_ids:
                     continue
-                try:
-                    await self._store_tool_result(block)
-                except Exception:
-                    logger.warning(
-                        "tool_use_id=<%s> | failed to stash tool result",
-                        tool_result["toolUseId"],
-                        exc_info=True,
-                    )
+                await self._store_tool_result(block)
             elif "toolUse" in block or "reasoningContent" in block or "cachePoint" in block:
                 continue
             else:
@@ -121,4 +114,12 @@ class Stash:
         """Store each sub-block of a tool result individually."""
         tool_result = block["toolResult"]
         for block_index, item in enumerate(tool_result["content"]):
-            await self.store(tool_result["toolUseId"], block_index, _encode(item))
+            try:
+                await self.store(tool_result["toolUseId"], block_index, _encode(item))
+            except Exception:
+                logger.warning(
+                    "tool_use_id=<%s>, block_index=<%s> | failed to stash sub-block",
+                    tool_result["toolUseId"],
+                    block_index,
+                    exc_info=True,
+                )
