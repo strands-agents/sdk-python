@@ -293,19 +293,7 @@ class _BackgroundTasks(Plugin):
         interrupt_state = self._agent._interrupt_state
         responses = interrupt_state.context.get("responses")
         if responses:
-            input_tasks = [task for task in await self._manager.list() if task["status"] == "input_required"]
-            task_interrupt_ids = {interrupt["id"] for task in input_tasks for interrupt in task.get("interrupts", [])}
-            for task in input_tasks:
-                interrupt_ids = {interrupt["id"] for interrupt in task.get("interrupts", [])}
-                task_responses = [
-                    content["interruptResponse"]
-                    for content in responses
-                    if content["interruptResponse"]["interruptId"] in interrupt_ids
-                ]
-                if task_responses:
-                    await self._manager.resume(task["task_id"], task_responses)
-            if all(interrupt_id in task_interrupt_ids for interrupt_id in interrupt_state.interrupts):
-                interrupt_state.deactivate()
+            await self._resume_interrupted_tasks(responses)
 
         tasks = self._task_snapshots()
         pending_interrupts = [
@@ -324,6 +312,23 @@ class _BackgroundTasks(Plugin):
                 )
             raise InterruptException(interrupt_state.interrupts[pending_interrupts[0]["id"]])
         self._deliver_ready(event, tasks)
+
+    async def _resume_interrupted_tasks(self, responses: list[dict[str, Any]]) -> None:
+        """Route interrupt responses to the tasks that raised them and clear the agent interrupt if none remain."""
+        interrupt_state = self._agent._interrupt_state
+        input_tasks = [task for task in await self._manager.list() if task["status"] == "input_required"]
+        task_interrupt_ids = {interrupt["id"] for task in input_tasks for interrupt in task.get("interrupts", [])}
+        for task in input_tasks:
+            interrupt_ids = {interrupt["id"] for interrupt in task.get("interrupts", [])}
+            task_responses = [
+                content["interruptResponse"]
+                for content in responses
+                if content["interruptResponse"]["interruptId"] in interrupt_ids
+            ]
+            if task_responses:
+                await self._manager.resume(task["task_id"], task_responses)
+        if all(interrupt_id in task_interrupt_ids for interrupt_id in interrupt_state.interrupts):
+            interrupt_state.deactivate()
 
     async def _after_invocation(self, event: AfterInvocationEvent) -> None:
         if self._agent._interrupt_state.activated:
