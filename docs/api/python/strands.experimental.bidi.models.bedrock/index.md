@@ -15,10 +15,10 @@ Note, BedrockNovaSonicModel is only supported for Python 3.12+
 ## BedrockNovaSonicModel
 
 ```python
-class BedrockNovaSonicModel(BidiModel)
+class BedrockNovaSonicModel(BidiModel, AudioCapable)
 ```
 
-Defined in: [src/strands/experimental/bidi/models/bedrock.py:109](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/bedrock.py#L109)
+Defined in: [src/strands/experimental/bidi/models/bedrock.py:89](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/bedrock.py#L89)
 
 Amazon Bedrock Nova Sonic implementation for bidirectional streaming.
 
@@ -33,33 +33,38 @@ Note, BedrockNovaSonicModel is only supported for Python 3.12+.
 #### \_\_init\_\_
 
 ```python
-def __init__(model_id: str = NOVA_SONIC_V2_MODEL_ID,
-             provider_config: dict[str, Any] | None = None,
-             client_config: dict[str, Any] | None = None,
-             **kwargs: Any) -> None
+def __init__(*,
+             boto_session: Session | None = None,
+             region: str | None = None,
+             audio: AudioConfig | None = None,
+             **model_config: Unpack[BidiModelConfig]) -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/models/bedrock.py:124](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/bedrock.py#L124)
+Defined in: [src/strands/experimental/bidi/models/bedrock.py:104](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/bedrock.py#L104)
 
 Initialize Nova Sonic bidirectional model.
 
 **Arguments**:
 
--   `model_id` - Model identifier (default: amazon.nova-2-sonic-v1:0)
--   `provider_config` - Model behavior configuration including:
-    -   audio: Audio input/output settings (sample rate, voice, etc.)
-    -   inference: Model inference settings (max\_tokens, temperature, top\_p)
-    -   turn\_detection: Turn detection configuration (v2 only feature)
-    -   endpointingSensitivity: “HIGH” | “MEDIUM” | “LOW” (optional)
-    -   connection: Reconnect overrides merged over the provider defaults (e.g. restart\_after\_s, auto\_reconnect); see BidiConnectionConfig.
--   `client_config` - AWS authentication (boto\_session OR region, not both)
--   `**kwargs` - Reserved for future parameters.
+-   `boto_session` - Boto3 session used to resolve credentials and region.
+-   `region` - AWS region. Cannot be combined with `boto_session`.
+-   `audio` - Audio configuration.
+-   `**model_config` - Model configuration.
 
 **Raises**:
 
--   `ValueError` - If turn\_detection is used with v1 model.
--   `ValueError` - If endpointingSensitivity is not HIGH, MEDIUM, or LOW.
--   `ValueError` - If the resolved AWS region is not a valid region identifier.
+-   `ValueError` - If both `boto_session` and `region` are provided or the resolved region is invalid.
+
+#### audio\_config
+
+```python
+@property
+def audio_config() -> AudioConfig
+```
+
+Defined in: [src/strands/experimental/bidi/models/bedrock.py:163](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/bedrock.py#L163)
+
+Get the resolved audio configuration.
 
 #### start
 
@@ -70,7 +75,7 @@ async def start(system_prompt: str | None = None,
                 **kwargs: Any) -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/models/bedrock.py:244](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/bedrock.py#L244)
+Defined in: [src/strands/experimental/bidi/models/bedrock.py:167](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/bedrock.py#L167)
 
 Establish bidirectional connection to Nova Sonic.
 
@@ -91,7 +96,7 @@ Establish bidirectional connection to Nova Sonic.
 async def receive() -> AsyncGenerator[BidiOutputEvent, None]
 ```
 
-Defined in: [src/strands/experimental/bidi/models/bedrock.py:381](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/bedrock.py#L381)
+Defined in: [src/strands/experimental/bidi/models/bedrock.py:304](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/bedrock.py#L304)
 
 Receive Nova Sonic events and convert to provider-agnostic format.
 
@@ -105,7 +110,7 @@ Receive Nova Sonic events and convert to provider-agnostic format.
 async def send(content: BidiInputEvent | ToolResultEvent) -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/models/bedrock.py:432](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/bedrock.py#L432)
+Defined in: [src/strands/experimental/bidi/models/bedrock.py:355](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/bedrock.py#L355)
 
 Unified send method for all content types. Sends the given content to Nova Sonic.
 
@@ -125,7 +130,7 @@ Dispatches to appropriate internal handler based on content type.
 async def stop() -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/models/bedrock.py:578](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/bedrock.py#L578)
+Defined in: [src/strands/experimental/bidi/models/bedrock.py:501](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/bedrock.py#L501)
 
 Close Nova Sonic connection with proper cleanup sequence.
 
@@ -138,7 +143,7 @@ async def restart(system_prompt: str | None = None,
                   **restart_kwargs: Any) -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/models/bedrock.py:615](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/bedrock.py#L615)
+Defined in: [src/strands/experimental/bidi/models/bedrock.py:538](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/bedrock.py#L538)
 
 Restart by closing the connection and starting a new one, replaying messages.
 

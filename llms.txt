@@ -604,6 +604,7 @@
 - [McpClientOptions](https://strandsagents.com/docs/api/typescript/McpClientOptions/index.md)
 - [McpConnectionState](https://strandsagents.com/docs/api/typescript/McpConnectionState/index.md)
 - [McpListToolsOptions](https://strandsagents.com/docs/api/typescript/McpListToolsOptions/index.md)
+- [McpLoadServersOptions](https://strandsagents.com/docs/api/typescript/McpLoadServersOptions/index.md)
 - [McpServerConfig](https://strandsagents.com/docs/api/typescript/McpServerConfig/index.md)
 - [McpToolFilterCallback](https://strandsagents.com/docs/api/typescript/McpToolFilterCallback/index.md)
 - [McpToolFilters](https://strandsagents.com/docs/api/typescript/McpToolFilters/index.md)

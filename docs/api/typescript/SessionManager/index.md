@@ -1,4 +1,4 @@
-Defined in: [src/session/session-manager.ts:103](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/session/session-manager.ts#L103)
+Defined in: [src/session/session-manager.ts:124](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/session/session-manager.ts#L124)
 
 Manages session persistence for agents, enabling conversation state to be saved and restored across invocations using pluggable storage backends.
 
@@ -29,7 +29,7 @@ const agent = new Agent({ sessionManager: session })
 new SessionManager(config): SessionManager;
 ```
 
-Defined in: [src/session/session-manager.ts:126](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/session/session-manager.ts#L126)
+Defined in: [src/session/session-manager.ts:148](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/session/session-manager.ts#L148)
 
 #### Parameters
 
@@ -51,7 +51,7 @@ Defined in: [src/session/session-manager.ts:126](https://github.com/strands-agen
 get name(): string;
 ```
 
-Defined in: [src/session/session-manager.ts:115](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/session/session-manager.ts#L115)
+Defined in: [src/session/session-manager.ts:137](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/session/session-manager.ts#L137)
 
 Unique identifier for this plugin.
 
@@ -77,7 +77,7 @@ For strands-vended plugins, names should be prefixed with `strands:`.
 get sessionId(): string;
 ```
 
-Defined in: [src/session/session-manager.ts:122](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/session/session-manager.ts#L122)
+Defined in: [src/session/session-manager.ts:144](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/session/session-manager.ts#L144)
 
 The session identifier for this session manager.
 
@@ -93,7 +93,7 @@ The session identifier for this session manager.
 initAgent(agent): void;
 ```
 
-Defined in: [src/session/session-manager.ts:153](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/session/session-manager.ts#L153)
+Defined in: [src/session/session-manager.ts:175](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/session/session-manager.ts#L175)
 
 Initializes the plugin by registering lifecycle hook callbacks.
 
@@ -121,7 +121,7 @@ Initializes the plugin by registering lifecycle hook callbacks.
 saveSnapshot(params): Promise<void>;
 ```
 
-Defined in: [src/session/session-manager.ts:189](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/session/session-manager.ts#L189)
+Defined in: [src/session/session-manager.ts:212](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/session/session-manager.ts#L212)
 
 Saves a snapshot of the target’s current state.
 
@@ -143,7 +143,7 @@ Saves a snapshot of the target’s current state.
 saveSnapshot(params): Promise<void>;
 ```
 
-Defined in: [src/session/session-manager.ts:190](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/session/session-manager.ts#L190)
+Defined in: [src/session/session-manager.ts:213](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/session/session-manager.ts#L213)
 
 Saves a snapshot of the target’s current state.
 
@@ -168,9 +168,9 @@ Saves a snapshot of the target’s current state.
 deleteSession(): Promise<void>;
 ```
 
-Defined in: [src/session/session-manager.ts:208](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/session/session-manager.ts#L208)
+Defined in: [src/session/session-manager.ts:234](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/session/session-manager.ts#L234)
 
-Deletes all snapshots and manifests for this session from storage.
+Deletes all snapshots, manifests, and stash data for this session from storage.
 
 #### Returns
 
@@ -184,7 +184,7 @@ Deletes all snapshots and manifests for this session from storage.
 listSnapshotIds(params): Promise<string[]>;
 ```
 
-Defined in: [src/session/session-manager.ts:213](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/session/session-manager.ts#L213)
+Defined in: [src/session/session-manager.ts:240](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/session/session-manager.ts#L240)
 
 Lists all available immutable snapshot IDs for the given agent target.
 
@@ -211,7 +211,7 @@ Lists all available immutable snapshot IDs for the given agent target.
 restoreSnapshot(params): Promise<boolean>;
 ```
 
-Defined in: [src/session/session-manager.ts:222](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/session/session-manager.ts#L222)
+Defined in: [src/session/session-manager.ts:249](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/session/session-manager.ts#L249)
 
 Loads a snapshot from storage and restores it into the target. Returns false if no snapshot exists.
 
@@ -233,7 +233,7 @@ Loads a snapshot from storage and restores it into the target. Returns false if 
 restoreSnapshot(params): Promise<boolean>;
 ```
 
-Defined in: [src/session/session-manager.ts:223](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/session/session-manager.ts#L223)
+Defined in: [src/session/session-manager.ts:250](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/session/session-manager.ts#L250)
 
 Loads a snapshot from storage and restores it into the target. Returns false if no snapshot exists.
 
@@ -258,7 +258,7 @@ Loads a snapshot from storage and restores it into the target. Returns false if 
 initMultiAgent(orchestrator): void;
 ```
 
-Defined in: [src/session/session-manager.ts:322](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/session/session-manager.ts#L322)
+Defined in: [src/session/session-manager.ts:398](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/session/session-manager.ts#L398)
 
 Initializes the multi-agent plugin by registering orchestrator lifecycle hooks.
 

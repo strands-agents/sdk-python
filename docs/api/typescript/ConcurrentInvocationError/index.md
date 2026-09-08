@@ -1,4 +1,4 @@
-Defined in: [src/errors.ts:103](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/errors.ts#L103)
+Defined in: [src/errors.ts:103](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/errors.ts#L103)
 
 Error thrown when attempting to invoke an agent that is already processing an invocation.
 
@@ -16,7 +16,7 @@ This error indicates that invoke() or stream() was called while the agent is alr
 new ConcurrentInvocationError(message): ConcurrentInvocationError;
 ```
 
-Defined in: [src/errors.ts:109](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/errors.ts#L109)
+Defined in: [src/errors.ts:109](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/errors.ts#L109)
 
 Creates a new ConcurrentInvocationError.
 

@@ -1,4 +1,4 @@
-Defined in: [src/types/media.ts:391](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/types/media.ts#L391)
+Defined in: [src/types/media.ts:391](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L391)
 
 Video content block.
 
@@ -15,7 +15,7 @@ Video content block.
 new VideoBlock(data): VideoBlock;
 ```
 
-Defined in: [src/types/media.ts:407](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/types/media.ts#L407)
+Defined in: [src/types/media.ts:407](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L407)
 
 #### Parameters
 
@@ -35,7 +35,7 @@ Defined in: [src/types/media.ts:407](https://github.com/strands-agents/harness-s
 readonly type: "videoBlock";
 ```
 
-Defined in: [src/types/media.ts:395](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/types/media.ts#L395)
+Defined in: [src/types/media.ts:395](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L395)
 
 Discriminator for video content.
 
@@ -47,7 +47,7 @@ Discriminator for video content.
 readonly format: VideoFormat;
 ```
 
-Defined in: [src/types/media.ts:400](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/types/media.ts#L400)
+Defined in: [src/types/media.ts:400](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L400)
 
 Video format.
 
@@ -63,7 +63,7 @@ Video format.
 readonly source: VideoSource;
 ```
 
-Defined in: [src/types/media.ts:405](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/types/media.ts#L405)
+Defined in: [src/types/media.ts:405](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L405)
 
 Video source.
 
@@ -93,7 +93,7 @@ toJSON(): {
 };
 ```
 
-Defined in: [src/types/media.ts:430](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/types/media.ts#L430)
+Defined in: [src/types/media.ts:430](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L430)
 
 Serializes the VideoBlock to a JSON-compatible ContentBlockData object. Called automatically by JSON.stringify(). Uint8Array bytes are encoded as base64 string.
 
@@ -119,9 +119,9 @@ Serializes the VideoBlock to a JSON-compatible ContentBlockData object. Called a
 
 | Name | Type | Description | Defined in |
 | --- | --- | --- | --- |
-| `video` | { `format`: [`VideoFormat`](/docs/api/typescript/VideoFormat/index.md); `source`: | { `bytes`: `string`; } | { `location`: { `type`: `"s3"`; `uri`: `string`; `bucketOwner?`: `string`; }; }; } | \- | [src/types/media.ts:430](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/types/media.ts#L430) |
-| `video.format` | [`VideoFormat`](/docs/api/typescript/VideoFormat/index.md) | Video format. | [src/types/media.ts:380](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/types/media.ts#L380) |
-| `video.source` | | { `bytes`: `string`; } | { `location`: { `type`: `"s3"`; `uri`: `string`; `bucketOwner?`: `string`; }; } | Video source. | [src/types/media.ts:385](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/types/media.ts#L385) |
+| `video` | { `format`: [`VideoFormat`](/docs/api/typescript/VideoFormat/index.md); `source`: | { `bytes`: `string`; } | { `location`: { `type`: `"s3"`; `uri`: `string`; `bucketOwner?`: `string`; }; }; } | \- | [src/types/media.ts:430](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L430) |
+| `video.format` | [`VideoFormat`](/docs/api/typescript/VideoFormat/index.md) | Video format. | [src/types/media.ts:380](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L380) |
+| `video.source` | | { `bytes`: `string`; } | { `location`: { `type`: `"s3"`; `uri`: `string`; `bucketOwner?`: `string`; }; } | Video source. | [src/types/media.ts:385](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L385) |
 
 #### Implementation of
 
@@ -137,7 +137,7 @@ JSONSerializable.toJSON
 static fromJSON(data): VideoBlock;
 ```
 
-Defined in: [src/types/media.ts:452](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/types/media.ts#L452)
+Defined in: [src/types/media.ts:452](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L452)
 
 Creates a VideoBlock instance from its wrapped data format. Base64-encoded bytes are decoded back to Uint8Array.
 

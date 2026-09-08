@@ -153,6 +153,7 @@
     -   [McpClientCredentials](/docs/api/typescript/McpClientCredentials/index.md)
     -   [McpClientOptions](/docs/api/typescript/McpClientOptions/index.md)
     -   [McpListToolsOptions](/docs/api/typescript/McpListToolsOptions/index.md)
+    -   [McpLoadServersOptions](/docs/api/typescript/McpLoadServersOptions/index.md)
     -   [McpServerConfig](/docs/api/typescript/McpServerConfig/index.md)
     -   [McpToolFilters](/docs/api/typescript/McpToolFilters/index.md)
     -   [MemoryAddOptions](/docs/api/typescript/MemoryAddOptions/index.md)

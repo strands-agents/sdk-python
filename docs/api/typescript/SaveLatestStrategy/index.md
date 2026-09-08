@@ -2,7 +2,7 @@
 type SaveLatestStrategy = "message" | "invocation" | "trigger";
 ```
 
-Defined in: [src/session/session-manager.ts:47](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/session/session-manager.ts#L47)
+Defined in: [src/session/session-manager.ts:50](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/session/session-manager.ts#L50)
 
 Controls when `snapshot_latest` is saved automatically for agents.
 

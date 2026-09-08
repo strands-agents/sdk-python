@@ -9,6 +9,22 @@ Features:
 -   Provider-agnostic event normalization
 -   Support for audio, text, image, and tool result streaming
 
+## BidiModelConfig
+
+```python
+class BidiModelConfig(TypedDict)
+```
+
+Defined in: [src/strands/experimental/bidi/models/model.py:31](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L31)
+
+Configuration shared by bidirectional model providers.
+
+**Attributes**:
+
+-   `model_id` - Provider model identifier.
+-   `params` - Provider-specific keyword arguments passed to the model request or session.
+-   `connection` - Reconnect timing overrides.
+
 ## Restartable
 
 ```python
@@ -16,7 +32,7 @@ Features:
 class Restartable(Protocol)
 ```
 
-Defined in: [src/strands/experimental/bidi/models/model.py:35](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L35)
+Defined in: [src/strands/experimental/bidi/models/model.py:46](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L46)
 
 A bidirectional model that can replace its active connection while preserving context.
 
@@ -29,7 +45,7 @@ async def restart(system_prompt: str | None = None,
                   **restart_kwargs: Any) -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/models/model.py:38](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L38)
+Defined in: [src/strands/experimental/bidi/models/model.py:49](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L49)
 
 Replace the active connection while preserving conversation context.
 
@@ -46,7 +62,7 @@ Replace the active connection while preserving conversation context.
 class BidiModel(Model, abc.ABC)
 ```
 
-Defined in: [src/strands/experimental/bidi/models/model.py:56](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L56)
+Defined in: [src/strands/experimental/bidi/models/model.py:67](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L67)
 
 Abstract base class for bidirectional streaming models.
 
@@ -55,6 +71,7 @@ This interface defines the contract for models that support persistent streaming
 **Attributes**:
 
 -   `config` - Configuration dictionary with provider-specific settings.
+-   `model_id` - Provider model identifier.
 -   `connection_config` - Declared connection limit and reconnect timing. Providers that support proactive reconnect populate this; an empty config means reactive-only behavior.
 -   `usage_is_cumulative` - Whether the provider reports cumulative connection token totals (True) rather than per-response deltas (False, the default when absent). Providers reporting deltas may omit it.
 
@@ -64,7 +81,7 @@ This interface defines the contract for models that support persistent streaming
 def update_config(**model_config: Any) -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/models/model.py:77](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L77)
+Defined in: [src/strands/experimental/bidi/models/model.py:90](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L90)
 
 Update the model configuration with the provided arguments.
 
@@ -78,7 +95,7 @@ Update the model configuration with the provided arguments.
 def get_config() -> dict[str, Any]
 ```
 
-Defined in: [src/strands/experimental/bidi/models/model.py:85](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L85)
+Defined in: [src/strands/experimental/bidi/models/model.py:98](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L98)
 
 Return a copy of the model configuration.
 
@@ -88,7 +105,7 @@ Return a copy of the model configuration.
 def structured_output(*args: Any, **kwargs: Any) -> NoReturn
 ```
 
-Defined in: [src/strands/experimental/bidi/models/model.py:89](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L89)
+Defined in: [src/strands/experimental/bidi/models/model.py:102](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L102)
 
 Raise because bidirectional models do not support structured output.
 
@@ -98,7 +115,7 @@ Raise because bidirectional models do not support structured output.
 def stream(*args: Any, **kwargs: Any) -> NoReturn
 ```
 
-Defined in: [src/strands/experimental/bidi/models/model.py:93](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L93)
+Defined in: [src/strands/experimental/bidi/models/model.py:106](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L106)
 
 Raise because bidirectional models use their persistent streaming API.
 
@@ -112,7 +129,7 @@ async def start(system_prompt: str | None = None,
                 **kwargs: Any) -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/models/model.py:99](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L99)
+Defined in: [src/strands/experimental/bidi/models/model.py:112](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L112)
 
 Establish a persistent streaming connection with the model.
 
@@ -132,7 +149,7 @@ Opens a bidirectional connection that remains active for real-time communication
 async def stop() -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/models/model.py:122](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L122)
+Defined in: [src/strands/experimental/bidi/models/model.py:135](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L135)
 
 Close the streaming connection and release resources.
 
@@ -145,7 +162,7 @@ Terminates the active bidirectional connection and cleans up any associated reso
 def receive() -> AsyncIterable[BidiOutputEvent]
 ```
 
-Defined in: [src/strands/experimental/bidi/models/model.py:133](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L133)
+Defined in: [src/strands/experimental/bidi/models/model.py:146](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L146)
 
 Receive streaming events from the model.
 
@@ -164,7 +181,7 @@ The stream continues until the connection is closed or an error occurs.
 async def send(content: BidiInputEvent | ToolResultEvent) -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/models/model.py:150](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L150)
+Defined in: [src/strands/experimental/bidi/models/model.py:163](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L163)
 
 Send content to the model over the active connection.
 
@@ -194,7 +211,7 @@ await model.send(ToolResultEvent(tool_result))
 class BidiModelTimeoutError(Exception)
 ```
 
-Defined in: [src/strands/experimental/bidi/models/model.py:179](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L179)
+Defined in: [src/strands/experimental/bidi/models/model.py:192](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L192)
 
 Model timeout error.
 
@@ -206,7 +223,7 @@ Bidirectional models are often configured with a connection time limit. Bedrock 
 def __init__(message: str, **restart_config: Any) -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/models/model.py:187](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L187)
+Defined in: [src/strands/experimental/bidi/models/model.py:200](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L200)
 
 Initialize error.
 
@@ -214,3 +231,25 @@ Initialize error.
 
 -   `message` - Timeout message from model.
 -   `**restart_config` - Configure restart specific behaviors in the call to model start.
+
+## AudioCapable
+
+```python
+@runtime_checkable
+class AudioCapable(Protocol)
+```
+
+Defined in: [src/strands/experimental/bidi/models/model.py:213](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L213)
+
+Protocol for models that support audio input and output.
+
+#### audio\_config
+
+```python
+@property
+def audio_config() -> AudioConfig
+```
+
+Defined in: [src/strands/experimental/bidi/models/model.py:217](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/model.py#L217)
+
+Get the resolved audio configuration.

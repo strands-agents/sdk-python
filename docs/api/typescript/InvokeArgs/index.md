@@ -10,7 +10,7 @@ type InvokeArgs =
   | CheckpointResumeContent;
 ```
 
-Defined in: [src/types/agent.ts:58](https://github.com/strands-agents/harness-sdk/blob/e5b6b6dd62a46604b7c30b1f508f575018a3c443/strands-ts/src/types/agent.ts#L58)
+Defined in: [src/types/agent.ts:59](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/agent.ts#L59)
 
 **`Experimental`**
 
