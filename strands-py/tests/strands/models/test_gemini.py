@@ -1989,6 +1989,23 @@ async def test_resolve_cached_content_empty_cache_key_opts_out(gemini_client):
     gemini_client.aio.caches.create.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_resolve_cached_content_no_prefix_stays_implicit(gemini_client):
+    """Managed caching engaged with no system prompt or tools has nothing to cache, so it stays implicit."""
+    result = await _gemini_cache.resolve_cached_content(
+        gemini_client.aio.caches,
+        cache_config=CacheConfig(ttl="1h"),
+        model_id="m1",
+        system_prompt=None,
+        tools=None,
+        tool_config=None,
+    )
+
+    assert result is None
+    gemini_client.aio.caches.list.assert_not_awaited()
+    gemini_client.aio.caches.create.assert_not_awaited()
+
+
 def test_tools_fingerprint_falls_back_to_repr_without_to_json_dict():
     """A tool lacking to_json_dict is serialized via repr so the identity fingerprint stays deterministic."""
 
@@ -2313,6 +2330,27 @@ class TestPromptCaching:
         assert create_config.tool_config.function_calling_config.mode == genai.types.FunctionCallingConfigMode.ANY
         request_config = gemini_client.aio.models.generate_content_stream.call_args.kwargs["config"]
         assert "tool_config" not in request_config
+
+    @pytest.mark.asyncio
+    async def test_explicit_none_params_tool_config_bakes_no_tool_config(
+        self, gemini_client, model_id, messages, system_prompt, tool_spec, agenerator, alist
+    ):
+        """An explicit params tool_config of None keeps a tool choice out of the baked resource.
+
+        params owns the key, so its None wins over the per-request choice for the cached prefix just as
+        it does for the inline request; the forced choice is deliberately dropped once caching engages.
+        """
+        gemini_client.aio.caches.list.side_effect = lambda: agenerator([])
+        gemini_client.aio.caches.create.return_value = _cached_content("cachedContents/created", "k")
+        gemini_client.aio.models.generate_content_stream.side_effect = lambda **kwargs: agenerator([_text_response()])
+
+        model = GeminiModel(
+            model_id=model_id, params={"tool_config": None}, cache_config=CacheConfig(cache_key="k", ttl="30m")
+        )
+        await alist(model.stream(messages, [tool_spec], system_prompt, tool_choice={"any": {}}))
+
+        create_config = gemini_client.aio.caches.create.call_args.kwargs["config"]
+        assert create_config.tool_config is None
 
     @pytest.mark.asyncio
     async def test_structured_output_strips_and_injects(
