@@ -509,8 +509,10 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
       description: tool.description,
       input_schema: tool.inputSchema as Anthropic.Tool.InputSchema,
     }))
-    tools.push(...(this._config.anthropicTools ?? []))
-    tools.push(...((this._config.params?.tools as Anthropic.ToolUnion[] | undefined) ?? []))
+    // Copied so the cache_control below never lands on the caller's config.
+    const paramsTools = (this._config.params?.tools as Anthropic.ToolUnion[] | undefined) ?? []
+    tools.push(...(this._config.anthropicTools ?? []).map((tool) => ({ ...tool })))
+    tools.push(...paramsTools.map((tool) => ({ ...tool })))
 
     // A cache_control on the last tool caches all of them, so one cache point suffices.
     const toolsCache = this._cacheSection('toolsTTL')

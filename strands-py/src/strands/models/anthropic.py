@@ -498,8 +498,9 @@ class AnthropicModel(Model):
         ]
 
         params = self.config.get("params") or {}
-        tools.extend(self.config.get("anthropic_tools") or [])
-        tools.extend(params.get("tools") or [])
+        # Copied so the cache_control below never lands on the caller's config.
+        tools.extend(dict(tool) for tool in self.config.get("anthropic_tools") or [])
+        tools.extend(dict(tool) for tool in params.get("tools") or [])
 
         # A cache_control on the final tool caches all of them, so one cache point suffices.
         if tools and (cache_control := self._resolve_tools_cache()):

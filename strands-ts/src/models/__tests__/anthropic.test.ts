@@ -2200,6 +2200,26 @@ describe('AnthropicModel', () => {
       expect(captured.request.tools).toEqual([FUNCTION_TOOL, WEB_SEARCH_TOOL])
     })
 
+    it('caches on the last server tool without mutating the configured tools', async () => {
+      const { captured, mockClient } = setupCapture()
+      const anthropicTools = [{ ...WEB_SEARCH_TOOL }]
+      const provider = new AnthropicModel({ client: mockClient, anthropicTools, cacheConfig: { toolsTTL: true } })
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hi')] })]
+
+      await collectIterator(provider.stream(messages, { toolSpecs: [FUNCTION_TOOL_SPEC] }))
+
+      expect(captured.request.tools).toEqual([
+        FUNCTION_TOOL,
+        { ...WEB_SEARCH_TOOL, cache_control: { type: 'ephemeral' } },
+      ])
+      expect(anthropicTools).toEqual([WEB_SEARCH_TOOL])
+
+      provider.updateConfig({ cacheConfig: { toolsTTL: false } })
+      await collectIterator(provider.stream(messages, { toolSpecs: [FUNCTION_TOOL_SPEC] }))
+
+      expect(captured.request.tools).toEqual([FUNCTION_TOOL, WEB_SEARCH_TOOL])
+    })
+
     it('rejects function tool definitions in anthropicTools', () => {
       const functionTool = { name: 'f', input_schema: { type: 'object' as const } }
 

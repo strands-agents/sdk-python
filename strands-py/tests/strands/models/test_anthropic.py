@@ -2503,6 +2503,32 @@ def test_format_request_with_params_tools(anthropic_client, model_id, max_tokens
     ]
 
 
+def test_format_request_tools_cache_lands_on_server_tool_without_mutating_config(
+    anthropic_client, model_id, max_tokens, messages, tool_spec
+):
+    _ = anthropic_client
+    anthropic_tools = [dict(WEB_SEARCH_TOOL)]
+    model = AnthropicModel(
+        model_id=model_id,
+        max_tokens=max_tokens,
+        anthropic_tools=anthropic_tools,
+        cache_config=CacheConfig(tools_ttl=True),
+    )
+
+    request = model.format_request(messages, [tool_spec])
+
+    assert request["tools"] == [
+        {"name": "name", "description": "description", "input_schema": {"key": "val"}},
+        {**WEB_SEARCH_TOOL, "cache_control": {"type": "ephemeral"}},
+    ]
+    assert anthropic_tools == [WEB_SEARCH_TOOL]
+
+    model.update_config(cache_config=CacheConfig(tools_ttl=False))
+    request = model.format_request(messages, [tool_spec])
+
+    assert request["tools"][-1] == WEB_SEARCH_TOOL
+
+
 def test__init__rejects_function_tools_in_anthropic_tools(anthropic_client, model_id, max_tokens):
     _ = anthropic_client
     with pytest.raises(ValueError, match="anthropic_tools should not contain function tool definitions"):
