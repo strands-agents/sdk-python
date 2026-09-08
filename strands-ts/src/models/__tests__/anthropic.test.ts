@@ -2226,9 +2226,9 @@ describe('AnthropicModel', () => {
       expect(() => new AnthropicModel({ anthropicTools: [functionTool] })).toThrow(
         'anthropicTools should not contain function tool definitions'
       )
-      expect(() => new AnthropicModel({}).updateConfig({ anthropicTools: [functionTool] })).toThrow(
-        'anthropicTools should not contain function tool definitions'
-      )
+      expect(() =>
+        new AnthropicModel({ apiKey: 'sk-ant-test' }).updateConfig({ anthropicTools: [functionTool] })
+      ).toThrow('anthropicTools should not contain function tool definitions')
     })
 
     it('skips server-side tool blocks and aggregates web search citations with their text', async () => {
