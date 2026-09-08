@@ -96,6 +96,8 @@ The `model_config` configures the underlying model selected for inference. The s
 | `model_id` | ID of a model to use | `claude-sonnet-4-6` | [reference](https://platform.claude.com/docs/en/api/messages/create#create.model)
 | `params` | Additional pass-through parameters | `{"metadata": {"user_id": "u1"}}` | [reference](https://platform.claude.com/docs/en/api/messages/create)
 | `anthropic_tools` | Anthropic server-side tools, appended to the agent's function tools | `[{"type": "web_search_20260318", "name": "web_search"}]` | [reference](https://platform.claude.com/docs/en/docs/agents-and-tools/tool-use/overview)
+| `cache_config` | Enables [prompt caching](#prompt-caching) on the system prompt and the conversation | `CacheConfig(ttl="1h")` | [reference](https://docs.claude.com/en/docs/build-with-claude/prompt-caching)
+| `cache_tools` | Caches the tool definitions | `"default"` or `CacheToolsConfig(ttl="1h")` | [reference](https://docs.claude.com/en/docs/build-with-claude/prompt-caching)
 
 Do not pass `tools` through `params`. `params` is merged into the request, so a `tools` key there used to overwrite every function tool definition. Use `anthropic_tools` instead; passing `tools` via `params` now warns and is merged additively.
 </Tab>
@@ -109,6 +111,7 @@ Do not pass `tools` through `params`. `params` is merged into the request, so a 
 | `params` | Additional pass-through parameters | `{ metadata: { user_id: 'u1' } }` | [reference](https://platform.claude.com/docs/en/api/messages/create) |
 | `anthropicTools` | Anthropic server-side tools, appended to the agent's function tools | `[{ type: 'web_search_20260318', name: 'web_search' }]` | [reference](https://platform.claude.com/docs/en/docs/agents-and-tools/tool-use/overview) |
 | `betas` | Beta identifiers sent in the `anthropic-beta` header | `['web-fetch-2025-09-10']` | [reference](https://platform.claude.com/docs/en/api/beta-headers) |
+| `cacheConfig` | Enables [prompt caching](#prompt-caching) on the tool definitions, the system prompt, and the conversation | `{ ttl: '1h' }` | [reference](https://docs.claude.com/en/docs/build-with-claude/prompt-caching) |
 
 Do not pass `tools` through `params`. `params` is merged into the request, so a `tools` key there used to overwrite every function tool definition. Use `anthropicTools` instead; passing `tools` via `params` now warns and is merged additively.
 </Tab>
@@ -263,6 +266,103 @@ them — but a result error is logged as a warning so a failed search is never s
 For the full list of server-side tools and their current versioned type strings, see the
 [Anthropic tool use overview](https://platform.claude.com/docs/en/docs/agents-and-tools/tool-use/overview) and the
 [web search tool reference](https://platform.claude.com/docs/en/docs/agents-and-tools/tool-use/web-search-tool).
+
+### Prompt Caching
+
+[Prompt caching](https://docs.claude.com/en/docs/build-with-claude/prompt-caching) lets
+Claude reuse an already-processed prefix of your prompt instead of reprocessing it on
+every call. The mechanism, the cost model, and the cache metrics match
+[Amazon Bedrock](./amazon-bedrock#caching); this section covers what differs here.
+
+Caching is off by default. Set <Syntax py="cache_config" ts="cacheConfig" /> to cache
+the system prompt and add a cache point to the last user message, which caches
+everything before it:
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.models.anthropic import AnthropicModel
+from strands.models import CacheConfig, CacheToolsConfig
+
+model = AnthropicModel(
+    model_id="claude-sonnet-4-6",
+    max_tokens=1028,
+    cache_config=CacheConfig(ttl="1h"),
+    cache_tools=CacheToolsConfig(ttl="1h"),
+)
+
+agent = Agent(model=model)
+result = agent("Summarize the attached report.")
+print(result.metrics.accumulated_usage)
+
+# Typical output:
+# {'inputTokens': 12, ..., 'cacheReadInputTokens': 2505}
+```
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/model-providers/anthropic_imports.ts:prompt_caching_imports"
+
+--8<-- "user-guide/concepts/model-providers/anthropic.ts:prompt_caching"
+```
+</Tab>
+</Tabs>
+
+Cache activity is reported in the usage metrics, in the same fields Bedrock uses: see
+[cache metrics](./amazon-bedrock#cache-metrics).
+
+#### Choosing what to cache
+
+<Tabs>
+<Tab label="Python">
+
+`cache_config` caches the system prompt and the conversation; set `system_prompt_ttl=False` to
+leave the system prompt uncached, or a TTL string (`system_prompt_ttl="1h"`) to give it its own
+duration. `cache_tools` caches the tool definitions and works on its own, so tool
+definitions can be cached without caching the conversation. Passing a plain string
+(`"default"`) only switches it on: the value is not a TTL. Use `CacheToolsConfig(ttl=...)`
+to set one.
+
+`strategy` is ignored by this provider.
+</Tab>
+<Tab label="TypeScript">
+
+One `cacheConfig` covers the tool definitions, the system prompt, and the conversation,
+with `toolsTTL`, `systemPromptTTL`, and `messagesTTL` controlling them independently (set one
+to `false` to leave that part uncached). The shape and the per-field behavior are the
+same as on [Amazon Bedrock](./amazon-bedrock#tool-caching), so a configuration survives
+a provider switch unchanged.
+
+`strategy` is ignored by this provider.
+</Tab>
+</Tabs>
+
+#### Placing cache points by hand
+
+Placement works as it does on [Amazon Bedrock](./amazon-bedrock#messages-caching): a
+cache point you put in the last user message is kept where you put it, automatic
+placement is suspended for that message, and points in earlier messages are removed.
+Place your point *ahead* of content that is rebuilt on every call, otherwise it lands
+inside the cached prefix and every request writes an entry that none ever reads.
+
+Two constraints are specific to this API:
+
+- **Only some block types accept a cache point.** Text, image, tool use, tool result,
+  and document blocks do; a reasoning block does not. A point with only a reasoning
+  block, or a media block sourced by location, ahead of it cannot be honored, so
+  automatic placement applies instead.
+- **Maximum of four cache points per request**, shared across the tool definitions, the
+  system prompt, and the messages. Automatic placement uses one per part it caches, so
+  hand-placing several of your own alongside it can exceed the limit, and the API rejects
+  the request.
+
+A prompt below the model's minimum cacheable length is not cached: if both cache metrics
+stay at zero, that is the likely cause. See
+[cache limitations](https://docs.claude.com/en/docs/build-with-claude/prompt-caching#cache-limitations)
+for per-model thresholds.
 
 ### Token Counting
 

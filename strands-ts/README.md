@@ -27,7 +27,6 @@
     ◆ <a href="https://github.com/strands-agents/samples">Samples</a>
     ◆ <a href="https://github.com/strands-agents/harness-sdk/tree/main/strands-py">Python SDK</a>
     ◆ <a href="https://github.com/strands-agents/tools">Tools</a>
-    ◆ <a href="https://github.com/strands-agents/agent-builder">Agent Builder</a>
     ◆ <a href="https://github.com/strands-agents/harness-sdk/tree/main/strands-mcp">MCP Server</a>
   </p>
 </div>
@@ -56,7 +55,7 @@ Strands Agents is a simple yet powerful SDK that takes a model-driven approach t
 
 ### Installation
 
-Ensure you have **[Node.js 20+](https://nodejs.org/)** installed, then:
+Ensure you have **[Node.js 22+](https://nodejs.org/)** installed, then:
 
 ```bash
 npm install @strands-agents/sdk

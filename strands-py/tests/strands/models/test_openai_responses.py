@@ -10,6 +10,7 @@ from openai.types.responses import Response, ResponseErrorEvent, ResponseFailedE
 from openai.types.responses.response_error import ResponseError
 
 import strands
+from strands.models import CacheConfig
 from strands.models.openai_responses import _MAX_MEDIA_SIZE_BYTES, OpenAIResponsesModel
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 
@@ -110,7 +111,7 @@ def test_update_config(model, model_id):
 @pytest.mark.parametrize(
     "content, exp_result",
     [
-        # Document
+        # Document content goes in file_data with a filename, never file_url (#3572)
         (
             {
                 "document": {
@@ -121,7 +122,37 @@ def test_update_config(model, model_id):
             },
             {
                 "type": "input_file",
-                "file_url": "data:application/pdf;base64,ZG9jdW1lbnQ=",
+                "filename": "test doc.pdf",
+                "file_data": "data:application/pdf;base64,ZG9jdW1lbnQ=",
+            },
+        ),
+        # A name that already ends with the format keeps a single extension
+        (
+            {
+                "document": {
+                    "format": "pdf",
+                    "name": "test doc.pdf",
+                    "source": {"bytes": b"document"},
+                },
+            },
+            {
+                "type": "input_file",
+                "filename": "test doc.pdf",
+                "file_data": "data:application/pdf;base64,ZG9jdW1lbnQ=",
+            },
+        ),
+        # Document without the optional name falls back to a default filename
+        (
+            {
+                "document": {
+                    "format": "pdf",
+                    "source": {"bytes": b"document"},
+                },
+            },
+            {
+                "type": "input_file",
+                "filename": "document.pdf",
+                "file_data": "data:application/pdf;base64,ZG9jdW1lbnQ=",
             },
         ),
         # Image
@@ -247,10 +278,17 @@ def test_format_request_tool_message_with_image():
 
 
 def test_format_request_tool_message_with_document():
-    """Test that tool results with documents return an array output."""
+    """Test that tool results with documents return an array output.
+
+    Document content must be sent as ``file_data`` + ``filename``, not ``file_url`` —
+    Azure OpenAI treats ``file_url`` as a URL to download and rejects a data URI.
+    A document without the optional ``name`` falls back to a default filename.
+    See: https://github.com/strands-agents/harness-sdk/issues/3572
+    """
     tool_result = {
         "content": [
             {"document": {"format": "pdf", "name": "test.pdf", "source": {"bytes": b"fake_pdf_data"}}},
+            {"document": {"format": "pdf", "source": {"bytes": b"fake_pdf_data"}}},
         ],
         "status": "success",
         "toolUseId": "c3",
@@ -262,9 +300,12 @@ def test_format_request_tool_message_with_document():
     assert tru_result["call_id"] == "c3"
     # When documents are present, output should be an array
     assert isinstance(tru_result["output"], list)
-    assert len(tru_result["output"]) == 1
+    assert len(tru_result["output"]) == 2
     assert tru_result["output"][0]["type"] == "input_file"
-    assert "file_url" in tru_result["output"][0]
+    assert tru_result["output"][0]["filename"] == "test.pdf"
+    assert "file_data" in tru_result["output"][0]
+    assert "file_url" not in tru_result["output"][0]
+    assert tru_result["output"][1]["filename"] == "document.pdf"
 
 
 def test_format_request_messages(system_prompt):
@@ -394,6 +435,16 @@ def test_format_request_messages_assistant_non_text_content_dropped(caplog):
     assert "content_type=<input_image>" in caplog.text
 
 
+def test_format_request_messages_skips_message_cache_point(caplog):
+    messages = [{"role": "user", "content": [{"text": "durable prefix"}, {"cachePoint": {"type": "default"}}]}]
+
+    with caplog.at_level(logging.WARNING, logger="strands.models.openai_responses"):
+        result = OpenAIResponsesModel._format_request_messages(messages)
+
+    assert result == [{"role": "user", "content": [{"type": "input_text", "text": "durable prefix"}]}]
+    assert "cachePoint content block is not supported by OpenAI Responses" in caplog.text
+
+
 def test_format_request_messages_assistant_only_non_text_content_dropped_entirely(caplog):
     """An assistant turn with only non-text content collapses to nothing and is omitted."""
     messages = [
@@ -472,6 +523,49 @@ def test_format_request(model, messages, tool_specs, system_prompt):
         "max_output_tokens": 100,
     }
     assert tru_request == exp_request
+
+
+def test_cache_key_maps_to_prompt_cache_key(openai_client, model_id, messages):
+    _ = openai_client
+    model = OpenAIResponsesModel(model_id=model_id, cache_config=CacheConfig(cache_key="tenant-42"))
+
+    assert model._format_request(messages)["prompt_cache_key"] == "tenant-42"
+
+
+def test_cache_key_absent_when_unset(openai_client, model_id, messages):
+    _ = openai_client
+    model = OpenAIResponsesModel(model_id=model_id, cache_config=CacheConfig())
+
+    assert "prompt_cache_key" not in model._format_request(messages)
+
+
+def test_explicit_prompt_cache_key_in_params_wins(openai_client, model_id, messages):
+    _ = openai_client
+    model = OpenAIResponsesModel(
+        model_id=model_id,
+        params={"prompt_cache_key": "explicit"},
+        cache_config=CacheConfig(cache_key="from-config"),
+    )
+
+    assert model._format_request(messages)["prompt_cache_key"] == "explicit"
+
+
+@pytest.mark.parametrize("retention", ["24h", "in_memory"])
+def test_translatable_ttl_maps_to_prompt_cache_retention(openai_client, model_id, messages, retention):
+    _ = openai_client
+    model = OpenAIResponsesModel(model_id=model_id, cache_config=CacheConfig(cache_key="k", ttl=retention))
+
+    assert model._format_request(messages)["prompt_cache_retention"] == retention
+
+
+def test_untranslatable_ttl_is_ignored_and_warned(openai_client, model_id, messages):
+    _ = openai_client
+    model = OpenAIResponsesModel(model_id=model_id, cache_config=CacheConfig(cache_key="k", ttl="5m"))
+
+    with pytest.warns(UserWarning, match="not an openai retention value"):
+        request = model._format_request(messages)
+
+    assert "prompt_cache_retention" not in request
 
 
 @pytest.mark.parametrize(
@@ -885,6 +979,35 @@ async def test_stream_response_incomplete(openai_client, model, agenerator, alis
     assert len(metadata_events) == 1
     assert metadata_events[0]["metadata"]["usage"]["inputTokens"] == 10
     assert metadata_events[0]["metadata"]["usage"]["outputTokens"] == 100
+
+
+@pytest.mark.asyncio
+async def test_stream_response_incomplete_with_truncated_tool_call(openai_client, model, agenerator, alist):
+    """Test that max_tokens takes precedence over tool_use when a function call is cut off."""
+    mock_item_added_event = unittest.mock.Mock(
+        type="response.output_item.added",
+        item=unittest.mock.Mock(type="function_call", call_id="call_1", name="write_file", id="fc_1"),
+    )
+    mock_args_event = unittest.mock.Mock(
+        type="response.function_call_arguments.delta", item_id="fc_1", delta='{"path": "notes.md", "content": "Lorem'
+    )
+    mock_incomplete_event = unittest.mock.Mock(
+        type="response.incomplete",
+        response=unittest.mock.Mock(
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=50, total_tokens=60, input_tokens_details=None),
+            incomplete_details=unittest.mock.Mock(reason="max_output_tokens"),
+        ),
+    )
+
+    openai_client.responses.create = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_item_added_event, mock_args_event, mock_incomplete_event])
+    )
+
+    messages = [{"role": "user", "content": [{"text": "save my notes"}]}]
+    tru_events = await alist(model.stream(messages))
+
+    assert {"messageStop": {"stopReason": "max_tokens"}} in tru_events
+    assert {"messageStop": {"stopReason": "tool_use"}} not in tru_events
 
 
 @pytest.mark.asyncio
@@ -1819,6 +1942,50 @@ class TestOpenAIResponsesModelBedrockMantleConfig:
         model = OpenAIResponsesModel(model_id="openai.gpt-5.4", bedrock_mantle_config={"region": "us-east-1"})
         resolved = model._resolve_client_args()
         assert resolved["base_url"] == "https://bedrock-mantle.us-east-1.api.aws/openai/v1"
+
+    @pytest.mark.parametrize(
+        ("model_id", "expected_path"),
+        [
+            # Regression for #3654: Mantle rejects the wrong base path with HTTP 400
+            # validation_error. The affected ids use /openai/v1; controls below pin /v1.
+            ("xai.grok-4.3", "/openai/v1"),
+            ("google.gemma-4-31b", "/openai/v1"),
+            ("openai.gpt-5.6-terra", "/openai/v1"),
+            # Gemma 3 is served from /v1 while Gemma 4 is not, so `google.` cannot be a prefix.
+            ("google.gemma-3-27b-it", "/v1"),
+            ("openai.gpt-oss-120b", "/v1"),
+        ],
+    )
+    def test_bedrock_mantle_config_base_path_per_model(
+        self, model_id, expected_path, openai_client, mock_provide_token
+    ):
+        """Each Mantle model resolves to the base path it is actually served from."""
+        _ = openai_client
+        _ = mock_provide_token
+        model = OpenAIResponsesModel(model_id=model_id, bedrock_mantle_config={"region": "us-east-1"})
+
+        resolved = model._resolve_client_args()
+        assert resolved["base_url"] == f"https://bedrock-mantle.us-east-1.api.aws{expected_path}"
+
+    @pytest.mark.parametrize(
+        ("model_id", "expected_path"),
+        [
+            # Point releases within a verified line, beyond the verified catalog.
+            ("xai.grok-4.9", "/openai/v1"),
+            ("openai.gpt-5.9-unreleased", "/openai/v1"),
+            # New lines the prefixes deliberately do not cover.
+            ("xai.grok-5", "/v1"),
+            ("xai.grok-5-preview", "/v1"),
+        ],
+    )
+    def test_bedrock_mantle_config_unverified_ids(self, model_id, expected_path, openai_client, mock_provide_token):
+        """Ids beyond the verified catalog, through the Responses model (shares _resolve_mantle_base_path)."""
+        _ = openai_client
+        _ = mock_provide_token
+        model = OpenAIResponsesModel(model_id=model_id, bedrock_mantle_config={"region": "us-east-1"})
+
+        resolved = model._resolve_client_args()
+        assert resolved["base_url"] == f"https://bedrock-mantle.us-east-1.api.aws{expected_path}"
 
     def test_bedrock_mantle_config_forwards_credentials_provider_and_expiry(self, openai_client, mock_provide_token):
         _ = openai_client

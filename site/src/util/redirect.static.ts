@@ -89,6 +89,30 @@ function scanContent(contentDir: string): { slugs: Set<string>; redirectFromEntr
   return { slugs, redirectFromEntries }
 }
 
+/**
+ * Scan the Astro pages directory for statically routable page slugs
+ * (integrations.astro → "integrations"), so redirect rules can target custom
+ * pages as well as docs content. Dynamic routes ([...slug]) can't be
+ * enumerated and are excluded; docs pages are validated via scanContent.
+ */
+function scanPages(pagesDir: string): Set<string> {
+  const slugs = new Set<string>()
+  if (!fs.existsSync(pagesDir)) return slugs
+
+  const files = fg.sync('**/*.astro', {
+    cwd: pagesDir,
+    followSymbolicLinks: false,
+  })
+
+  for (const relativePath of files) {
+    if (relativePath.includes('[')) continue
+    const slug = relativePath.replace(/\.astro$/, '').replace(/(^|\/)index$/, '')
+    slugs.add(slug)
+  }
+
+  return slugs
+}
+
 /** Format a slug as a root-relative URL path in the site's directory format. */
 function toUrlPath(slug: string, base: string): string {
   const prefix = base.replace(/\/+$/, '')
@@ -106,13 +130,18 @@ function toUrlPath(slug: string, base: string): string {
  * @param staticRedirects - Exact-match rename rules; defaults to the production
  *   STATIC_SLUG_REDIRECTS. Injectable so unit tests aren't coupled to the
  *   production entries (adding a rename must not break the test suite).
+ * @param pagesDir - Absolute path to src/pages; custom Astro pages found there
+ *   (e.g. integrations.astro) are additional valid redirect targets. Defaults
+ *   to the sibling of contentDir, matching the src/ layout.
  */
 export function buildStaticRedirects(
   contentDir: string,
   base = '/',
-  staticRedirects: Record<string, string> = STATIC_SLUG_REDIRECTS
+  staticRedirects: Record<string, string> = STATIC_SLUG_REDIRECTS,
+  pagesDir: string = path.resolve(contentDir, '../pages')
 ): Record<string, string> {
   const { slugs, redirectFromEntries } = scanContent(contentDir)
+  const pageSlugs = scanPages(pagesDir)
 
   // A redirectFrom entry that collides with a rename rule but points elsewhere
   // is an authoring mistake — the rename rule would silently win. Same
@@ -147,7 +176,7 @@ export function buildStaticRedirects(
       continue
     }
 
-    if (!slugs.has(target)) {
+    if (!slugs.has(target) && !pageSlugs.has(target)) {
       throw new Error(`[redirect.static] redirect target "${target}" (from "${source}") has no content file`)
     }
 

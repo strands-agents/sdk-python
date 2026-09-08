@@ -66,6 +66,22 @@ def _to_attribute_value(value: Any) -> _AttributeValue | None:
     return None
 
 
+def _passes_score_bound(score: float | None, min_score: float | None, max_score: float | None) -> bool:
+    """Whether a retrieval score sits inside the configured ``min_score`` / ``max_score`` bound.
+
+    Unset bounds keep everything. A result the knowledge base did not score is also kept: there is
+    nothing to compare it against, and a bound should not silently discard entries whose relevance is
+    unknown.
+    """
+    if score is None:
+        return True
+    if min_score is not None:
+        return score >= min_score
+    if max_score is not None:
+        return score <= max_score
+    return True
+
+
 class BedrockKnowledgeBaseStore(MemoryStore):
     """A :class:`~strands.memory.types.MemoryStore` backed by Amazon Bedrock Knowledge Bases.
 
@@ -104,8 +120,8 @@ class BedrockKnowledgeBaseStore(MemoryStore):
             **store_config: See :class:`BedrockKnowledgeBaseStoreConfig`.
 
         Raises:
-            ValueError: If ``max_search_results`` is less than 1, or (when ``writable``) if the write
-                configuration is invalid.
+            ValueError: If ``max_search_results`` is less than 1, if both ``min_score`` and
+                ``max_score`` are set, or (when ``writable``) if the write configuration is invalid.
         """
         kb_config = store_config["config"]
         self.name = store_config["name"]
@@ -114,6 +130,15 @@ class BedrockKnowledgeBaseStore(MemoryStore):
         if max_search_results is not None and max_search_results < 1:
             raise ValueError("BedrockKnowledgeBaseStore: max_search_results must be at least 1.")
         self.max_search_results = max_search_results
+        min_score = store_config.get("min_score")
+        max_score = store_config.get("max_score")
+        if min_score is not None and max_score is not None:
+            raise ValueError(
+                f"BedrockKnowledgeBaseStore: min_score and max_score are mutually exclusive, but both are set "
+                f"(min_score={min_score}, max_score={max_score})."
+            )
+        self.min_score = min_score
+        self.max_score = max_score
         self.writable = store_config.get("writable", False)
         self.extraction = store_config.get("extraction")
 
@@ -126,10 +151,15 @@ class BedrockKnowledgeBaseStore(MemoryStore):
         self._data_source_type = kb_config.get("data_source_type")
         self._data_source_id = kb_config.get("data_source_id")
 
+        # Region hint for any default boto3 client the store constructs. Only an explicit
+        # ``region_name`` config is threaded through; when absent, ``None`` is passed so boto3
+        # resolves the region itself. Injected clients bypass this and use their own region setup.
+        self._region = kb_config.get("region_name")
+
         # The runtime client is built eagerly: search is the read path every store exercises. A
         # default client is only constructed when none was injected.
         self._runtime_client: AgentsforBedrockRuntimeClient = kb_config.get("runtime_client") or boto3.client(
-            "bedrock-agent-runtime"
+            "bedrock-agent-runtime", region_name=self._region
         )
 
         # The knowledge base type — either provided in config or resolved in ``initialize()``.
@@ -192,6 +222,11 @@ class BedrockKnowledgeBaseStore(MemoryStore):
             user-provided attributes plus two reserved synthetic keys: ``_relevance_score`` (number)
             and ``_source_location`` (Bedrock retrieval location object).
 
+            When the store sets ``min_score`` or ``max_score``, results are filtered on that bound
+            after the knowledge base retrieval, so fewer than ``max_search_results`` entries may come
+            back, and a query the knowledge base has no good answer for can legitimately return none.
+            A result the knowledge base did not score is kept.
+
         Raises:
             ValueError: If ``options.max_search_results`` is less than 1.
         """
@@ -227,19 +262,34 @@ class BedrockKnowledgeBaseStore(MemoryStore):
             )
             raise
 
+        results = response.get("retrievalResults") or []
         entries: list[MemoryEntry] = []
-        for result in response.get("retrievalResults") or []:
+        for result in results:
+            score = result.get("score")
+            if not _passes_score_bound(score, self.min_score, self.max_score):
+                continue
+
             metadata: Metadata = {}
             if result.get("metadata"):
                 for key, value in result["metadata"].items():
                     metadata[key] = value
             if result.get("location"):
                 metadata["_source_location"] = result["location"]
-            if result.get("score") is not None:
-                metadata["_relevance_score"] = result["score"]
+            if score is not None:
+                metadata["_relevance_score"] = score
 
             content = (result.get("content") or {}).get("text") or ""
             entries.append(MemoryEntry(content=content, metadata=metadata))
+
+        if self.min_score is not None or self.max_score is not None:
+            logger.debug(
+                "store=<%s>, min_score=<%s>, max_score=<%s>, retrieved=<%d>, kept=<%d> | score bound applied",
+                self.name,
+                self.min_score,
+                self.max_score,
+                len(results),
+                len(entries),
+            )
 
         return entries
 
@@ -526,19 +576,21 @@ class BedrockKnowledgeBaseStore(MemoryStore):
     def _get_s3_client(self) -> S3Client:
         """Return the S3 client, constructing a default one lazily on first use.
 
-        A default client is built with no extra configuration. Callers needing a specific region,
-        credentials, or endpoint build the client themselves and inject it via the ``s3`` config.
+        A default client is built with no extra configuration beyond the resolved region. Callers
+        needing specific credentials or an endpoint build the client themselves and inject it via
+        the ``s3`` config.
         """
         if self._s3_client is None:
-            self._s3_client = boto3.client("s3")
+            self._s3_client = boto3.client("s3", region_name=self._region)
         return self._s3_client
 
     def _get_agent_client(self) -> AgentsforBedrockClient:
         """Return the agent client, constructing a default one lazily on first use.
 
-        A default client is built with no extra configuration. Callers needing a specific region,
-        credentials, or endpoint build the client themselves and inject it via ``agent_client``.
+        A default client is built with no extra configuration beyond the resolved region. Callers
+        needing specific credentials or an endpoint build the client themselves and inject it via
+        ``agent_client``.
         """
         if self._agent_client is None:
-            self._agent_client = boto3.client("bedrock-agent")
+            self._agent_client = boto3.client("bedrock-agent", region_name=self._region)
         return self._agent_client

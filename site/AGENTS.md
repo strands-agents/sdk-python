@@ -62,10 +62,14 @@ When authoring or reviewing documentation pages, follow the voice guide and the 
 ├── SITE-ARCHITECTURE.md          # Detailed Astro/Starlight customizations
 ├── src/                          # Astro source files
 │   ├── components/               # Custom Astro components
+│   │   ├── community/            # Sections of the /community/ hub page (hero, courses, events, blog)
 │   │   ├── overrides/            # Starlight component overrides
 │   │   └── ...
 │   ├── config/                   # Site configuration
 │   ├── content/                  # Content collections
+│   │   ├── catalog/              # Community catalog entries (one YAML per integration, zod-validated)
+│   │   ├── courses/              # Course metadata (one YAML per course, zod-validated)
+│   │   ├── events/               # Community event entries (one YAML per event, zod-validated)
 │   │   └── docs/                 # Documentation content (Markdown/MDX)
 │   │       ├── api/
 │   │       │   ├── python/
@@ -73,13 +77,16 @@ When authoring or reviewing documentation pages, follow the voice guide and the 
 │   │       │   └── typescript/
 │   │       │       └── _generated/   # Symlink to .build/api-docs/typescript
 │   │       ├── assets/
-│   │       ├── community/
 │   │       ├── contribute/
 │   │       ├── examples/
+│   │       ├── integrations/
 │   │       ├── labs/
+│   │       ├── learning/         # Course lesson pages
 │   │       └── user-guide/
+│   ├── data/                     # Bot-maintained data (catalog-stats.json — updated by the
+│   │                             #   catalog-stats workflow; do not hand-edit)
 │   ├── layouts/                  # Custom layouts
-│   ├── pages/                    # Astro pages
+│   ├── pages/                    # Astro pages (incl. integrations.astro — the /integrations page)
 │   ├── plugins/                  # Remark/Rehype plugins
 │   ├── styles/                   # Global styles
 │   └── util/                     # Utility functions
@@ -90,7 +97,8 @@ When authoring or reviewing documentation pages, follow the voice guide and the 
 ├── NOTICE
 ├── README.md
 ├── overrides/                    # Legacy MkDocs overrides (being migrated)
-├── scripts/                      # Build and utility scripts
+├── scripts/                      # Build and utility scripts (scripts/catalog/ — stats refresh
+│                                 #   run by the weekly catalog-stats workflow)
 ├── test/                         # Test files
 └── test-snippets/                # TypeScript snippet test files
 ```
@@ -105,7 +113,7 @@ When authoring or reviewing documentation pages, follow the voice guide and the 
 #### Prerequisites
 
 - Python 3.10+
-- Node.js 20+, npm
+- Node.js 22+, npm
 
 #### Setup and Installation
 

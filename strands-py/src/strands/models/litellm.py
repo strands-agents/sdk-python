@@ -22,7 +22,7 @@ from ..types.exceptions import ContextWindowOverflowException
 from ..types.streaming import MetadataEvent, StreamEvent
 from ..types.tools import ToolChoice, ToolSpec, ToolUse
 from ._validation import validate_config_keys
-from .model import BaseModelConfig
+from .model import BaseModelConfig, CacheConfig
 from .openai import OpenAIModel
 
 logger = logging.getLogger(__name__)
@@ -47,11 +47,14 @@ class LiteLLMModel(OpenAIModel):
                 For a complete list of supported parameters, see
                 https://docs.litellm.ai/docs/completion/input#input-params-1.
             stream: Whether to use streaming. Defaults to True.
+            cache_config: Prompt-caching configuration. Consumed by LiteLLM's OpenAI-compatible
+                request path exactly as by ``OpenAIModel``.
         """
 
         model_id: str
         params: dict[str, Any] | None
         stream: bool
+        cache_config: CacheConfig | None
 
     def __init__(self, client_args: dict[str, Any] | None = None, **model_config: Unpack[LiteLLMConfig]) -> None:
         """Initialize provider instance.

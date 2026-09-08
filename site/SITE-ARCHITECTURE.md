@@ -162,6 +162,7 @@ export default defineConfig({
 Notable config details:
 - `themeCssSelector` on Expressive Code makes code block themes follow Starlight's `[data-theme]` attribute rather than the browser's `prefers-color-scheme`, keeping syntax highlighting in sync with the site's theme toggle.
 - `processedDirs` tells Starlight to run its rehype plugins (e.g. heading anchor links) on the real resolved paths of the API docs symlinks.
+- `AutoImport` makes the following components available in every MDX page without an explicit import: `Tabs` (AutoSyncTabs), `Tab` (Starlight's TabItem), `Syntax`, and `YouTube` (from `@astro-community/astro-embed-youtube`).
 
 ## Custom Frontmatter Fields
 
@@ -724,7 +725,7 @@ Edit `SLUG_RULES` in `src/util/redirect.ts` for structural renames affecting man
 { match: startsWith('docs/old-prefix'), to: (m) => `docs/new-prefix/${m[1]}` },
 ```
 
-Helper builders from `src/utils/regex.ts`:
+Helper builders from `src/util/regex.ts`:
 - `startsWith(prefix)` — matches slugs starting with `prefix/`, captures the rest in `m[1]`
 - `exactly(s)` — matches the slug exactly
 

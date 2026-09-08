@@ -14,6 +14,7 @@ const createFreshContext = (
     toolUse: { name: 'stop', toolUseId: 'test-id', input: {} },
     agent,
     invocationState,
+    cancelSignal: agent.cancelSignal,
     interrupt: () => {
       throw new Error('interrupt not available in mock context')
     },

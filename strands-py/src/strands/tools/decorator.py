@@ -45,6 +45,7 @@ import functools
 import inspect
 import json
 import logging
+import threading
 from collections.abc import Callable
 from typing import (
     Annotated,
@@ -176,7 +177,8 @@ class FunctionToolMetadata:
     def _validate_signature(self) -> None:
         """Verify that ToolContext is used correctly in the function signature."""
         for param in self.signature.parameters.values():
-            if param.annotation is ToolContext:
+            annotation = self.type_hints.get(param.name)
+            if annotation is ToolContext or get_origin(annotation) is ToolContext:
                 if self._context_param is None:
                     raise ValueError("@tool(context) must be set if passing in ToolContext param")
 
@@ -407,8 +409,14 @@ class FunctionToolMetadata:
                               agent.invoke_async(), etc.).
         """
         if self._context_param and self._context_param in self.signature.parameters:
+            agent = invocation_state["agent"]
             tool_context = ToolContext(
-                tool_use=tool_use, agent=invocation_state["agent"], invocation_state=invocation_state
+                tool_use=tool_use,
+                agent=agent,
+                invocation_state=invocation_state,
+                # A BidiAgent has no cancellation signal; fall back to an inert event so tool
+                # authors never have to guard the field.
+                cancel_signal=getattr(agent, "cancel_signal", threading.Event()),
             )
             validated_input[self._context_param] = tool_context
 

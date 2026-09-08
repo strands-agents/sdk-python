@@ -2,11 +2,16 @@
 
 from typing import Any
 
-from .model import BidiModel, BidiModelTimeoutError
+from ..types.model import AudioConfig
+from .model import AudioCapable, BidiModel, BidiModelConfig, BidiModelTimeoutError, Restartable
 
 __all__ = [
+    "AudioCapable",
+    "AudioConfig",
     "BidiModel",
+    "BidiModelConfig",
     "BidiModelTimeoutError",
+    "Restartable",
 ]
 
 
@@ -15,16 +20,16 @@ def __getattr__(name: str) -> Any:
 
     This defers the import of optional dependencies until actually needed.
     """
-    if name == "BidiGeminiLiveModel":
-        from .gemini_live import BidiGeminiLiveModel
+    if name == "BedrockNovaSonicModel":
+        from .bedrock import BedrockNovaSonicModel
 
-        return BidiGeminiLiveModel
-    if name == "BidiNovaSonicModel":
-        from .nova_sonic import BidiNovaSonicModel
+        return BedrockNovaSonicModel
+    if name == "GoogleGeminiLiveModel":
+        from .google import GoogleGeminiLiveModel
 
-        return BidiNovaSonicModel
-    if name == "BidiOpenAIRealtimeModel":
-        from .openai_realtime import BidiOpenAIRealtimeModel
+        return GoogleGeminiLiveModel
+    if name == "OpenAIRealtimeModel":
+        from .openai import OpenAIRealtimeModel
 
-        return BidiOpenAIRealtimeModel
+        return OpenAIRealtimeModel
     raise AttributeError(f"cannot import name '{name}' from '{__name__}' ({__file__})")

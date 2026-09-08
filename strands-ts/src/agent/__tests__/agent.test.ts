@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { Agent, type ToolList } from '../agent.js'
+import { SessionManager } from '../../session/session-manager.js'
 import { McpClient } from '../../mcp/index.js'
 import { McpTool } from '../../tools/mcp-tool.js'
 import { MockMessageModel } from '../../__fixtures__/mock-message-model.js'
@@ -16,6 +17,7 @@ import {
   ToolResultBlock,
   ReasoningBlock,
   GuardContentBlock,
+  AudioBlock,
   ImageBlock,
   VideoBlock,
   DocumentBlock,
@@ -416,6 +418,72 @@ describe('Agent', () => {
         await agent.invoke('Test')
 
         expect(agent.metrics.cycleCount).toBe(1)
+      })
+
+      it('includes the completed cycle duration in the returned result metrics', async () => {
+        vi.useFakeTimers()
+        vi.setSystemTime(0)
+
+        try {
+          const model = new MockMessageModel().addTurn(
+            { type: 'toolUseBlock', name: 'slowTool', toolUseId: 'tool-1', input: {} },
+            { usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 } }
+          )
+
+          const tool = createMockTool(
+            'slowTool',
+            (context) =>
+              new ToolResultBlock({
+                toolUseId: context.toolUse.toolUseId,
+                status: 'success' as const,
+                content: [new TextBlock('Done')],
+              })
+          )
+
+          const agent = new Agent({ model, tools: [tool] })
+          agent.addHook(BeforeToolsEvent, () => {
+            vi.setSystemTime(60)
+          })
+          agent.addHook(AfterToolsEvent, (event: AfterToolsEvent) => {
+            event.endTurn = true
+          })
+
+          const result = await agent.invoke('Test')
+
+          expect(result.stopReason).toBe('endTurn')
+          expect(result.metrics).toMatchObject({
+            cycleCount: 1,
+            totalDuration: 60,
+            averageCycleTime: 60,
+            latestAgentInvocation: { cycles: [{ duration: 60 }] },
+          })
+        } finally {
+          vi.useRealTimers()
+        }
+      })
+
+      it('includes the cycle duration when the model ends the turn without tools', async () => {
+        vi.useFakeTimers()
+        vi.setSystemTime(0)
+
+        try {
+          const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Hello' })
+          const agent = new Agent({ model })
+          agent.addHook(BeforeModelCallEvent, () => {
+            vi.setSystemTime(60)
+          })
+
+          const result = await agent.invoke('Test')
+
+          expect(result.metrics).toMatchObject({
+            cycleCount: 1,
+            totalDuration: 60,
+            averageCycleTime: 60,
+            latestAgentInvocation: { cycles: [{ duration: 60 }] },
+          })
+        } finally {
+          vi.useRealTimers()
+        }
       })
     })
 
@@ -1116,6 +1184,10 @@ describe('Agent', () => {
           new ReasoningBlock({ text: 'My reasoning' }),
           new CachePointBlock({ cacheType: 'default' }),
           new GuardContentBlock({ text: { text: 'Guard content', qualifiers: ['grounding_source'] } }),
+          new AudioBlock({
+            format: 'mp3',
+            source: { bytes: new Uint8Array([1, 2, 3]) },
+          }),
           new ImageBlock({
             format: 'png',
             source: { url: 'https://example.com/image.png' },
@@ -1176,6 +1248,12 @@ describe('Agent', () => {
           { cachePoint: { cacheType: 'default' as const } },
           { guardContent: { text: { text: 'Guard text', qualifiers: ['query' as const] } } },
           {
+            audio: {
+              format: 'mp3' as const,
+              source: { bytes: new Uint8Array([1, 2, 3]) },
+            },
+          },
+          {
             image: {
               format: 'png' as const,
               source: { url: 'https://example.com/image.png' },
@@ -1199,7 +1277,7 @@ describe('Agent', () => {
         expect(agent.messages).toHaveLength(2)
         const userMessage = agent.messages[0]!
         expect(userMessage.role).toBe('user')
-        expect(userMessage.content).toHaveLength(9)
+        expect(userMessage.content).toHaveLength(10)
         expect(userMessage.content[0]).toEqual(new TextBlock('Hello from data format'))
         expect(userMessage.content[1]).toEqual(
           new ToolUseBlock({ name: 'testTool', toolUseId: 'id-1', input: { key: 'value' } })
@@ -1776,6 +1854,35 @@ describe('_estimateInputTokens', () => {
     expect(await tokenPromise).toBe(120)
   })
 
+  // Regression for #3546: on a disjoint provider (Bedrock/Anthropic) the cache read adds to inputTokens
+  // and must be counted in the baseline, or a large cached prompt reads as a handful of tokens and
+  // proactive compaction never fires.
+  it('counts disjoint-provider cache reads in the known baseline', async () => {
+    const model = new MockMessageModel()
+    model.addTurn({ type: 'textBlock', text: 'Hello' })
+
+    const agent = new Agent({
+      model,
+      printer: false,
+      messages: [
+        new Message({ role: 'user', content: [new TextBlock('Hi')] }),
+        new Message({
+          role: 'assistant',
+          content: [new TextBlock('Hello')],
+          metadata: {
+            usage: { inputTokens: 10, outputTokens: 4, totalTokens: 5862, cacheReadInputTokens: 5848 },
+          },
+        }),
+      ],
+    })
+
+    const tokenPromise = captureProjectedTokens(agent)
+    await agent.invoke([])
+
+    // baseline = total prompt (10 + 5848 cache read) + outputTokens(4) = 5862, not 14
+    expect(await tokenPromise).toBe(5862)
+  })
+
   it('returns undefined projectedInputTokens when estimation fails', async () => {
     const model = new MockMessageModel()
     model.addTurn({ type: 'textBlock', text: 'Hello' })
@@ -2271,6 +2378,32 @@ describe('normalizeToolUseNames', () => {
 
         expect(result).toEqual(expect.objectContaining({ type: 'agentResult', stopReason: 'limitTurns' }))
       })
+    })
+  })
+
+  describe('sessionId', () => {
+    it('returns a stable 8-character string when no session manager is attached', () => {
+      const agent = new Agent({ model: new MockMessageModel() })
+
+      const first = agent.sessionId
+      const second = agent.sessionId
+
+      expect(first).toBe(second)
+      expect(first).toHaveLength(8)
+    })
+
+    it('returns different IDs for different agent instances', () => {
+      const agent1 = new Agent({ model: new MockMessageModel() })
+      const agent2 = new Agent({ model: new MockMessageModel() })
+
+      expect(agent1.sessionId).not.toBe(agent2.sessionId)
+    })
+
+    it('delegates to sessionManager when attached', () => {
+      const sessionManager = new SessionManager({ sessionId: 'my-session' })
+      const agent = new Agent({ model: new MockMessageModel(), sessionManager })
+
+      expect(agent.sessionId).toBe('my-session')
     })
   })
 })

@@ -5,10 +5,7 @@ tags: [safety, interventions, tool-execution]
 sourceLinks:
   - path: strands-py/src/strands/vended_interventions/cedar/cedar_authorization.py
   - path: strands-ts/src/vended-interventions/cedar/cedar.ts
-sidebar:
-  badge:
-    text: New
-    variant: tip
+addedDate: 2026-06-15
 ---
 
 Cedar Authorization evaluates [Cedar](https://cedarpolicy.com) policies before each tool call, giving you declarative, identity-aware access control over agent behavior. It ships as a vended intervention handler in both the Python and TypeScript SDKs.
@@ -168,6 +165,13 @@ Block tools based on deployment context by forwarding environment metadata throu
 ```
 </Tab>
 </Tabs>
+
+Permit an allowlist of environments rather than denying `"production"`. An allowlist
+stays fail-closed: when `environment` is missing from
+<Syntax py="invocation_state" ts="invocationState" />, the enricher's fallback value
+falls outside the permitted set and the call is denied. A rule that denies
+`"production"` instead would permit that call, along with any spelling the rule doesn't
+match exactly — `"Production"`, `"prod"`, `"prod-us-east-1"`.
 
 ## File-based policies
 

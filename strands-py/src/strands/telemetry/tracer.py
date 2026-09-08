@@ -23,6 +23,7 @@ from ..types.multiagent import MultiAgentInput
 from ..types.streaming import Metrics, StopReason, Usage
 from ..types.tools import ToolResult, ToolUse
 from ..types.traces import Attributes, AttributeValue
+from .metrics import _total_prompt_tokens
 
 if TYPE_CHECKING:
     from ..memory.types import MemoryEntry
@@ -94,7 +95,9 @@ class Tracer:
     span events, for backends that cannot read span events. This applies to the aggregated content events
     (latest-convention "gen_ai.*" messages and the "memory.query"/"memory.content" events); the legacy
     per-message events are always emitted as events. The default (token absent, non-Langfuse) emits span
-    events for backward compatibility.
+    events for backward compatibility. Independent of this token, tool spans under the latest
+    conventions additionally record `gen_ai.tool.call.arguments` and `gen_ai.tool.call.result` as
+    span attributes per the execute_tool span convention.
 
     Span attribute redaction is opt-in via the `gen_ai_unredacted_attributes=<list>` token in the same
     environment variable. The list uses `;` as a separator and supports trailing-`*` glob patterns.
@@ -105,7 +108,9 @@ class Tracer:
 
     Sensitive attributes subject to the redaction policy are: `gen_ai.input.messages` (user messages
     and tool inputs/results being fed into the model), `gen_ai.output.messages` (agent/model responses
-    and tool call responses), and `gen_ai.system_instructions` (system prompts).
+    and tool call responses), `gen_ai.system_instructions` (system prompts), and, on execute_tool
+    spans under the latest conventions, `gen_ai.tool.call.arguments` and `gen_ai.tool.call.result`
+    (tool inputs/outputs).
     """
 
     def __init__(self) -> None:
@@ -175,11 +180,11 @@ class Tracer:
 
         Args:
             attribute_name: The canonical semantic attribute name used for policy lookup
-                (one of `gen_ai.input.messages`, `gen_ai.output.messages`, or
-                `gen_ai.system_instructions`). This may differ from the physical event
-                field key emitted under legacy conventions (which uses `content`/`message`),
-                but the canonical name is always used so that allowlist entries are
-                independent of the convention in use.
+                (`gen_ai.input.messages`, `gen_ai.output.messages`, `gen_ai.system_instructions`,
+                `gen_ai.tool.call.arguments`, or `gen_ai.tool.call.result`). This may differ
+                from the physical event field key emitted under legacy conventions (which uses
+                `content`/`message`), but the canonical name is always used so that allowlist
+                entries are independent of the convention in use.
             value: The serialized attribute value to potentially redact.
 
         Returns:
@@ -259,10 +264,15 @@ class Tracer:
             metrics: Metrics from the model call
         """
         if "cacheReadInputTokens" in usage:
-            attributes["gen_ai.usage.cache_read_input_tokens"] = usage["cacheReadInputTokens"]
+            attributes["gen_ai.usage.cache_read.input_tokens"] = usage["cacheReadInputTokens"]
+            # Deprecated pre-semconv name, dual-emitted unless opted into the latest conventions
+            if not self.use_latest_genai_conventions:
+                attributes["gen_ai.usage.cache_read_input_tokens"] = usage["cacheReadInputTokens"]
 
         if "cacheWriteInputTokens" in usage:
-            attributes["gen_ai.usage.cache_write_input_tokens"] = usage["cacheWriteInputTokens"]
+            attributes["gen_ai.usage.cache_creation.input_tokens"] = usage["cacheWriteInputTokens"]
+            if not self.use_latest_genai_conventions:
+                attributes["gen_ai.usage.cache_write_input_tokens"] = usage["cacheWriteInputTokens"]
 
         if metrics.get("timeToFirstByteMs", 0) > 0:
             attributes["gen_ai.server.time_to_first_token"] = metrics["timeToFirstByteMs"]
@@ -323,6 +333,28 @@ class Tracer:
 
         error = exception or Exception(error_message)
         self._end_span(span, error=error, error_message=error_message)
+
+    def end_span_with_cancellation(self, span: Span, cancellation: BaseException) -> None:
+        """End a span that was cancelled without marking it as success or failure.
+
+        Leaves the span status at its default UNSET (never sets OK or ERROR) and records
+        the cancellation type as an attribute so trace consumers can distinguish cancellation
+        from incomplete instrumentation.
+
+        Args:
+            span: The span to end.
+            cancellation: The BaseException that cancelled the operation.
+        """
+        if not span or not span.is_recording():
+            return
+
+        try:
+            span.set_attribute("gen_ai.event.end_time", datetime.now(timezone.utc).isoformat())
+            span.set_attribute("strands.cancellation.type", type(cancellation).__name__)
+        except Exception as exc:
+            logger.warning("error=<%s> | error while ending cancelled span", exc, exc_info=True)
+        finally:
+            span.end()
 
     def _add_event(
         self, span: Span | None, event_name: str, event_attributes: Attributes, to_span_attributes: bool = False
@@ -434,9 +466,10 @@ class Tracer:
         if not span or not span.is_recording():
             return
 
+        prompt_tokens = _total_prompt_tokens(usage)
         attributes: dict[str, AttributeValue] = {
-            "gen_ai.usage.prompt_tokens": usage["inputTokens"],
-            "gen_ai.usage.input_tokens": usage["inputTokens"],
+            "gen_ai.usage.prompt_tokens": prompt_tokens,
+            "gen_ai.usage.input_tokens": prompt_tokens,
             "gen_ai.usage.completion_tokens": usage["outputTokens"],
             "gen_ai.usage.output_tokens": usage["outputTokens"],
             "gen_ai.usage.total_tokens": usage["totalTokens"],
@@ -508,6 +541,13 @@ class Tracer:
         span = self._start_span(span_name, parent_span, attributes=attributes, span_kind=trace_api.SpanKind.INTERNAL)
 
         if self.use_latest_genai_conventions:
+            # The execute_tool span convention records tool inputs in the dedicated
+            # gen_ai.tool.call.arguments span attribute (Opt-In), which spec-compliant
+            # consumers read on tool spans.
+            span.set_attribute(
+                "gen_ai.tool.call.arguments",
+                self._redact("gen_ai.tool.call.arguments", serialize(tool["input"])),
+            )
             input_messages = serialize(
                 [
                     {
@@ -560,6 +600,12 @@ class Tracer:
             attributes["gen_ai.tool.status"] = str(status) if status is not None else ""
 
             if self.use_latest_genai_conventions:
+                # The execute_tool span convention records tool outputs in the dedicated
+                # gen_ai.tool.call.result span attribute (Opt-In), which spec-compliant
+                # consumers read on tool spans. The spec scopes the attribute to successful
+                # executions; failures are captured in the span status instead.
+                if status != "error":
+                    attributes["gen_ai.tool.call.result"] = self._redact("gen_ai.tool.call.result", serialize(content))
                 output_messages = serialize(
                     [
                         {
@@ -799,17 +845,26 @@ class Tracer:
                         usage = latest_invocation.usage
                 else:
                     usage = response.metrics.accumulated_usage
+                prompt_tokens = _total_prompt_tokens(usage)
                 attributes.update(
                     {
-                        "gen_ai.usage.prompt_tokens": usage["inputTokens"],
+                        "gen_ai.usage.prompt_tokens": prompt_tokens,
                         "gen_ai.usage.completion_tokens": usage["outputTokens"],
-                        "gen_ai.usage.input_tokens": usage["inputTokens"],
+                        "gen_ai.usage.input_tokens": prompt_tokens,
                         "gen_ai.usage.output_tokens": usage["outputTokens"],
                         "gen_ai.usage.total_tokens": usage["totalTokens"],
-                        "gen_ai.usage.cache_read_input_tokens": usage.get("cacheReadInputTokens", 0),
-                        "gen_ai.usage.cache_write_input_tokens": usage.get("cacheWriteInputTokens", 0),
+                        "gen_ai.usage.cache_read.input_tokens": usage.get("cacheReadInputTokens", 0),
+                        "gen_ai.usage.cache_creation.input_tokens": usage.get("cacheWriteInputTokens", 0),
                     }
                 )
+                # Deprecated pre-semconv name, dual-emitted unless opted into the latest conventions
+                if not self.use_latest_genai_conventions:
+                    attributes.update(
+                        {
+                            "gen_ai.usage.cache_read_input_tokens": usage.get("cacheReadInputTokens", 0),
+                            "gen_ai.usage.cache_write_input_tokens": usage.get("cacheWriteInputTokens", 0),
+                        }
+                    )
 
         self._end_span(span, attributes, error)
 

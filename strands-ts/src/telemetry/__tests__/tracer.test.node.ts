@@ -254,6 +254,27 @@ describe('Tracer', () => {
       expect(mockSpan.getAttributeValue('gen_ai.usage.completion_tokens')).toBe(200)
     })
 
+    // Accumulated usage folds cached tokens into input_tokens for disjoint-cache providers,
+    // matching the per-invocation span (OTel GenAI semconv).
+    it('includes cached tokens in accumulated input_tokens for disjoint-cache providers', () => {
+      const tracer = new Tracer()
+      const span = tracer.startAgentSpan({ messages: [textMessage('user', 'Hi')], agentName: 'agent' })
+
+      tracer.endAgentSpan(span, {
+        accumulatedUsage: {
+          inputTokens: 10,
+          outputTokens: 20,
+          totalTokens: 58,
+          cacheReadInputTokens: 25,
+          cacheWriteInputTokens: 3,
+        },
+      })
+
+      expect(mockSpan.getAttributeValue('gen_ai.usage.input_tokens')).toBe(38)
+      expect(mockSpan.getAttributeValue('gen_ai.usage.prompt_tokens')).toBe(38)
+      expect(mockSpan.getAttributeValue('gen_ai.usage.total_tokens')).toBe(58)
+    })
+
     it('adds response event with stable conventions', () => {
       const tracer = new Tracer()
       const span = tracer.startAgentSpan({ messages: [textMessage('user', 'Hi')], agentName: 'agent' })
@@ -331,6 +352,45 @@ describe('Tracer', () => {
       expect(mockSpan.getAttributeValue('gen_ai.server.request.duration')).toBe(500)
     })
 
+    // input_tokens must include cached tokens per the OTel GenAI semconv; disjoint-cache
+    // providers (Bedrock Converse, Anthropic-direct) report them separately, so fold them in.
+    it('includes cached tokens in input_tokens for disjoint-cache providers', () => {
+      const tracer = new Tracer()
+      const span = tracer.startModelInvokeSpan({ messages: [textMessage('user', 'Hi')] })
+
+      tracer.endModelInvokeSpan(span, {
+        usage: {
+          inputTokens: 10,
+          outputTokens: 20,
+          totalTokens: 58,
+          cacheReadInputTokens: 25,
+          cacheWriteInputTokens: 3,
+        },
+      })
+
+      expect(mockSpan.getAttributeValue('gen_ai.usage.input_tokens')).toBe(38)
+      expect(mockSpan.getAttributeValue('gen_ai.usage.prompt_tokens')).toBe(38)
+      expect(mockSpan.getAttributeValue('gen_ai.usage.output_tokens')).toBe(20)
+      expect(mockSpan.getAttributeValue('gen_ai.usage.total_tokens')).toBe(58)
+      expect(mockSpan.getAttributeValue('gen_ai.usage.cache_read.input_tokens')).toBe(25)
+      expect(mockSpan.getAttributeValue('gen_ai.usage.cache_creation.input_tokens')).toBe(3)
+    })
+
+    // Subset-cache providers (OpenAI, Gemini) already count cache inside input_tokens;
+    // the fold-in must be a no-op so cached tokens are not counted twice.
+    it('does not double-count when the provider already includes cache in input_tokens', () => {
+      const tracer = new Tracer()
+      const span = tracer.startModelInvokeSpan({ messages: [textMessage('user', 'Hi')] })
+
+      tracer.endModelInvokeSpan(span, {
+        usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120, cacheReadInputTokens: 30 },
+      })
+
+      expect(mockSpan.getAttributeValue('gen_ai.usage.input_tokens')).toBe(100)
+      expect(mockSpan.getAttributeValue('gen_ai.usage.prompt_tokens')).toBe(100)
+      expect(mockSpan.getAttributeValue('gen_ai.usage.cache_read.input_tokens')).toBe(30)
+    })
+
     it('sets cache token attributes when provided', () => {
       const tracer = new Tracer()
       const span = tracer.startModelInvokeSpan({ messages: [textMessage('user', 'Hi')] })
@@ -345,6 +405,9 @@ describe('Tracer', () => {
         },
       })
 
+      expect(mockSpan.getAttributeValue('gen_ai.usage.cache_read.input_tokens')).toBe(50)
+      expect(mockSpan.getAttributeValue('gen_ai.usage.cache_creation.input_tokens')).toBe(25)
+      // deprecated aliases kept so existing consumers keep resolving, value-identical to the semconv names
       expect(mockSpan.getAttributeValue('gen_ai.usage.cache_read_input_tokens')).toBe(50)
       expect(mockSpan.getAttributeValue('gen_ai.usage.cache_write_input_tokens')).toBe(25)
     })
@@ -357,7 +420,42 @@ describe('Tracer', () => {
         usage: { inputTokens: 10, outputTokens: 20, totalTokens: 30, cacheReadInputTokens: 0 },
       })
 
+      expect(mockSpan.getAttributeValue('gen_ai.usage.cache_read.input_tokens')).toBeUndefined()
       expect(mockSpan.getAttributeValue('gen_ai.usage.cache_read_input_tokens')).toBeUndefined()
+    })
+
+    // Regression for https://github.com/strands-agents/harness-sdk/issues/3754
+    it('dual-emits cache usage under both the semconv names and the deprecated aliases', () => {
+      const tracer = new Tracer()
+      const span = tracer.startModelInvokeSpan({ messages: [textMessage('user', 'Hi')] })
+
+      tracer.endModelInvokeSpan(span, {
+        usage: { inputTokens: 10, outputTokens: 4, totalTokens: 14, cacheReadInputTokens: 5848 },
+      })
+
+      expect(mockSpan.getAttributeValue('gen_ai.usage.cache_read.input_tokens')).toBe(5848)
+      expect(mockSpan.getAttributeValue('gen_ai.usage.cache_read_input_tokens')).toBe(5848)
+    })
+
+    it('suppresses the deprecated cache aliases when opted into the latest conventions', () => {
+      vi.stubEnv('OTEL_SEMCONV_STABILITY_OPT_IN', 'gen_ai_latest_experimental')
+      const tracer = new Tracer()
+      const span = tracer.startModelInvokeSpan({ messages: [textMessage('user', 'Hi')] })
+
+      tracer.endModelInvokeSpan(span, {
+        usage: {
+          inputTokens: 10,
+          outputTokens: 4,
+          totalTokens: 14,
+          cacheReadInputTokens: 5848,
+          cacheWriteInputTokens: 3,
+        },
+      })
+
+      expect(mockSpan.getAttributeValue('gen_ai.usage.cache_read.input_tokens')).toBe(5848)
+      expect(mockSpan.getAttributeValue('gen_ai.usage.cache_creation.input_tokens')).toBe(3)
+      expect(mockSpan.getAttributeValue('gen_ai.usage.cache_read_input_tokens')).toBeUndefined()
+      expect(mockSpan.getAttributeValue('gen_ai.usage.cache_write_input_tokens')).toBeUndefined()
     })
 
     it('skips latency attribute when zero', () => {
@@ -497,6 +595,17 @@ describe('Tracer', () => {
         },
       ])
     })
+
+    it('sets latest convention tool call arguments attribute', () => {
+      vi.stubEnv('OTEL_SEMCONV_STABILITY_OPT_IN', 'gen_ai_latest_experimental')
+      const tracer = new Tracer()
+
+      tracer.startToolCallSpan({
+        tool: { name: 'search', toolUseId: 'call-2', input: { query: 'test' } },
+      })
+
+      expect(mockSpan.getAttributeValue('gen_ai.tool.call.arguments')).toBe('{"query":"test"}')
+    })
   })
 
   describe('endToolCallSpan', () => {
@@ -543,6 +652,47 @@ describe('Tracer', () => {
       expect(parsed[0].role).toBe('tool')
       expect(parsed[0].parts[0].type).toBe('tool_call_response')
       expect(parsed[0].parts[0].id).toBe('call-1')
+    })
+
+    it('sets latest convention tool call result attribute on success', () => {
+      vi.stubEnv('OTEL_SEMCONV_STABILITY_OPT_IN', 'gen_ai_latest_experimental')
+      const tracer = new Tracer()
+      const span = tracer.startToolCallSpan({
+        tool: { name: 'calc', toolUseId: 'call-1', input: {} },
+      })
+
+      const toolResult = new ToolResultBlock({
+        toolUseId: 'call-1',
+        status: 'success',
+        content: [new TextBlock('42')],
+      })
+
+      tracer.endToolCallSpan(span, { toolResult })
+
+      const resultAttr = mockSpan.getAttributeValue('gen_ai.tool.call.result')
+      expect(resultAttr).toBeDefined()
+      const parsed = JSON.parse(resultAttr as string)
+      expect(parsed).toHaveLength(1)
+      expect(parsed[0]).toMatchObject({ text: '42' })
+    })
+
+    it('omits latest convention tool call result attribute on error status', () => {
+      vi.stubEnv('OTEL_SEMCONV_STABILITY_OPT_IN', 'gen_ai_latest_experimental')
+      const tracer = new Tracer()
+      const span = tracer.startToolCallSpan({
+        tool: { name: 'calc', toolUseId: 'call-1', input: {} },
+      })
+
+      const toolResult = new ToolResultBlock({
+        toolUseId: 'call-1',
+        status: 'error',
+        content: [new TextBlock('tool exploded')],
+      })
+
+      tracer.endToolCallSpan(span, { toolResult })
+
+      expect(mockSpan.getAttributeValue('gen_ai.tool.call.result')).toBeUndefined()
+      expect(mockSpan.getAttributeValue('gen_ai.tool.status')).toBe('error')
     })
 
     it('records error on tool failure', () => {

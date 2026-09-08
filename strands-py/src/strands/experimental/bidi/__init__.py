@@ -1,6 +1,6 @@
 """Bidirectional streaming package."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 # Main components - Primary user interface
 # Re-export standard agent events for tool handling
@@ -12,7 +12,7 @@ from ...types._events import (
 from .agent.agent import BidiAgent
 
 # Model interface (for custom implementations)
-from .models.model import BidiModel
+from .models.model import AudioCapable, BidiModel, BidiModelConfig, Restartable
 
 # Built-in tools (deprecated - use strands_tools.stop instead)
 from .tools import stop_conversation
@@ -24,6 +24,7 @@ from .types.events import (
     BidiConnectionCloseEvent,
     BidiConnectionRestartEvent,
     BidiConnectionStartEvent,
+    BidiConnectionWarningEvent,
     BidiErrorEvent,
     BidiImageInputEvent,
     BidiInputEvent,
@@ -37,6 +38,12 @@ from .types.events import (
     ModalityUsage,
 )
 
+# Reconnect configuration (declared by providers, tunable via model configuration)
+from .types.model import AudioConfig, BidiConnectionConfig
+
+if TYPE_CHECKING:
+    from .io.audio import BidiAudioIO, BidiAudioIOConfig, BidiAudioProcessorConfig
+
 __all__ = [
     # Main interface
     "BidiAgent",
@@ -48,6 +55,7 @@ __all__ = [
     # Output Event types
     "BidiConnectionStartEvent",
     "BidiConnectionRestartEvent",
+    "BidiConnectionWarningEvent",
     "BidiConnectionCloseEvent",
     "BidiResponseStartEvent",
     "BidiResponseCompleteEvent",
@@ -58,12 +66,23 @@ __all__ = [
     "ModalityUsage",
     "BidiErrorEvent",
     "BidiOutputEvent",
+    # Reconnect configuration
+    "BidiConnectionConfig",
     # Tool Event types (reused from standard agent)
     "ToolUseStreamEvent",
     "ToolResultEvent",
     "ToolStreamEvent",
     # Model interface
+    "AudioCapable",
+    "AudioConfig",
     "BidiModel",
+    "BidiModelConfig",
+    "Restartable",
+    # IO channels and configuration
+    "BidiAudioProcessorConfig",
+    "BidiAudioIOConfig",
+    "BidiAudioIO",
+    "BidiTextIO",
     # Built-in tools (deprecated)
     "stop_conversation",
 ]
@@ -74,6 +93,14 @@ def __getattr__(name: str) -> Any:
 
     This defers the import of optional dependencies until actually needed.
     """
+    if name == "BidiAudioProcessorConfig":
+        from .io.audio import BidiAudioProcessorConfig
+
+        return BidiAudioProcessorConfig
+    if name == "BidiAudioIOConfig":
+        from .io.audio import BidiAudioIOConfig
+
+        return BidiAudioIOConfig
     if name == "BidiAudioIO":
         from .io.audio import BidiAudioIO
 

@@ -13,11 +13,11 @@ if TYPE_CHECKING:
     from ..agent.agent_result import AgentResult
 
 from ..types.agent import AgentInput
-from ..types.content import Message, Messages
+from ..types.content import ContentBlock, Message, Messages
 from ..types.interrupt import _Interruptible
 from ..types.streaming import StopReason
 from ..types.tools import AgentTool, ToolResult, ToolUse
-from .registry import BaseHookEvent, HookEvent
+from .registry import BaseHookEvent, HookEvent, _LocalAgentT
 
 if TYPE_CHECKING:
     from ..multiagent.base import MultiAgentBase
@@ -185,15 +185,15 @@ class AfterToolsEvent(HookEvent):
     Attributes:
         message: The user-role message containing the tool results.
         invocation_state: State and configuration passed through the agent invocation.
-        end_turn: When set, the agent loop halts after this tool batch without
-            calling the model again. If a string, that string becomes the content of
-            a final assistant text message. If True, a default message is used.
-            In both cases stop_reason on the returned result is "end_turn".
+        end_turn: When set, the agent loop halts after this tool batch without calling the
+            model again. A string becomes the final assistant text. A list of content blocks
+            becomes the final assistant message content. If True, a default message
+            is used. In any case, the stop_reason is "end_turn".
     """
 
     message: Message
     invocation_state: dict[str, Any]
-    end_turn: bool | str = False
+    end_turn: bool | str | list[ContentBlock] = False
 
     def _can_write(self, name: str) -> bool:
         return name == "end_turn"
@@ -205,7 +205,7 @@ class AfterToolsEvent(HookEvent):
 
 
 @dataclass
-class BeforeToolCallEvent(HookEvent, _Interruptible):
+class BeforeToolCallEvent(HookEvent[_LocalAgentT], _Interruptible):
     """Event triggered before a tool is invoked.
 
     This event is fired just before the agent executes a tool, allowing hook
@@ -245,7 +245,7 @@ class BeforeToolCallEvent(HookEvent, _Interruptible):
 
 
 @dataclass
-class AfterToolCallEvent(HookEvent):
+class AfterToolCallEvent(HookEvent[_LocalAgentT]):
     """Event triggered after a tool invocation completes.
 
     This event is fired after the agent has finished executing a tool,
@@ -274,6 +274,10 @@ class AfterToolCallEvent(HookEvent):
         result: The result of the tool invocation. Either a ToolResult on success
             or an Exception if the tool execution failed.
         cancel_message: The cancellation message if the user cancelled the tool call.
+        duration: Elapsed time in seconds spent executing the tool. Starts after
+            BeforeToolCallEvent returns and stops before AfterToolCallEvent is constructed.
+            None when the tool call was cancelled by a BeforeToolCallEvent hook
+            before execution.
         retry: Whether to retry the tool invocation. Can be set by hook callbacks
             to trigger a retry. When True, the current result is discarded and the
             tool is called again. Defaults to False.
@@ -285,6 +289,7 @@ class AfterToolCallEvent(HookEvent):
     result: ToolResult
     exception: Exception | None = None
     cancel_message: str | None = None
+    duration: float | None = None
     retry: bool = False
 
     def _can_write(self, name: str) -> bool:

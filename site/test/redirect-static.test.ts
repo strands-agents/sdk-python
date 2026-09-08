@@ -98,6 +98,29 @@ describe('buildStaticRedirects', () => {
     )
   })
 
+  it('accepts a custom Astro page as a redirect target', () => {
+    // Pages like integrations.astro are routable but live outside the docs
+    // content collection; redirect rules must be able to target them so
+    // long-published docs URLs can get crawler-followable stubs.
+    const pagesDir = path.join(contentDir, 'pages')
+    fs.mkdirSync(pagesDir, { recursive: true })
+    fs.writeFileSync(path.join(pagesDir, 'integrations.astro'), '---\n---\n<html />\n')
+
+    const redirects = buildStaticRedirects(contentDir, '/', { 'docs/old/page': 'integrations' }, pagesDir)
+
+    expect(redirects).toEqual({ '/docs/old/page': '/integrations/' })
+  })
+
+  it('does not treat dynamic routes as redirect targets', () => {
+    const pagesDir = path.join(contentDir, 'pages')
+    fs.mkdirSync(path.join(pagesDir, '[...slug]'), { recursive: true })
+    fs.writeFileSync(path.join(pagesDir, '[...slug]', 'index.astro'), '---\n---\n<html />\n')
+
+    expect(() => buildStaticRedirects(contentDir, '/', { 'docs/old/page': 'anything' }, pagesDir)).toThrow(
+      /has no content file/
+    )
+  })
+
   it('throws when a redirectFrom entry conflicts with a static rename rule', () => {
     writeDoc(contentDir, 'docs/user-guide/state.mdx', 'title: State\nredirectFrom:\n  - docs/old/page')
     writeDoc(contentDir, 'docs/user-guide/other.mdx', 'title: Other')

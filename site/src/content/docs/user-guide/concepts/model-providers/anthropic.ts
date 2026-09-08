@@ -105,3 +105,20 @@ async function serverSideTools() {
 
 void structuredOutputExample
 void serverSideTools
+
+async function promptCaching() {
+  // --8<-- [start:prompt_caching]
+  const model = new AnthropicModel({
+    modelId: 'claude-sonnet-4-6',
+    maxTokens: 1028,
+    cacheConfig: { ttl: '1h' },
+  })
+
+  const agent = new Agent({ model })
+  const result = await agent.invoke('Summarize the attached report.')
+  console.log(result.metrics?.accumulatedUsage)
+
+  // Typical output:
+  // { inputTokens: 12, ..., cacheReadInputTokens: 2505 }
+  // --8<-- [end:prompt_caching]
+}

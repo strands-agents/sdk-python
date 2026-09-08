@@ -43,7 +43,7 @@ strands-ts/
 
 ### 1. Environment Setup
 
-See [CONTRIBUTING.md - TypeScript SDK](../CONTRIBUTING.md#typescript-sdk) for prerequisites (Node.js 20+, npm), installation, and verification commands.
+See [CONTRIBUTING.md - TypeScript SDK](../CONTRIBUTING.md#typescript-sdk) for prerequisites (Node.js 22+, npm), installation, and verification commands.
 
 ### 2. Making Changes
 
@@ -208,7 +208,7 @@ export class XModel extends Model<XModelConfig> {
 - **`stream` is an async generator** typed `async *stream(messages, options?): AsyncIterable<ModelStreamEvent>`, matching the abstract base exactly. Consume async iterables with `for await`.
 - **Providers emit raw `ModelStreamEvent`s and must not buffer the whole response.** The base `Model.streamAggregated` performs event accumulation on top of `stream`.
 - **The SDK is async-only — no sync facade.** `invoke()` returns a `Promise`; there is no blocking equivalent (unlike the Python SDK's `__call__`).
-- **Cancellation uses `AbortSignal`.** `agent.cancelSignal` is exposed, and callers may pass an external `cancelSignal` via `invoke`/`stream` options (merged with `AbortSignal.any`). When merging concurrent async generators, race `.next()` with `Promise.race` and close the rest with `Promise.allSettled(gen.return())` in `finally`; use `Promise.all`/`allSettled` for simple fan-out.
+- **Cancellation uses `AbortSignal`.** Tools receive the execution-scoped signal through `ToolContext.cancelSignal`, and tool middleware through `ExecuteToolContext.cancelSignal`; foreground and direct tool execution use `agent.cancelSignal`. Callers may pass an external `cancelSignal` via `invoke`/`stream` options (merged with `AbortSignal.any`). When merging concurrent async generators, race `.next()` with `Promise.race` and close the rest with `Promise.allSettled(gen.return())` in `finally`; use `Promise.all`/`allSettled` for simple fan-out.
 
 ## Testing
 
@@ -260,7 +260,7 @@ npm run build         # Compile TypeScript
 
 ### Code Comments
 
-Comments explain WHAT/WHY and stay evergreen — the full rule (including how it applies to tests, and the deprecated/legacy nuance) is in the [root AGENTS.md](../AGENTS.md).
+Comments are to-the-point, state only what cannot be inferred from the code, and stay evergreen. The full rule (including how it applies to tests, and the deprecated/legacy nuance) is in the [root AGENTS.md](../AGENTS.md).
 
 ### Integration with Other Files
 

@@ -1,6 +1,7 @@
-import type { Storage } from './storage.js'
+import type { Storage, StorageSearchResult } from './storage.js'
 
-import { namespace, normalizeKey, normalizePrefix } from './storage.js'
+import { EPHEMERAL, namespace, normalizeKey, normalizePrefix } from './storage.js'
+import { KeywordSearchStrategy } from './search/keyword.js'
 
 /**
  * In-memory {@link Storage} backend backed by a `Map`.
@@ -24,6 +25,7 @@ import { namespace, normalizeKey, normalizePrefix } from './storage.js'
  * ```
  */
 export class InMemoryStorage implements Storage {
+  readonly [EPHEMERAL] = true as const
   private readonly _store = new Map<string, Uint8Array>()
 
   /**
@@ -81,6 +83,16 @@ export class InMemoryStorage implements Storage {
   /** Returns a prefixed view of this storage without mutating the original. */
   namespace(prefix: string): Storage {
     return namespace(this, prefix)
+  }
+
+  /**
+   * Searches stored content by keyword token-overlap scoring.
+   *
+   * @param query - Natural-language search query
+   * @returns All matches with relevance scores, ranked best-first
+   */
+  async search(query: string): Promise<StorageSearchResult[]> {
+    return KeywordSearchStrategy.search(this, query)
   }
 
   /**

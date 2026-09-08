@@ -2,13 +2,10 @@
 title: Available Sandboxes
 description: "Use the built-in Docker and SSH sandboxes, drive a sandbox from your own code, and stream output from long-running commands."
 tags: [sandbox, tool-execution]
-sidebar:
-  badge:
-    text: New
-    variant: tip
+addedDate: 2026-06-17
 ---
 
-Strands provides two built-in Sandbox backends: `DockerSandbox` for containers on the local host, and `SshSandbox` for remote machines. Both automatically register `sandbox_bash` and `sandbox_file_editor` tools on the agent. This page covers their configuration, plus how to drive a sandbox directly from your own code.
+Strands provides two built-in Sandbox backends: `DockerSandbox` for containers on the local host, and `SshSandbox` for remote machines. Both automatically register `sandbox_shell` and `sandbox_file_editor` tools on the agent. This page covers their configuration, plus how to drive a sandbox directly from your own code.
 
 ## DockerSandbox
 

@@ -5,19 +5,26 @@ These types are modeled after the Bedrock API.
 - Bedrock docs: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_Types_Amazon_Bedrock_Runtime.html
 """
 
+import threading
 import uuid
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Awaitable, Callable
-from dataclasses import dataclass
-from typing import Any, Literal, Protocol
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Generic, Literal, Protocol
 
-from typing_extensions import NotRequired, TypedDict
+from typing_extensions import NotRequired, TypedDict, TypeVar
 
 from .interrupt import _Interruptible
 from .media import DocumentContent, ImageContent
 
+if TYPE_CHECKING:
+    from .agent import LocalAgent
+
 JSONSchema = dict
 """Type alias for JSON Schema dictionaries."""
+
+_LocalAgentT = TypeVar("_LocalAgentT", bound="LocalAgent", default=Any)
+"""Local agent type exposed through ToolContext."""
 
 
 class ToolSpec(TypedDict):
@@ -30,12 +37,23 @@ class ToolSpec(TypedDict):
         outputSchema: Optional JSON Schema defining the expected output format.
             Note: Not all model providers support this field. Providers that don't
             support it should filter it out before sending to their API.
+        annotations: Optional metadata describing tool behavior (e.g. MCP tool
+            annotations such as `readOnlyHint` or `destructiveHint`). Distinct
+            from content-level annotations on tool results.
+            Annotations are untrusted hints from the tool provider, not
+            guarantees; consumers such as permission layers must not treat them
+            as a security boundary. A missing key means unknown, not False:
+            per MCP spec `destructiveHint` and `openWorldHint` default to True
+            when absent (`readOnlyHint` and `idempotentHint` default to False),
+            and this field is absent entirely for non-MCP tools. This field is
+            not sent to model provider APIs.
     """
 
     description: str
     inputSchema: JSONSchema
     name: str
     outputSchema: NotRequired[JSONSchema]
+    annotations: NotRequired[dict[str, object]]
 
 
 class Tool(TypedDict):
@@ -128,7 +146,7 @@ class ToolChoiceTool(TypedDict):
 
 
 @dataclass
-class ToolContext(_Interruptible):
+class ToolContext(_Interruptible, Generic[_LocalAgentT]):
     """Context object containing framework-provided data for decorated tools.
 
     This object provides access to framework-level information that may be useful
@@ -140,6 +158,11 @@ class ToolContext(_Interruptible):
                model configuration, and other agent state.
         invocation_state: Caller-provided kwargs that were passed to the agent when it was invoked (agent(),
                           agent.invoke_async(), etc.).
+        cancel_signal: Cancellation signal for this tool call. Poll ``cancel_signal.is_set()`` between
+                       steps, or forward it to an API that accepts one (e.g.
+                       :meth:`~strands.tools.mcp.mcp_client.MCPClient.call_tool_async`). A tool that
+                       ignores it runs to completion. Treat as read-only: setting or clearing it
+                       from a tool is unsupported.
 
     Note:
         This class is intended to be instantiated by the SDK. Direct construction by users
@@ -147,8 +170,12 @@ class ToolContext(_Interruptible):
     """
 
     tool_use: ToolUse
-    agent: Any  # Agent or BidiAgent - using Any for backwards compatibility
+    agent: _LocalAgentT
     invocation_state: dict[str, Any]
+    # Defaulted so a directly-constructed context stays valid; the SDK always supplies the
+    # invoking agent's signal. Kept out of repr and equality: an Event carries no useful text
+    # and compares by identity.
+    cancel_signal: threading.Event = field(default_factory=threading.Event, repr=False, compare=False)
 
     def _interrupt_id(self, name: str) -> str:
         """Unique id for the interrupt.

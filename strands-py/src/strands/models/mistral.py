@@ -18,12 +18,31 @@ from ..types.exceptions import ContextWindowOverflowException, ModelThrottledExc
 from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
 from ._defaults import resolve_config_metadata
-from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
-from .model import BaseModelConfig, Model
+from ._validation import (
+    _has_location_source,
+    validate_config_keys,
+    warn_on_cache_config_not_supported,
+    warn_on_tool_choice_not_supported,
+)
+from .model import BaseModelConfig, CacheConfig, Model
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
+
+
+def _apply_cache_config(request: dict[str, Any], cache_config: CacheConfig | None) -> None:
+    """Map a CacheConfig onto a Mistral request.
+
+    Args:
+        request: The Mistral request dict to mutate.
+        cache_config: The provider's configured cache settings, if any.
+    """
+    if cache_config is None:
+        return
+    if cache_config.cache_key is not None and "prompt_cache_key" not in request:
+        request["prompt_cache_key"] = cache_config.cache_key
+    warn_on_cache_config_not_supported(cache_config, "Mistral", supported={"cache_key"})
 
 
 class MistralModel(Model):
@@ -51,6 +70,9 @@ class MistralModel(Model):
             temperature: Controls randomness in generation (0.0 to 1.0).
             top_p: Controls diversity via nucleus sampling.
             stream: Whether to enable streaming responses.
+            cache_config: Prompt-caching configuration. Mistral routes cache reads on
+                cache_config.cache_key (mapped to the request's prompt_cache_key); it exposes no
+                retention or placement controls, so other fields are ignored.
         """
 
         model_id: str
@@ -58,6 +80,7 @@ class MistralModel(Model):
         temperature: float | None
         top_p: float | None
         stream: bool | None
+        cache_config: CacheConfig | None
 
     def __init__(
         self,
@@ -223,6 +246,10 @@ class MistralModel(Model):
                     logger.warning("Location sources are not supported by Mistral | skipping content block")
                     continue
 
+                if "cachePoint" in content:
+                    logger.warning("cachePoint content block is not supported by Mistral | skipping")
+                    continue
+
                 if "text" in content:
                     formatted_content = self._format_request_message_content(content)
                     if isinstance(formatted_content, str):
@@ -290,6 +317,8 @@ class MistralModel(Model):
                 }
                 for tool_spec in tool_specs
             ]
+
+        _apply_cache_config(request, self.config.get("cache_config"))
 
         return request
 

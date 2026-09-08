@@ -4,6 +4,7 @@ import { ContextWindowOverflowError, Message, TextBlock, ToolUseBlock, ToolResul
 import { AfterModelCallEvent, BeforeModelCallEvent } from '../../hooks/events.js'
 import { createMockAgent, invokeTrackedHook } from '../../__fixtures__/agent-helpers.js'
 import { MockMessageModel } from '../../__fixtures__/mock-message-model.js'
+import { Model as ModelBase } from '../../models/model.js'
 import type { Model, BaseModelConfig } from '../../models/model.js'
 
 function textMsg(role: 'user' | 'assistant', text: string): Message {
@@ -349,7 +350,10 @@ describe('SummarizingConversationManager', () => {
       })
       const messages = makeMessages(20)
       const mockAgent = createMockAgent({ messages })
-      const mockModel = { getConfig: () => ({ contextWindowLimit: 1000 }) as BaseModelConfig } as any
+      const mockModel = {
+        getConfig: () => ({ contextWindowLimit: 1000 }) as BaseModelConfig,
+        estimateUtilization: ModelBase.prototype.estimateUtilization,
+      } as any
 
       manager.initAgent(mockAgent)
 
@@ -380,7 +384,10 @@ describe('SummarizingConversationManager', () => {
       })
       const messages = makeMessages(20)
       const mockAgent = createMockAgent({ messages })
-      const mockModel = { getConfig: () => ({ contextWindowLimit: 1000 }) as BaseModelConfig } as any
+      const mockModel = {
+        getConfig: () => ({ contextWindowLimit: 1000 }) as BaseModelConfig,
+        estimateUtilization: ModelBase.prototype.estimateUtilization,
+      } as any
 
       manager.initAgent(mockAgent)
 
@@ -407,7 +414,10 @@ describe('SummarizingConversationManager', () => {
       })
       const messages = makeMessages(20)
       const mockAgent = createMockAgent({ messages })
-      const mockModel = { getConfig: () => ({ contextWindowLimit: 1000 }) as BaseModelConfig } as any
+      const mockModel = {
+        getConfig: () => ({ contextWindowLimit: 1000 }) as BaseModelConfig,
+        estimateUtilization: ModelBase.prototype.estimateUtilization,
+      } as any
 
       manager.initAgent(mockAgent)
 

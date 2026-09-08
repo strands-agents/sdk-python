@@ -22,3 +22,13 @@ import { Agent } from '@strands-agents/sdk'
 import { BedrockModel } from '@strands-agents/sdk/models/bedrock'
 import { z } from 'zod'
 // --8<-- [end:structured_output_imports]
+
+// --8<-- [start:bedrock_mantle_imports]
+import { Agent } from '@strands-agents/sdk'
+import { OpenAIModel } from '@strands-agents/sdk/models/openai'
+// --8<-- [end:bedrock_mantle_imports]
+
+// --8<-- [start:mantle_config_imports]
+import { Agent } from '@strands-agents/sdk'
+import { OpenAIModel } from '@strands-agents/sdk/models/openai'
+// --8<-- [end:mantle_config_imports]

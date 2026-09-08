@@ -3,7 +3,6 @@ title: Vended Tools
 description: "Pre-built tools included in the SDK for common agent tasks like file operations, shell commands, HTTP requests, and persistent notes."
 sidebar:
   label: "Vended Tools"
-languages: [python, typescript]
 tags: [tool-authoring]
 sourceLinks:
   - path: strands-ts/src/vended-tools/file-editor/file-editor.ts
@@ -13,7 +12,9 @@ sourceLinks:
   - path: strands-ts/src/vended-tools/sleep/sleep.ts
   - path: strands-ts/src/experimental/vended-tools/stop/stop.ts
   - path: strands-py/src/strands/vended_tools/http_request/http_request.py
+  - path: strands-py/src/strands/vended_tools/shell/shell.py
   - path: strands-py/src/strands/vended_tools/sleep/sleep.py
+  - path: strands-py/src/strands/vended_tools/web_fetch/web_fetch.py
   - path: strands-py/src/strands/experimental/tools/stop/stop.py
 ---
 
@@ -36,11 +37,12 @@ Each tool is imported from its own subpath under `@strands-agents/sdk/vended-too
 | Tool | Description | Supported in |
 |------|-------------|--------------|
 | [File Editor](#file-editor) | View, create, and edit files | Python, TypeScript (Node.js) |
-| [HTTP Request](#http-request) | Make HTTP requests to external APIs | Python, TypeScript (Node.js 20+, browsers) |
+| [HTTP Request](#http-request) | Make HTTP requests to external APIs | Python, TypeScript (Node.js 22+, browsers) |
 | [Notebook](#notebook) | Manage persistent text notebooks | TypeScript (Node.js, browsers) |
 | [Bash](#bash) | Execute shell commands with persistent sessions | Python, TypeScript (Node.js, Unix/Linux/macOS) |
 | [Sleep](#sleep) | Pause execution for a bounded, cancellable duration | Python, TypeScript (Node.js, browsers) |
 | [Stop](#stop-experimental) | Gracefully end the agent loop when the task is complete | Python, TypeScript (Node.js, browsers) |
+| [Web Fetch](#web-fetch) | Fetch a URL and return cleaned markdown for a model to read | Python |
 
 ### File Editor
 
@@ -83,7 +85,7 @@ agent("Create a file at /tmp/hello.txt with the contents 'Hello, world!'")
 
 Lets your agent call external APIs and fetch web content. Supports all HTTP methods, custom headers, and request bodies. Default timeout is 30 seconds.
 
-_Supported in: Python; Node.js 20+, modern browsers (TypeScript)._
+_Supported in: Python; Node.js 22+, modern browsers (TypeScript)._
 
 <Tabs>
 <Tab label="Python">
@@ -162,14 +164,18 @@ _Supported in: Node.js, browsers._
 
 ---
 
-### Bash
+### Bash / Shell
 
-Lets your agent run shell commands and act on the output. Shell state — variables, working directory, exported functions — persists across invocations within the same session, so the agent can build up context incrementally. Sessions can be restarted to clear state.
+Lets your agent run shell commands and act on the output. The two SDKs expose
+different tools here:
+
+- **TypeScript `bash`** spawns a persistent `bash` process on the host. Shell state — variables, working directory, exported functions — persists across invocations within the same session, so the agent can build up context incrementally. Sessions can be restarted to clear state.
+- **Python `shell`** (and TypeScript's `makeShell`) routes each command through the agent's [Sandbox](../sandbox/index.mdx) and is stateless: every call runs in a fresh shell, so variables and the working directory do not carry over. The sandbox decides the interpreter — `sh` locally and in Docker, the remote login shell over SSH — so use portable POSIX syntax.
 
 _Supported in: Node.js on Unix/Linux/macOS (TypeScript), all platforms (Python)._
 
 :::caution[Security Warning]
-This tool executes arbitrary bash commands. Without a [Sandbox](../sandbox/index.mdx), commands run with the full permissions of the process. Only use with trusted input and consider running in a [sandboxed environment](../sandbox/index.mdx) for production.
+These tools execute arbitrary shell commands. Without a [Sandbox](../sandbox/index.mdx), commands run with the full permissions of the process. Only use with trusted input and consider running in a [sandboxed environment](../sandbox/index.mdx) for production.
 :::
 
 **Example - File Operations:**
@@ -188,9 +194,9 @@ This tool executes arbitrary bash commands. Without a [Sandbox](../sandbox/index
 
 ```python
 from strands import Agent
-from strands.vended_tools import bash
+from strands.vended_tools import shell
 
-agent = Agent(tools=[bash])
+agent = Agent(tools=[shell])
 agent("List all Python files in the current directory and count them")
 ```
 
@@ -204,7 +210,7 @@ agent("List all Python files in the current directory and count them")
 --8<-- "user-guide/concepts/tools/vended-tools.ts:bash_session"
 ```
 
-📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/bash/README.md)
+📖 Full API Reference: [shell](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/shell/README.md) · [bash (TypeScript only)](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/bash/README.md)
 
 ---
 
@@ -316,6 +322,90 @@ result = agent("Summarize the changes in ./CHANGELOG.md")
 </Tabs>
 
 📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/experimental/vended-tools/stop/README.md)
+
+---
+
+### Web Fetch
+
+Fetches an HTTP(S) URL and returns its content. Two modes are available,
+configured at construction time via `make_web_fetch`:
+
+- **`agentic`** (default) — HTML is converted to markdown and passed to an
+  analyst agent that answers a `prompt`, so the full page never enters the
+  main agent's context. Use when targeted answers are needed about potentially
+  large pages.
+- **`markdown`** — HTML is converted to clean markdown with scripts, styles,
+  and noise stripped. Use when the agent needs full pages for reasoning.
+
+The tool delegates all networking to an `httpx.AsyncClient`. Use the
+`make_web_fetch` factory to supply a pre-configured client with custom
+timeouts, redirects, proxies, or caching. The `max_bytes` parameter caps the
+HTTP response size (default 5 MiB); `max_content_chars` caps the extracted
+content delivered to the model or analyst (default 50,000 characters). For
+`mode='agentic'`, the factory also accepts a `model` for the analyst; the
+agent's own model is used when none is supplied.
+
+_Supported in: Python (all platforms)._
+
+:::note[Install required]
+`web_fetch` requires the optional `web-fetch` extra:
+
+```bash
+pip install 'strands-agents[web-fetch]'
+```
+:::
+
+:::note[Security posture]
+`web_fetch` accepts only `http://` and `https://` URLs and caps response bodies
+at 5 MiB by default. Egress control belongs at the layer that encapsulates the
+agent — a sandbox, microVM, or network policy — where it can be enforced
+consistently across all tools, including `shell`.
+:::
+
+**Example:**
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.vended_tools import web_fetch
+
+agent = Agent(tools=[web_fetch])
+agent("What is the pricing for the enterprise plan at https://example.com/pricing")
+```
+
+Reading the full page as markdown:
+
+```python
+from strands import Agent
+from strands.vended_tools import make_web_fetch
+
+tool = make_web_fetch(mode="markdown")
+agent = Agent(tools=[tool])
+agent("Read https://example.com/docs and then explain the architecture")
+```
+
+Dedicated analyst model and tighter response cap:
+
+```python
+import httpx
+from strands import Agent
+from strands.models import BedrockModel
+from strands.vended_tools import make_web_fetch
+
+tool = make_web_fetch(
+    mode="agentic",
+    client=httpx.AsyncClient(timeout=10.0),
+    max_bytes=1 * 1024 * 1024,
+    max_content_chars=25_000,
+    model=BedrockModel(model_id="us.amazon.nova-micro-v1:0"),
+)
+agent = Agent(tools=[tool])
+```
+
+</Tab>
+</Tabs>
 
 ---
 

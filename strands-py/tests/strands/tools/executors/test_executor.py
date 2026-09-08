@@ -1,10 +1,9 @@
 import unittest.mock
-from unittest.mock import MagicMock
+from unittest.mock import ANY, MagicMock
 
 import pytest
 
 import strands
-from strands.experimental.hooks.events import BidiAfterToolCallEvent
 from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent
 from strands.interrupt import Interrupt
 from strands.telemetry.metrics import Trace
@@ -65,9 +64,15 @@ async def test_executor_stream_yields_result(
             tool_use=tool_use,
             invocation_state=invocation_state,
             result=exp_results[0],
+            duration=ANY,
         ),
     ]
     assert tru_hook_events == exp_hook_events
+
+    # Verify duration is a realistic positive value (mocked tool should complete in under 10s)
+    after_event = tru_hook_events[1]
+    assert isinstance(after_event.duration, float)
+    assert 0 <= after_event.duration < 10
 
 
 @pytest.mark.asyncio
@@ -163,8 +168,13 @@ async def test_executor_stream_yields_tool_error(
         invocation_state=invocation_state,
         result=exp_results[0],
         exception=unittest.mock.ANY,
+        duration=ANY,
     )
     assert tru_hook_after_event == exp_hook_after_event
+
+    # Verify duration is a realistic positive value
+    assert isinstance(tru_hook_after_event.duration, float)
+    assert 0 <= tru_hook_after_event.duration < 10
 
 
 @pytest.mark.asyncio
@@ -190,8 +200,13 @@ async def test_executor_stream_yields_unknown_tool(executor, agent, tool_results
         invocation_state=invocation_state,
         result=exp_results[0],
         exception=unittest.mock.ANY,
+        duration=ANY,
     )
     assert tru_hook_after_event == exp_hook_after_event
+
+    # Unknown tool still passes through middleware, so duration is measured
+    assert isinstance(tru_hook_after_event.duration, float)
+    assert 0 <= tru_hook_after_event.duration < 10
 
 
 @pytest.mark.asyncio
@@ -846,52 +861,6 @@ async def test_executor_stream_retry_false(executor, agent, tool_results, invoca
 
 
 @pytest.mark.asyncio
-async def test_executor_stream_bidi_event_no_retry_attribute(executor, agent, tool_results, invocation_state, alist):
-    """Test that BidiAfterToolCallEvent (which lacks retry attribute) doesn't cause retry.
-
-    This tests the getattr(after_event, "retry", False) fallback for events without retry.
-    """
-    call_count = {"count": 0}
-
-    @strands.tool(name="counting_tool")
-    def counting_tool():
-        call_count["count"] += 1
-        return f"attempt_{call_count['count']}"
-
-    agent.tool_registry.register_tool(counting_tool)
-
-    tool_use: ToolUse = {"name": "counting_tool", "toolUseId": "1", "input": {}}
-    result: strands.types.tools.ToolResult = {
-        "toolUseId": "1",
-        "status": "success",
-        "content": [{"text": "attempt_1"}],
-    }
-
-    # Create a BidiAfterToolCallEvent (which has no retry attribute)
-    bidi_event = BidiAfterToolCallEvent(
-        agent=agent,
-        selected_tool=counting_tool,
-        tool_use=tool_use,
-        invocation_state=invocation_state,
-        result=result,
-    )
-
-    # Patch _invoke_after_tool_call_hook to return BidiAfterToolCallEvent
-    async def mock_after_hook(*args, **kwargs):
-        return bidi_event, []
-
-    with unittest.mock.patch.object(ToolExecutor, "_invoke_after_tool_call_hook", mock_after_hook):
-        stream = executor._stream(agent, tool_use, tool_results, invocation_state)
-        tru_events = await alist(stream)
-
-    # Tool should be called once - no retry since BidiAfterToolCallEvent has no retry attr
-    assert call_count["count"] == 1
-
-    # Result should be returned
-    assert len(tru_events) == 1
-
-
-@pytest.mark.asyncio
 async def test_executor_stream_retry_after_exception(executor, agent, tool_results, invocation_state, alist):
     """Test that retry=True works when tool raises an exception.
 
@@ -1048,3 +1017,23 @@ async def test_executor_stream_cancel_after_hook_sees_no_exception(
     assert isinstance(after_event, AfterToolCallEvent)
     assert after_event.exception is None
     assert after_event.cancel_message == "user denied permission"
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_cancel_duration_is_none(
+    executor, agent, tool_results, invocation_state, hook_events, alist
+):
+    """Test that AfterToolCallEvent.duration is None when the tool is cancelled before execution."""
+
+    def cancel_callback(event):
+        event.cancel_tool = True
+        return event
+
+    agent.hooks.add_callback(BeforeToolCallEvent, cancel_callback)
+    tool_use: ToolUse = {"name": "weather_tool", "toolUseId": "1", "input": {}}
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
+    await alist(stream)
+
+    after_event = hook_events[-1]
+    assert isinstance(after_event, AfterToolCallEvent)
+    assert after_event.duration is None
