@@ -40,14 +40,3 @@ storage = LocalFileStorage("./my-data/")
 # --8<-- [start:s3]
 storage = S3Storage("my-bucket", prefix="agents/prod/")
 # --8<-- [end:s3]
-
-
-# --8<-- [start:keyword_search]
-from strands.storage.search import KeywordSearchStrategy
-
-strategy = KeywordSearchStrategy()
-storage = LocalFileStorage("./my-data/")
-results = await strategy.search(
-    storage, "dark mode toggle"
-)
-# --8<-- [end:keyword_search]
