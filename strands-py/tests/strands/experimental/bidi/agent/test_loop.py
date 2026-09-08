@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import unittest.mock
 import warnings
 
@@ -7,7 +8,7 @@ import pytest_asyncio
 
 from strands import tool
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.agent.loop import _ReaderError
+from strands.experimental.bidi.agent.loop import _MAX_TOOL_RECOVERY_BYTES, _format_tool_recovery, _ReaderError
 from strands.experimental.bidi.models import BidiModel, BidiModelTimeoutError
 from strands.experimental.bidi.types.events import (
     BidiConnectionCloseEvent,
@@ -21,6 +22,7 @@ from strands.experimental.bidi.types.events import (
 )
 from strands.experimental.hooks.events import BidiBeforeConnectionRestartEvent
 from strands.types._events import ToolResultEvent, ToolResultMessageEvent, ToolUseStreamEvent
+from strands.types.tools import ToolResult, ToolUse
 
 
 @pytest.fixture
@@ -437,12 +439,8 @@ async def test_lifecycle_event_delivered_while_consumer_idle(loop, agent, agener
 
 
 @pytest.mark.asyncio
-async def test_tool_result_not_sent_when_completed_during_reconnect(agenerator):
-    """A tool completing inside the reconnect window must not deliver its result to the new connection.
-
-    The gen re-check after the send gate reopens guards this; the window is opened by a
-    suspending before-restart hook (a public extension point).
-    """
+async def test_tool_result_completed_during_reconnect_is_recovered(agenerator):
+    """A tool released during reconnect is recovered only on the replacement connection."""
     order = []
     release_tool = asyncio.Event()
 
@@ -454,7 +452,7 @@ async def test_tool_result_not_sent_when_completed_during_reconnect(agenerator):
     model = unittest.mock.AsyncMock(spec=BidiModel)
     model.restart = unittest.mock.AsyncMock(side_effect=lambda *a, **k: order.append("restart"))
     model.connection_config = {}
-    model.send.side_effect = lambda event: order.append("send")
+    model.send.side_effect = lambda event: order.append("recover" if isinstance(event, BidiTextInputEvent) else "send")
     model.receive = unittest.mock.Mock(return_value=agenerator([]))
 
     agent = BidiAgent(model=model, tools=[slow_tool], system_prompt="hi")
@@ -468,7 +466,9 @@ async def test_tool_result_not_sent_when_completed_during_reconnect(agenerator):
 
     drain_task = asyncio.create_task(drain())
     tool_use = {"toolUseId": "t1", "name": "slow_tool", "input": {}}
-    tool_task = asyncio.create_task(loop._run_tool(tool_use, loop._generation))
+    tool_use_key = await loop._register_tool_use(tool_use, loop._generation)
+    assert tool_use_key is not None
+    tool_task = asyncio.create_task(loop._run_tool(tool_use, tool_use_key))
     for _ in range(10):
         await asyncio.sleep(0)
 
@@ -484,7 +484,41 @@ async def test_tool_result_not_sent_when_completed_during_reconnect(agenerator):
     await asyncio.wait_for(tool_task, timeout=2)
     drain_task.cancel()
 
-    assert "send" not in order, f"stale tool result sent to new connection: {order}"
+    assert "send" not in order
+    assert order.count("recover") == 1
+    assert order.index("restart") < order.index("recover")
+
+
+@pytest.mark.asyncio
+async def test_tool_result_rechecks_send_gate_after_connection_lock(loop, agent, agenerator):
+    """Result delivery does not hold the connection lock while a closed send gate blocks it."""
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
+    await loop.start()
+    loop._reconnect_timer.cancel()
+
+    tool_use: ToolUse = {"toolUseId": "t1", "name": "time_tool", "input": {}}
+    tool_use_key = await loop._register_tool_use(tool_use, loop._generation)
+    assert tool_use_key is not None
+    tool_result: ToolResult = {"toolUseId": "t1", "status": "success", "content": [{"text": "12:00"}]}
+
+    await loop._connection_lock.acquire()
+    delivery_task = asyncio.create_task(loop._deliver_tool_result(tool_use_key, ToolResultEvent(tool_result)))
+    try:
+        await asyncio.sleep(0)
+        loop._send_gate.clear()
+        loop._connection_lock.release()
+        await asyncio.sleep(0)
+
+        await asyncio.wait_for(loop._connection_lock.acquire(), timeout=0.5)
+        loop._connection_lock.release()
+
+        loop._send_gate.set()
+        await asyncio.wait_for(delivery_task, timeout=2)
+        agent.model.send.assert_awaited_once()
+    finally:
+        loop._send_gate.set()
+        await asyncio.gather(delivery_task, return_exceptions=True)
+        await loop.stop()
 
 
 @pytest.mark.asyncio
@@ -855,13 +889,8 @@ async def test_bidi_agent_loop_receive_tool_use(loop, agent, agenerator):
 
 
 @pytest.mark.asyncio
-async def test_bidi_agent_loop_tool_result_not_sent_after_reconnect(loop, agent, agenerator):
-    """A tool completing after a reconnect records its result but does not send it.
-
-    The tool_use_id is scoped to the connection that issued the call; sending the result to
-    the reconnected connection would be rejected by the provider (e.g. Nova
-    "Not expecting a tool result") and end the session.
-    """
+async def test_bidi_agent_loop_tool_result_recovers_after_reconnect(loop, agent, agenerator):
+    """A tool completing on a later generation is delivered as semantic text."""
     tool_use = {"toolUseId": "t1", "name": "time_tool", "input": {}}
 
     agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
@@ -869,6 +898,8 @@ async def test_bidi_agent_loop_tool_result_not_sent_after_reconnect(loop, agent,
 
     # A reconnect during tool execution advances the connection generation.
     issuing_generation = loop._generation
+    tool_use_key = await loop._register_tool_use(tool_use, issuing_generation)
+    assert tool_use_key is not None
     loop._generation += 1
 
     # Drain the event queue (maxsize=1) so _run_tool's puts do not block.
@@ -878,18 +909,163 @@ async def test_bidi_agent_loop_tool_result_not_sent_after_reconnect(loop, agent,
 
     drain_task = asyncio.create_task(drain())
     try:
-        await loop._run_tool(tool_use, issuing_generation)
+        await loop._run_tool(tool_use, tool_use_key)
         await asyncio.sleep(0)
     finally:
         drain_task.cancel()
 
-    # The completed exchange is recorded for the provider's reconnect replay...
-    assert len(agent.messages) == 2
+    assert len(agent.messages) == 3
     assert agent.messages[0]["role"] == "assistant"
     assert agent.messages[0]["content"] == [{"toolUse": tool_use}]
     assert agent.messages[1]["content"][0]["toolResult"]["toolUseId"] == "t1"
-    # ...but the stale result is not sent to the reconnected connection.
-    agent.model.send.assert_not_called()
+    assert '"tool": "time_tool"' in agent.messages[2]["content"][0]["text"]
+    agent.model.send.assert_awaited_once()
+    tru_recovery_event = agent.model.send.call_args.args[0]
+    assert isinstance(tru_recovery_event, BidiTextInputEvent)
+    assert '"tool": "time_tool"' in tru_recovery_event.text
+    assert "t1" not in tru_recovery_event.text
+    assert loop._running_tools == {}
+
+
+def test_format_tool_recovery_is_deterministic_and_omits_provider_id():
+    tool_use: ToolUse = {
+        "toolUseId": "provider-id",
+        "name": "weather",
+        "input": {"city": "Seattle"},
+    }
+    tool_result: ToolResult = {
+        "toolUseId": "provider-id",
+        "status": "success",
+        "content": [{"json": {"temperature": 68}}, {"text": "clear"}],
+    }
+
+    tru_recovery = _format_tool_recovery(tool_use, tool_result)
+    exp_recovery = (
+        "A tool requested before reconnection has completed. "
+        "Use this result to answer the user without invoking the tool again: "
+        '{"arguments": {"city": "Seattle"}, "result": [{"json": {"temperature": 68}}, '
+        '{"text": "clear"}], "status": "success", "tool": "weather"}'
+    )
+
+    assert tru_recovery == exp_recovery
+    assert "provider-id" not in tru_recovery
+
+
+def test_format_tool_recovery_rejects_unsupported_content():
+    tool_use: ToolUse = {"toolUseId": "t1", "name": "image_tool", "input": {}}
+    tool_result: ToolResult = {
+        "toolUseId": "t1",
+        "status": "success",
+        "content": [{"image": {"format": "png", "source": {"bytes": b"image"}}}],
+    }
+
+    with pytest.raises(ValueError, match="content type not supported for bidi tool recovery"):
+        _format_tool_recovery(tool_use, tool_result)
+
+
+def test_format_tool_recovery_rejects_non_serializable_content():
+    tool_use: ToolUse = {"toolUseId": "t1", "name": "json_tool", "input": {}}
+    tool_result: ToolResult = {
+        "toolUseId": "t1",
+        "status": "success",
+        "content": [{"json": object()}],
+    }
+
+    with pytest.raises(ValueError, match="tool recovery content is not JSON serializable"):
+        _format_tool_recovery(tool_use, tool_result)
+
+
+def test_format_tool_recovery_rejects_oversized_content():
+    tool_use: ToolUse = {"toolUseId": "t1", "name": "large_tool", "input": {}}
+    tool_result: ToolResult = {
+        "toolUseId": "t1",
+        "status": "success",
+        "content": [{"text": "é" * (_MAX_TOOL_RECOVERY_BYTES // 2)}],
+    }
+
+    with pytest.raises(ValueError, match="tool recovery content exceeds size limit"):
+        _format_tool_recovery(tool_use, tool_result)
+
+
+@pytest.mark.asyncio
+async def test_bidi_agent_loop_coalesces_matching_tool_ids_after_reconnect(loop, agent, agenerator):
+    """All replacement-connection calls receive one running tool's result."""
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
+    await loop.start()
+
+    original = {"toolUseId": "old", "name": "time_tool", "input": {}}
+    original_key = await loop._register_tool_use(original, loop._generation)
+    assert original_key is not None
+
+    loop._generation += 1
+    first_reissue = {"toolUseId": "new-1", "name": "time_tool", "input": {}}
+    second_reissue = {"toolUseId": "new-2", "name": "time_tool", "input": {}}
+
+    assert await loop._register_tool_use(first_reissue, loop._generation) is None
+    assert len(loop._running_tools) == 1
+
+    async def register_reissue_during_send(event):
+        if isinstance(event, ToolResultEvent) and event.tool_result["toolUseId"] == "new-1":
+            assert await loop._register_tool_use(second_reissue, loop._generation) is None
+
+    agent.model.send.side_effect = register_reissue_during_send
+    result = {"toolUseId": "old", "status": "success", "content": [{"text": "12:00"}]}
+    await loop._deliver_tool_result(original_key, ToolResultEvent(result))
+
+    tru_delivered_ids = [call.args[0].tool_result["toolUseId"] for call in agent.model.send.await_args_list]
+    exp_delivered_ids = ["new-1", "new-2"]
+    assert tru_delivered_ids == exp_delivered_ids
+    assert loop._running_tools == {}
+
+    await loop.stop()
+
+
+@pytest.mark.asyncio
+async def test_bidi_agent_loop_preserves_distinct_same_connection_tool_calls(loop, agent, agenerator):
+    """Provider-issued calls on one connection remain distinct even when their arguments match."""
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
+    await loop.start()
+
+    first = {"toolUseId": "first", "name": "time_tool", "input": {}}
+    second = {"toolUseId": "second", "name": "time_tool", "input": {}}
+
+    tru_first_key = await loop._register_tool_use(first, loop._generation)
+    tru_second_key = await loop._register_tool_use(second, loop._generation)
+    exp_first_key = (loop._generation, "first")
+    exp_second_key = (loop._generation, "second")
+
+    assert tru_first_key == exp_first_key
+    assert tru_second_key == exp_second_key
+    assert len(loop._running_tools) == 2
+
+    await loop.stop()
+
+
+@pytest.mark.asyncio
+async def test_bidi_agent_loop_executes_ambiguous_reissue_independently(loop, agent, agenerator, caplog):
+    """Multiple exact older-generation matches are not coalesced arbitrarily."""
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
+    await loop.start()
+
+    first: ToolUse = {"toolUseId": "first", "name": "time_tool", "input": {}}
+    second: ToolUse = {"toolUseId": "second", "name": "time_tool", "input": {}}
+    assert await loop._register_tool_use(first, loop._generation) is not None
+    assert await loop._register_tool_use(second, loop._generation) is not None
+
+    loop._generation += 1
+    reissue: ToolUse = {"toolUseId": "reissue", "name": "time_tool", "input": {}}
+    with caplog.at_level(logging.WARNING, logger="strands.experimental.bidi.agent.loop"):
+        tru_reissue_key = await loop._register_tool_use(reissue, loop._generation)
+
+    exp_reissue_key = (loop._generation, "reissue")
+    assert tru_reissue_key == exp_reissue_key
+    assert len(loop._running_tools) == 3
+    assert (
+        "matched_tool_use_ids=<first,second>, match_count=<2> | "
+        "ambiguous tool use after reconnect | executing independently"
+    ) in caplog.text
+
+    await loop.stop()
 
 
 @pytest.mark.asyncio
