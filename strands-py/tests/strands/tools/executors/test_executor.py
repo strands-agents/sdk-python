@@ -76,6 +76,30 @@ async def test_executor_stream_yields_result(
 
 
 @pytest.mark.asyncio
+async def test_executor_stream_runs_tool_registered_under_hook_renamed_tool_use(
+    executor, agent, tool_results, invocation_state, hook_events, weather_tool, temperature_tool, alist
+):
+    def rename(event):
+        if isinstance(event, BeforeToolCallEvent):
+            event.tool_use["name"] = "temperature_tool"
+
+    agent.hooks.add_callback(BeforeToolCallEvent, rename)
+    tool_use: ToolUse = {"name": "weather_tool", "toolUseId": "1", "input": {}}
+
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
+
+    tru_events = await alist(stream)
+    exp_events = [
+        ToolResultEvent({"toolUseId": "1", "status": "success", "content": [{"text": "75F"}]}),
+    ]
+    assert tru_events == exp_events
+
+    tru_after_tool = hook_events[-1].selected_tool
+    exp_after_tool = temperature_tool
+    assert tru_after_tool is exp_after_tool
+
+
+@pytest.mark.asyncio
 async def test_executor_stream_wraps_results(
     executor, agent, tool_results, invocation_state, hook_events, weather_tool, alist, agenerator
 ):
