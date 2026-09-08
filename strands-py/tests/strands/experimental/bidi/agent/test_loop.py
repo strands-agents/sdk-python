@@ -545,10 +545,63 @@ async def test_tool_result_send_timeout_does_not_block_reconnect(loop, agent, ag
         delivery_task = asyncio.create_task(loop._deliver_tool_result(tool_use_key, ToolResultEvent(tool_result)))
         await send_started.wait()
         restart_task = asyncio.create_task(loop._restart_connection(None, loop._generation))
-        _, tru_restarted = await asyncio.wait_for(asyncio.gather(delivery_task, restart_task), timeout=1)
+        tru_retained, tru_restarted = await asyncio.wait_for(asyncio.gather(delivery_task, restart_task), timeout=1)
 
     assert "mode=<native>, timeout_s=<0.01> | tool result delivery timed out" in caplog.text
+    assert tru_retained is True
     assert tru_restarted is True
+    assert tool_use_key in loop._running_tools
+
+    await loop.stop()
+
+
+@pytest.mark.asyncio
+async def test_tool_result_recovery_timeout_is_delivered_to_next_exact_reissue(
+    loop, agent, agenerator, monkeypatch, caplog
+):
+    """A timed-out recovery result remains available to the next exact provider reissue."""
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
+    await loop.start()
+    loop._reconnect_timer.cancel()
+    monkeypatch.setattr("strands.experimental.bidi.agent.loop._TOOL_RESULT_SEND_TIMEOUT_S", 0.01)
+
+    tool_use: ToolUse = {"toolUseId": "old", "name": "time_tool", "input": {}}
+    tool_use_key = await loop._register_tool_use(tool_use, loop._generation)
+    assert tool_use_key is not None
+    loop._generation += 1
+
+    tru_sent_events = []
+
+    async def send(event):
+        tru_sent_events.append(event)
+        if len(tru_sent_events) == 1:
+            await asyncio.Event().wait()
+
+    agent.model.send.side_effect = send
+
+    async def drain():
+        while True:
+            await loop._event_queue.get()
+
+    drain_task = asyncio.create_task(drain())
+    try:
+        with caplog.at_level(logging.WARNING, logger="strands.experimental.bidi.agent.loop"):
+            await loop._run_tool(tool_use, tool_use_key)
+
+        assert "mode=<recovery>, timeout_s=<0.01> | tool result delivery timed out" in caplog.text
+        assert tool_use_key in loop._running_tools
+
+        loop._generation += 1
+        reissue: ToolUse = {"toolUseId": "new", "name": "time_tool", "input": {}}
+        assert await loop._register_tool_use(reissue, loop._generation) is None
+    finally:
+        drain_task.cancel()
+
+    assert len(tru_sent_events) == 2
+    assert isinstance(tru_sent_events[0], BidiTextInputEvent)
+    assert isinstance(tru_sent_events[1], ToolResultEvent)
+    assert tru_sent_events[1].tool_result["toolUseId"] == "new"
+    assert loop._running_tools == {}
 
     await loop.stop()
 
