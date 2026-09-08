@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 
 _MAX_PATTERN_LENGTH = 200
+# Best-effort heuristic; does not catch all catastrophic patterns (e.g. (.*a){12}$).
 _NESTED_QUANTIFIER = re.compile(r"[+*]\s*\)\s*[+*]")
 
 _TEXT_APPLICATION_TYPES = frozenset(

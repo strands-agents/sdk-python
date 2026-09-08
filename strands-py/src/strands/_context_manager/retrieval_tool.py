@@ -26,7 +26,7 @@ RETRIEVAL_TOOL_NAME = "retrieve_context"
 _DEFAULT_MAX_RESULT_TOKENS = 10_000
 
 
-_MEDIA_KEYS = frozenset({"image", "document", "video"})
+_MEDIA_KEYS = frozenset({"image", "document"})
 
 
 def _restore_media(data: dict[str, Any]) -> ToolResultContent | None:

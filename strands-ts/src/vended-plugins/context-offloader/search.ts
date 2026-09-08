@@ -31,6 +31,7 @@ function formatLines(lines: string[], indices: number[], matchedSet: Set<number>
 }
 
 const MAX_PATTERN_LENGTH = 200
+// Best-effort heuristic; does not catch all catastrophic patterns (e.g. (.*a){12}$).
 const NESTED_QUANTIFIER = /[+*]\s*\)\s*[+*]/
 
 /** Finds lines matching a pattern, expands with context, and formats with truncation. */
