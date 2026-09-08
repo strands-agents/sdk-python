@@ -135,6 +135,39 @@ class TestFullTextTruncation:
         assert text.endswith("\n\n[truncated]")
 
 
+class TestMediaBlockRetrieval:
+    """Tests for media block retrieval (image/document/video/audio)."""
+
+    @pytest.mark.asyncio
+    async def test_returns_error_for_image_block(self, stash):
+        data = json.dumps({"image": {"format": "png", "source": {"bytes": "iVBOR"}}}).encode("utf-8")
+        ref = await stash.store("tool-1", 0, data)
+        tool = _create_retrieval_tool(stash)
+        result = await tool._tool_func({"toolUseId": "t1", "input": {"reference": ref}})
+        assert result["status"] == "error"
+        assert "image" in result["content"][0]["text"]
+        assert "cannot be returned as text" in result["content"][0]["text"]
+
+    @pytest.mark.asyncio
+    async def test_returns_error_for_document_block(self, stash):
+        data = json.dumps({"document": {"format": "pdf", "source": {"bytes": "JVBER"}}}).encode("utf-8")
+        ref = await stash.store("tool-1", 0, data)
+        tool = _create_retrieval_tool(stash)
+        result = await tool._tool_func({"toolUseId": "t1", "input": {"reference": ref}})
+        assert result["status"] == "error"
+        assert "document" in result["content"][0]["text"]
+
+    @pytest.mark.asyncio
+    async def test_includes_format_and_size_in_error(self, stash):
+        data = json.dumps({"image": {"format": "jpeg", "source": {"bytes": "abc123"}}}).encode("utf-8")
+        ref = await stash.store("tool-1", 0, data)
+        tool = _create_retrieval_tool(stash)
+        result = await tool._tool_func({"toolUseId": "t1", "input": {"reference": ref}})
+        assert result["status"] == "error"
+        assert "jpeg" in result["content"][0]["text"]
+        assert "6 bytes" in result["content"][0]["text"]
+
+
 class TestInvalidLineRange:
     """Tests for malformed line_range input."""
 
