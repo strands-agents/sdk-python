@@ -48,7 +48,7 @@ class _TestBidiModel(BidiModel):
         pass
 
 
-class _AudioBidiModel(_TestBidiModel):
+class _AudioBidiModel(_TestBidiModel, AudioCapable):
     @property
     def audio_config(self) -> AudioConfig:
         return {
@@ -85,6 +85,23 @@ def test_update_config():
     model.update_config(model_id="updated-model")
 
     assert model.get_config() == {"model_id": "updated-model"}
+
+
+@pytest.mark.parametrize(
+    ("model_config", "invalid_key"),
+    [
+        pytest.param({"model": "test-model"}, "model", id="model"),
+        pytest.param({"connection": {"restart_after": 30}}, "restart_after", id="connection"),
+    ],
+)
+def test_validate_config_warns_invalid_keys(model_config, invalid_key):
+    with pytest.warns(UserWarning, match=invalid_key):
+        _TestBidiModel._validate_config(model_config)
+
+
+def test_validate_audio_config_warns_invalid_keys():
+    with pytest.warns(UserWarning, match="input_rte"):
+        _AudioBidiModel._validate_audio_config({"input_rte": 48000})
 
 
 def test_get_config_returns_copy():
