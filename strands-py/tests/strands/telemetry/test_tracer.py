@@ -959,8 +959,10 @@ def test_start_agent_span(mock_tracer):
                 "gen_ai.request.model": model_id,
                 "gen_ai.agent.tools": json.dumps(tools),
                 "custom_attr": "value",
-                "gen_ai.system_instructions": serialize([{"type": "text", "content": system_prompt}]),
             }
+        )
+        mock_span.add_event.assert_any_call(
+            "gen_ai.system.message", attributes={"content": serialize([{"text": system_prompt}])}
         )
         mock_span.add_event.assert_any_call("gen_ai.user.message", attributes={"content": json.dumps(content)})
         assert span is not None
@@ -1016,9 +1018,10 @@ def test_start_agent_span_latest_conventions(mock_tracer, monkeypatch):
         assert span is not None
 
 
-def test_start_agent_span_records_system_instructions(mock_tracer):
+def test_start_agent_span_records_system_instructions(mock_tracer, monkeypatch):
     """Test that agent system prompts use the semantic-convention attribute."""
     with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
         tracer = Tracer()
         tracer.tracer = mock_tracer
 
@@ -2541,7 +2544,10 @@ class TestSpanAttributeRedaction:
 
     def test_agent_system_instructions_redacted(self, mock_tracer, monkeypatch):
         """Agent system instructions follow the configured redaction policy."""
-        monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_unredacted_attributes=")
+        monkeypatch.setenv(
+            "OTEL_SEMCONV_STABILITY_OPT_IN",
+            "gen_ai_latest_experimental,gen_ai_unredacted_attributes=",
+        )
         with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
             tracer = Tracer()
             tracer.tracer = mock_tracer
