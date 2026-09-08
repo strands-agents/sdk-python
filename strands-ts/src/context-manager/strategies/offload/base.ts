@@ -61,8 +61,6 @@ export interface OffloadConditions {
 /**
  * Intermediate builder result that allows chaining `.when()` conditions.
  * Also implements `ContextStrategy` directly so it can be used without `.when()`.
- *
- * @experimental
  */
 export interface OffloadStrategyBuilder extends ContextStrategy {
   /** Add conditions that determine when this strategy fires. */
