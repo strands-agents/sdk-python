@@ -1,6 +1,7 @@
 """Tests for ``BedrockInvokeModel``."""
 
 import asyncio
+import base64
 import json
 import logging
 import sys
@@ -15,6 +16,7 @@ from botocore.exceptions import ClientError
 
 import strands
 from strands import _exception_notes, tool
+from strands.event_loop import streaming
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID
 from strands.models.bedrock_invoke import BedrockInvokeModel
 from strands.models.model import Model
@@ -78,6 +80,14 @@ def _tool_inputs(events):
         for e in events
         if "contentBlockDelta" in e and "toolUse" in e["contentBlockDelta"]["delta"]
     )
+
+
+def _reasoning_deltas(events):
+    return [
+        e["contentBlockDelta"]["delta"]["reasoningContent"]
+        for e in events
+        if "contentBlockDelta" in e and "reasoningContent" in e["contentBlockDelta"]["delta"]
+    ]
 
 
 def _stop_reason(events):
@@ -295,6 +305,26 @@ def test_format_anthropic_request_tool_choice(model):
     assert req["tools"][0]["input_schema"] == string_length.tool_spec["inputSchema"]["json"]
 
 
+def test_format_anthropic_request_reasoning(model):
+    reasoning = {"reasoningContent": {"reasoningText": {"text": "working", "signature": "sig"}}}
+
+    req = model._format_anthropic_request([{"role": "assistant", "content": [reasoning]}], None, None, None)
+
+    tru_content = req["messages"][0]["content"]
+    exp_content = [{"type": "thinking", "thinking": "working", "signature": "sig"}]
+    assert tru_content == exp_content
+
+
+def test_format_anthropic_request_redacted_reasoning(model):
+    reasoning = {"reasoningContent": {"redactedContent": b"redacted-bytes"}}
+
+    req = model._format_anthropic_request([{"role": "assistant", "content": [reasoning]}], None, None, None)
+
+    tru_content = req["messages"][0]["content"]
+    exp_content = [{"type": "redacted_thinking", "data": base64.b64encode(b"redacted-bytes").decode("utf-8")}]
+    assert tru_content == exp_content
+
+
 @pytest.mark.parametrize("family, schema_key", [("anthropic", "input_schema"), ("openai", "parameters")])
 def test_format_request_unwraps_tool_input_schema(model, family, schema_key):
     """``ToolSpec.inputSchema`` is a ``{"json": ...}`` envelope; only the schema inside it goes on the wire."""
@@ -420,6 +450,17 @@ def test_format_openai_request_merges_params():
     assert req["logprobs"] is True
 
 
+@pytest.mark.parametrize("streaming", [True, False], ids=["streaming", "non_streaming"])
+def test_format_openai_request_params_cannot_desync_stream_transport(streaming):
+    """The wire flag must match the Bedrock API selected by ``streaming``, even when params conflicts."""
+    m = BedrockInvokeModel(model_id=IMPORTED_ID, streaming=streaming, params={"stream": not streaming})
+
+    req = m._format_openai_request([{"role": "user", "content": [{"text": "hi"}]}], None, None, None)
+
+    assert req["stream"] is streaming
+    assert ("stream_options" in req) is streaming
+
+
 def test_format_request_params_override_computed_fields(model):
     """``params`` is splatted last, matching anthropic.py, so it wins over computed fields."""
     model.update_config(max_tokens=100, params={"max_tokens": 999})
@@ -436,7 +477,6 @@ def test_format_request_params_override_computed_fields(model):
         {"document": {"format": "pdf", "name": "doc", "source": {"bytes": b"%PDF-"}}},
         {"video": {"format": "mp4", "source": {"bytes": b"\x00"}}},
         {"cachePoint": {"type": "default"}},
-        {"reasoningContent": {"reasoningText": {"text": "hmm", "signature": "sig"}}},
     ],
 )
 def test_format_anthropic_request_rejects_unsupported_block(model, block):
@@ -463,7 +503,7 @@ def test_format_anthropic_request_all_unsupported_blocks_does_not_drop_message(m
     """A message of only unsupported blocks raises instead of silently dropping the whole message."""
     msgs = [
         {"role": "user", "content": [{"text": "hi"}]},
-        {"role": "assistant", "content": [{"reasoningContent": {"reasoningText": {"text": "x", "signature": "s"}}}]},
+        {"role": "assistant", "content": [{"cachePoint": {"type": "default"}}]},
     ]
     with pytest.raises(TypeError, match="unsupported type"):
         model._format_anthropic_request(msgs, None, None, None)
@@ -546,6 +586,122 @@ async def test_stream_anthropic_text_only(bedrock_client):
     assert _texts(events) == "Hi there"
     assert _stop_reason(events) == "end_turn"
     assert _metadata(events)["usage"] == {"inputTokens": 5, "outputTokens": 3, "totalTokens": 8}
+
+
+@pytest.mark.asyncio
+async def test_stream_anthropic_reasoning(bedrock_client):
+    bedrock_client.invoke_model_with_response_stream.return_value = {
+        "body": _chunks([
+            {"type": "message_start", "message": {"usage": {"input_tokens": 5, "output_tokens": 0}}},
+            {"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": ""}},
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "thinking_delta", "thinking": "working"},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "signature_delta", "signature": "sig"},
+            },
+            {"type": "content_block_stop", "index": 0},
+            {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 3}},
+            {"type": "message_stop"},
+        ])
+    }
+
+    events = await _collect(BedrockInvokeModel(model_id=CLAUDE_ID), [{"role": "user", "content": [{"text": "hi"}]}])
+
+    assert _reasoning_deltas(events) == [{"text": "working"}, {"signature": "sig"}]
+
+
+@pytest.mark.asyncio
+async def test_stream_anthropic_reasoning_without_signature_round_trips(bedrock_client):
+    bedrock_client.invoke_model_with_response_stream.return_value = {
+        "body": _chunks([
+            {"type": "message_start", "message": {"usage": {"input_tokens": 5, "output_tokens": 0}}},
+            {"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": ""}},
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "thinking_delta", "thinking": "working"},
+            },
+            {"type": "content_block_stop", "index": 0},
+            {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 3}},
+            {"type": "message_stop"},
+        ])
+    }
+    m = BedrockInvokeModel(model_id=CLAUDE_ID)
+
+    processed = [
+        event
+        async for event in streaming.process_stream(m.stream([{"role": "user", "content": [{"text": "hi"}]}]))
+    ]
+    _, message, _, _ = processed[-1]["stop"]
+    req = m._format_anthropic_request([message], None, None, None)
+
+    assert req["messages"][0]["content"] == [{"type": "thinking", "thinking": "working"}]
+
+
+@pytest.mark.asyncio
+async def test_stream_anthropic_redacted_reasoning_round_trips(bedrock_client):
+    data = base64.b64encode(b"redacted-bytes").decode("utf-8")
+    bedrock_client.invoke_model_with_response_stream.return_value = {
+        "body": _chunks([
+            {"type": "message_start", "message": {"usage": {"input_tokens": 5, "output_tokens": 0}}},
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "redacted_thinking", "data": data},
+            },
+            {"type": "content_block_stop", "index": 0},
+            {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 3}},
+            {"type": "message_stop"},
+        ])
+    }
+    m = BedrockInvokeModel(model_id=CLAUDE_ID)
+
+    processed = [
+        event
+        async for event in streaming.process_stream(m.stream([{"role": "user", "content": [{"text": "hi"}]}]))
+    ]
+    _, message, _, _ = processed[-1]["stop"]
+    req = m._format_anthropic_request([message], None, None, None)
+
+    assert req["messages"][0]["content"] == [{"type": "redacted_thinking", "data": data}]
+
+
+@pytest.mark.asyncio
+async def test_stream_anthropic_reports_cache_usage(bedrock_client):
+    bedrock_client.invoke_model_with_response_stream.return_value = {
+        "body": _chunks([
+            {
+                "type": "message_start",
+                "message": {
+                    "usage": {
+                        "input_tokens": 5,
+                        "output_tokens": 0,
+                        "cache_read_input_tokens": 100,
+                        "cache_creation_input_tokens": 50,
+                    }
+                },
+            },
+            {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 3}},
+            {"type": "message_stop"},
+        ])
+    }
+
+    events = await _collect(BedrockInvokeModel(model_id=CLAUDE_ID), [{"role": "user", "content": [{"text": "hi"}]}])
+
+    tru_usage = _metadata(events)["usage"]
+    exp_usage = {
+        "inputTokens": 5,
+        "outputTokens": 3,
+        "totalTokens": 8,
+        "cacheReadInputTokens": 100,
+        "cacheWriteInputTokens": 50,
+    }
+    assert tru_usage == exp_usage
 
 
 @pytest.mark.asyncio
@@ -744,9 +900,8 @@ async def test_stream_anthropic_closes_unterminated_block(bedrock_client):
 
 
 @pytest.mark.asyncio
-async def test_stream_openai_drops_arguments_for_closed_tool_call(bedrock_client, caplog):
-    """Arguments for an already-closed tool call are dropped, not misattributed to the open block."""
-    caplog.set_level(logging.WARNING, logger="strands.models.bedrock_invoke")
+async def test_stream_openai_interleaved_parallel_tool_calls_preserve_arguments(bedrock_client):
+    """Arguments arriving after another parallel call starts still belong to their original tool call."""
     open_0 = {"index": 0, "id": "call_0", "function": {"name": "a"}}
     open_1 = {"index": 1, "id": "call_1", "function": {"name": "b", "arguments": '{"y":2}'}}
     late_0 = {"index": 0, "function": {"arguments": '{"x":1}'}}
@@ -761,9 +916,30 @@ async def test_stream_openai_drops_arguments_for_closed_tool_call(bedrock_client
     events = await _collect(m, [{"role": "user", "content": [{"text": "go"}]}])
 
     tru_blocks = _tool_use_blocks(events)
-    exp_blocks = [({"toolUseId": "call_0", "name": "a"}, ""), ({"toolUseId": "call_1", "name": "b"}, '{"y":2}')]
+    exp_blocks = [
+        ({"toolUseId": "call_0", "name": "a"}, '{"x":1}'),
+        ({"toolUseId": "call_1", "name": "b"}, '{"y":2}'),
+    ]
     assert tru_blocks == exp_blocks
-    assert "dropping arguments for a closed tool call" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_stream_openai_tool_call_arguments_survive_interleaved_text(bedrock_client):
+    """A text delta cannot finalize a tool call because later chunks may still carry its arguments."""
+    start = {"index": 0, "id": "call_0", "function": {"name": "a", "arguments": '{"x":'}}
+    tail = {"index": 0, "function": {"arguments": "1}"}}
+    bedrock_client.invoke_model_with_response_stream.return_value = {
+        "body": _chunks([
+            {"choices": [{"delta": {"tool_calls": [start]}, "finish_reason": None}]},
+            {"choices": [{"delta": {"content": "interlude"}, "finish_reason": None}]},
+            {"choices": [{"delta": {"tool_calls": [tail]}, "finish_reason": "tool_calls"}]},
+        ])
+    }
+
+    events = await _collect(BedrockInvokeModel(model_id=IMPORTED_ID), [{"role": "user", "content": [{"text": "go"}]}])
+
+    assert _texts(events) == "interlude"
+    assert _tool_use_blocks(events) == [({"toolUseId": "call_0", "name": "a"}, '{"x":1}')]
 
 
 @pytest.mark.asyncio
@@ -811,6 +987,74 @@ async def test_stream_non_streaming_anthropic_tool_use(bedrock_client):
     assert _tool_use_blocks(events) == [({"toolUseId": "tu1", "name": "weather"}, json.dumps({"city": "Paris"}))]
     assert _stop_reason(events) == "tool_use"
     assert _metadata(events)["usage"] == {"inputTokens": 4, "outputTokens": 6, "totalTokens": 10}
+
+
+@pytest.mark.asyncio
+async def test_stream_non_streaming_anthropic_reasoning(bedrock_client):
+    body = unittest.mock.Mock()
+    body.read.return_value = json.dumps({
+        "content": [{"type": "thinking", "thinking": "working", "signature": "sig"}],
+        "stop_reason": "end_turn",
+        "usage": {"input_tokens": 4, "output_tokens": 6},
+    }).encode("utf-8")
+    bedrock_client.invoke_model.return_value = {"body": body}
+
+    events = await _collect(
+        BedrockInvokeModel(model_id=CLAUDE_ID, streaming=False),
+        [{"role": "user", "content": [{"text": "?"}]}],
+    )
+
+    assert _reasoning_deltas(events) == [{"text": "working"}, {"signature": "sig"}]
+
+
+@pytest.mark.asyncio
+async def test_stream_non_streaming_anthropic_redacted_reasoning(bedrock_client):
+    data = base64.b64encode(b"redacted-bytes").decode("utf-8")
+    body = unittest.mock.Mock()
+    body.read.return_value = json.dumps({
+        "content": [{"type": "redacted_thinking", "data": data}],
+        "stop_reason": "end_turn",
+        "usage": {"input_tokens": 4, "output_tokens": 6},
+    }).encode("utf-8")
+    bedrock_client.invoke_model.return_value = {"body": body}
+
+    events = await _collect(
+        BedrockInvokeModel(model_id=CLAUDE_ID, streaming=False),
+        [{"role": "user", "content": [{"text": "?"}]}],
+    )
+
+    assert _reasoning_deltas(events) == [{"redactedContent": b"redacted-bytes"}]
+
+
+@pytest.mark.asyncio
+async def test_stream_non_streaming_anthropic_reports_cache_usage(bedrock_client):
+    body = unittest.mock.Mock()
+    body.read.return_value = json.dumps({
+        "content": [{"type": "text", "text": "ack"}],
+        "stop_reason": "end_turn",
+        "usage": {
+            "input_tokens": 4,
+            "output_tokens": 6,
+            "cache_read_input_tokens": 100,
+            "cache_creation_input_tokens": 50,
+        },
+    }).encode("utf-8")
+    bedrock_client.invoke_model.return_value = {"body": body}
+
+    events = await _collect(
+        BedrockInvokeModel(model_id=CLAUDE_ID, streaming=False),
+        [{"role": "user", "content": [{"text": "?"}]}],
+    )
+
+    tru_usage = _metadata(events)["usage"]
+    exp_usage = {
+        "inputTokens": 4,
+        "outputTokens": 6,
+        "totalTokens": 10,
+        "cacheReadInputTokens": 100,
+        "cacheWriteInputTokens": 50,
+    }
+    assert tru_usage == exp_usage
 
 
 @pytest.mark.asyncio
@@ -1055,10 +1299,9 @@ async def test_stream_cancel_signal_stops_reading_at_next_chunk(bedrock_client, 
 
     await _wait_until(lambda: event_stream.closed)
 
-    assert events[0] == {"messageStart": {"role": "assistant"}}
+    assert events == [{"messageStart": {"role": "assistant"}}]
     # The chunk read at the cancellation boundary is dropped; the rest is never read.
     assert len(event_stream.emitted) == 1
-    assert _texts(events) == ""
 
 
 @pytest.mark.asyncio
@@ -1096,6 +1339,47 @@ async def test_stream_cancellation_does_not_block_on_background_call(bedrock_cli
 
     # Consume the orphaned task's exception so it doesn't leak into other tests.
     await asyncio.sleep(0.2)
+
+
+@pytest.mark.asyncio
+async def test_stream_generator_close_stops_event_stream_without_cancel_signal(bedrock_client):
+    """Closing the consumer-owned generator also stops and closes the worker-owned Bedrock stream."""
+    gate = threading.Event()
+    payload = {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "late"}}
+    event_stream = _FakeEventStream(_chunks([payload]), gate)
+    bedrock_client.invoke_model_with_response_stream.return_value = {"body": event_stream}
+
+    gen = BedrockInvokeModel(model_id=CLAUDE_ID).stream([{"role": "user", "content": [{"text": "x"}]}])
+    assert await gen.__anext__() == {"messageStart": {"role": "assistant"}}
+
+    await gen.aclose()
+    gate.set()
+    await _wait_until(lambda: bool(event_stream.emitted))
+
+    assert event_stream.closed
+
+
+@pytest.mark.asyncio
+async def test_stream_generator_close_does_not_set_caller_cancel_signal(bedrock_client):
+    """Generator ownership cancellation stays private when the caller reuses its signal elsewhere."""
+    gate = threading.Event()
+    payload = {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "late"}}
+    event_stream = _FakeEventStream(_chunks([payload]), gate)
+    bedrock_client.invoke_model_with_response_stream.return_value = {"body": event_stream}
+    cancel_signal = threading.Event()
+
+    gen = BedrockInvokeModel(model_id=CLAUDE_ID).stream(
+        [{"role": "user", "content": [{"text": "x"}]}],
+        cancel_signal=cancel_signal,
+    )
+    assert await gen.__anext__() == {"messageStart": {"role": "assistant"}}
+
+    await gen.aclose()
+    gate.set()
+    await _wait_until(lambda: bool(event_stream.emitted))
+
+    assert event_stream.closed
+    assert not cancel_signal.is_set()
 
 
 # ---- structured output

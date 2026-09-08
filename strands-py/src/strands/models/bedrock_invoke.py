@@ -17,7 +17,7 @@ import threading
 import time
 from collections.abc import AsyncGenerator, Callable, Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Literal, TypeVar, cast
+from typing import Any, Literal, Protocol, TypeVar, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -29,7 +29,8 @@ from .._exception_notes import add_exception_note
 from ..event_loop import streaming
 from ..tools import convert_pydantic_to_tool_spec
 from ..types.content import Messages, SystemContentBlock
-from ..types.streaming import StreamEvent
+from ..types.event_loop import Usage
+from ..types.streaming import ReasoningContentBlockDelta, StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
 from ._defaults import resolve_config_metadata
 from ._validation import validate_config_keys
@@ -51,6 +52,24 @@ _BLOCK_STOP: StreamEvent = {"contentBlockStop": {}}
 _TEXT_START: StreamEvent = {"contentBlockStart": {"start": {}}}
 
 
+class _CancellationSignal(Protocol):
+    def is_set(self) -> bool: ...
+
+
+class _WorkerCancelSignal:
+    """Combine caller cancellation with private generator-ownership cancellation."""
+
+    def __init__(self, external: threading.Event | None) -> None:
+        self._external = external
+        self._internal = threading.Event()
+
+    def is_set(self) -> bool:
+        return self._internal.is_set() or (self._external is not None and self._external.is_set())
+
+    def set(self) -> None:
+        self._internal.set()
+
+
 def _text_delta(t: str) -> StreamEvent:
     return {"contentBlockDelta": {"delta": {"text": t}}}
 
@@ -61,6 +80,11 @@ def _tool_use_start(tool_use_id: str, name: str) -> StreamEvent:
 
 def _tool_use_delta(partial_json: str) -> StreamEvent:
     return {"contentBlockDelta": {"delta": {"toolUse": {"input": partial_json}}}}
+
+
+def _reasoning_delta(**reasoning_content: str | bytes) -> StreamEvent:
+    reasoning = cast(ReasoningContentBlockDelta, reasoning_content)
+    return {"contentBlockDelta": {"delta": {"reasoningContent": reasoning}}}
 
 
 def _unsupported_block(block: Mapping[str, Any]) -> TypeError:
@@ -79,13 +103,24 @@ def _latency_ms(start_time: float) -> int:
     return int((time.perf_counter() - start_time) * 1000)
 
 
-def _metadata(in_tok: int, out_tok: int, latency_ms: int, total: int | None = None) -> StreamEvent:
-    return {
-        "metadata": {
-            "usage": {"inputTokens": in_tok, "outputTokens": out_tok, "totalTokens": total or in_tok + out_tok},
-            "metrics": {"latencyMs": latency_ms},
-        }
+def _metadata(
+    in_tok: int,
+    out_tok: int,
+    latency_ms: int,
+    total: int | None = None,
+    cache_read: int = 0,
+    cache_write: int = 0,
+) -> StreamEvent:
+    usage: Usage = {
+        "inputTokens": in_tok,
+        "outputTokens": out_tok,
+        "totalTokens": in_tok + out_tok if total is None else total,
     }
+    if cache_read:
+        usage["cacheReadInputTokens"] = cache_read
+    if cache_write:
+        usage["cacheWriteInputTokens"] = cache_write
+    return {"metadata": {"usage": usage, "metrics": {"latencyMs": latency_ms}}}
 
 
 @dataclass
@@ -100,19 +135,15 @@ class _OpenAIToolCall:
 class _OpenAIBlockWriter:
     """Emit Strands content blocks from openai-dialect stream deltas, one open block at a time.
 
-    The consumer keys its in-progress tool use off the most recent ``contentBlockStart``, so a block
-    is closed before the next one opens. A tool call's block is held back until both an id and a
-    non-empty function name have arrived: some OpenAI-compatible servers stream the id first, and the
-    consumer merges a field from a later ``toolUse`` delta only when the block does not already carry
-    it, so a block opened with a placeholder name could never pick up the real one.
+    Tool-call fragments are buffered by index until the end of the stream. The consumer keys its
+    in-progress tool use off the most recent ``contentBlockStart``, so interleaved parallel calls
+    cannot be emitted safely until every fragment can be grouped with its own block.
     """
 
     def __init__(self, callback: Callable[..., None]) -> None:
         self._callback = callback
         self._active: str | None = None
-        self._active_index: int | None = None
         self._pending: dict[int, _OpenAIToolCall] = {}
-        self._started: set[int] = set()
 
     def write_text(self, text: str) -> None:
         """Append text to the open text block, opening one if the active block is not text."""
@@ -126,44 +157,37 @@ class _OpenAIBlockWriter:
         """Fold one streamed ``tool_calls`` entry into the block for its index."""
         index = tool_call.get("index", 0)
         function = tool_call.get("function") or {}
-        if index in self._started:
-            self._write_arguments(index, function.get("arguments"))
-            return
-
         buffered = self._pending.setdefault(index, _OpenAIToolCall())
         buffered.tool_use_id = tool_call.get("id") or buffered.tool_use_id
         buffered.name = function.get("name") or buffered.name
         if arguments := function.get("arguments"):
             buffered.arguments.append(arguments)
-        if not buffered.name:
-            return
-
-        del self._pending[index]
-        self._close_active()
-        self._callback(_tool_use_start(buffered.tool_use_id or f"call_{index}", buffered.name))
-        self._started.add(index)
-        self._active, self._active_index = "tool_use", index
-        for arguments in buffered.arguments:
-            self._callback(_tool_use_delta(arguments))
 
     def close(self) -> None:
         """Close the open block and report any tool call whose name never arrived."""
+        self._flush_tool_calls()
         self._close_active()
-        for index in self._pending:
-            logger.warning("tool_call_index=<%s> | dropping a tool call that never carried a name", index)
 
     def _close_active(self) -> None:
         if self._active is not None:
             self._callback(_BLOCK_STOP)
-            self._active, self._active_index = None, None
+            self._active = None
 
-    def _write_arguments(self, index: int, arguments: str | None) -> None:
-        if not arguments:
+    def _flush_tool_calls(self) -> None:
+        if not self._pending:
             return
-        if self._active == "tool_use" and index == self._active_index:
-            self._callback(_tool_use_delta(arguments))
-        else:
-            logger.warning("tool_call_index=<%s> | dropping arguments for a closed tool call", index)
+
+        self._close_active()
+        for index in sorted(self._pending):
+            buffered = self._pending[index]
+            if not buffered.name:
+                logger.warning("tool_call_index=<%s> | dropping a tool call that never carried a name", index)
+                continue
+            self._callback(_tool_use_start(buffered.tool_use_id or f"call_{index}", buffered.name))
+            for arguments in buffered.arguments:
+                self._callback(_tool_use_delta(arguments))
+            self._callback(_BLOCK_STOP)
+        self._pending.clear()
 
 
 class BedrockInvokeModel(BedrockModel):
@@ -194,7 +218,7 @@ class BedrockInvokeModel(BedrockModel):
                 family and ``stop`` on the openai family.
             params: Extra wire fields, splatted onto the formatted request last, so it both reaches
                 fields this config does not model (``thinking``, ``anthropic_beta``, ...) and overrides
-                any field computed above it.
+                computed fields except the OpenAI ``stream``/``stream_options`` transport invariants.
         """
 
         model_id: str
@@ -355,6 +379,19 @@ class BedrockInvokeModel(BedrockModel):
                     if tr.get("status") == "error":
                         entry["is_error"] = True
                     content.append(entry)
+                elif "reasoningContent" in block:
+                    reasoning = block["reasoningContent"]
+                    if "reasoningText" in reasoning:
+                        reasoning_text = reasoning["reasoningText"]
+                        entry = {"type": "thinking", "thinking": reasoning_text.get("text", "")}
+                        if reasoning_text.get("signature"):
+                            entry["signature"] = reasoning_text["signature"]
+                        content.append(entry)
+                    elif "redactedContent" in reasoning:
+                        data = base64.b64encode(reasoning["redactedContent"]).decode("utf-8")
+                        content.append({"type": "redacted_thinking", "data": data})
+                    else:
+                        raise _unsupported_block(block)
                 else:
                     raise _unsupported_block(block)
             if content:
@@ -443,6 +480,11 @@ class BedrockInvokeModel(BedrockModel):
 
         self._apply_sampling_params(request, "stop")
         request.update(self.config.get("params") or {})
+        request["stream"] = self.config.get("streaming", True)
+        if request["stream"]:
+            request.setdefault("stream_options", {"include_usage": True})
+        else:
+            request.pop("stream_options", None)
         return request
 
     def _format_invoke_request(
@@ -484,12 +526,13 @@ class BedrockInvokeModel(BedrockModel):
         body: Any,
         callback: Callable[..., None],
         start_time: float,
-        cancel_signal: threading.Event | None = None,
+        cancel_signal: _CancellationSignal | None = None,
     ) -> None:
         """Translate an Anthropic Messages stream into Strands ``StreamEvent``s."""
         callback({"messageStart": {"role": "assistant"}})
         stop_reason: str | None = None
         in_toks = out_toks = 0
+        cache_read = cache_write = 0
         active: str | None = None
 
         for event in body:
@@ -497,7 +540,7 @@ class BedrockInvokeModel(BedrockModel):
                 # Closing from this thread only: botocore's teardown is not safe against a read in
                 # flight, and this thread is the one reading.
                 body.close()
-                break
+                return
             chunk = json.loads(event["chunk"]["bytes"])
             t = chunk.get("type")
             logger.debug("anthropic_chunk_type=<%s>", t)
@@ -505,18 +548,26 @@ class BedrockInvokeModel(BedrockModel):
                 u = (chunk.get("message") or {}).get("usage") or {}
                 in_toks = u.get("input_tokens", in_toks)
                 out_toks = u.get("output_tokens", out_toks)
+                cache_read = u.get("cache_read_input_tokens", cache_read)
+                cache_write = u.get("cache_creation_input_tokens", cache_write)
             elif t == "content_block_start":
                 cb = chunk.get("content_block") or {}
                 if cb.get("type") == "tool_use":
                     active = "tool_use"
                     callback(_tool_use_start(cb["id"], cb["name"]))
                 else:
-                    active = "text"
+                    active = cb.get("type")
                     callback(_TEXT_START)
+                    if cb.get("type") == "redacted_thinking" and "data" in cb:
+                        callback(_reasoning_delta(redactedContent=base64.b64decode(cb["data"])))
             elif t == "content_block_delta":
                 d = chunk.get("delta") or {}
                 if "text" in d:
                     callback(_text_delta(d["text"]))
+                elif d.get("type") == "thinking_delta" and "thinking" in d:
+                    callback(_reasoning_delta(text=d["thinking"]))
+                elif d.get("type") == "signature_delta" and "signature" in d:
+                    callback(_reasoning_delta(signature=d["signature"]))
                 elif d.get("type") == "input_json_delta" and "partial_json" in d:
                     callback(_tool_use_delta(d["partial_json"]))
             elif t == "content_block_stop":
@@ -530,19 +581,21 @@ class BedrockInvokeModel(BedrockModel):
                 u = chunk.get("usage") or {}
                 if "output_tokens" in u:
                     out_toks = u["output_tokens"]
+                cache_read = u.get("cache_read_input_tokens", cache_read)
+                cache_write = u.get("cache_creation_input_tokens", cache_write)
             # message_stop carries no payload of interest.
 
         if active is not None:
             callback(_BLOCK_STOP)
         callback({"messageStop": {"stopReason": self._map_anthropic_stop(stop_reason)}})
-        callback(_metadata(in_toks, out_toks, _latency_ms(start_time)))
+        callback(_metadata(in_toks, out_toks, _latency_ms(start_time), cache_read=cache_read, cache_write=cache_write))
 
     def _emit_openai_chunks(
         self,
         body: Any,
         callback: Callable[..., None],
         start_time: float,
-        cancel_signal: threading.Event | None = None,
+        cancel_signal: _CancellationSignal | None = None,
     ) -> None:
         """Translate an OpenAI Chat Completions stream into Strands ``StreamEvent``s.
 
@@ -560,7 +613,7 @@ class BedrockInvokeModel(BedrockModel):
                 # Closing from this thread only: botocore's teardown is not safe against a read in
                 # flight, and this thread is the one reading.
                 body.close()
-                break
+                return
             chunk = json.loads(event["chunk"]["bytes"])
             if choices := chunk.get("choices"):
                 delta = choices[0].get("delta") or {}
@@ -594,9 +647,28 @@ class BedrockInvokeModel(BedrockModel):
                 callback(_tool_use_start(block["id"], block["name"]))
                 callback(_tool_use_delta(json.dumps(block.get("input", {}))))
                 callback(_BLOCK_STOP)
+            elif bt == "thinking":
+                callback(_TEXT_START)
+                if "thinking" in block:
+                    callback(_reasoning_delta(text=block["thinking"]))
+                if block.get("signature"):
+                    callback(_reasoning_delta(signature=block["signature"]))
+                callback(_BLOCK_STOP)
+            elif bt == "redacted_thinking":
+                callback(_TEXT_START)
+                callback(_reasoning_delta(redactedContent=base64.b64decode(block["data"])))
+                callback(_BLOCK_STOP)
         callback({"messageStop": {"stopReason": self._map_anthropic_stop(body.get("stop_reason"))}})
         if u := body.get("usage"):
-            callback(_metadata(u.get("input_tokens", 0), u.get("output_tokens", 0), _latency_ms(start_time)))
+            callback(
+                _metadata(
+                    u.get("input_tokens", 0),
+                    u.get("output_tokens", 0),
+                    _latency_ms(start_time),
+                    cache_read=u.get("cache_read_input_tokens", 0),
+                    cache_write=u.get("cache_creation_input_tokens", 0),
+                )
+            )
 
     def _emit_openai_non_streaming(
         self, body: dict[str, Any], callback: Callable[..., None], start_time: float
@@ -737,12 +809,13 @@ class BedrockInvokeModel(BedrockModel):
 
         loop = asyncio.get_event_loop()
         queue: asyncio.Queue[StreamEvent | None] = asyncio.Queue()
+        worker_cancel_signal = _WorkerCancelSignal(cancel_signal)
 
         if system_prompt and system_prompt_content is None:
             system_prompt_content = [{"text": system_prompt}]
 
         thread = asyncio.to_thread(
-            self._stream, callback, messages, tool_specs, system_prompt_content, tool_choice, cancel_signal
+            self._stream, callback, messages, tool_specs, system_prompt_content, tool_choice, worker_cancel_signal
         )
         task = asyncio.create_task(thread)
         cancel_poll = asyncio.ensure_future(_poll_cancel_signal(cancel_signal)) if cancel_signal else None
@@ -757,12 +830,14 @@ class BedrockInvokeModel(BedrockModel):
             if cancel_poll is not None and cancel_poll.done():
                 # The worker thread owns the event stream and closes it at its next chunk boundary.
                 # Detaching it rather than awaiting keeps a stalled read from delaying the caller.
+                worker_cancel_signal.set()
                 task.add_done_callback(_suppress_task_exception)
                 return
 
             await task
         except BaseException:
             # Don't block cancellation on the in-flight blocking boto3 call; consume its exception later instead.
+            worker_cancel_signal.set()
             task.add_done_callback(_suppress_task_exception)
             raise
         finally:
@@ -776,7 +851,7 @@ class BedrockInvokeModel(BedrockModel):
         tool_specs: list[ToolSpec] | None,
         system_prompt_content: list[SystemContentBlock] | None,
         tool_choice: ToolChoice | None,
-        cancel_signal: threading.Event | None = None,
+        cancel_signal: _CancellationSignal | None = None,
     ) -> None:
         """Run the InvokeModel call on a worker thread and stream events."""
         try:
@@ -794,14 +869,16 @@ class BedrockInvokeModel(BedrockModel):
             start_time = time.perf_counter()
             if self.config.get("streaming", True):
                 response = self.client.invoke_model_with_response_stream(**common_kwargs)
-                emit = self._emit_anthropic_chunks if family == "anthropic" else self._emit_openai_chunks
-                emit(response["body"], callback, start_time, cancel_signal)
+                stream_emit = self._emit_anthropic_chunks if family == "anthropic" else self._emit_openai_chunks
+                stream_emit(response["body"], callback, start_time, cancel_signal)
             else:
                 response = self.client.invoke_model(**common_kwargs)
                 body = json.loads(response["body"].read())
                 logger.debug("response_body=<%s>", body)
-                emit = self._emit_anthropic_non_streaming if family == "anthropic" else self._emit_openai_non_streaming
-                emit(body, callback, start_time)
+                non_stream_emit = (
+                    self._emit_anthropic_non_streaming if family == "anthropic" else self._emit_openai_non_streaming
+                )
+                non_stream_emit(body, callback, start_time)
 
         except ClientError as error:
             self._add_model_family_note(error)
