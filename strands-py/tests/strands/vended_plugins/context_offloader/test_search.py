@@ -200,9 +200,9 @@ class TestSearchContentEdgeCases:
         assert "No matches" in result
 
     def test_nested_quantifier_falls_back_to_literal(self):
-        text = "(a+)+ hello\nother line"
+        text = "aaa hello\nother line"
         result = _search_content(text, pattern="(a+)+", context_lines=0, max_chars=10_000)
-        assert "1 match" in result
+        assert "No matches" in result
 
     def test_empty_indices_format(self):
         from strands.vended_plugins.context_offloader.search import _format_lines
