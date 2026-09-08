@@ -273,13 +273,10 @@ describe('AnthropicModel', () => {
       expect(events).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'toolUse' })
     })
 
-    it.each([
-      ['pause_turn', 'pauseTurn'],
-      ['refusal', 'refusal'],
-    ])('maps anthropic stop reason "%s" to "%s"', async (anthropicReason, expected) => {
+    it('maps anthropic stop reason "refusal" to "refusal"', async () => {
       const mockClient = createMockClient(async function* () {
         yield { type: 'message_start', message: { role: 'assistant', usage: { input_tokens: 1 } } }
-        yield { type: 'message_delta', delta: { stop_reason: anthropicReason }, usage: { output_tokens: 1 } }
+        yield { type: 'message_delta', delta: { stop_reason: 'refusal' }, usage: { output_tokens: 1 } }
         yield { type: 'message_stop' }
       })
 
@@ -288,7 +285,7 @@ describe('AnthropicModel', () => {
 
       const events = await collectIterator(provider.stream(messages))
 
-      expect(events).toContainEqual({ type: 'modelMessageStopEvent', stopReason: expected })
+      expect(events).toContainEqual({ type: 'modelMessageStopEvent', stopReason: 'refusal' })
     })
 
     it('handles thinking/reasoning events', async () => {
@@ -2265,35 +2262,71 @@ describe('AnthropicModel', () => {
       ])
     })
 
-    it('drops a paused server-tool-only turn from the next request', async () => {
-      async function* pausedStream(): AsyncGenerator<unknown> {
-        yield { type: 'message_start', message: { role: 'assistant', usage: { input_tokens: 10 } } }
-        yield {
-          type: 'content_block_start',
-          index: 0,
-          content_block: { type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search', input: {} },
-        }
-        yield { type: 'content_block_stop', index: 0 }
-        yield { type: 'message_delta', delta: { stop_reason: 'pause_turn' }, usage: { output_tokens: 5 } }
-        yield { type: 'message_stop' }
-      }
-      const userMessage = new Message({ role: 'user', content: [new TextBlock('Hi')] })
-      const { result } = await collectGenerator(
-        new AnthropicModel({ client: createMockClient(pausedStream) }).streamAggregated([userMessage])
+    const pausedContent = [{ type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search', input: {} }]
+
+    async function* pausedStream(): AsyncGenerator<unknown> {
+      yield { type: 'message_start', message: { role: 'assistant', usage: { input_tokens: 10 } } }
+      yield { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }
+      yield { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Searching. ' } }
+      yield { type: 'content_block_stop', index: 0 }
+      yield { type: 'content_block_start', index: 1, content_block: pausedContent[0] }
+      yield { type: 'content_block_stop', index: 1 }
+      yield { type: 'message_delta', delta: { stop_reason: 'pause_turn' }, usage: { output_tokens: 5 } }
+      yield { type: 'message_stop' }
+    }
+
+    const withFinalMessage = (events: AsyncGenerator<unknown>) =>
+      Object.assign(events, { finalMessage: async () => ({ content: pausedContent }) })
+
+    it('resumes a paused server-side tool turn and surfaces it as one stream', async () => {
+      const stream = vi
+        .fn()
+        .mockImplementationOnce(() => withFinalMessage(pausedStream()))
+        .mockImplementationOnce(() => webSearchStream())
+      const client = { messages: { stream } } as unknown as Anthropic
+      const provider = new AnthropicModel({ client, anthropicTools: [WEB_SEARCH_TOOL] })
+
+      const { result, items: events } = await collectGenerator(
+        provider.streamAggregated([new Message({ role: 'user', content: [new TextBlock('Hi')] })], {
+          toolSpecs: [FUNCTION_TOOL_SPEC],
+        })
       )
 
-      expect(result.stopReason).toBe('pauseTurn')
-      expect(result.message.content).toEqual([])
-
-      const { captured, mockClient } = setupCapture()
-      await collectIterator(
-        new AnthropicModel({ client: mockClient }).stream([userMessage, result.message, userMessage])
-      )
-
-      expect(captured.request.messages).toEqual([
-        { role: 'user', content: [{ type: 'text', text: 'Hi' }] },
-        { role: 'user', content: [{ type: 'text', text: 'Hi' }] },
+      expect(events.map((event) => event.type).filter((type) => !type.startsWith('modelContentBlock'))).toEqual([
+        'modelMessageStartEvent',
+        'textBlock',
+        'citationsBlock',
+        'modelMetadataEvent',
+        'modelMessageStopEvent',
       ])
+      expect(result.stopReason).toBe('endTurn')
+      expect(result.message.content[0]).toEqual(new TextBlock('Searching. '))
+      expect(result.message.content[1]).toBeInstanceOf(CitationsBlock)
+      expect(result.metadata?.usage).toEqual({ inputTokens: 20, outputTokens: 10, totalTokens: 30 })
+
+      expect(stream).toHaveBeenCalledTimes(2)
+      const first = stream.mock.calls[0]?.[0]
+      const second = stream.mock.calls[1]?.[0]
+      expect(second.messages).toEqual([...first.messages, { role: 'assistant', content: pausedContent }])
+      expect(second.tools).toEqual(first.tools)
+      expect(first.tools).toEqual([FUNCTION_TOOL, WEB_SEARCH_TOOL])
+    })
+
+    it('stops resuming a paused turn after the continuation limit', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const stream = vi.fn(() => withFinalMessage(pausedStream()))
+      const client = { messages: { stream } } as unknown as Anthropic
+
+      const { result, items: events } = await collectGenerator(
+        new AnthropicModel({ client }).streamAggregated([new Message({ role: 'user', content: [new TextBlock('Hi')] })])
+      )
+
+      expect(stream).toHaveBeenCalledTimes(6)
+      expect(events.filter((event) => event.type === 'modelMessageStartEvent')).toHaveLength(1)
+      expect(result.stopReason).toBe('endTurn')
+      expect(result.metadata?.usage?.inputTokens).toBe(60)
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('paused server-side tool turn not resumed'))
+      warnSpy.mockRestore()
     })
 
     it.each([

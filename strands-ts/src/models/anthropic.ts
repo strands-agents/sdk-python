@@ -49,6 +49,10 @@ const SERVER_TOOL_BLOCK_TYPES = new Set([
 /**
  * `ephemeral` is the only cache type the Anthropic API supports.
  */
+// Anthropic pauses a long server-side tool turn with stop_reason=pause_turn and expects the paused
+// assistant message to be sent back as-is to resume it. Bounds how many times stream() does so.
+const MAX_PAUSE_TURN_CONTINUATIONS = 5
+
 const ANTHROPIC_CACHE_TYPE = 'ephemeral' as const
 
 const TEXT_FILE_FORMATS = ['txt', 'md', 'markdown', 'csv', 'json', 'xml', 'html', 'yml', 'yaml', 'js', 'ts', 'py']
@@ -217,147 +221,166 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
 
   async *stream(messages: Message[], options?: StreamOptions): AsyncIterable<ModelStreamEvent> {
     try {
-      const request = this._formatRequest(messages, options)
+      let request = this._formatRequest(messages, options)
       const requestOptions = this._buildRequestOptions()
-      const stream = requestOptions
-        ? this._client.messages.stream(request, requestOptions)
-        : this._client.messages.stream(request)
-
       const usage = createEmptyUsage()
+      let continuations = 0
 
-      let stopReason = 'endTurn'
+      while (true) {
+        const stream = requestOptions
+          ? this._client.messages.stream(request, requestOptions)
+          : this._client.messages.stream(request)
 
-      const serverToolBlockIndexes = new Set<number>()
+        let stopReason = 'endTurn'
 
-      for await (const event of stream) {
-        switch (event.type) {
-          case 'message_start': {
-            usage.inputTokens = event.message.usage.input_tokens
+        const serverToolBlockIndexes = new Set<number>()
 
-            const rawUsage = event.message.usage as unknown as Record<string, number | undefined>
-            if (rawUsage.cache_creation_input_tokens !== undefined) {
-              usage.cacheWriteInputTokens = rawUsage.cache_creation_input_tokens
-            }
-            if (rawUsage.cache_read_input_tokens !== undefined) {
-              usage.cacheReadInputTokens = rawUsage.cache_read_input_tokens
-            }
+        for await (const event of stream) {
+          switch (event.type) {
+            case 'message_start': {
+              usage.inputTokens += event.message.usage.input_tokens
 
-            yield {
-              type: 'modelMessageStartEvent',
-              role: event.message.role,
-            }
-            break
-          }
+              const rawUsage = event.message.usage as unknown as Record<string, number | undefined>
+              if (rawUsage.cache_creation_input_tokens !== undefined) {
+                usage.cacheWriteInputTokens = (usage.cacheWriteInputTokens ?? 0) + rawUsage.cache_creation_input_tokens
+              }
+              if (rawUsage.cache_read_input_tokens !== undefined) {
+                usage.cacheReadInputTokens = (usage.cacheReadInputTokens ?? 0) + rawUsage.cache_read_input_tokens
+              }
 
-          case 'content_block_start':
-            if (SERVER_TOOL_BLOCK_TYPES.has(event.content_block.type)) {
-              serverToolBlockIndexes.add(event.index)
-              this._logServerToolBlock(event.content_block)
+              if (continuations === 0) {
+                yield {
+                  type: 'modelMessageStartEvent',
+                  role: event.message.role,
+                }
+              }
               break
             }
 
-            if (event.content_block.type === 'tool_use') {
-              yield {
-                type: 'modelContentBlockStartEvent',
-                start: {
-                  type: 'toolUseStart',
-                  name: event.content_block.name,
-                  toolUseId: event.content_block.id,
-                },
+            case 'content_block_start':
+              if (SERVER_TOOL_BLOCK_TYPES.has(event.content_block.type)) {
+                serverToolBlockIndexes.add(event.index)
+                this._logServerToolBlock(event.content_block)
+                break
               }
-            } else if (event.content_block.type === 'thinking') {
-              yield { type: 'modelContentBlockStartEvent' }
-              if (event.content_block.thinking) {
+
+              if (event.content_block.type === 'tool_use') {
+                yield {
+                  type: 'modelContentBlockStartEvent',
+                  start: {
+                    type: 'toolUseStart',
+                    name: event.content_block.name,
+                    toolUseId: event.content_block.id,
+                  },
+                }
+              } else if (event.content_block.type === 'thinking') {
+                yield { type: 'modelContentBlockStartEvent' }
+                if (event.content_block.thinking) {
+                  yield {
+                    type: 'modelContentBlockDeltaEvent',
+                    delta: {
+                      type: 'reasoningContentDelta',
+                      text: event.content_block.thinking,
+                      signature: event.content_block.signature,
+                    },
+                  }
+                }
+              } else if (event.content_block.type === 'redacted_thinking') {
+                yield { type: 'modelContentBlockStartEvent' }
                 yield {
                   type: 'modelContentBlockDeltaEvent',
                   delta: {
                     type: 'reasoningContentDelta',
-                    text: event.content_block.thinking,
-                    signature: event.content_block.signature,
+                    redactedContent: event.content_block.data as unknown as Uint8Array,
                   },
                 }
-              }
-            } else if (event.content_block.type === 'redacted_thinking') {
-              yield { type: 'modelContentBlockStartEvent' }
-              yield {
-                type: 'modelContentBlockDeltaEvent',
-                delta: {
-                  type: 'reasoningContentDelta',
-                  redactedContent: event.content_block.data as unknown as Uint8Array,
-                },
-              }
-            } else {
-              yield { type: 'modelContentBlockStartEvent' }
-              if (event.content_block.type === 'text' && event.content_block.text) {
-                yield {
-                  type: 'modelContentBlockDeltaEvent',
-                  delta: { type: 'textDelta', text: event.content_block.text },
+              } else {
+                yield { type: 'modelContentBlockStartEvent' }
+                if (event.content_block.type === 'text' && event.content_block.text) {
+                  yield {
+                    type: 'modelContentBlockDeltaEvent',
+                    delta: { type: 'textDelta', text: event.content_block.text },
+                  }
                 }
               }
-            }
-            break
+              break
 
-          case 'content_block_delta':
-            if (serverToolBlockIndexes.has(event.index)) break
+            case 'content_block_delta':
+              if (serverToolBlockIndexes.has(event.index)) break
 
-            if (event.delta.type === 'text_delta') {
-              yield {
-                type: 'modelContentBlockDeltaEvent',
-                delta: { type: 'textDelta', text: event.delta.text },
-              }
-            } else if (event.delta.type === 'citations_delta') {
-              const citation = this._formatCitation(event.delta.citation)
-              if (citation) {
+              if (event.delta.type === 'text_delta') {
                 yield {
                   type: 'modelContentBlockDeltaEvent',
-                  delta: { type: 'citationsDelta', citations: [citation], content: [] },
+                  delta: { type: 'textDelta', text: event.delta.text },
+                }
+              } else if (event.delta.type === 'citations_delta') {
+                const citation = this._formatCitation(event.delta.citation)
+                if (citation) {
+                  yield {
+                    type: 'modelContentBlockDeltaEvent',
+                    delta: { type: 'citationsDelta', citations: [citation], content: [] },
+                  }
+                }
+              } else if (event.delta.type === 'input_json_delta') {
+                yield {
+                  type: 'modelContentBlockDeltaEvent',
+                  delta: { type: 'toolUseInputDelta', input: event.delta.partial_json },
+                }
+              } else if (event.delta.type === 'thinking_delta') {
+                yield {
+                  type: 'modelContentBlockDeltaEvent',
+                  delta: { type: 'reasoningContentDelta', text: event.delta.thinking },
+                }
+              } else if (event.delta.type === 'signature_delta') {
+                yield {
+                  type: 'modelContentBlockDeltaEvent',
+                  delta: { type: 'reasoningContentDelta', signature: event.delta.signature },
                 }
               }
-            } else if (event.delta.type === 'input_json_delta') {
-              yield {
-                type: 'modelContentBlockDeltaEvent',
-                delta: { type: 'toolUseInputDelta', input: event.delta.partial_json },
+              break
+
+            case 'content_block_stop':
+              if (serverToolBlockIndexes.delete(event.index)) break
+
+              yield { type: 'modelContentBlockStopEvent' }
+              break
+
+            case 'message_delta':
+              if (event.usage) {
+                usage.outputTokens += event.usage.output_tokens
               }
-            } else if (event.delta.type === 'thinking_delta') {
-              yield {
-                type: 'modelContentBlockDeltaEvent',
-                delta: { type: 'reasoningContentDelta', text: event.delta.thinking },
+              if (event.delta.stop_reason) {
+                stopReason = this._mapStopReason(event.delta.stop_reason)
               }
-            } else if (event.delta.type === 'signature_delta') {
-              yield {
-                type: 'modelContentBlockDeltaEvent',
-                delta: { type: 'reasoningContentDelta', signature: event.delta.signature },
-              }
-            }
-            break
-
-          case 'content_block_stop':
-            if (serverToolBlockIndexes.delete(event.index)) break
-
-            yield { type: 'modelContentBlockStopEvent' }
-            break
-
-          case 'message_delta':
-            if (event.usage) {
-              usage.outputTokens = event.usage.output_tokens
-            }
-            if (event.delta.stop_reason) {
-              stopReason = this._mapStopReason(event.delta.stop_reason)
-            }
-            break
-
-          case 'message_stop':
-            usage.totalTokens = usage.inputTokens + usage.outputTokens
-            yield {
-              type: 'modelMetadataEvent',
-              usage,
-            }
-            yield {
-              type: 'modelMessageStopEvent',
-              stopReason,
-            }
-            break
+              break
+          }
         }
+
+        if (stopReason === 'pauseTurn') {
+          if (continuations < MAX_PAUSE_TURN_CONTINUATIONS) {
+            continuations++
+            const pausedMessage = await stream.finalMessage()
+            request = {
+              ...request,
+              messages: [...request.messages, { role: 'assistant', content: pausedMessage.content }],
+            }
+            logger.debug(`continuation=<${continuations}> | resuming paused server-side tool turn`)
+            continue
+          }
+          logger.warn(`continuations=<${continuations}> | paused server-side tool turn not resumed, ending turn`)
+          stopReason = 'endTurn'
+        }
+
+        usage.totalTokens = usage.inputTokens + usage.outputTokens
+        yield {
+          type: 'modelMetadataEvent',
+          usage,
+        }
+        yield {
+          type: 'modelMessageStopEvent',
+          stopReason,
+        }
+        return
       }
     } catch (unknownError) {
       const error = normalizeError(unknownError)

@@ -1062,6 +1062,7 @@ async def test_structured_output(anthropic_client, model, test_output_model_cls,
         unittest.mock.Mock(type="message_start", model_dump=unittest.mock.Mock(return_value={"type": "message_start"})),
         unittest.mock.Mock(
             type="content_block_start",
+            index=0,
             model_dump=unittest.mock.Mock(
                 return_value={
                     "type": "content_block_start",
@@ -1072,6 +1073,7 @@ async def test_structured_output(anthropic_client, model, test_output_model_cls,
         ),
         unittest.mock.Mock(
             type="content_block_delta",
+            index=0,
             model_dump=unittest.mock.Mock(
                 return_value={
                     "type": "content_block_delta",
@@ -1082,6 +1084,7 @@ async def test_structured_output(anthropic_client, model, test_output_model_cls,
         ),
         unittest.mock.Mock(
             type="content_block_stop",
+            index=0,
             model_dump=unittest.mock.Mock(return_value={"type": "content_block_stop", "index": 0}),
         ),
         unittest.mock.Mock(
@@ -2589,10 +2592,120 @@ def test_format_chunk_citations_delta(model, citation, exp_citation):
     assert chunk == {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"citation": exp_citation}}}
 
 
-def test_format_chunk_message_stop_pause_turn(model):
-    chunk = model.format_chunk({"type": "message_stop", "message": {"stop_reason": "pause_turn"}})
+def paused_stream_events(text_index=1):
+    def event(payload, **attrs):
+        return unittest.mock.Mock(model_dump=lambda: payload, **attrs)
 
-    assert chunk == {"messageStop": {"stopReason": "pause_turn"}}
+    server_tool_use = types.SimpleNamespace(type="server_tool_use", id="srvtoolu_1", name="web_search", input={})
+    return [
+        event({"type": "message_start"}, type="message_start"),
+        event(
+            {"type": "content_block_start", "index": text_index - 1},
+            type="content_block_start",
+            index=text_index - 1,
+            content_block=server_tool_use,
+        ),
+        event({"type": "content_block_stop", "index": text_index - 1}, type="content_block_stop", index=text_index - 1),
+        event(
+            {"type": "content_block_start", "index": text_index, "content_block": {"type": "text", "text": ""}},
+            type="content_block_start",
+            index=text_index,
+            content_block=types.SimpleNamespace(type="text", text=""),
+        ),
+        event(
+            {
+                "type": "content_block_delta",
+                "index": text_index,
+                "delta": {"type": "text_delta", "text": "Searching. "},
+            },
+            type="content_block_delta",
+            index=text_index,
+        ),
+        event({"type": "content_block_stop", "index": text_index}, type="content_block_stop", index=text_index),
+        event({"type": "message_stop"}, type="message_stop", message=unittest.mock.Mock(stop_reason="pause_turn")),
+    ]
+
+
+def paused_final_message(content):
+    return unittest.mock.Mock(
+        content=content,
+        usage=unittest.mock.Mock(
+            model_dump=lambda: {"input_tokens": 10, "output_tokens": 5, "service_tier": "standard"}
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_stream_continues_paused_server_tool_turn(anthropic_client, model, agenerator, alist):
+    paused_content = [{"type": "server_tool_use", "id": "srvtoolu_1", "name": "web_search", "input": {}}]
+    anthropic_client.messages.stream.side_effect = [
+        generate_mock_stream_context(paused_stream_events(), final_message=paused_final_message(paused_content)),
+        generate_mock_stream_context(web_search_stream_events(), final_message=mock_final_message()),
+    ]
+    tool_spec = {"description": "d", "name": "calculator", "inputSchema": {"json": {}}}
+
+    chunks = await alist(model.stream([{"role": "user", "content": [{"text": "hi"}]}], [tool_spec]))
+    events = await alist(strands.event_loop.streaming.process_stream(agenerator(chunks)))
+    stop_reason, message, usage, _ = events[-1]["stop"]
+
+    assert [next(iter(chunk)) for chunk in chunks] == [
+        "messageStart",
+        "contentBlockStart",
+        "contentBlockDelta",
+        "contentBlockStop",
+        "contentBlockStart",
+        "contentBlockDelta",
+        "contentBlockDelta",
+        "contentBlockStop",
+        "messageStop",
+        "metadata",
+    ]
+    assert [chunk["contentBlockStart"]["contentBlockIndex"] for chunk in chunks if "contentBlockStart" in chunk] == [
+        1,
+        4,
+    ]
+    assert stop_reason == "end_turn"
+    assert message["content"][0] == {"text": "Searching. "}
+    assert message["content"][1]["citationsContent"]["content"] == [{"text": "Agents are autonomous."}]
+    assert usage == {"inputTokens": 11, "outputTokens": 7, "totalTokens": 18}
+
+    first_request = anthropic_client.messages.stream.call_args_list[0].kwargs
+    second_request = anthropic_client.messages.stream.call_args_list[1].kwargs
+    assert second_request["messages"] == [*first_request["messages"], {"role": "assistant", "content": paused_content}]
+    assert second_request["tools"] == first_request["tools"]
+    assert len(first_request["tools"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_stream_pause_turn_continuation_limit(anthropic_client, model, alist, caplog):
+    caplog.set_level(logging.WARNING, logger="strands.models.anthropic")
+    limit = strands.models.anthropic._MAX_PAUSE_TURN_CONTINUATIONS
+    anthropic_client.messages.stream.side_effect = [
+        generate_mock_stream_context(paused_stream_events(), final_message=paused_final_message([]))
+        for _ in range(limit + 1)
+    ]
+
+    chunks = await alist(model.stream([{"role": "user", "content": [{"text": "hi"}]}]))
+
+    assert anthropic_client.messages.stream.call_count == limit + 1
+    assert [chunk for chunk in chunks if "messageStart" in chunk] == [{"messageStart": {"role": "assistant"}}]
+    assert chunks[-2] == {"messageStop": {"stopReason": "end_turn"}}
+    assert chunks[-1]["metadata"]["usage"]["inputTokens"] == 10 * (limit + 1)
+    assert "paused server-side tool turn not resumed" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_stream_pause_turn_without_snapshot_ends_turn(anthropic_client, model, alist, caplog):
+    caplog.set_level(logging.WARNING, logger="strands.models.anthropic")
+    anthropic_client.messages.stream.return_value = generate_mock_stream_context(
+        paused_stream_events(), final_message=AssertionError("message snapshot is not available")
+    )
+
+    chunks = await alist(model.stream([{"role": "user", "content": [{"text": "hi"}]}]))
+
+    assert anthropic_client.messages.stream.call_count == 1
+    assert chunks[-1] == {"messageStop": {"stopReason": "end_turn"}}
+    assert "paused server-side tool turn not resumed" in caplog.text
 
 
 def test_format_request_with_citations_content(model, model_id, max_tokens):

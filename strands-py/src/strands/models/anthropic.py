@@ -55,6 +55,10 @@ _SERVER_TOOL_BLOCK_TYPES = frozenset(
     }
 )
 
+# Anthropic pauses a long server-side tool turn with stop_reason=pause_turn and expects the paused
+# assistant message to be sent back as-is to resume it. Bounds how many times stream() does so.
+_MAX_PAUSE_TURN_CONTINUATIONS = 5
+
 _IMAGE_MEDIA_TYPES = {
     "gif": "image/gif",
     "jpeg": "image/jpeg",
@@ -910,42 +914,81 @@ class AnthropicModel(Model):
         logger.debug("request=<%s>", request)
 
         logger.debug("invoking model")
+        usage: dict[str, int] = {}
+        block_index_offset = 0
+        continuations = 0
         try:
-            async with self.client.messages.stream(**request) as stream:
-                logger.debug("got response from model")
-                server_tool_block_indexes: set[int] = set()
-                async for event in stream:
-                    if event.type in AnthropicModel.EVENT_TYPES:
+            while True:
+                async with self.client.messages.stream(**request) as stream:
+                    logger.debug("got response from model")
+                    server_tool_block_indexes: set[int] = set()
+                    next_block_index = block_index_offset
+                    stop_reason: str | None = None
+                    async for event in stream:
+                        if event.type not in AnthropicModel.EVENT_TYPES:
+                            continue
+                        if event.type == "message_start":
+                            if continuations == 0:
+                                yield self.format_chunk(event.model_dump())
+                            continue
+                        if event.type == "message_stop":
+                            stop_reason = event.message.stop_reason
+                            continue
                         if event.type == "content_block_start" and event.content_block.type in _SERVER_TOOL_BLOCK_TYPES:
                             server_tool_block_indexes.add(event.index)
                             self._log_server_tool_block(event.content_block)
                             continue
                         if event.type == "content_block_delta" and event.index in server_tool_block_indexes:
                             continue
-                        if event.type == "content_block_stop" and event.index in server_tool_block_indexes:
-                            server_tool_block_indexes.discard(event.index)
-                            continue
-
-                        if event.type == "message_stop":
-                            # Build dict directly to avoid Pydantic serialization warnings
-                            # when the message contains ParsedTextBlock objects (issue #1746)
-                            yield self.format_chunk(
-                                {
-                                    "type": "message_stop",
-                                    "message": {"stop_reason": event.message.stop_reason},
-                                }
-                            )
-                        elif event.type == "content_block_stop":
-                            yield self.format_chunk({"type": "content_block_stop", "index": event.index})
+                        if event.type == "content_block_stop":
+                            if event.index in server_tool_block_indexes:
+                                server_tool_block_indexes.discard(event.index)
+                                continue
+                            payload: dict[str, Any] = {"type": "content_block_stop", "index": event.index}
                         else:
-                            yield self.format_chunk(event.model_dump())
+                            payload = event.model_dump()
 
-                try:
-                    message_snapshot = await stream.get_final_message()
-                except AssertionError as e:
-                    logger.warning("error=<%s> | failed to retrieve message snapshot, usage metadata unavailable", e)
-                else:
-                    yield self.format_chunk({"type": "metadata", "usage": message_snapshot.usage.model_dump()})
+                        payload["index"] += block_index_offset
+                        next_block_index = max(next_block_index, payload["index"] + 1)
+                        yield self.format_chunk(payload)
+
+                    message_snapshot = None
+                    try:
+                        message_snapshot = await stream.get_final_message()
+                    except AssertionError as e:
+                        logger.warning(
+                            "error=<%s> | failed to retrieve message snapshot, usage metadata unavailable", e
+                        )
+                    else:
+                        for key, value in message_snapshot.usage.model_dump().items():
+                            if isinstance(value, int):
+                                usage[key] = usage.get(key, 0) + value
+
+                if stop_reason == "pause_turn":
+                    if message_snapshot is not None and continuations < _MAX_PAUSE_TURN_CONTINUATIONS:
+                        continuations += 1
+                        block_index_offset = next_block_index
+                        request = {
+                            **request,
+                            "messages": [
+                                *request["messages"],
+                                {"role": "assistant", "content": message_snapshot.content},
+                            ],
+                        }
+                        logger.debug("continuation=<%d> | resuming paused server-side tool turn", continuations)
+                        continue
+                    logger.warning(
+                        "continuations=<%d> | paused server-side tool turn not resumed, ending turn", continuations
+                    )
+                    stop_reason = "end_turn"
+
+                if stop_reason is not None:
+                    # Build dict directly to avoid Pydantic serialization warnings
+                    # when the message contains ParsedTextBlock objects (issue #1746)
+                    yield self.format_chunk({"type": "message_stop", "message": {"stop_reason": stop_reason}})
+                if message_snapshot is not None:
+                    yield self.format_chunk({"type": "metadata", "usage": usage})
+                break
 
         except anthropic.RateLimitError as error:
             raise ModelThrottledException(str(error)) from error
