@@ -1,4 +1,4 @@
-Defined in: [src/hooks/events.ts:779](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/hooks/events.ts#L779)
+Defined in: [src/hooks/events.ts:779](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/hooks/events.ts#L779)
 
 Event triggered after all tools complete execution. Fired after tool results are collected and ready to be added to conversation. Uses reverse callback ordering for proper cleanup semantics.
 
@@ -14,7 +14,7 @@ Event triggered after all tools complete execution. Fired after tool results are
 new AfterToolsEvent(data): AfterToolsEvent;
 ```
 
-Defined in: [src/hooks/events.ts:800](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/hooks/events.ts#L800)
+Defined in: [src/hooks/events.ts:800](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/hooks/events.ts#L800)
 
 #### Parameters
 
@@ -41,7 +41,7 @@ Defined in: [src/hooks/events.ts:800](https://github.com/strands-agents/harness-
 readonly type: "afterToolsEvent";
 ```
 
-Defined in: [src/hooks/events.ts:780](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/hooks/events.ts#L780)
+Defined in: [src/hooks/events.ts:780](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/hooks/events.ts#L780)
 
 ---
 
@@ -51,7 +51,7 @@ Defined in: [src/hooks/events.ts:780](https://github.com/strands-agents/harness-
 readonly agent: LocalAgent;
 ```
 
-Defined in: [src/hooks/events.ts:781](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/hooks/events.ts#L781)
+Defined in: [src/hooks/events.ts:781](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/hooks/events.ts#L781)
 
 ---
 
@@ -61,7 +61,7 @@ Defined in: [src/hooks/events.ts:781](https://github.com/strands-agents/harness-
 readonly message: Message;
 ```
 
-Defined in: [src/hooks/events.ts:782](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/hooks/events.ts#L782)
+Defined in: [src/hooks/events.ts:782](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/hooks/events.ts#L782)
 
 ---
 
@@ -71,7 +71,7 @@ Defined in: [src/hooks/events.ts:782](https://github.com/strands-agents/harness-
 readonly invocationState: InvocationState;
 ```
 
-Defined in: [src/hooks/events.ts:783](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/hooks/events.ts#L783)
+Defined in: [src/hooks/events.ts:783](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/hooks/events.ts#L783)
 
 ---
 
@@ -81,7 +81,7 @@ Defined in: [src/hooks/events.ts:783](https://github.com/strands-agents/harness-
 endTurn: string | boolean | ContentBlock[] = false;
 ```
 
-Defined in: [src/hooks/events.ts:798](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/hooks/events.ts#L798)
+Defined in: [src/hooks/events.ts:798](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/hooks/events.ts#L798)
 
 When set to `true`, the agent loop halts after this tool batch completes without calling the model again and a default message (`"Turn ended early by hook after tool execution"`) is appended as the final assistant message. When set to a string, that string is used instead of the default — the string becomes literal assistant content (a `TextBlock`), not a reason or label. When set to a `ContentBlock[]`, those blocks become the final assistant message content directly (shallow-copied). Contrast with [cancel](/docs/api/typescript/BeforeToolCallEvent/index.md#cancel) fields on other events, where the string is a cancellation reason.
 
@@ -95,7 +95,7 @@ In all cases `stopReason` on the returned `AgentResult` is `'endTurn'`.
 toJSON(): Pick<AfterToolsEvent, "type" | "message">;
 ```
 
-Defined in: [src/hooks/events.ts:816](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/hooks/events.ts#L816)
+Defined in: [src/hooks/events.ts:816](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/hooks/events.ts#L816)
 
 Serializes for wire transport, excluding the agent reference, invocationState, and mutable endTurn field. Called automatically by JSON.stringify().
 

@@ -1,4 +1,4 @@
-Defined in: [src/mcp/config.ts:22](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/mcp/config.ts#L22)
+Defined in: [src/mcp/config.ts:22](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/mcp/config.ts#L22)
 
 Configuration for a single MCP server entry in a config file or object.
 
@@ -12,7 +12,7 @@ Provide either `command` (stdio transport) or `url` (streamable-http/SSE), not b
 optional command?: string;
 ```
 
-Defined in: [src/mcp/config.ts:24](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/mcp/config.ts#L24)
+Defined in: [src/mcp/config.ts:24](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/mcp/config.ts#L24)
 
 Command to spawn (stdio transport, supports `${VAR}` or `${env:VAR}` interpolation).
 
@@ -24,7 +24,7 @@ Command to spawn (stdio transport, supports `${VAR}` or `${env:VAR}` interpolati
 optional args?: string[];
 ```
 
-Defined in: [src/mcp/config.ts:26](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/mcp/config.ts#L26)
+Defined in: [src/mcp/config.ts:26](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/mcp/config.ts#L26)
 
 Arguments passed to the command (supports `${VAR}` or `${env:VAR}` interpolation).
 
@@ -36,7 +36,7 @@ Arguments passed to the command (supports `${VAR}` or `${env:VAR}` interpolation
 optional env?: Record<string, string>;
 ```
 
-Defined in: [src/mcp/config.ts:28](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/mcp/config.ts#L28)
+Defined in: [src/mcp/config.ts:28](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/mcp/config.ts#L28)
 
 Environment variables passed to the child process (supports `${VAR}` or `${env:VAR}` interpolation).
 
@@ -48,7 +48,7 @@ Environment variables passed to the child process (supports `${VAR}` or `${env:V
 optional cwd?: string;
 ```
 
-Defined in: [src/mcp/config.ts:30](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/mcp/config.ts#L30)
+Defined in: [src/mcp/config.ts:30](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/mcp/config.ts#L30)
 
 Working directory for the spawned process (supports `${VAR}` or `${env:VAR}` interpolation).
 
@@ -60,7 +60,7 @@ Working directory for the spawned process (supports `${VAR}` or `${env:VAR}` int
 optional url?: string;
 ```
 
-Defined in: [src/mcp/config.ts:32](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/mcp/config.ts#L32)
+Defined in: [src/mcp/config.ts:32](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/mcp/config.ts#L32)
 
 Server endpoint URL (streamable-http or SSE transport, supports `${VAR}` or `${env:VAR}` interpolation).
 
@@ -72,7 +72,7 @@ Server endpoint URL (streamable-http or SSE transport, supports `${VAR}` or `${e
 optional headers?: Record<string, string>;
 ```
 
-Defined in: [src/mcp/config.ts:34](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/mcp/config.ts#L34)
+Defined in: [src/mcp/config.ts:34](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/mcp/config.ts#L34)
 
 HTTP headers sent with every request (supports `${VAR}` or `${env:VAR}` interpolation).
 
@@ -84,7 +84,7 @@ HTTP headers sent with every request (supports `${VAR}` or `${env:VAR}` interpol
 optional transport?: "stdio" | "sse" | "streamable-http";
 ```
 
-Defined in: [src/mcp/config.ts:36](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/mcp/config.ts#L36)
+Defined in: [src/mcp/config.ts:36](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/mcp/config.ts#L36)
 
 Explicit transport type. When omitted, auto-detected: `command` → stdio, `url` → streamable-http.
 
@@ -96,7 +96,7 @@ Explicit transport type. When omitted, auto-detected: `command` → stdio, `url`
 optional auth?: McpClientCredentials;
 ```
 
-Defined in: [src/mcp/config.ts:38](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/mcp/config.ts#L38)
+Defined in: [src/mcp/config.ts:38](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/mcp/config.ts#L38)
 
 Client credentials for OAuth machine-to-machine auth (streamable-http only).
 
@@ -108,7 +108,7 @@ Client credentials for OAuth machine-to-machine auth (streamable-http only).
 optional prefix?: string;
 ```
 
-Defined in: [src/mcp/config.ts:40](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/mcp/config.ts#L40)
+Defined in: [src/mcp/config.ts:40](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/mcp/config.ts#L40)
 
 Prefix for agent-facing tool names (supports `${VAR}` or `${env:VAR}` interpolation).
 
@@ -120,7 +120,7 @@ Prefix for agent-facing tool names (supports `${VAR}` or `${env:VAR}` interpolat
 optional toolFilters?: SerializableMcpToolFilters;
 ```
 
-Defined in: [src/mcp/config.ts:42](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/mcp/config.ts#L42)
+Defined in: [src/mcp/config.ts:42](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/mcp/config.ts#L42)
 
 Filters applied to tool names (patterns support `${VAR}` or `${env:VAR}` interpolation).
 
@@ -132,7 +132,7 @@ Filters applied to tool names (patterns support `${VAR}` or `${env:VAR}` interpo
 optional disabled?: boolean;
 ```
 
-Defined in: [src/mcp/config.ts:44](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/mcp/config.ts#L44)
+Defined in: [src/mcp/config.ts:44](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/mcp/config.ts#L44)
 
 When true, this server is skipped during loadServers.
 
@@ -144,7 +144,7 @@ When true, this server is skipped during loadServers.
 optional continueOnError?: boolean;
 ```
 
-Defined in: [src/mcp/config.ts:46](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/mcp/config.ts#L46)
+Defined in: [src/mcp/config.ts:46](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/mcp/config.ts#L46)
 
 When true, config or connection failures skip this server instead of throwing.
 
@@ -156,6 +156,6 @@ When true, config or connection failures skip this server instead of throwing.
 optional tasksConfig?: TasksConfig;
 ```
 
-Defined in: [src/mcp/config.ts:48](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/mcp/config.ts#L48)
+Defined in: [src/mcp/config.ts:48](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/mcp/config.ts#L48)
 
 Task-augmented tool execution configuration (experimental).

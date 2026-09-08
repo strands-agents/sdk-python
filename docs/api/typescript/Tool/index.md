@@ -1,4 +1,4 @@
-Defined in: [src/tools/tool.ts:107](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/tools/tool.ts#L107)
+Defined in: [src/tools/tool.ts:107](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/tools/tool.ts#L107)
 
 Interface for tool implementations. Tools are used by agents to interact with their environment and perform specific actions.
 
@@ -32,7 +32,7 @@ new Tool(): Tool;
 abstract name: string;
 ```
 
-Defined in: [src/tools/tool.ts:112](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/tools/tool.ts#L112)
+Defined in: [src/tools/tool.ts:112](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/tools/tool.ts#L112)
 
 The unique name of the tool. This MUST match the name in the toolSpec.
 
@@ -44,7 +44,7 @@ The unique name of the tool. This MUST match the name in the toolSpec.
 abstract description: string;
 ```
 
-Defined in: [src/tools/tool.ts:119](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/tools/tool.ts#L119)
+Defined in: [src/tools/tool.ts:119](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/tools/tool.ts#L119)
 
 Human-readable description of what the tool does. This helps the model understand when to use the tool.
 
@@ -58,7 +58,7 @@ This MUST match the description in the toolSpec.description.
 abstract toolSpec: ToolSpec;
 ```
 
-Defined in: [src/tools/tool.ts:124](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/tools/tool.ts#L124)
+Defined in: [src/tools/tool.ts:124](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/tools/tool.ts#L124)
 
 OpenAPI JSON specification for the tool. Defines the tool’s name, description, and input schema.
 
@@ -70,7 +70,7 @@ OpenAPI JSON specification for the tool. Defines the tool’s name, description,
 abstract stream(toolContext): ToolStreamGenerator;
 ```
 
-Defined in: [src/tools/tool.ts:159](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/tools/tool.ts#L159)
+Defined in: [src/tools/tool.ts:159](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/tools/tool.ts#L159)
 
 Executes the tool with streaming support. Yields zero or more ToolStreamEvents during execution, then returns exactly one ToolResultBlock as the final value.
 

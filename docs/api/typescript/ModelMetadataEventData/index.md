@@ -1,4 +1,4 @@
-Defined in: [src/models/streaming.ts:231](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/models/streaming.ts#L231)
+Defined in: [src/models/streaming.ts:231](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/models/streaming.ts#L231)
 
 Data for a metadata event.
 
@@ -10,7 +10,7 @@ Data for a metadata event.
 type: "modelMetadataEvent";
 ```
 
-Defined in: [src/models/streaming.ts:235](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/models/streaming.ts#L235)
+Defined in: [src/models/streaming.ts:235](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/models/streaming.ts#L235)
 
 Discriminator for metadata events.
 
@@ -22,7 +22,7 @@ Discriminator for metadata events.
 optional usage?: Usage;
 ```
 
-Defined in: [src/models/streaming.ts:240](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/models/streaming.ts#L240)
+Defined in: [src/models/streaming.ts:240](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/models/streaming.ts#L240)
 
 Token usage information.
 
@@ -34,7 +34,7 @@ Token usage information.
 optional metrics?: Metrics;
 ```
 
-Defined in: [src/models/streaming.ts:245](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/models/streaming.ts#L245)
+Defined in: [src/models/streaming.ts:245](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/models/streaming.ts#L245)
 
 Performance metrics.
 
@@ -46,6 +46,6 @@ Performance metrics.
 optional trace?: unknown;
 ```
 
-Defined in: [src/models/streaming.ts:250](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/models/streaming.ts#L250)
+Defined in: [src/models/streaming.ts:250](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/models/streaming.ts#L250)
 
 Trace information for observability.

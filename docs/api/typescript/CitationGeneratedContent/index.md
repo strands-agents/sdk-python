@@ -4,7 +4,7 @@ type CitationGeneratedContent = {
 };
 ```
 
-Defined in: [src/types/citations.ts:126](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/citations.ts#L126)
+Defined in: [src/types/citations.ts:126](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/types/citations.ts#L126)
 
 Generated content associated with a citation. Modeled as a union type for future extensibility.
 
@@ -16,4 +16,4 @@ Generated content associated with a citation. Modeled as a union type for future
 text: string;
 ```
 
-Defined in: [src/types/citations.ts:126](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/citations.ts#L126)
+Defined in: [src/types/citations.ts:126](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/types/citations.ts#L126)

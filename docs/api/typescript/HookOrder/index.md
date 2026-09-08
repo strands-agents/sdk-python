@@ -9,7 +9,7 @@ const HookOrder: {
 };
 ```
 
-Defined in: [src/hooks/types.ts:48](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/hooks/types.ts#L48)
+Defined in: [src/hooks/types.ts:48](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/hooks/types.ts#L48)
 
 Presets for hook execution order. Lower values run first. Any number is a valid order — these presets are not bounds, just convenient reference points. SDK\_FIRST/SDK\_LAST mark where the SDK’s own hooks run, so you can position yours relative to them.
 
@@ -17,12 +17,12 @@ Presets for hook execution order. Lower values run first. Any number is a valid 
 
 | Name | Type | Default value | Defined in |
 | --- | --- | --- | --- |
-| `SDK_FIRST` | `-100` | `-100` | [src/hooks/types.ts:49](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/hooks/types.ts#L49) |
-| `INTERVENTION_OUTPUT` | `-90` | `-90` | [src/hooks/types.ts:50](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/hooks/types.ts#L50) |
-| `DEFAULT` | `0` | `0` | [src/hooks/types.ts:51](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/hooks/types.ts#L51) |
-| `MODEL_ROUTING` | `50` | `50` | [src/hooks/types.ts:52](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/hooks/types.ts#L52) |
-| `INTERVENTION_INPUT` | `90` | `90` | [src/hooks/types.ts:53](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/hooks/types.ts#L53) |
-| `SDK_LAST` | `100` | `100` | [src/hooks/types.ts:54](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/hooks/types.ts#L54) |
+| `SDK_FIRST` | `-100` | `-100` | [src/hooks/types.ts:49](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/hooks/types.ts#L49) |
+| `INTERVENTION_OUTPUT` | `-90` | `-90` | [src/hooks/types.ts:50](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/hooks/types.ts#L50) |
+| `DEFAULT` | `0` | `0` | [src/hooks/types.ts:51](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/hooks/types.ts#L51) |
+| `MODEL_ROUTING` | `50` | `50` | [src/hooks/types.ts:52](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/hooks/types.ts#L52) |
+| `INTERVENTION_INPUT` | `90` | `90` | [src/hooks/types.ts:53](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/hooks/types.ts#L53) |
+| `SDK_LAST` | `100` | `100` | [src/hooks/types.ts:54](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/hooks/types.ts#L54) |
 
 ## Example
 

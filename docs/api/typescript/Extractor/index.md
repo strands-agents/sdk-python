@@ -1,4 +1,4 @@
-Defined in: [src/memory/extraction/types.ts:74](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/memory/extraction/types.ts#L74)
+Defined in: [src/memory/extraction/types.ts:74](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/memory/extraction/types.ts#L74)
 
 Transforms conversation messages into discrete, searchable entries.
 
@@ -12,7 +12,7 @@ Implementations distill raw turns into facts worth remembering. Optional on a st
 extract(messages, context?): Promise<ExtractionResult[]>;
 ```
 
-Defined in: [src/memory/extraction/types.ts:82](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/memory/extraction/types.ts#L82)
+Defined in: [src/memory/extraction/types.ts:82](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/memory/extraction/types.ts#L82)
 
 Extract entries from a batch of messages.
 

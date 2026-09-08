@@ -1,4 +1,4 @@
-Defined in: [src/models/streaming.ts:204](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/models/streaming.ts#L204)
+Defined in: [src/models/streaming.ts:204](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/models/streaming.ts#L204)
 
 Event emitted when the message completes.
 
@@ -14,7 +14,7 @@ Event emitted when the message completes.
 new ModelMessageStopEvent(data): ModelMessageStopEvent;
 ```
 
-Defined in: [src/models/streaming.ts:220](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/models/streaming.ts#L220)
+Defined in: [src/models/streaming.ts:220](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/models/streaming.ts#L220)
 
 #### Parameters
 
@@ -34,7 +34,7 @@ Defined in: [src/models/streaming.ts:220](https://github.com/strands-agents/harn
 readonly type: "modelMessageStopEvent";
 ```
 
-Defined in: [src/models/streaming.ts:208](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/models/streaming.ts#L208)
+Defined in: [src/models/streaming.ts:208](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/models/streaming.ts#L208)
 
 Discriminator for message stop events.
 
@@ -50,7 +50,7 @@ Discriminator for message stop events.
 readonly stopReason: StopReason;
 ```
 
-Defined in: [src/models/streaming.ts:213](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/models/streaming.ts#L213)
+Defined in: [src/models/streaming.ts:213](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/models/streaming.ts#L213)
 
 Reason why generation stopped.
 
@@ -66,7 +66,7 @@ Reason why generation stopped.
 readonly optional additionalModelResponseFields?: JSONValue;
 ```
 
-Defined in: [src/models/streaming.ts:218](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/models/streaming.ts#L218)
+Defined in: [src/models/streaming.ts:218](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/models/streaming.ts#L218)
 
 Additional provider-specific response fields.
 

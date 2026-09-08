@@ -1,4 +1,4 @@
-Defined in: [src/retry/model-retry-strategy.ts:33](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/retry/model-retry-strategy.ts#L33)
+Defined in: [src/retry/model-retry-strategy.ts:33](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/retry/model-retry-strategy.ts#L33)
 
 Abstract base class for model-retry strategies.
 
@@ -41,7 +41,7 @@ new ModelRetryStrategy(): ModelRetryStrategy;
 abstract readonly name: string;
 ```
 
-Defined in: [src/retry/model-retry-strategy.ts:37](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/retry/model-retry-strategy.ts#L37)
+Defined in: [src/retry/model-retry-strategy.ts:37](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/retry/model-retry-strategy.ts#L37)
 
 A stable string identifier for this retry strategy.
 
@@ -59,7 +59,7 @@ abstract protected computeRetryDecision(event):
 | Promise<RetryDecision>;
 ```
 
-Defined in: [src/retry/model-retry-strategy.ts:53](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/retry/model-retry-strategy.ts#L53)
+Defined in: [src/retry/model-retry-strategy.ts:53](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/retry/model-retry-strategy.ts#L53)
 
 Decide whether to retry the failed model call, and how long to wait first.
 
@@ -85,7 +85,7 @@ Return `{ retry: false }` to let the error propagate. Return `{ retry: true, wai
 protected onFirstModelAttempt(): void;
 ```
 
-Defined in: [src/retry/model-retry-strategy.ts:60](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/retry/model-retry-strategy.ts#L60)
+Defined in: [src/retry/model-retry-strategy.ts:60](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/retry/model-retry-strategy.ts#L60)
 
 Called when `event.attemptCount === 1`, at the start of a fresh retry budget. This occurs on a new turn and when model routing switches candidates. Subclasses with per-budget state override this to clear it; the default is a no-op.
 
@@ -101,7 +101,7 @@ Called when `event.attemptCount === 1`, at the start of a fresh retry budget. Th
 initAgent(agent): void;
 ```
 
-Defined in: [src/retry/model-retry-strategy.ts:95](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/retry/model-retry-strategy.ts#L95)
+Defined in: [src/retry/model-retry-strategy.ts:95](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/retry/model-retry-strategy.ts#L95)
 
 Initialize the retry strategy with the agent instance.
 

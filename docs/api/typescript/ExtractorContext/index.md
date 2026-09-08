@@ -1,4 +1,4 @@
-Defined in: [src/memory/extraction/types.ts:55](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/memory/extraction/types.ts#L55)
+Defined in: [src/memory/extraction/types.ts:55](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/memory/extraction/types.ts#L55)
 
 Context passed to [Extractor.extract](/docs/api/typescript/Extractor/index.md#extract).
 
@@ -12,6 +12,6 @@ Lets the manager hand an extractor a fallback model without the extractor having
 optional defaultModel?: Model;
 ```
 
-Defined in: [src/memory/extraction/types.ts:57](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/memory/extraction/types.ts#L57)
+Defined in: [src/memory/extraction/types.ts:57](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/memory/extraction/types.ts#L57)
 
 The agent’s model, supplied so an extractor can default to it.

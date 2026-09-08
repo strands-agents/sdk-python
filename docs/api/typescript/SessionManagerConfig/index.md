@@ -1,4 +1,4 @@
-Defined in: [src/session/session-manager.ts:62](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/session/session-manager.ts#L62)
+Defined in: [src/session/session-manager.ts:62](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/session/session-manager.ts#L62)
 
 ## Properties
 
@@ -12,7 +12,7 @@ optional storage?:
 };
 ```
 
-Defined in: [src/session/session-manager.ts:73](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/session/session-manager.ts#L73)
+Defined in: [src/session/session-manager.ts:73](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/session/session-manager.ts#L73)
 
 Storage backend for snapshot persistence.
 
@@ -31,7 +31,7 @@ When omitted, resolves from the agent-level `storage` during initialization. If 
 optional sessionId?: string;
 ```
 
-Defined in: [src/session/session-manager.ts:75](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/session/session-manager.ts#L75)
+Defined in: [src/session/session-manager.ts:75](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/session/session-manager.ts#L75)
 
 Unique session identifier. Defaults to `'default-session'`.
 
@@ -43,7 +43,7 @@ Unique session identifier. Defaults to `'default-session'`.
 optional saveLatestOn?: SaveLatestStrategy;
 ```
 
-Defined in: [src/session/session-manager.ts:77](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/session/session-manager.ts#L77)
+Defined in: [src/session/session-manager.ts:77](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/session/session-manager.ts#L77)
 
 When to save snapshot\_latest. Default: `'invocation'` (after each agent invocation completes). See [SaveLatestStrategy](/docs/api/typescript/SaveLatestStrategy/index.md) for details.
 
@@ -55,7 +55,7 @@ When to save snapshot\_latest. Default: `'invocation'` (after each agent invocat
 optional snapshotTrigger?: SnapshotTriggerCallback;
 ```
 
-Defined in: [src/session/session-manager.ts:79](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/session/session-manager.ts#L79)
+Defined in: [src/session/session-manager.ts:79](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/session/session-manager.ts#L79)
 
 Callback invoked after each invocation to decide whether to create an immutable snapshot.
 
@@ -67,6 +67,6 @@ Callback invoked after each invocation to decide whether to create an immutable 
 optional multiAgentSaveLatestOn?: MultiAgentSaveLatestStrategy;
 ```
 
-Defined in: [src/session/session-manager.ts:85](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/session/session-manager.ts#L85)
+Defined in: [src/session/session-manager.ts:85](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/session/session-manager.ts#L85)
 
 When to save snapshot\_latest for multi-agent orchestrators. Default: `'node'` (after each node invocation completes). See [MultiAgentSaveLatestStrategy](/docs/api/typescript/MultiAgentSaveLatestStrategy/index.md) for details.

@@ -1,4 +1,4 @@
-Defined in: [src/models/model.ts:170](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/models/model.ts#L170)
+Defined in: [src/models/model.ts:170](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/models/model.ts#L170)
 
 Base configuration interface for all model providers.
 
@@ -16,7 +16,7 @@ This interface defines the common configuration properties that all model provid
 optional modelId?: string;
 ```
 
-Defined in: [src/models/model.ts:175](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/models/model.ts#L175)
+Defined in: [src/models/model.ts:175](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/models/model.ts#L175)
 
 The model identifier. This typically specifies which model to use from the provider’s catalog.
 
@@ -28,7 +28,7 @@ The model identifier. This typically specifies which model to use from the provi
 optional maxTokens?: number;
 ```
 
-Defined in: [src/models/model.ts:182](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/models/model.ts#L182)
+Defined in: [src/models/model.ts:182](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/models/model.ts#L182)
 
 Maximum number of tokens to generate in the response.
 
@@ -44,7 +44,7 @@ Provider-specific documentation for exact behavior
 optional temperature?: number;
 ```
 
-Defined in: [src/models/model.ts:189](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/models/model.ts#L189)
+Defined in: [src/models/model.ts:189](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/models/model.ts#L189)
 
 Controls randomness in generation.
 
@@ -60,7 +60,7 @@ Provider-specific documentation for valid range
 optional topP?: number;
 ```
 
-Defined in: [src/models/model.ts:196](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/models/model.ts#L196)
+Defined in: [src/models/model.ts:196](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/models/model.ts#L196)
 
 Controls diversity via nucleus sampling.
 
@@ -76,7 +76,7 @@ Provider-specific documentation for details
 optional contextWindowLimit?: number;
 ```
 
-Defined in: [src/models/model.ts:208](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/models/model.ts#L208)
+Defined in: [src/models/model.ts:208](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/models/model.ts#L208)
 
 Maximum context window size in tokens for the model.
 

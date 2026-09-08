@@ -1,4 +1,4 @@
-Defined in: [src/models/streaming.ts:66](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/models/streaming.ts#L66)
+Defined in: [src/models/streaming.ts:66](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/models/streaming.ts#L66)
 
 Event emitted when a new message starts in the stream.
 
@@ -14,7 +14,7 @@ Event emitted when a new message starts in the stream.
 new ModelMessageStartEvent(data): ModelMessageStartEvent;
 ```
 
-Defined in: [src/models/streaming.ts:77](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/models/streaming.ts#L77)
+Defined in: [src/models/streaming.ts:77](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/models/streaming.ts#L77)
 
 #### Parameters
 
@@ -34,7 +34,7 @@ Defined in: [src/models/streaming.ts:77](https://github.com/strands-agents/harne
 readonly type: "modelMessageStartEvent";
 ```
 
-Defined in: [src/models/streaming.ts:70](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/models/streaming.ts#L70)
+Defined in: [src/models/streaming.ts:70](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/models/streaming.ts#L70)
 
 Discriminator for message start events.
 
@@ -50,7 +50,7 @@ Discriminator for message start events.
 readonly role: Role;
 ```
 
-Defined in: [src/models/streaming.ts:75](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/models/streaming.ts#L75)
+Defined in: [src/models/streaming.ts:75](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/models/streaming.ts#L75)
 
 The role of the message being started.
 

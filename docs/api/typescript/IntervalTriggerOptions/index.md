@@ -1,4 +1,4 @@
-Defined in: [src/memory/extraction/triggers.ts:28](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/memory/extraction/triggers.ts#L28)
+Defined in: [src/memory/extraction/triggers.ts:28](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/memory/extraction/triggers.ts#L28)
 
 Options for [IntervalTrigger](/docs/api/typescript/IntervalTrigger/index.md).
 
@@ -10,6 +10,6 @@ Options for [IntervalTrigger](/docs/api/typescript/IntervalTrigger/index.md).
 turns: number;
 ```
 
-Defined in: [src/memory/extraction/triggers.ts:30](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/memory/extraction/triggers.ts#L30)
+Defined in: [src/memory/extraction/triggers.ts:30](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/memory/extraction/triggers.ts#L30)
 
 Run extraction once every this many invocations. Must be a positive integer.

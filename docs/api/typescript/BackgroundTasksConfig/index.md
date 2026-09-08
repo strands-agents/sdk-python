@@ -1,4 +1,4 @@
-Defined in: [src/background-tasks/types.ts:6](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/background-tasks/types.ts#L6)
+Defined in: [src/background-tasks/types.ts:6](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/background-tasks/types.ts#L6)
 
 Configures background tool execution.
 
@@ -10,7 +10,7 @@ Configures background tool execution.
 readonly optional waitForCompletion?: boolean;
 ```
 
-Defined in: [src/background-tasks/types.ts:8](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/background-tasks/types.ts#L8)
+Defined in: [src/background-tasks/types.ts:8](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/background-tasks/types.ts#L8)
 
 Wait for background work before an invocation returns. Defaults to `true`.
 
@@ -22,7 +22,7 @@ Wait for background work before an invocation returns. Defaults to `true`.
 readonly optional agentic?: readonly (string | Tool)[];
 ```
 
-Defined in: [src/background-tasks/types.ts:10](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/background-tasks/types.ts#L10)
+Defined in: [src/background-tasks/types.ts:10](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/background-tasks/types.ts#L10)
 
 Tools or registered tool names whose execution mode is selected by the model. Defaults to `['*']`.
 
@@ -34,7 +34,7 @@ Tools or registered tool names whose execution mode is selected by the model. De
 readonly optional always?: readonly (string | Tool)[];
 ```
 
-Defined in: [src/background-tasks/types.ts:12](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/background-tasks/types.ts#L12)
+Defined in: [src/background-tasks/types.ts:12](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/background-tasks/types.ts#L12)
 
 Tools or registered tool names that always execute in the background.
 
@@ -46,7 +46,7 @@ Tools or registered tool names that always execute in the background.
 readonly optional never?: readonly (string | Tool)[];
 ```
 
-Defined in: [src/background-tasks/types.ts:14](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/background-tasks/types.ts#L14)
+Defined in: [src/background-tasks/types.ts:14](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/background-tasks/types.ts#L14)
 
 Tools or registered tool names that never execute in the background.
 
@@ -58,7 +58,7 @@ Tools or registered tool names that never execute in the background.
 readonly optional maxConcurrency?: number;
 ```
 
-Defined in: [src/background-tasks/types.ts:16](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/background-tasks/types.ts#L16)
+Defined in: [src/background-tasks/types.ts:16](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/background-tasks/types.ts#L16)
 
 Maximum number of physically executing background tasks. Defaults to `4`.
 
@@ -70,6 +70,6 @@ Maximum number of physically executing background tasks. Defaults to `4`.
 readonly optional timeout?: number;
 ```
 
-Defined in: [src/background-tasks/types.ts:18](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/background-tasks/types.ts#L18)
+Defined in: [src/background-tasks/types.ts:18](https://github.com/strands-agents/harness-sdk/blob/57d070582e9bd93afb549b4d2f976ce0dbaf03b6/strands-ts/src/background-tasks/types.ts#L18)
 
 Per-execution timeout in milliseconds. Defaults to `Infinity`.
