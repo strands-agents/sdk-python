@@ -10,7 +10,7 @@ import threading
 import time
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from opentelemetry import trace as trace_api
 
@@ -502,7 +502,7 @@ def _route_background(
     requested_tool: AgentTool | None,
     selected_tool: AgentTool | None,
     invocation_state: dict[str, Any],
-) -> tuple[ToolUse, "bool | ToolResult | None"]:
+) -> tuple[ToolUse, "Literal[True] | ToolResult | None"]:
     """Decide whether a tool call runs in the background.
 
     Returns the tool use to execute and either True (dispatch), an admission error result, or None

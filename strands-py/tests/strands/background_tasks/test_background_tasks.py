@@ -5,7 +5,7 @@ import threading
 import time
 from collections.abc import AsyncGenerator
 from typing import Any
-from unittest.mock import ANY
+from unittest.mock import ANY, AsyncMock
 
 import pytest
 
@@ -13,6 +13,7 @@ from strands import Agent, ToolContext, tool
 from strands._middleware.stages import ExecuteToolStage, InvokeModelStage
 from strands.hooks import AfterToolCallEvent, AgentInitializedEvent, BeforeToolCallEvent
 from strands.interrupt import Interrupt
+from strands.tools.tools import PythonAgentTool
 from strands.types._events import ToolResultEvent
 from strands.types.content import Messages
 from strands.types.tools import ToolResult, ToolSpec, ToolUse
@@ -71,6 +72,29 @@ async def _invoke_management_tool(agent: Agent, tool_input: dict[str, Any]) -> T
     return result
 
 
+def _tool_result(agent: Agent, tool_use_id: str) -> ToolResult:
+    return next(
+        block["toolResult"]
+        for message in agent.messages
+        for block in message["content"]
+        if "toolResult" in block and block["toolResult"]["toolUseId"] == tool_use_id
+    )
+
+
+def _delivered_result(agent: Agent) -> ToolResult:
+    [delivery] = _deliveries(agent.messages)
+    return _tool_result(agent, delivery["toolUseId"])
+
+
+def _unselectable_tool(tool_name: str) -> PythonAgentTool:
+    spec: ToolSpec = {
+        "name": tool_name,
+        "description": "Schema already declares the selection flag.",
+        "inputSchema": {"json": {"type": "object", "properties": {"_background_execution": {"type": "boolean"}}}},
+    }
+    return PythonAgentTool(tool_name, spec, lambda tool_use, **kwargs: {"status": "success", "content": []})
+
+
 def _capture_tool_specs(agent: Agent) -> list[list[ToolSpec]]:
     captured: list[list[ToolSpec]] = []
 
@@ -107,6 +131,300 @@ def test__init__rejects_conflicting_tool_policies() -> None:
             background_tasks={"always": [work], "never": [work]},
             callback_handler=None,
         )
+
+
+def test__init__rejects_exact_policy_on_tool_that_cannot_run_in_background() -> None:
+    @tool(name="summarize_context")
+    def incompatible() -> None:
+        """Cannot run in the background."""
+
+    with pytest.raises(TypeError, match="Tool 'summarize_context' cannot run in the background"):
+        Agent(
+            model=MockedModelProvider([]),
+            tools=[incompatible],
+            background_tasks={"always": [incompatible]},
+            callback_handler=None,
+        )
+
+
+def test__init__rejects_exact_agentic_policy_on_unselectable_tool() -> None:
+    with pytest.raises(TypeError, match="Tool 'custom' cannot use agentic background selection"):
+        Agent(
+            model=MockedModelProvider([]),
+            tools=[_unselectable_tool("custom")],
+            background_tasks={"agentic": ["custom"]},
+            callback_handler=None,
+        )
+
+
+def test__init__forwards_execution_limits_to_task_manager() -> None:
+    agent = Agent(
+        model=MockedModelProvider([]),
+        background_tasks={"max_concurrency": 2, "timeout": 5},
+        callback_handler=None,
+    )
+
+    engine = agent._background_tasks._manager._engine
+    tru_limits = (engine._max_concurrency, engine._timeout)
+    exp_limits = (2, 5)
+    assert tru_limits == exp_limits
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool_input", "message"),
+    [
+        ({"mode": "get"}, "Task ID is required for mode 'get'"),
+        ({"mode": "cancel", "task_id": "missing"}, "Background task 'missing' was not found"),
+    ],
+)
+async def test_management_tool_rejects_missing_or_unknown_task(tool_input: dict[str, Any], message: str) -> None:
+    agent = Agent(model=MockedModelProvider([]), background_tasks={}, callback_handler=None)
+
+    tru_result = await _invoke_management_tool(agent, tool_input)
+    exp_result = {"toolUseId": "management-use", "status": "error", "content": [{"text": ANY}]}
+    assert tru_result == exp_result
+    assert message in tru_result["content"][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_rejects_non_boolean_background_selection() -> None:
+    executions = 0
+
+    @tool(name="work")
+    def work() -> str:
+        """Perform work."""
+        nonlocal executions
+        executions += 1
+        return "done"
+
+    agent = Agent(
+        model=MockedModelProvider(
+            [_assistant_tool_use("work", "work-use", {"_background_execution": "yes"}), _assistant_text("Rejected.")]
+        ),
+        tools=[work],
+        background_tasks={},
+        callback_handler=None,
+    )
+
+    await agent.invoke_async("Run work.")
+
+    tru_result = _tool_result(agent, "work-use")
+    exp_result = {
+        "toolUseId": "work-use",
+        "status": "error",
+        "content": [{"text": "'_background_execution' must be a boolean"}],
+    }
+    assert tru_result == exp_result
+    assert executions == 0
+
+
+@pytest.mark.asyncio
+async def test_unknown_tool_runs_in_the_foreground() -> None:
+    agent = Agent(
+        model=MockedModelProvider(
+            [_assistant_tool_use("missing", "missing-use", {"_background_execution": True}), _assistant_text("Done.")]
+        ),
+        background_tasks={},
+        callback_handler=None,
+    )
+
+    await agent.invoke_async("Run missing.")
+
+    tru_status = _tool_result(agent, "missing-use")["status"]
+    exp_status = "error"
+    assert tru_status == exp_status
+    assert _deliveries(agent.messages) == []
+    assert _persisted_tasks(agent) is None
+
+
+@pytest.mark.asyncio
+async def test_reports_admission_failure_as_tool_error() -> None:
+    @tool(name="work")
+    def work() -> str:
+        """Perform work."""
+        return "done"
+
+    agent = Agent(
+        model=MockedModelProvider(
+            [_assistant_tool_use("work", "work-use", {"_background_execution": True}), _assistant_text("Failed.")]
+        ),
+        tools=[work],
+        background_tasks={},
+        callback_handler=None,
+    )
+    agent._background_tasks._manager.submit = AsyncMock(side_effect=RuntimeError("runtime unavailable"))
+
+    await agent.invoke_async("Run work.")
+
+    tru_result = _tool_result(agent, "work-use")
+    exp_result = {"toolUseId": "work-use", "status": "error", "content": [{"text": "Background task admission failed"}]}
+    assert tru_result == exp_result
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("policy", "late_tool"),
+    [
+        ("summarize_context", tool(name="summarize_context")(lambda: None)),
+        ("custom", _unselectable_tool("custom")),
+    ],
+)
+async def test_rejects_exact_agentic_policy_on_tool_registered_after_init(policy: str, late_tool: Any) -> None:
+    agent = Agent(model=MockedModelProvider([]), background_tasks={"agentic": [policy]}, callback_handler=None)
+    agent.tool_registry.register_tool(late_tool)
+
+    with pytest.raises(TypeError, match=f"Tool '{policy}' cannot use agentic background selection"):
+        await agent.invoke_async("Run.")
+
+
+@pytest.mark.asyncio
+async def test_fails_task_when_middleware_substitutes_foreground_only_tool() -> None:
+    @tool(name="work")
+    def work() -> str:
+        """Perform work."""
+        return "done"
+
+    @tool(name="foreground")
+    def foreground() -> str:
+        """Never runs in the background."""
+        return "foreground"
+
+    agent = Agent(
+        model=MockedModelProvider(
+            [
+                _assistant_tool_use("work", "work-use", {"_background_execution": True}),
+                _assistant_text("Task admitted."),
+                _assistant_text("Result received."),
+            ]
+        ),
+        tools=[work, foreground],
+        background_tasks={"never": [foreground]},
+        callback_handler=None,
+    )
+
+    async def substitute(context: Any, next_fn: Any) -> AsyncGenerator[Any, None]:
+        context.tool = foreground
+        async for event in next_fn(context):
+            yield event
+
+    agent._middleware_registry.add_middleware(ExecuteToolStage, substitute)
+
+    await agent.invoke_async("Run work.")
+
+    tru_result = _delivered_result(agent)
+    exp_result = {"toolUseId": ANY, "status": "error", "content": [{"text": "Tool cannot run in the background"}]}
+    assert tru_result == exp_result
+
+
+@pytest.mark.asyncio
+async def test_fails_task_when_middleware_drops_tool_result() -> None:
+    @tool(name="work")
+    def work() -> str:
+        """Perform work."""
+        return "done"
+
+    agent = Agent(
+        model=MockedModelProvider(
+            [
+                _assistant_tool_use("work", "work-use", {"_background_execution": True}),
+                _assistant_text("Task admitted."),
+                _assistant_text("Result received."),
+            ]
+        ),
+        tools=[work],
+        background_tasks={},
+        callback_handler=None,
+    )
+
+    async def swallow(context: Any, next_fn: Any) -> AsyncGenerator[Any, None]:
+        async for _ in next_fn(context):
+            pass
+        return
+        yield
+
+    agent._middleware_registry.add_middleware(ExecuteToolStage, swallow)
+
+    await agent.invoke_async("Run work.")
+
+    tru_result = _delivered_result(agent)
+    exp_result = {"toolUseId": ANY, "status": "error", "content": [{"text": ANY}]}
+    assert tru_result == exp_result
+    assert "did not yield a ToolResultEvent" in tru_result["content"][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_streams_background_tool_events_to_callback_handler() -> None:
+    @tool(name="work")
+    async def work() -> AsyncGenerator[str, None]:
+        """Report progress, then finish."""
+        yield "halfway"
+        yield "done"
+
+    callbacks: list[dict[str, Any]] = []
+    agent = Agent(
+        model=MockedModelProvider(
+            [
+                _assistant_tool_use("work", "work-use", {"_background_execution": True}),
+                _assistant_text("Task admitted."),
+                _assistant_text("Result received."),
+            ]
+        ),
+        tools=[work],
+        background_tasks={},
+        callback_handler=lambda **kwargs: callbacks.append(kwargs),
+    )
+
+    await agent.invoke_async("Run work.")
+
+    tru_stream_data = [
+        callback["tool_stream_event"]["data"] for callback in callbacks if "tool_stream_event" in callback
+    ]
+    exp_stream_data = ["halfway", "done"]
+    assert tru_stream_data == exp_stream_data
+
+    tru_result = _delivered_result(agent)
+    exp_result = {"toolUseId": ANY, "status": "success", "content": [{"text": "done"}]}
+    assert tru_result == exp_result
+
+
+@pytest.mark.asyncio
+async def test_surfaces_and_resumes_interrupts_raised_by_background_tools() -> None:
+    responses: list[str] = []
+
+    @tool(name="approval", context=True)
+    def approval(tool_context: ToolContext) -> str:
+        """Ask before finishing."""
+        responses.append(tool_context.interrupt("approve", reason="Approve work?"))
+        return "approved"
+
+    agent = Agent(
+        model=MockedModelProvider(
+            [
+                _assistant_tool_use("approval", "approval-use", {"_background_execution": True}),
+                _assistant_text("Task admitted."),
+                _assistant_text("Task resumed."),
+                _assistant_text("Result received."),
+            ]
+        ),
+        tools=[approval],
+        background_tasks={},
+        callback_handler=None,
+    )
+
+    interrupted = await agent.invoke_async("Run approval.")
+    tru_stop_reason = interrupted.stop_reason
+    exp_stop_reason = "interrupt"
+    assert tru_stop_reason == exp_stop_reason
+
+    await agent.invoke_async([{"interruptResponse": {"interruptId": interrupted.interrupts[0].id, "response": "yes"}}])
+
+    tru_responses = responses
+    exp_responses = ["yes"]
+    assert tru_responses == exp_responses
+    tru_result = _delivered_result(agent)
+    exp_result = {"toolUseId": ANY, "status": "success", "content": [{"text": "approved"}]}
+    assert tru_result == exp_result
 
 
 @pytest.mark.asyncio

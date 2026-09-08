@@ -9,7 +9,7 @@ import logging
 import threading
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, TypeGuard
 
 from .._middleware.stages import InvokeModelContext, InvokeModelStage
 from ..agent import _continuation
@@ -23,7 +23,7 @@ from ..tools.decorator import tool
 from ..tools.executors._executor import _lookup_tool
 from ..types.agent import LocalAgent
 from ..types.content import Messages
-from ..types.tools import AgentTool, ToolContext, ToolResult, ToolSpec, ToolUse
+from ..types.tools import AgentTool, ToolContext, ToolResult, ToolResultContent, ToolSpec, ToolUse
 from ._errors import BackgroundTaskNotFoundError
 from ._types import BackgroundTask, BackgroundTasksConfig, is_task_status_terminal
 from .in_process._engine import _timestamp
@@ -154,7 +154,7 @@ class _BackgroundTasks(Plugin):
         tool_use: ToolUse,
         requested_tool: AgentTool | None,
         effective_tool: AgentTool | None,
-    ) -> bool | ToolResult | None:
+    ) -> Literal[True] | ToolResult | None:
         """Decide foreground versus background execution for one tool call.
 
         Strips ``_background_execution`` from ``tool_use["input"]`` so the tool never sees the
@@ -375,7 +375,7 @@ class _BackgroundTasks(Plugin):
         messages: Messages = []
         for task in terminal_tasks:
             result = task.get("result")
-            content = (
+            content: list[ToolResultContent] = (
                 result["content"]
                 if result is not None
                 else [{"text": task.get("error", {}).get("message", "Background task cancelled")}]
@@ -463,7 +463,7 @@ def _resolve_policy(config: BackgroundTasksConfig) -> dict[str, _BackgroundMode]
     return policy
 
 
-def _can_execute_in_background(tool_instance: AgentTool | None) -> bool:
+def _can_execute_in_background(tool_instance: AgentTool | None) -> TypeGuard[AgentTool]:
     return (
         tool_instance is not None
         and tool_instance.tool_name not in _FOREGROUND_TOOL_NAMES
