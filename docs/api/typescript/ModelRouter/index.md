@@ -1,4 +1,4 @@
-Defined in: [src/models/routing/router.ts:129](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/models/routing/router.ts#L129)
+Defined in: [src/models/routing/router.ts:129](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/models/routing/router.ts#L129)
 
 Routes each agent invocation among an immutable set of candidate models.
 
@@ -26,7 +26,7 @@ const agent = new Agent({ model: router })
 new ModelRouter(models, options?): ModelRouter;
 ```
 
-Defined in: [src/models/routing/router.ts:145](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/models/routing/router.ts#L145)
+Defined in: [src/models/routing/router.ts:145](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/models/routing/router.ts#L145)
 
 Create a model router.
 
@@ -57,7 +57,7 @@ Error if candidates are empty, duplicated, named alike, stateful, or `maxSwitche
 readonly name: "strands:model-router" = 'strands:model-router';
 ```
 
-Defined in: [src/models/routing/router.ts:130](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/models/routing/router.ts#L130)
+Defined in: [src/models/routing/router.ts:130](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/models/routing/router.ts#L130)
 
 A stable string identifier for the plugin. Used for logging, duplicate detection, and plugin management.
 
@@ -77,7 +77,7 @@ For strands-vended plugins, names should be prefixed with `strands:`.
 get candidates(): readonly RoutingCandidate[];
 ```
 
-Defined in: [src/models/routing/router.ts:164](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/models/routing/router.ts#L164)
+Defined in: [src/models/routing/router.ts:164](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/models/routing/router.ts#L164)
 
 Normalized candidates in declaration order.
 
@@ -95,7 +95,7 @@ readonly [`RoutingCandidate`](/docs/api/typescript/RoutingCandidate/index.md)\[\
 get defaultModel(): Model;
 ```
 
-Defined in: [src/models/routing/router.ts:169](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/models/routing/router.ts#L169)
+Defined in: [src/models/routing/router.ts:169](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/models/routing/router.ts#L169)
 
 First declared candidate resolved without consulting a strategy.
 
@@ -111,7 +111,7 @@ First declared candidate resolved without consulting a strategy.
 initAgent(agent): void;
 ```
 
-Defined in: [src/models/routing/router.ts:191](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/models/routing/router.ts#L191)
+Defined in: [src/models/routing/router.ts:191](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/models/routing/router.ts#L191)
 
 Register routing middleware and lifecycle hooks.
 

@@ -1,4 +1,4 @@
-Defined in: [src/types/interrupt.ts:82](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/interrupt.ts#L82)
+Defined in: [src/types/interrupt.ts:82](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/interrupt.ts#L82)
 
 Content block containing a user response to an interrupt. Used when invoking an agent to resume from an interrupted state.
 
@@ -24,7 +24,7 @@ const content = new InterruptResponseContent({
 new InterruptResponseContent(data): InterruptResponseContent;
 ```
 
-Defined in: [src/types/interrupt.ts:95](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/interrupt.ts#L95)
+Defined in: [src/types/interrupt.ts:95](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/interrupt.ts#L95)
 
 #### Parameters
 
@@ -44,7 +44,7 @@ Defined in: [src/types/interrupt.ts:95](https://github.com/strands-agents/harnes
 readonly type: "interruptResponseContent";
 ```
 
-Defined in: [src/types/interrupt.ts:88](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/interrupt.ts#L88)
+Defined in: [src/types/interrupt.ts:88](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/interrupt.ts#L88)
 
 Discriminator for interrupt response content blocks.
 
@@ -56,7 +56,7 @@ Discriminator for interrupt response content blocks.
 readonly interruptResponse: InterruptResponse;
 ```
 
-Defined in: [src/types/interrupt.ts:93](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/interrupt.ts#L93)
+Defined in: [src/types/interrupt.ts:93](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/interrupt.ts#L93)
 
 The interrupt response data.
 
@@ -72,7 +72,7 @@ The interrupt response data.
 toJSON(): InterruptResponseContentData;
 ```
 
-Defined in: [src/types/interrupt.ts:103](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/interrupt.ts#L103)
+Defined in: [src/types/interrupt.ts:103](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/interrupt.ts#L103)
 
 Serializes to a JSON-compatible [InterruptResponseContentData](/docs/api/typescript/InterruptResponseContentData/index.md) object. Called automatically by `JSON.stringify()`.
 
@@ -94,7 +94,7 @@ JSONSerializable.toJSON
 static fromJSON(data): InterruptResponseContent;
 ```
 
-Defined in: [src/types/interrupt.ts:113](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/interrupt.ts#L113)
+Defined in: [src/types/interrupt.ts:113](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/interrupt.ts#L113)
 
 Creates an InterruptResponseContent instance from data.
 

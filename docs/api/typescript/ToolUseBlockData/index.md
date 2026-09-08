@@ -1,4 +1,4 @@
-Defined in: [src/types/messages.ts:254](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/messages.ts#L254)
+Defined in: [src/types/messages.ts:254](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/messages.ts#L254)
 
 Data for a tool use block.
 
@@ -10,7 +10,7 @@ Data for a tool use block.
 name: string;
 ```
 
-Defined in: [src/types/messages.ts:258](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/messages.ts#L258)
+Defined in: [src/types/messages.ts:258](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/messages.ts#L258)
 
 The name of the tool to execute.
 
@@ -22,7 +22,7 @@ The name of the tool to execute.
 toolUseId: string;
 ```
 
-Defined in: [src/types/messages.ts:263](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/messages.ts#L263)
+Defined in: [src/types/messages.ts:263](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/messages.ts#L263)
 
 Unique identifier for this tool use instance.
 
@@ -34,7 +34,7 @@ Unique identifier for this tool use instance.
 input: JSONValue;
 ```
 
-Defined in: [src/types/messages.ts:269](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/messages.ts#L269)
+Defined in: [src/types/messages.ts:269](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/messages.ts#L269)
 
 The input parameters for the tool. This can be any JSON-serializable value.
 
@@ -46,6 +46,6 @@ The input parameters for the tool. This can be any JSON-serializable value.
 optional reasoningSignature?: string;
 ```
 
-Defined in: [src/types/messages.ts:275](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/messages.ts#L275)
+Defined in: [src/types/messages.ts:275](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/messages.ts#L275)
 
 Reasoning signature from thinking models (e.g., Gemini). Must be preserved and sent back to the model for multi-turn tool use.

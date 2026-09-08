@@ -7,7 +7,7 @@ type SlidingWindowConversationManagerConfig = {
 };
 ```
 
-Defined in: [src/conversation-manager/sliding-window-conversation-manager.ts:87](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/conversation-manager/sliding-window-conversation-manager.ts#L87)
+Defined in: [src/conversation-manager/sliding-window-conversation-manager.ts:87](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/conversation-manager/sliding-window-conversation-manager.ts#L87)
 
 Configuration for the sliding window conversation manager.
 
@@ -19,7 +19,7 @@ Configuration for the sliding window conversation manager.
 optional windowSize?: number;
 ```
 
-Defined in: [src/conversation-manager/sliding-window-conversation-manager.ts:92](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/conversation-manager/sliding-window-conversation-manager.ts#L92)
+Defined in: [src/conversation-manager/sliding-window-conversation-manager.ts:92](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/conversation-manager/sliding-window-conversation-manager.ts#L92)
 
 Maximum number of messages to keep in the conversation history. Defaults to 40 messages.
 
@@ -31,7 +31,7 @@ Maximum number of messages to keep in the conversation history. Defaults to 40 m
 optional shouldTruncateResults?: boolean;
 ```
 
-Defined in: [src/conversation-manager/sliding-window-conversation-manager.ts:98](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/conversation-manager/sliding-window-conversation-manager.ts#L98)
+Defined in: [src/conversation-manager/sliding-window-conversation-manager.ts:98](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/conversation-manager/sliding-window-conversation-manager.ts#L98)
 
 Whether to truncate tool results when a message is too large for the model’s context window. Defaults to true.
 
@@ -43,7 +43,7 @@ Whether to truncate tool results when a message is too large for the model’s c
 optional proactiveCompression?: boolean | ProactiveCompressionConfig;
 ```
 
-Defined in: [src/conversation-manager/sliding-window-conversation-manager.ts:107](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/conversation-manager/sliding-window-conversation-manager.ts#L107)
+Defined in: [src/conversation-manager/sliding-window-conversation-manager.ts:107](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/conversation-manager/sliding-window-conversation-manager.ts#L107)
 
 Enable proactive context compression before the model call.
 
@@ -59,6 +59,6 @@ Enable proactive context compression before the model call.
 optional pinFirst?: number;
 ```
 
-Defined in: [src/conversation-manager/sliding-window-conversation-manager.ts:113](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/conversation-manager/sliding-window-conversation-manager.ts#L113)
+Defined in: [src/conversation-manager/sliding-window-conversation-manager.ts:113](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/conversation-manager/sliding-window-conversation-manager.ts#L113)
 
 Number of messages at the start of the conversation to permanently pin. Pinned messages are protected from eviction during context reduction.

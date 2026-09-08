@@ -1,4 +1,4 @@
-Defined in: [src/types/agent.ts:94](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/agent.ts#L94)
+Defined in: [src/types/agent.ts:94](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/agent.ts#L94)
 
 Options for a single agent invocation.
 
@@ -10,7 +10,7 @@ Options for a single agent invocation.
 optional structuredOutputSchema?: ZodSchema;
 ```
 
-Defined in: [src/types/agent.ts:98](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/agent.ts#L98)
+Defined in: [src/types/agent.ts:98](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/agent.ts#L98)
 
 Zod schema for structured output validation, overriding the constructor-provided schema for this invocation only.
 
@@ -22,7 +22,7 @@ Zod schema for structured output validation, overriding the constructor-provided
 optional invocationState?: InvocationState;
 ```
 
-Defined in: [src/types/agent.ts:107](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/agent.ts#L107)
+Defined in: [src/types/agent.ts:107](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/agent.ts#L107)
 
 Per-invocation state. Passed to lifecycle hook events and tools, and returned on [AgentResult.invocationState](/docs/api/typescript/AgentResult/index.md#invocationstate). Mutable — hooks and tools may read and write. See [InvocationState](/docs/api/typescript/InvocationState/index.md) for details.
 
@@ -36,7 +36,7 @@ Defaults to an empty object when omitted.
 optional cancelSignal?: AbortSignal;
 ```
 
-Defined in: [src/types/agent.ts:137](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/agent.ts#L137)
+Defined in: [src/types/agent.ts:137](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/agent.ts#L137)
 
 External AbortSignal for cancelling the agent invocation.
 
@@ -73,7 +73,7 @@ optional limits?: {
 };
 ```
 
-Defined in: [src/types/agent.ts:155](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/agent.ts#L155)
+Defined in: [src/types/agent.ts:155](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/agent.ts#L155)
 
 Per-invocation budget caps. Each cap, when set, bounds the agent loop for this `invoke()` / `stream()` call only — counters are not cumulative across reuses of the same agent.
 

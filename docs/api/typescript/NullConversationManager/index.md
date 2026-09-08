@@ -1,4 +1,4 @@
-Defined in: [src/conversation-manager/null-conversation-manager.ts:17](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/conversation-manager/null-conversation-manager.ts#L17)
+Defined in: [src/conversation-manager/null-conversation-manager.ts:17](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/conversation-manager/null-conversation-manager.ts#L17)
 
 A no-op conversation manager that does not modify the conversation history.
 
@@ -16,7 +16,7 @@ Does not register any proactive hooks. Overflow errors will not be retried since
 new NullConversationManager(options?): NullConversationManager;
 ```
 
-Defined in: [src/conversation-manager/conversation-manager.ts:117](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/conversation-manager/conversation-manager.ts#L117)
+Defined in: [src/conversation-manager/conversation-manager.ts:117](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/conversation-manager/conversation-manager.ts#L117)
 
 #### Parameters
 
@@ -40,7 +40,7 @@ Defined in: [src/conversation-manager/conversation-manager.ts:117](https://githu
 protected readonly _compressionThreshold: number;
 ```
 
-Defined in: [src/conversation-manager/conversation-manager.ts:112](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/conversation-manager/conversation-manager.ts#L112)
+Defined in: [src/conversation-manager/conversation-manager.ts:112](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/conversation-manager/conversation-manager.ts#L112)
 
 #### Inherited from
 
@@ -54,7 +54,7 @@ Defined in: [src/conversation-manager/conversation-manager.ts:112](https://githu
 readonly name: "strands:null-conversation-manager" = 'strands:null-conversation-manager';
 ```
 
-Defined in: [src/conversation-manager/null-conversation-manager.ts:21](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/conversation-manager/null-conversation-manager.ts#L21)
+Defined in: [src/conversation-manager/null-conversation-manager.ts:21](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/conversation-manager/null-conversation-manager.ts#L21)
 
 Unique identifier for this conversation manager.
 
@@ -70,7 +70,7 @@ Unique identifier for this conversation manager.
 initAgent(agent): void;
 ```
 
-Defined in: [src/conversation-manager/conversation-manager.ts:166](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/conversation-manager/conversation-manager.ts#L166)
+Defined in: [src/conversation-manager/conversation-manager.ts:166](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/conversation-manager/conversation-manager.ts#L166)
 
 Initialize the conversation manager with the agent instance.
 
@@ -103,7 +103,7 @@ Subclasses that override `initAgent` MUST call `super.initAgent(agent)` to prese
 reduce(_args): boolean;
 ```
 
-Defined in: [src/conversation-manager/null-conversation-manager.ts:28](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/conversation-manager/null-conversation-manager.ts#L28)
+Defined in: [src/conversation-manager/null-conversation-manager.ts:28](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/conversation-manager/null-conversation-manager.ts#L28)
 
 No-op reduction — never modifies the conversation history.
 

@@ -1,4 +1,4 @@
-Defined in: [src/memory/types.ts:171](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/memory/types.ts#L171)
+Defined in: [src/memory/types.ts:171](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/memory/types.ts#L171)
 
 Options for [MemoryManager.search](/docs/api/typescript/MemoryManager/index.md#search).
 
@@ -16,7 +16,7 @@ Extends the store primitive [SearchOptions](/docs/api/typescript/SearchOptions/i
 optional maxSearchResults?: number;
 ```
 
-Defined in: [src/memory/types.ts:34](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/memory/types.ts#L34)
+Defined in: [src/memory/types.ts:34](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/memory/types.ts#L34)
 
 Maximum number of results to return from this store.
 
@@ -32,6 +32,6 @@ Maximum number of results to return from this store.
 optional stores?: string[];
 ```
 
-Defined in: [src/memory/types.ts:173](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/memory/types.ts#L173)
+Defined in: [src/memory/types.ts:173](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/memory/types.ts#L173)
 
 Filter to specific stores by name. Omit to search all.

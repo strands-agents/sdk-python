@@ -1,4 +1,4 @@
-Defined in: [src/types/media.ts:527](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L527)
+Defined in: [src/types/media.ts:527](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/media.ts#L527)
 
 Document content block.
 
@@ -15,7 +15,7 @@ Document content block.
 new DocumentBlock(data): DocumentBlock;
 ```
 
-Defined in: [src/types/media.ts:558](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L558)
+Defined in: [src/types/media.ts:558](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/media.ts#L558)
 
 #### Parameters
 
@@ -35,7 +35,7 @@ Defined in: [src/types/media.ts:558](https://github.com/strands-agents/harness-s
 readonly type: "documentBlock";
 ```
 
-Defined in: [src/types/media.ts:531](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L531)
+Defined in: [src/types/media.ts:531](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/media.ts#L531)
 
 Discriminator for document content.
 
@@ -47,7 +47,7 @@ Discriminator for document content.
 readonly name: string;
 ```
 
-Defined in: [src/types/media.ts:536](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L536)
+Defined in: [src/types/media.ts:536](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/media.ts#L536)
 
 Document name.
 
@@ -63,7 +63,7 @@ Document name.
 readonly format: DocumentFormat;
 ```
 
-Defined in: [src/types/media.ts:541](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L541)
+Defined in: [src/types/media.ts:541](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/media.ts#L541)
 
 Document format.
 
@@ -79,7 +79,7 @@ Document format.
 readonly source: DocumentSource;
 ```
 
-Defined in: [src/types/media.ts:546](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L546)
+Defined in: [src/types/media.ts:546](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/media.ts#L546)
 
 Document source.
 
@@ -97,7 +97,7 @@ readonly optional citations?: {
 };
 ```
 
-Defined in: [src/types/media.ts:551](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L551)
+Defined in: [src/types/media.ts:551](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/media.ts#L551)
 
 Citation configuration.
 
@@ -119,7 +119,7 @@ enabled: boolean;
 readonly optional context?: string;
 ```
 
-Defined in: [src/types/media.ts:556](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L556)
+Defined in: [src/types/media.ts:556](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/media.ts#L556)
 
 Context information for the document.
 
@@ -162,7 +162,7 @@ toJSON(): {
 };
 ```
 
-Defined in: [src/types/media.ts:603](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L603)
+Defined in: [src/types/media.ts:603](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/media.ts#L603)
 
 Serializes the DocumentBlock to a JSON-compatible ContentBlockData object. Called automatically by JSON.stringify(). Uint8Array bytes are encoded as base64 string.
 
@@ -201,13 +201,13 @@ Serializes the DocumentBlock to a JSON-compatible ContentBlockData object. Calle
 
 | Name | Type | Description | Defined in |
 | --- | --- | --- | --- |
-| `document` | { `name`: `string`; `format`: [`DocumentFormat`](/docs/api/typescript/DocumentFormat/index.md); `source`: | { `bytes`: `string`; } | { `text`: `string`; } | { `content`: { `text`: `string`; }\[\]; } | { `location`: { `type`: `"s3"`; `uri`: `string`; `bucketOwner?`: `string`; }; }; `citations?`: { `enabled`: `boolean`; }; `context?`: `string`; } | \- | [src/types/media.ts:603](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L603) |
-| `document.name` | `string` | Document name. | [src/types/media.ts:501](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L501) |
-| `document.format` | [`DocumentFormat`](/docs/api/typescript/DocumentFormat/index.md) | Document format. | [src/types/media.ts:506](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L506) |
-| `document.source` | | { `bytes`: `string`; } | { `text`: `string`; } | { `content`: { `text`: `string`; }\[\]; } | { `location`: { `type`: `"s3"`; `uri`: `string`; `bucketOwner?`: `string`; }; } | Document source. | [src/types/media.ts:511](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L511) |
-| `document.citations?` | { `enabled`: `boolean`; } | Citation configuration. | [src/types/media.ts:516](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L516) |
-| `document.citations.enabled` | `boolean` | \- | [src/types/media.ts:516](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L516) |
-| `document.context?` | `string` | Context information for the document. | [src/types/media.ts:521](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L521) |
+| `document` | { `name`: `string`; `format`: [`DocumentFormat`](/docs/api/typescript/DocumentFormat/index.md); `source`: | { `bytes`: `string`; } | { `text`: `string`; } | { `content`: { `text`: `string`; }\[\]; } | { `location`: { `type`: `"s3"`; `uri`: `string`; `bucketOwner?`: `string`; }; }; `citations?`: { `enabled`: `boolean`; }; `context?`: `string`; } | \- | [src/types/media.ts:603](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/media.ts#L603) |
+| `document.name` | `string` | Document name. | [src/types/media.ts:501](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/media.ts#L501) |
+| `document.format` | [`DocumentFormat`](/docs/api/typescript/DocumentFormat/index.md) | Document format. | [src/types/media.ts:506](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/media.ts#L506) |
+| `document.source` | | { `bytes`: `string`; } | { `text`: `string`; } | { `content`: { `text`: `string`; }\[\]; } | { `location`: { `type`: `"s3"`; `uri`: `string`; `bucketOwner?`: `string`; }; } | Document source. | [src/types/media.ts:511](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/media.ts#L511) |
+| `document.citations?` | { `enabled`: `boolean`; } | Citation configuration. | [src/types/media.ts:516](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/media.ts#L516) |
+| `document.citations.enabled` | `boolean` | \- | [src/types/media.ts:516](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/media.ts#L516) |
+| `document.context?` | `string` | Context information for the document. | [src/types/media.ts:521](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/media.ts#L521) |
 
 #### Implementation of
 
@@ -223,7 +223,7 @@ JSONSerializable.toJSON
 static fromJSON(data): DocumentBlock;
 ```
 
-Defined in: [src/types/media.ts:632](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/media.ts#L632)
+Defined in: [src/types/media.ts:632](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/media.ts#L632)
 
 Creates a DocumentBlock instance from its wrapped data format. Base64-encoded bytes are decoded back to Uint8Array.
 

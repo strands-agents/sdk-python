@@ -1,4 +1,4 @@
-Defined in: [src/sandbox/types.ts:55](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/sandbox/types.ts#L55)
+Defined in: [src/sandbox/types.ts:55](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/sandbox/types.ts#L55)
 
 Result of command or code execution in a sandbox.
 
@@ -10,7 +10,7 @@ Result of command or code execution in a sandbox.
 readonly type: "executionResult";
 ```
 
-Defined in: [src/sandbox/types.ts:56](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/sandbox/types.ts#L56)
+Defined in: [src/sandbox/types.ts:56](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/sandbox/types.ts#L56)
 
 ---
 
@@ -20,7 +20,7 @@ Defined in: [src/sandbox/types.ts:56](https://github.com/strands-agents/harness-
 readonly exitCode: number;
 ```
 
-Defined in: [src/sandbox/types.ts:57](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/sandbox/types.ts#L57)
+Defined in: [src/sandbox/types.ts:57](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/sandbox/types.ts#L57)
 
 ---
 
@@ -30,7 +30,7 @@ Defined in: [src/sandbox/types.ts:57](https://github.com/strands-agents/harness-
 readonly stdout: string;
 ```
 
-Defined in: [src/sandbox/types.ts:58](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/sandbox/types.ts#L58)
+Defined in: [src/sandbox/types.ts:58](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/sandbox/types.ts#L58)
 
 ---
 
@@ -40,7 +40,7 @@ Defined in: [src/sandbox/types.ts:58](https://github.com/strands-agents/harness-
 readonly stderr: string;
 ```
 
-Defined in: [src/sandbox/types.ts:59](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/sandbox/types.ts#L59)
+Defined in: [src/sandbox/types.ts:59](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/sandbox/types.ts#L59)
 
 ---
 
@@ -50,4 +50,4 @@ Defined in: [src/sandbox/types.ts:59](https://github.com/strands-agents/harness-
 readonly outputFiles: OutputFile[];
 ```
 
-Defined in: [src/sandbox/types.ts:60](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/sandbox/types.ts#L60)
+Defined in: [src/sandbox/types.ts:60](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/sandbox/types.ts#L60)

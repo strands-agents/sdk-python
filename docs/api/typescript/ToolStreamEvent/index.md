@@ -1,4 +1,4 @@
-Defined in: [src/tools/tool.ts:73](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/tools/tool.ts#L73)
+Defined in: [src/tools/tool.ts:73](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/tools/tool.ts#L73)
 
 Event yielded during tool execution to report streaming progress. Tools can yield zero or more of these events before returning the final ToolResult.
 
@@ -27,7 +27,7 @@ const streamEvent = new ToolStreamEvent({
 new ToolStreamEvent(eventData): ToolStreamEvent;
 ```
 
-Defined in: [src/tools/tool.ts:85](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/tools/tool.ts#L85)
+Defined in: [src/tools/tool.ts:85](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/tools/tool.ts#L85)
 
 #### Parameters
 
@@ -48,7 +48,7 @@ Defined in: [src/tools/tool.ts:85](https://github.com/strands-agents/harness-sdk
 readonly type: "toolStreamEvent";
 ```
 
-Defined in: [src/tools/tool.ts:77](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/tools/tool.ts#L77)
+Defined in: [src/tools/tool.ts:77](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/tools/tool.ts#L77)
 
 Discriminator for tool stream events.
 
@@ -64,7 +64,7 @@ Discriminator for tool stream events.
 readonly optional data?: unknown;
 ```
 
-Defined in: [src/tools/tool.ts:83](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/tools/tool.ts#L83)
+Defined in: [src/tools/tool.ts:83](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/tools/tool.ts#L83)
 
 Caller-provided data for the progress update. Can be any type of data the tool wants to report.
 

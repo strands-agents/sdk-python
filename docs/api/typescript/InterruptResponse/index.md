@@ -1,4 +1,4 @@
-Defined in: [src/types/interrupt.ts:48](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/interrupt.ts#L48)
+Defined in: [src/types/interrupt.ts:48](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/interrupt.ts#L48)
 
 User response to an interrupt.
 
@@ -10,7 +10,7 @@ User response to an interrupt.
 interruptId: string;
 ```
 
-Defined in: [src/types/interrupt.ts:52](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/interrupt.ts#L52)
+Defined in: [src/types/interrupt.ts:52](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/interrupt.ts#L52)
 
 Unique identifier of the interrupt being responded to.
 
@@ -22,6 +22,6 @@ Unique identifier of the interrupt being responded to.
 response: JSONValue;
 ```
 
-Defined in: [src/types/interrupt.ts:57](https://github.com/strands-agents/harness-sdk/blob/a642b4177ba14dba41ef296d510d68f718f60ebb/strands-ts/src/types/interrupt.ts#L57)
+Defined in: [src/types/interrupt.ts:57](https://github.com/strands-agents/harness-sdk/blob/ec6eb54a58382c3ebaced3e68489f3a0955c8319/strands-ts/src/types/interrupt.ts#L57)
 
 User’s response to the interrupt.
