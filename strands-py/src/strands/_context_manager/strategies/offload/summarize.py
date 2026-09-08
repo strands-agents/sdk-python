@@ -155,6 +155,13 @@ class SummarizeStrategy(BaseOffloadStrategy):
             )
 
         if "text" not in block:
+            summary = await _summarize_content([block], model, self._config)
+            if summary:
+                logger.debug(
+                    "tracking_id=<%s>, tokens=<%s> | summarized media block", message.get("tracking_id"), tokens
+                )
+                marker = _format_summarized("media block", tokens, summary) + refs
+                return ContentBlock(text=marker)
             logger.debug("tracking_id=<%s>, tokens=<%s> | offloaded media block", message.get("tracking_id"), tokens)
             return ContentBlock(text=f"[Offloaded: ~{tokens} tokens]{refs}")
 
