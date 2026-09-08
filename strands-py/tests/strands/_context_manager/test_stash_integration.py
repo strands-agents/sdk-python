@@ -59,7 +59,7 @@ class TestTruncateWithStash:
         context = ContextState(messages=messages, agent=mock_agent, utilization=0.5, stash=stash)
         assert await strategy.apply(context) is True
         text = messages[1]["content"][0]["text"]
-        assert "[Stashed:" in text
+        assert "[Stashed]" in text
         assert "ref:" in text
 
     @pytest.mark.asyncio
@@ -91,7 +91,7 @@ class TestTruncateWithStash:
         context = ContextState(messages=messages, agent=mock_agent, utilization=0.5, stash=stash)
         assert await strategy.apply(context) is True
         result_text = messages[2]["content"][0]["toolResult"]["content"][0]["text"]
-        assert "[Stashed:" in result_text
+        assert "[Stashed]" in result_text
 
     @pytest.mark.asyncio
     async def test_no_stash_ref_without_stash(self, mock_agent):
@@ -104,7 +104,7 @@ class TestTruncateWithStash:
         context = ContextState(messages=messages, agent=mock_agent, utilization=0.5)
         assert await strategy.apply(context) is True
         text = messages[1]["content"][0]["text"]
-        assert "[Stashed:" not in text
+        assert "[Stashed]" not in text
 
 
 class TestDropWithStash:

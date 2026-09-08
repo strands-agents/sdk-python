@@ -144,11 +144,7 @@ class SummarizeStrategy(BaseOffloadStrategy):
                 return None
 
             logger.debug("tool_use_id=<%s>, tokens=<%s> | summarized tool result", tool_result["toolUseId"], tokens)
-            marker = (
-                _format_summarized(f"tool result |{refs}", tokens, summary)
-                if refs
-                else _format_summarized("tool result", tokens, summary)
-            )
+            marker = _format_summarized("tool result", tokens, summary) + refs
             summarized_content: list[ToolResultContent] = [{"text": marker}]
             return ContentBlock(
                 toolResult=ToolResult(
@@ -160,18 +156,14 @@ class SummarizeStrategy(BaseOffloadStrategy):
 
         if "text" not in block:
             logger.debug("tracking_id=<%s>, tokens=<%s> | offloaded media block", message.get("tracking_id"), tokens)
-            return ContentBlock(text=f"[Offloaded: ~{tokens} tokens{refs}]")
+            return ContentBlock(text=f"[Offloaded: ~{tokens} tokens]{refs}")
 
         summary = await _summarize_content([ContentBlock(text=block["text"])], model, self._config)
         if not summary:
             return None
 
         logger.debug("tracking_id=<%s>, tokens=<%s> | summarized text block", message.get("tracking_id"), tokens)
-        marker = (
-            _format_summarized(f"text block |{refs}", tokens, summary)
-            if refs
-            else _format_summarized("text block", tokens, summary)
-        )
+        marker = _format_summarized("text block", tokens, summary) + refs
         return ContentBlock(text=marker)
 
     def _resolve_model(self, agent: Agent) -> Model | None:

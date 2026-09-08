@@ -33,7 +33,7 @@ def _append_stash_refs_to_tool_result(block: ContentBlock, refs: str) -> None:
         return
     for item in block["toolResult"]["content"]:
         if "text" in item:
-            item["text"] += f"\n\n[Stashed:{refs}]"
+            item["text"] += f"\n\n[Stashed]{refs}"
             return
 
 
@@ -147,10 +147,10 @@ class TruncateStrategy(BaseOffloadStrategy):
             if result is block:
                 return block
             if refs and "text" in result:
-                result = ContentBlock(text=result["text"] + f"\n\n[Stashed:{refs}]")
+                result = ContentBlock(text=result["text"] + f"\n\n[Stashed]{refs}")
             return result
         logger.debug("tracking_id=<%s>, tokens=<%s> | offloaded media block", message.get("tracking_id"), tokens)
-        return ContentBlock(text=f"[Offloaded: ~{tokens} tokens{refs}]")
+        return ContentBlock(text=f"[Offloaded: ~{tokens} tokens]{refs}")
 
 
 class EmergencyTruncateStrategy(TruncateStrategy):

@@ -200,11 +200,11 @@ class TestFormatStashRefs:
         assert _format_stash_refs([]) == ""
 
     def test_single_ref(self):
-        assert _format_stash_refs(["tu-1_0"]) == " ref: tu-1_0"
+        assert _format_stash_refs(["tu-1_0"]) == " [ref: tu-1_0]"
 
     def test_multiple_refs(self):
         result = _format_stash_refs(["tu-1_0", "tu-1_1"])
-        assert result == " refs: tu-1_0, tu-1_1"
+        assert result == " [refs: tu-1_0, tu-1_1]"
 
 
 class TestBytesEncoder:

@@ -41,17 +41,17 @@ def _decode(data: bytes) -> object:
 
 
 def _format_stash_refs(refs: list[str]) -> str:
-    """Format stash refs for display in offload placeholders.
+    """Format stash refs as a standalone bracket token for offload placeholders.
 
     Returns an empty string when refs is empty. With one ref returns
-    ``' ref: <ref>'``; with multiple returns ``' refs: <r1>, <r2>'``.
+    ``' [ref: <ref>]'``; with multiple returns ``' [refs: <r1>, <r2>]'``.
     Note the leading space in non-empty returns.
     """
     if not refs:
         return ""
     if len(refs) == 1:
-        return f" ref: {refs[0]}"
-    return f" refs: {', '.join(refs)}"
+        return f" [ref: {refs[0]}]"
+    return f" [refs: {', '.join(refs)}]"
 
 
 class Stash:
