@@ -1900,6 +1900,36 @@ describe('OpenAIModel', () => {
       // The injected text trails the tool responses as its own user message.
       expect(requestMessages.at(-1)).toEqual({ role: 'user', content: [{ type: 'text', text: '\n\nNOTE' }] })
     })
+
+    it('keeps media hoisted out of a tool result ahead of the injected text', async () => {
+      const captured: { request: any } = { request: null }
+      const provider = new OpenAIModel({ api: 'chat', client: createMockClientWithCapture(captured) })
+
+      await collectIterator(
+        provider.stream([
+          new Message({
+            role: 'user',
+            content: [
+              new ToolResultBlock({
+                toolUseId: 'tu1',
+                status: 'success',
+                content: [
+                  new TextBlock('42'),
+                  new ImageBlock({ format: 'png', source: { bytes: new Uint8Array([1]) } }),
+                ],
+              }),
+              new TextBlock('\n\nNOTE'),
+            ],
+          }),
+        ])
+      )
+
+      expect(captured.request.messages).toEqual([
+        { role: 'tool', tool_call_id: 'tu1', content: '42' },
+        { role: 'user', content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,AQ==' } }] },
+        { role: 'user', content: [{ type: 'text', text: '\n\nNOTE' }] },
+      ])
+    })
   })
 
   describe('error handling', () => {
