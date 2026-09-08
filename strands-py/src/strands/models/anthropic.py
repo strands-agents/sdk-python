@@ -1,28 +1,13 @@
 """Anthropic Claude model provider.
 
-Anthropic-specific server-side tools (e.g. ``web_search``, ``web_fetch``, ``code_execution``) are
-configured through ``anthropic_tools``, which is appended alongside the agent's function tools rather
-than replacing them. Server-side tools run inside Anthropic's infrastructure, so the agent never
-executes them locally.
-
-Coverage of the content these tools stream back:
-
-- ``web_search`` (supported): search citations are surfaced as ``citationsContent`` blocks carrying
-  the url, domain, title, and cited text.
-- ``server_tool_use`` / ``*_tool_result`` blocks (partial): Anthropic executes these server side, so
-  they are not surfaced as ``toolUse``/``toolResult`` content blocks -- doing so would make the event
-  loop try to run them locally. The raw result blocks have no matching content block type; result
-  errors are logged at warning level so a failed search is never silent.
-
 - Docs: https://docs.anthropic.com/claude/reference/getting-started-with-the-api
-- Server tools: https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/web-search-tool
+- Server tools: https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/overview
 """
 
 import base64
 import json
 import logging
-import warnings
-from collections.abc import AsyncGenerator, Mapping
+from collections.abc import AsyncGenerator
 from typing import Any, TypeVar, cast
 from urllib.parse import urlparse
 
@@ -53,32 +38,22 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
-# Content block types the agent itself acts on.
-_CLIENT_SIDE_BLOCK_TYPES = frozenset({"redacted_thinking", "text", "thinking", "tool_use"})
-
-# Content block types Anthropic produces for tools it resolves server side. These are informational for
-# the client: the search/fetch/execution already happened inside Anthropic's infrastructure, so they must
-# not be replayed as toolUse/toolResult blocks (the event loop would try to run them locally, and the
-# resulting dangling tool_use ids would be rejected on the next request).
-#
-# Blocks that represent an invocation, and therefore carry a tool `name` rather than a result. Split out
-# only to pick the right log message.
-_SERVER_TOOL_USE_BLOCK_TYPES = frozenset({"mcp_tool_use", "server_tool_use"})
-
-_SERVER_TOOL_RESULT_BLOCK_TYPES = frozenset(
+# Content blocks for tools Anthropic executes server side. They have no toolUse/toolResult equivalent
+# (the agent never runs them), so they are not streamed.
+_SERVER_TOOL_BLOCK_TYPES = frozenset(
     {
         "bash_code_execution_tool_result",
         "code_execution_tool_result",
         "container_upload",
         "mcp_tool_result",
+        "mcp_tool_use",
+        "server_tool_use",
         "text_editor_code_execution_tool_result",
         "tool_search_tool_result",
         "web_fetch_tool_result",
         "web_search_tool_result",
     }
 )
-
-_SERVER_TOOL_BLOCK_TYPES = _SERVER_TOOL_USE_BLOCK_TYPES | _SERVER_TOOL_RESULT_BLOCK_TYPES
 
 _IMAGE_MEDIA_TYPES = {
     "gif": "image/gif",
@@ -131,14 +106,9 @@ class AnthropicModel(Model):
                 https://docs.anthropic.com/en/docs/about-claude/models/all-models.
             params: Additional model parameters (e.g., temperature).
                 For a complete list of supported parameters, see https://docs.anthropic.com/en/api/messages.
-                Note: do not pass `tools` here. Use `anthropic_tools` instead so that server-side tools
-                are appended to, rather than replacing, the agent's function tools.
-            anthropic_tools: Anthropic-specific tools that are not function tools (e.g., web_search,
-                web_fetch, code_execution, memory, text_editor, bash). These run server side inside
-                Anthropic's infrastructure and are appended alongside the function tool definitions.
+            anthropic_tools: Anthropic-specific server-side tools that are not function tools
+                (e.g., web_search, web_fetch, code_execution). Appended alongside the agent's function tools.
                 Use the standard tools interface for function calling tools.
-                Entries are `anthropic.types.ToolUnionParam` dicts, so the versioned `type` string is
-                supplied by the caller (e.g., `{"type": "web_search_20260318", "name": "web_search"}`).
                 For a complete list of supported tools, see
                 https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/overview
             use_native_token_count: Whether to use the native Anthropic count_tokens API.
@@ -265,12 +235,8 @@ class AnthropicModel(Model):
             return {"text": content["text"], "type": "text"}
 
         if "citationsContent" in content:
-            # Citations are output-only for Anthropic: `web_search_result_location` citations describe
-            # a search Anthropic already ran and cannot be sent back as input. Preserve the generated
-            # text so a cited answer survives into the next turn instead of raising on an unsupported
-            # content type. Blocks with no generated text are dropped upstream in
-            # _format_request_messages (Anthropic rejects empty text blocks).
-            return {"text": self._citations_text(content), "type": "text"}
+            text = "".join(c["text"] for c in content["citationsContent"].get("content", []) if "text" in c)
+            return {"text": text, "type": "text"}
 
         if "toolUse" in content:
             return {
@@ -296,22 +262,6 @@ class AnthropicModel(Model):
             }
 
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
-
-    @staticmethod
-    def _citations_text(content: ContentBlock) -> str:
-        """Flatten the generated text carried by a citations content block.
-
-        Args:
-            content: A content block containing `citationsContent`.
-
-        Returns:
-            The concatenated generated text.
-        """
-        return "".join(
-            citation_content["text"]
-            for citation_content in content["citationsContent"].get("content", [])
-            if "text" in citation_content
-        )
 
     def _format_request_messages(
         self, messages: Messages, cache_target_idx: int | None = None, dynamic_trailing_blocks: int = 0
@@ -358,14 +308,6 @@ class AnthropicModel(Model):
                 # Check for location sources in image, document, or video content
                 if _has_location_source(content):
                     logger.warning("Location sources are not supported by Anthropic | skipping content block")
-                    continue
-
-                # A citations block flattens to a text block, and Anthropic rejects empty text blocks
-                # ("text content blocks must contain non-whitespace text"). Providers that stream
-                # citations separately from the text they ground can produce a citations block with no
-                # generated text, so drop those rather than sending a request that is certain to 400.
-                if "citationsContent" in content and not self._citations_text(content).strip():
-                    logger.debug("citations block has no generated text | skipping content block")
                     continue
 
                 formatted_contents.append(self._format_request_message_content(content))
@@ -555,23 +497,9 @@ class AnthropicModel(Model):
             for tool_spec in tool_specs or []
         ]
 
-        # Server-side tools are additive: they extend the function tool definitions instead of
-        # replacing them (mirrors GeminiModel's gemini_tools).
+        params = self.config.get("params") or {}
         tools.extend(self.config.get("anthropic_tools") or [])
-
-        # Copy params before mutating: ** unpacking below aliases self.config["params"] by reference,
-        # so popping from the original would silently rewrite the stored config.
-        params = dict(self.config.get("params") or {})
-        if "tools" in params:
-            params_tools = params.pop("tools")
-            warnings.warn(
-                "Passing `tools` through `params` is deprecated and previously overwrote every function "
-                "tool definition, silently disabling the agent's tools. The value has been appended to "
-                "the request instead. Use the `anthropic_tools` config option for Anthropic server-side "
-                "tools (e.g. web_search) and the standard tools interface for function tools.",
-                stacklevel=3,
-            )
-            tools.extend(self._normalize_tools(params_tools, 'params["tools"]'))
+        tools.extend(params.get("tools") or [])
 
         # A cache_control on the final tool caches all of them, so one cache point suffices.
         if tools and (cache_control := self._resolve_tools_cache()):
@@ -583,10 +511,10 @@ class AnthropicModel(Model):
             "max_tokens": self.config["max_tokens"],
             "messages": self._format_request_messages(messages, cache_target_idx, dynamic_trailing_blocks),
             "model": self.config["model_id"],
-            "tools": tools,
             **(self._format_tool_choice(tool_choice)),
             **({"system": system} if system else {}),
             **params,
+            "tools": tools,
         }
 
         return request
@@ -638,81 +566,27 @@ class AnthropicModel(Model):
         return formatted
 
     @staticmethod
-    def _normalize_tools(value: Any, label: str) -> list[dict[str, Any]]:
-        """Coerce a tool-list-ish value into a list of tool dicts.
-
-        A bare mapping is a common mistake and is unambiguous, so it is wrapped. Anything else (a
-        string, an int, a mapping-of-mappings) would be iterated element-by-element by `list.extend`,
-        turning a single mistake into a request full of nonsense tools, so it is rejected outright.
-
-        Args:
-            value: The user-supplied value.
-            label: Human-readable name of the option, used in the error message.
-
-        Returns:
-            A list of tool dicts.
-
-        Raises:
-            ValueError: If the value is neither a mapping nor a sequence of mappings.
-        """
-        if value is None:
-            return []
-
-        if isinstance(value, Mapping):
-            return [cast(dict[str, Any], value)]
-
-        if isinstance(value, (list, tuple)):
-            return list(value)
-
-        raise ValueError(
-            f"{label} must be a list of Anthropic tool dicts "
-            f"(e.g. [{{'type': 'web_search_20260318', 'name': 'web_search'}}]), got {type(value).__name__}."
-        )
-
-    @staticmethod
-    def _validate_anthropic_tools(anthropic_tools: list[dict[str, Any]] | None) -> None:
+    def _validate_anthropic_tools(anthropic_tools: list[dict[str, Any]]) -> None:
         """Validate that anthropic_tools does not contain function tool definitions.
-
-        Anthropic-specific tools should only include tools that Anthropic executes server side and that
-        therefore cannot be expressed as a function tool (e.g., web_search, web_fetch, code_execution).
-        Standard function calling tools should use the tools interface instead.
 
         Args:
             anthropic_tools: List of Anthropic tools to validate.
 
         Raises:
-            ValueError: If any entry is not a mapping, is missing the versioned `type` string, or looks
-                like a function tool definition.
+            ValueError: If any tool carries an input_schema.
         """
-        for tool in AnthropicModel._normalize_tools(anthropic_tools, "anthropic_tools"):
-            if not isinstance(tool, Mapping):
-                raise ValueError(
-                    "anthropic_tools entries must be Anthropic tool dicts "
-                    f"(e.g. {{'type': 'web_search_20260318', 'name': 'web_search'}}), got {type(tool).__name__}."
-                )
-
+        for tool in anthropic_tools:
             if "input_schema" in tool:
                 raise ValueError(
                     "anthropic_tools should not contain function tool definitions. "
                     "Use the standard tools interface for function calling tools. "
-                    "anthropic_tools is reserved for Anthropic-specific server-side tools like "
-                    "web_search, web_fetch, code_execution, memory, text_editor, and bash."
-                )
-
-            if not tool.get("type"):
-                raise ValueError(
-                    "anthropic_tools entries must carry the versioned `type` string for the tool "
-                    "(e.g. 'web_search_20260318'). See "
-                    "https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/overview"
+                    "anthropic_tools is reserved for Anthropic server-side tools like "
+                    "web_search, web_fetch, and code_execution."
                 )
 
     @staticmethod
     def _format_citation(citation: dict[str, Any]) -> CitationsDelta:
         """Format an Anthropic citation into a Strands citation delta.
-
-        Server-side web search attaches `web_search_result_location` citations to the text blocks it
-        grounds. Those carry the source url, title, and the cited source text; the url also yields the
-        domain that `WebLocation` exposes.
 
         Args:
             citation: An Anthropic citation object from a `citations_delta` event.
@@ -722,7 +596,6 @@ class AnthropicModel(Model):
         """
         formatted: CitationsDelta = {}
 
-        # Web search and search result citations use `title`; document citations use `document_title`.
         if title := citation.get("title") or citation.get("document_title"):
             formatted["title"] = title
 
@@ -733,16 +606,12 @@ class AnthropicModel(Model):
             case "web_search_result_location":
                 url = citation.get("url") or ""
                 web: WebLocation = {"url": url}
-                # hostname, not netloc: netloc carries port and userinfo, which the TS provider's
-                # URL().hostname does not, and the two must agree.
                 if domain := urlparse(url).hostname:
                     web["domain"] = domain
                 web_location: WebLocationDict = {"web": web}
                 formatted["location"] = web_location
 
             case "search_result_location":
-                # Anthropic's end_block_index is exclusive (a single-block citation has
-                # end = start + 1); copied through as-is.
                 search_location: SearchResultLocationDict = {
                     "searchResultLocation": {
                         "searchResultIndex": citation.get("search_result_index", 0),
@@ -763,7 +632,6 @@ class AnthropicModel(Model):
                 formatted["location"] = char_location
 
             case "page_location":
-                # Anthropic page numbers are 1-based; copied through as-is.
                 page_location: DocumentPageLocationDict = {
                     "documentPage": {
                         "documentIndex": citation.get("document_index", 0),
@@ -784,47 +652,22 @@ class AnthropicModel(Model):
                 formatted["location"] = chunk_location
 
             case unknown_type:
-                # Keep the title and cited text rather than dropping the citation outright.
                 logger.warning("citation_type=<%s> | unsupported citation location | skipping", unknown_type)
 
         return formatted
 
     @staticmethod
     def _log_server_tool_block(content_block: Any) -> None:
-        """Log a server-side tool block that has no equivalent Strands content block type.
-
-        Result errors (e.g. `max_uses_exceeded`, `unavailable`) are logged at warning level so that a
-        server-side search which returned nothing is never silent.
+        """Log a skipped server-side tool block, at warning level when the tool returned an error.
 
         Args:
-            content_block: The Anthropic `content_block` object from a `content_block_start` event.
+            content_block: The `content_block` of a `content_block_start` event.
         """
-        block_type = getattr(content_block, "type", None)
-
-        if block_type in _SERVER_TOOL_USE_BLOCK_TYPES:
-            logger.debug(
-                "block_type=<%s>, tool_name=<%s> | anthropic executed this tool server side",
-                block_type,
-                getattr(content_block, "name", None),
-            )
-            return
-
-        content = getattr(content_block, "content", None)
-        error_code = getattr(content, "error_code", None)
+        error_code = getattr(getattr(content_block, "content", None), "error_code", None)
         if error_code is not None:
-            logger.warning(
-                "block_type=<%s>, error_code=<%s> | server-side tool returned an error",
-                block_type,
-                error_code,
-            )
-            return
-
-        logger.debug(
-            "block_type=<%s>, result_count=<%s> | server-side tool result has no content block "
-            "representation | citations on the following text blocks carry the cited sources",
-            block_type,
-            len(content) if isinstance(content, list) else None,
-        )
+            logger.warning("block_type=<%s>, error_code=<%s> | server-side tool failed", content_block.type, error_code)
+        else:
+            logger.debug("block_type=<%s> | skipping server-side tool block", content_block.type)
 
     @staticmethod
     def _format_tool_choice(tool_choice: ToolChoice | None) -> dict:
@@ -948,13 +791,7 @@ class AnthropicModel(Model):
                 stop_reason = message["stop_reason"]
 
                 if stop_reason == "pause_turn":
-                    # Anthropic pauses long-running server-side tool turns and expects the response to be
-                    # sent back to continue. The event loop has no equivalent stop reason, so surface the
-                    # content that did arrive as a completed turn rather than an unknown stop reason.
-                    logger.warning(
-                        "stop_reason=<pause_turn> | server-side tool turn paused, reporting as end_turn | "
-                        "the response may be incomplete"
-                    )
+                    logger.warning("stop_reason=<pause_turn> | server-side tool turn paused, reporting as end_turn")
                     stop_reason = "end_turn"
 
                 return {"messageStop": {"stopReason": stop_reason}}
@@ -1080,45 +917,18 @@ class AnthropicModel(Model):
         try:
             async with self.client.messages.stream(**request) as stream:
                 logger.debug("got response from model")
-
-                # Indexes of content blocks Anthropic resolved server side. Their input_json_delta
-                # events describe a tool the agent never executes, so replaying them as function tool
-                # input would corrupt the streaming tool-use state. The whole block is skipped, start
-                # and stop included, so it leaves no empty content block behind.
                 server_tool_block_indexes: set[int] = set()
-
                 async for event in stream:
                     if event.type in AnthropicModel.EVENT_TYPES:
-                        if event.type == "content_block_start":
-                            block_type = getattr(event.content_block, "type", None)
-
-                            if block_type in _SERVER_TOOL_BLOCK_TYPES:
-                                server_tool_block_indexes.add(event.index)
-                                self._log_server_tool_block(event.content_block)
-                                continue
-
-                            if block_type not in _CLIENT_SIDE_BLOCK_TYPES:
-                                # Forward rather than suppress: dropping a block type we simply do not
-                                # know about would lose content silently, which is worse than the
-                                # degraded handling below. Warn loudly so a newly shipped Anthropic
-                                # block type shows up instead of quietly misbehaving.
-                                logger.warning(
-                                    "block_type=<%s> | unrecognized content block type | forwarding | "
-                                    "if anthropic resolves this server side its input deltas may be "
-                                    "replayed as function tool input",
-                                    block_type,
-                                )
-
-                        elif event.type == "content_block_delta":
-                            if event.index in server_tool_block_indexes:
-                                continue
-
-                        elif event.type == "content_block_stop":
-                            if event.index in server_tool_block_indexes:
-                                # Release the index: Anthropic reuses indexes, so a later client-side
-                                # block at the same index must still stream.
-                                server_tool_block_indexes.discard(event.index)
-                                continue
+                        if event.type == "content_block_start" and event.content_block.type in _SERVER_TOOL_BLOCK_TYPES:
+                            server_tool_block_indexes.add(event.index)
+                            self._log_server_tool_block(event.content_block)
+                            continue
+                        if event.type == "content_block_delta" and event.index in server_tool_block_indexes:
+                            continue
+                        if event.type == "content_block_stop" and event.index in server_tool_block_indexes:
+                            server_tool_block_indexes.discard(event.index)
+                            continue
 
                         if event.type == "message_stop":
                             # Build dict directly to avoid Pydantic serialization warnings
@@ -1133,20 +943,6 @@ class AnthropicModel(Model):
                             yield self.format_chunk({"type": "content_block_stop", "index": event.index})
                         else:
                             yield self.format_chunk(event.model_dump())
-
-                            # A text block can arrive with its first characters already attached to
-                            # content_block_start. format_chunk emits one chunk per event, so the text
-                            # needs a follow-up delta or it is lost (the TS provider does the same).
-                            if event.type == "content_block_start":
-                                initial_text = getattr(event.content_block, "text", None)
-                                if isinstance(initial_text, str) and initial_text:
-                                    yield self.format_chunk(
-                                        {
-                                            "type": "content_block_delta",
-                                            "index": event.index,
-                                            "delta": {"type": "text_delta", "text": initial_text},
-                                        }
-                                    )
 
                 try:
                     message_snapshot = await stream.get_final_message()
