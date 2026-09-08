@@ -334,7 +334,7 @@ class BedrockModel(Model):
 
         guardrail_id = model_config.get("guardrail_id", self.config.get("guardrail_id"))
         guardrail_version = model_config.get("guardrail_version", self.config.get("guardrail_version"))
-        if (guardrail_id is None) != (guardrail_version is None):
+        if bool(guardrail_id) != bool(guardrail_version):
             raise ValueError("guardrail_id and guardrail_version must be set together")
 
         self.config.update(model_config)
