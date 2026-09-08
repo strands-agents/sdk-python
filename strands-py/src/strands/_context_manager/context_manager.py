@@ -73,6 +73,7 @@ class ContextManager(Plugin):
 
         self._stash: Stash | None = None
         self._retrieval_tool_use_ids: set[str] = set()
+        self._backfill_done: bool = False
 
         super().__init__()
 
@@ -134,8 +135,24 @@ class ContextManager(Plugin):
 
         agent.hooks.add_callback(AfterModelCallEvent, _on_after_model_call)
 
+    async def _backfill_stash(self, agent: Agent) -> None:
+        """Stash any messages already on the agent that were not seen by the hook.
+
+        Covers Agent(messages=[...]) and session restore, which bypass MessageAddedEvent.
+        """
+        if self._backfill_done or self._stash is None:
+            return
+        self._backfill_done = True
+        skip = frozenset(self._retrieval_tool_use_ids)
+        for message in agent.messages:
+            try:
+                await self._stash.store_message(message, skip)
+            except Exception:
+                logger.warning("agent_id=<%s> | failed to backfill stash", agent.agent_id, exc_info=True)
+
     async def _run_strategies(self, agent: Agent, precomputed_input_tokens: int | None = None) -> bool:
         """Run the strategy pipeline, recomputing utilization after each acting strategy."""
+        await self._backfill_stash(agent)
         messages = agent.messages
         if precomputed_input_tokens is not None:
             input_tokens = precomputed_input_tokens

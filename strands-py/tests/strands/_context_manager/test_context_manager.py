@@ -276,6 +276,93 @@ class TestContextManagerStashHook:
         assert "tu-ret" in cm._retrieval_tool_use_ids
 
 
+class TestStashBackfill:
+    """Tests for backfilling the stash from pre-existing agent messages."""
+
+    @pytest.mark.asyncio
+    async def test_backfills_pre_existing_messages_on_first_strategy_run(self):
+        agent = unittest.mock.MagicMock()
+        agent.agent_id = "test-agent"
+        agent.session_id = "test-session"
+        agent.storage = None
+        agent.model = unittest.mock.AsyncMock()
+        agent.model.count_tokens = unittest.mock.AsyncMock(return_value=100)
+        agent.model.estimate_utilization = unittest.mock.MagicMock(return_value=0.1)
+        agent.hooks = HookRegistry()
+        agent.messages = [
+            Message(role="user", content=[ContentBlock(text="seed message")]),
+            Message(
+                role="user",
+                content=[
+                    ContentBlock(
+                        toolResult=ToolResult(
+                            toolUseId="pre-tu-1",
+                            status="success",
+                            content=[{"text": "pre-existing result"}],
+                        )
+                    )
+                ],
+            ),
+        ]
+
+        cm = ContextManager(strategies=[], stash=True)
+        cm.init_agent(agent)
+
+        event = BeforeModelCallEvent(agent=agent, projected_input_tokens=100)
+        await agent.hooks.invoke_callbacks_async(event)
+
+        result = await cm._stash.retrieve("pre-tu-1_0")
+        assert result is not None
+        assert result["text"] == "pre-existing result"
+
+    @pytest.mark.asyncio
+    async def test_backfill_runs_only_once(self):
+        agent = unittest.mock.MagicMock()
+        agent.agent_id = "test-agent"
+        agent.session_id = "test-session"
+        agent.storage = None
+        agent.model = unittest.mock.AsyncMock()
+        agent.model.count_tokens = unittest.mock.AsyncMock(return_value=100)
+        agent.model.estimate_utilization = unittest.mock.MagicMock(return_value=0.1)
+        agent.hooks = HookRegistry()
+        agent.messages = [
+            Message(role="user", content=[ContentBlock(text="hello")]),
+        ]
+
+        cm = ContextManager(strategies=[], stash=True)
+        cm.init_agent(agent)
+
+        event = BeforeModelCallEvent(agent=agent, projected_input_tokens=100)
+        await agent.hooks.invoke_callbacks_async(event)
+        assert cm._backfill_done is True
+
+        with unittest.mock.patch.object(cm._stash, "store_message") as mock_store:
+            event = BeforeModelCallEvent(agent=agent, projected_input_tokens=100)
+            await agent.hooks.invoke_callbacks_async(event)
+            mock_store.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_no_backfill_when_stash_disabled(self):
+        agent = unittest.mock.MagicMock()
+        agent.agent_id = "test-agent"
+        agent.session_id = "test-session"
+        agent.storage = None
+        agent.model = unittest.mock.AsyncMock()
+        agent.model.count_tokens = unittest.mock.AsyncMock(return_value=100)
+        agent.model.estimate_utilization = unittest.mock.MagicMock(return_value=0.1)
+        agent.hooks = HookRegistry()
+        agent.messages = [
+            Message(role="user", content=[ContentBlock(text="hello")]),
+        ]
+
+        cm = ContextManager(strategies=[], stash=False)
+        cm.init_agent(agent)
+
+        event = BeforeModelCallEvent(agent=agent, projected_input_tokens=100)
+        await agent.hooks.invoke_callbacks_async(event)
+        assert cm._stash is None
+
+
 class TestStrategyInitFallback:
     """Tests for strategy init() TypeError fallback."""
 
