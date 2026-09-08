@@ -244,7 +244,7 @@ Anthropic's built-in server-side tools (web search, web fetch, code execution) c
 </Tab>
 </Tabs>
 
-Web search results are surfaced as citations on the response text. For available built-in tools and their versioned `type` strings, see the [Anthropic tool use documentation](https://platform.claude.com/docs/en/docs/agents-and-tools/tool-use/overview).
+Web search results are surfaced as citations on the response text when Claude calls the tool directly (`allowed_callers: ["direct"]`). On `web_search_20260318` the default is dynamic filtering, which runs the search inside code execution and returns no citations. For available built-in tools and their versioned `type` strings, see the [Anthropic tool use documentation](https://platform.claude.com/docs/en/docs/agents-and-tools/tool-use/overview).
 
 Limitations:
 
