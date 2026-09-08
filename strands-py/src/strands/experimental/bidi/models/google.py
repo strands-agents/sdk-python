@@ -25,7 +25,6 @@ from google.genai import types as genai_types
 from google.genai.types import LiveConnectConfigOrDict, LiveServerContent, LiveServerMessage, UsageMetadata
 from typing_extensions import Unpack
 
-from ....models._validation import validate_config_keys
 from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
@@ -86,7 +85,8 @@ class GoogleGeminiLiveModel(BidiModel, AudioCapable):
             audio: Audio configuration.
             **model_config: Model configuration.
         """
-        validate_config_keys(model_config, BidiModelConfig)
+        self._validate_config(model_config)
+        self._validate_audio_config(audio)
         self.config = BidiModelConfig(**model_config)
         self.model_id = self.config.setdefault("model_id", "gemini-2.5-flash-native-audio-preview-09-2025")
 

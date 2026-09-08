@@ -15,7 +15,7 @@ Features:
 
 import abc
 import logging
-from collections.abc import AsyncIterable
+from collections.abc import AsyncIterable, Mapping
 from typing import Any, NoReturn, Protocol, TypedDict, runtime_checkable
 
 from typing_extensions import Unpack
@@ -90,13 +90,19 @@ class BidiModel(Model, abc.ABC):
     connection_config: BidiConnectionConfig
     usage_is_cumulative: bool
 
+    @staticmethod
+    def _validate_config(model_config: Mapping[str, Any]) -> None:
+        """Validate shared bidirectional model configuration."""
+        validate_config_keys(model_config, BidiModelConfig)
+        validate_config_keys(model_config.get("connection", {}), BidiConnectionConfig)
+
     def update_config(self, **model_config: Unpack[BidiModelConfig]) -> None:  # type: ignore[override]
         """Update the model configuration with the provided arguments.
 
         Args:
             **model_config: Configuration overrides.
         """
-        validate_config_keys(model_config, BidiModelConfig)
+        self._validate_config(model_config)
         self.config.update(model_config)
 
     def get_config(self) -> BidiModelConfig:
@@ -216,6 +222,11 @@ class BidiModelTimeoutError(Exception):
 @runtime_checkable
 class AudioCapable(Protocol):
     """Protocol for models that support audio input and output."""
+
+    @staticmethod
+    def _validate_audio_config(audio: Mapping[str, Any] | None) -> None:
+        """Validate shared audio configuration."""
+        validate_config_keys(audio or {}, AudioConfig)
 
     @property
     def audio_config(self) -> AudioConfig:

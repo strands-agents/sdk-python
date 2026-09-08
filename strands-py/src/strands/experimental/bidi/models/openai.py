@@ -18,7 +18,6 @@ import websockets
 from typing_extensions import Unpack
 from websockets import ClientConnection
 
-from ....models._validation import validate_config_keys
 from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
@@ -127,7 +126,8 @@ class OpenAIRealtimeModel(BidiModel, AudioCapable):
         Raises:
             ValueError: If the API key is missing or ``timeout_s`` exceeds the maximum.
         """
-        validate_config_keys(model_config, BidiModelConfig)
+        self._validate_config(model_config)
+        self._validate_audio_config(audio)
         self.config = BidiModelConfig(**model_config)
         self.model_id = self.config.setdefault("model_id", DEFAULT_MODEL)
 

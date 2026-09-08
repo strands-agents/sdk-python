@@ -45,7 +45,7 @@ from smithy_core.shapes import ShapeID
 from smithy_http.aio.crt import AWSCRTHTTPClient
 from typing_extensions import Unpack
 
-from ....models._validation import validate_config_keys, validate_region
+from ....models._validation import validate_region
 from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
@@ -123,7 +123,8 @@ class BedrockNovaSonicModel(BidiModel, AudioCapable):
         if boto_session is not None and region is not None:
             raise ValueError("Cannot specify both 'boto_session' and 'region'")
 
-        validate_config_keys(model_config, BidiModelConfig)
+        self._validate_config(model_config)
+        self._validate_audio_config(audio)
         self.config = BidiModelConfig(**model_config)
         self.model_id = self.config.setdefault("model_id", NOVA_SONIC_V2_MODEL_ID)
 
