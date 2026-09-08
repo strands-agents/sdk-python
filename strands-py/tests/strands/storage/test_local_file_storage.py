@@ -317,20 +317,20 @@ class TestLocalFileStorage:
         strategy.search.assert_awaited_once_with(storage, "query")
 
     @pytest.mark.asyncio
-    async def test_sandbox_write_indexes_with_search_strategy(self, tmp_path):
+    async def test_sandbox_write_skips_indexing(self, tmp_path):
         strategy = AsyncMock()
         sandbox = MagicMock()
         sandbox.write_file = AsyncMock()
         storage = LocalFileStorage(str(tmp_path), sandbox=sandbox, search_strategy=strategy)
         await storage.write("key.txt", b"data")
-        strategy.index.assert_awaited_once_with(storage, "key.txt", b"data")
+        strategy.index.assert_not_awaited()
 
-    def test_for_sandbox_preserves_search_strategy(self, tmp_path):
+    def test_for_sandbox_drops_search_strategy(self, tmp_path):
         strategy = AsyncMock()
         storage = LocalFileStorage(str(tmp_path), search_strategy=strategy)
         sandbox = MagicMock()
         bound = storage.for_sandbox(sandbox)
-        assert bound._search_strategy is strategy
+        assert bound._search_strategy is None
 
     def test_namespace_preserves_search_strategy(self, tmp_path):
         strategy = AsyncMock()

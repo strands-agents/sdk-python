@@ -6,7 +6,7 @@ import builtins
 import os
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, overload
 
 from ..types.exceptions import StorageError
 from .search.keyword import KeywordSearchStrategy
@@ -35,6 +35,17 @@ class LocalFileStorage:
         ```
     """
 
+    @overload
+    def __init__(self, base_dir: str = ..., *, sandbox: Sandbox, search_strategy: None = ...) -> None: ...
+
+    @overload
+    def __init__(
+        self, base_dir: str = ..., *, search_strategy: SearchStrategy[LocalFileStorage] | None = ...
+    ) -> None: ...
+
+    @overload
+    def __init__(self, base_dir: str = ...) -> None: ...
+
     def __init__(
         self,
         base_dir: str = "./.strands/",
@@ -46,10 +57,13 @@ class LocalFileStorage:
 
         Args:
             base_dir: Root directory under which all keys are stored.
-            sandbox: Optional sandbox to route I/O through.
+            sandbox: Optional sandbox to route I/O through. Cannot be combined
+                with ``search_strategy`` — sandboxed storage skips indexing to
+                preserve isolation.
             search_strategy: Optional search strategy. When set, ``write()``
                 automatically indexes entries and ``search()`` delegates to the
-                strategy instead of the default keyword scan.
+                strategy instead of the default keyword scan. Cannot be combined
+                with ``sandbox``.
         """
         self._base_dir = os.path.normpath(base_dir)
         self._sandbox = sandbox
@@ -73,7 +87,7 @@ class LocalFileStorage:
         """
         if self._sandbox is sandbox:
             return self
-        bound = LocalFileStorage(self._base_dir, sandbox=sandbox, search_strategy=self._search_strategy)
+        bound = LocalFileStorage(self._base_dir, sandbox=sandbox)
         if getattr(self, "_namespaced", None) is _NAMESPACED:
             bound._namespaced = _NAMESPACED  # type: ignore[attr-defined]
         return bound
@@ -96,8 +110,6 @@ class LocalFileStorage:
         try:
             if self._sandbox is not None:
                 await self._sandbox.write_file(path, data)
-                if self._search_strategy is not None:
-                    await self._search_strategy.index(self, normalized, data)
                 return
 
             parent = os.path.dirname(path)

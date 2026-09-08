@@ -67,7 +67,7 @@ export class LocalFileStorage implements Storage {
    */
   forSandbox(sandbox: Sandbox): LocalFileStorage {
     if (this._sandbox) return this
-    return new LocalFileStorage(this._baseDir, sandbox, this._searchStrategy)
+    return new LocalFileStorage(this._baseDir, sandbox)
   }
 
   /**
@@ -85,9 +85,6 @@ export class LocalFileStorage implements Storage {
         await this._sandbox.writeFile(path, data)
       } catch (error: unknown) {
         throw new StorageError(`Failed to write '${normalized}' to sandbox storage`, { cause: error })
-      }
-      if (this._searchStrategy) {
-        await this._searchStrategy.index?.(this, normalized, data)
       }
       return
     }
