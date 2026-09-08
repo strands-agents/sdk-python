@@ -498,7 +498,7 @@ class OpenAIRealtimeModel(BidiModel, AudioCapable):
         # Assistant transcript
         elif event_type in ("response.output_text.delta", "response.output_audio_transcript.delta"):
             text = openai_event.get("delta", "")
-            return [self._create_text_event(text, "assistant")] if text.strip() else None
+            return [self._create_text_event(text, "assistant")] if text else None
 
         elif event_type in ("response.output_text.done", "response.output_audio_transcript.done"):
             text_key = "text" if event_type == "response.output_text.done" else "transcript"
@@ -507,7 +507,7 @@ class OpenAIRealtimeModel(BidiModel, AudioCapable):
         # User transcript
         elif event_type == "conversation.item.input_audio_transcription.delta":
             text = openai_event.get("delta", "")
-            return [self._create_text_event(text, "user")] if text.strip() else None
+            return [self._create_text_event(text, "user")] if text else None
 
         elif event_type == "conversation.item.input_audio_transcription.completed":
             return [BidiTranscriptCompleteEvent(openai_event["transcript"], "user")]
@@ -516,7 +516,7 @@ class OpenAIRealtimeModel(BidiModel, AudioCapable):
             segment_data = openai_event.get("segment", {})
             text = segment_data.get("text", "")
             role = segment_data.get("role", "user")
-            return [self._create_text_event(text, role)] if text.strip() else None
+            return [self._create_text_event(text, role)] if text else None
 
         elif event_type == "conversation.item.input_audio_transcription.failed":
             error_info = openai_event.get("error", {})

@@ -644,6 +644,11 @@ async def test_event_conversion(model):
             id="output_audio_transcript_delta",
         ),
         pytest.param(
+            {"type": "response.output_text.delta", "delta": " "},
+            BidiTranscriptStreamEvent(" ", "assistant"),
+            id="whitespace_output_text_delta",
+        ),
+        pytest.param(
             {"type": "response.output_audio_transcript.done", "transcript": "Spoken response"},
             BidiTranscriptCompleteEvent("Spoken response", "assistant"),
             id="output_audio_transcript_done",
@@ -664,6 +669,11 @@ async def test_event_conversion(model):
             id="input_audio_transcription_delta",
         ),
         pytest.param(
+            {"type": "conversation.item.input_audio_transcription.delta", "delta": " "},
+            BidiTranscriptStreamEvent(" ", "user"),
+            id="whitespace_input_audio_transcription_delta",
+        ),
+        pytest.param(
             {"type": "conversation.item.input_audio_transcription.completed", "transcript": "User question"},
             BidiTranscriptCompleteEvent("User question", "user"),
             id="input_audio_transcription_completed",
@@ -680,6 +690,14 @@ async def test_event_conversion(model):
             },
             BidiTranscriptStreamEvent("User question", "user"),
             id="input_audio_transcription_segment",
+        ),
+        pytest.param(
+            {
+                "type": "conversation.item.input_audio_transcription.segment",
+                "segment": {"text": " ", "role": "user"},
+            },
+            BidiTranscriptStreamEvent(" ", "user"),
+            id="whitespace_input_audio_transcription_segment",
         ),
     ],
 )

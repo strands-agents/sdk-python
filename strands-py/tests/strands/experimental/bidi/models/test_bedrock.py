@@ -288,7 +288,7 @@ async def test_content_end_end_turn_emits_response_complete(nova_model):
             {"contentEnd": {"type": "TEXT", "stopReason": "PARTIAL_TURN"}},
             response_state,
         )
-        is None
+        == []
     )
 
     # The audio boundary is not the response lifecycle boundary; Nova sends a later
@@ -298,7 +298,7 @@ async def test_content_end_end_turn_emits_response_complete(nova_model):
             {"contentEnd": {"type": "AUDIO", "stopReason": "END_TURN"}},
             response_state,
         )
-        is None
+        == []
     )
 
     response_state.generation_stage = "FINAL"
@@ -311,7 +311,7 @@ async def test_content_end_end_turn_emits_response_complete(nova_model):
             }
         },
         response_state,
-    )
+    )[0]
     assert isinstance(end, BidiResponseCompleteEvent)
     assert end.stop_reason == "complete"
 
@@ -319,7 +319,7 @@ async def test_content_end_end_turn_emits_response_complete(nova_model):
     interrupted = nova_model._convert_nova_event(
         {"contentEnd": {"type": "AUDIO", "stopReason": "INTERRUPTED"}},
         response_state,
-    )
+    )[0]
     assert isinstance(interrupted, BidiResponseCompleteEvent)
     assert interrupted.stop_reason == "interrupted"
 
@@ -360,7 +360,7 @@ def test_accumulates_final_assistant_transcript_blocks(nova_model):
         },
         response_state,
     )
-    assert first is None
+    assert first == []
 
     nova_model._convert_nova_event(
         {
@@ -385,7 +385,7 @@ def test_accumulates_final_assistant_transcript_blocks(nova_model):
         },
         response_state,
     )
-    assert second is None
+    assert second == []
 
     completed = nova_model._convert_nova_event(
         {
@@ -433,7 +433,7 @@ def test_streams_speculative_text_and_completes_with_final_transcript(nova_model
             }
         },
         response_state,
-    )
+    )[0]
     assert isinstance(preview, BidiTranscriptStreamEvent)
 
     start_text("FINAL")
@@ -447,7 +447,7 @@ def test_streams_speculative_text_and_completes_with_final_transcript(nova_model
         },
         response_state,
     )
-    assert final is None
+    assert final == []
     completed = nova_model._convert_nova_event(
         {
             "contentEnd": {
@@ -497,7 +497,7 @@ def test_completes_accumulated_user_transcript_when_response_starts(nova_model):
     second = nova_model._convert_nova_event(
         {"textOutput": {"content": "second", "role": "USER", "contentId": "user-content-2"}},
         response_state,
-    )
+    )[0]
 
     assert isinstance(second, BidiTranscriptStreamEvent)
     assert second.delta == " second"
@@ -539,7 +539,7 @@ async def test_completion_end_is_not_a_turn_boundary(nova_model):
         {"completionEnd": {"stopReason": "END_TURN"}},
         response_state,
     )
-    assert result is None
+    assert result == []
     assert nova_model._current_completion_id is None
 
 
@@ -813,8 +813,7 @@ async def test_event_conversion(nova_model):
     result = nova_model._convert_nova_event(
         nova_event,
         response_state,
-    )
-    assert result is not None
+    )[0]
     assert isinstance(result, BidiAudioStreamEvent)
     assert result.get("type") == "bidi_audio_stream"
     # Audio is kept as base64 string
@@ -827,8 +826,7 @@ async def test_event_conversion(nova_model):
     result = nova_model._convert_nova_event(
         nova_event,
         response_state,
-    )
-    assert result is not None
+    )[0]
     assert isinstance(result, BidiTranscriptStreamEvent)
     assert result.get("type") == "bidi_transcript_stream"
     assert result.get("delta") == "Hello, world!"
@@ -841,8 +839,7 @@ async def test_event_conversion(nova_model):
     result = nova_model._convert_nova_event(
         nova_event,
         response_state,
-    )
-    assert result is not None
+    )[0]
     # ToolUseStreamEvent has delta and current_tool_use, not a "type" field
     assert "delta" in result
     assert "toolUse" in result["delta"]
@@ -857,8 +854,7 @@ async def test_event_conversion(nova_model):
     result = nova_model._convert_nova_event(
         nova_event,
         response_state,
-    )
-    assert result is not None
+    )[0]
     assert isinstance(result, BidiInterruptionEvent)
     assert result.get("type") == "bidi_interruption"
     assert result.get("reason") == "user_speech"
@@ -875,8 +871,7 @@ async def test_event_conversion(nova_model):
     result = nova_model._convert_nova_event(
         nova_event,
         response_state,
-    )
-    assert result is not None
+    )[0]
     assert isinstance(result, BidiUsageEvent)
     assert result.get("type") == "bidi_usage"
     assert result.get("totalTokens") == 100
@@ -896,8 +891,7 @@ async def test_event_conversion(nova_model):
     result = nova_model._convert_nova_event(
         nova_event,
         response_state,
-    )
-    assert result is not None
+    )[0]
     assert isinstance(result, BidiResponseStartEvent)
     assert result.get("type") == "bidi_response_start"
     assert response_state.generation_stage == "FINAL"
@@ -907,8 +901,7 @@ async def test_event_conversion(nova_model):
     result = nova_model._convert_nova_event(
         nova_event,
         response_state,
-    )
-    assert result is not None
+    )[0]
     assert isinstance(result, BidiResponseStartEvent)
 
     # Test TOOL type contentStart
@@ -916,8 +909,7 @@ async def test_event_conversion(nova_model):
     result = nova_model._convert_nova_event(
         nova_event,
         response_state,
-    )
-    assert result is not None
+    )[0]
     assert isinstance(result, BidiResponseStartEvent)
 
 
@@ -1090,9 +1082,8 @@ async def test_custom_audio_rates_in_events(model_id, boto_session):
     result = model._convert_nova_event(
         nova_event,
         response_state,
-    )
+    )[0]
 
-    assert result is not None
     assert isinstance(result, BidiAudioStreamEvent)
     # Should use configured rates, not constants
     assert result.sample_rate == 48000  # Custom config
@@ -1115,9 +1106,8 @@ async def test_default_audio_rates_in_events(model_id, boto_session):
     result = model._convert_nova_event(
         nova_event,
         response_state,
-    )
+    )[0]
 
-    assert result is not None
     assert isinstance(result, BidiAudioStreamEvent)
     # Should use default rates
     assert result.sample_rate == 16000  # Default output rate
