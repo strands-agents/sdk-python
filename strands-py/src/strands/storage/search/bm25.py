@@ -264,7 +264,7 @@ class Bm25SearchStrategy:
             Matched keys with BM25 relevance scores, ranked best-first.
 
         Raises:
-            RuntimeError: If storage has no ``base_dir`` property or FTS5 is unavailable.
+            RuntimeError: If the SQLite build lacks FTS5 support.
         """
         conn = self._ensure_connection(storage)
 

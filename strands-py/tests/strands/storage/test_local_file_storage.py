@@ -1,6 +1,7 @@
 """Tests for LocalFileStorage."""
 
 import os
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -299,3 +300,40 @@ class TestLocalFileStorage:
         # Temp file should be cleaned up
         all_files = list(tmp_path.rglob("*"))
         assert not any("__strands_tmp" in str(f) for f in all_files)
+
+    @pytest.mark.asyncio
+    async def test_write_indexes_with_search_strategy(self, tmp_path):
+        strategy = AsyncMock()
+        storage = LocalFileStorage(str(tmp_path), search_strategy=strategy)
+        await storage.write("key.txt", b"data")
+        strategy.index.assert_awaited_once_with(storage, "key.txt", b"data")
+
+    @pytest.mark.asyncio
+    async def test_search_delegates_to_strategy(self, tmp_path):
+        strategy = AsyncMock()
+        strategy.search.return_value = []
+        storage = LocalFileStorage(str(tmp_path), search_strategy=strategy)
+        await storage.search("query")
+        strategy.search.assert_awaited_once_with(storage, "query")
+
+    @pytest.mark.asyncio
+    async def test_sandbox_write_indexes_with_search_strategy(self, tmp_path):
+        strategy = AsyncMock()
+        sandbox = MagicMock()
+        sandbox.write_file = AsyncMock()
+        storage = LocalFileStorage(str(tmp_path), sandbox=sandbox, search_strategy=strategy)
+        await storage.write("key.txt", b"data")
+        strategy.index.assert_awaited_once_with(storage, "key.txt", b"data")
+
+    def test_for_sandbox_preserves_search_strategy(self, tmp_path):
+        strategy = AsyncMock()
+        storage = LocalFileStorage(str(tmp_path), search_strategy=strategy)
+        sandbox = MagicMock()
+        bound = storage.for_sandbox(sandbox)
+        assert bound._search_strategy is strategy
+
+    def test_namespace_preserves_search_strategy(self, tmp_path):
+        strategy = AsyncMock()
+        storage = LocalFileStorage(str(tmp_path), search_strategy=strategy)
+        ns = storage.namespace("scope")
+        assert ns._search_strategy is strategy

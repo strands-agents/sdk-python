@@ -96,6 +96,8 @@ class LocalFileStorage:
         try:
             if self._sandbox is not None:
                 await self._sandbox.write_file(path, data)
+                if self._search_strategy is not None:
+                    await self._search_strategy.index(self, normalized, data)
                 return
 
             parent = os.path.dirname(path)
