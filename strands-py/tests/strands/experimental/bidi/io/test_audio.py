@@ -56,7 +56,7 @@ def audio_buffer():
 def agent():
     mock = unittest.mock.MagicMock()
     mock.model = unittest.mock.MagicMock(spec=AudioCapable)
-    mock.model.audio_config = {
+    mock.model.get_audio_config.return_value = {
         "input_rate": 24000,
         "output_rate": 16000,
         "channels": 2,
@@ -69,7 +69,7 @@ def agent():
 def aec_agent():
     mock = unittest.mock.MagicMock()
     mock.model = unittest.mock.MagicMock(spec=AudioCapable)
-    mock.model.audio_config = {
+    mock.model.get_audio_config.return_value = {
         "input_rate": 16000,
         "output_rate": 16000,
         "channels": 1,
@@ -82,7 +82,7 @@ def aec_agent():
 def agent_mixed_rates():
     mock = unittest.mock.MagicMock()
     mock.model = unittest.mock.MagicMock(spec=AudioCapable)
-    mock.model.audio_config = {
+    mock.model.get_audio_config.return_value = {
         "input_rate": 16000,
         "output_rate": 24000,
         "channels": 1,
