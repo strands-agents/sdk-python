@@ -543,27 +543,38 @@ class SnapshotSessionManager(SessionManager):
 
         If the stash storage is durable, writes a lightweight external reference.
         If ephemeral (e.g. InMemoryStorage), serializes all entries inline.
+
+        Storage errors are logged and swallowed so a stash failure never prevents a snapshot save.
         """
         context_manager = agent.context_manager
         if context_manager is None or context_manager.stash is None:
             return
 
-        if context_manager.stash_is_durable:
-            snapshot.data["stash"] = {
-                "location": "external",
-                "storage_type": context_manager.stash.storage_type_name,
-            }
-            return
+        try:
+            if context_manager.stash_is_durable:
+                snapshot.data["stash"] = {
+                    "location": "external",
+                    "storage_type": context_manager.stash.storage_type_name,
+                }
+                return
 
-        entries = await context_manager.stash.take_snapshot()
-        if entries:
-            snapshot.data["stash"] = {
-                "location": "inline",
-                "entries": entries,
-            }
+            entries = await context_manager.stash.take_snapshot()
+            if entries:
+                snapshot.data["stash"] = {
+                    "location": "inline",
+                    "entries": entries,
+                }
+        except Exception:
+            logger.warning(
+                "session_id=<%s> | failed to include stash data in snapshot, saving without stash",
+                self.session_id,
+            )
 
     async def _restore_stash_data(self, agent: "Agent", snapshot: Snapshot) -> None:
-        """Restore context-manager stash data from a snapshot."""
+        """Restore context-manager stash data from a snapshot.
+
+        Storage errors are logged and swallowed so a stash failure never prevents session restore.
+        """
         stash_data = snapshot.data.get("stash")
         if stash_data is None:
             return
@@ -572,25 +583,39 @@ class SnapshotSessionManager(SessionManager):
         if context_manager is None or context_manager.stash is None:
             return
 
-        location = stash_data.get("location")
-        if location == "external":
-            snapshot_type = stash_data.get("storage_type", "")
-            if snapshot_type and snapshot_type != context_manager.stash.storage_type_name:
-                logger.warning(
-                    "session_id=<%s>, snapshot_storage=<%s>, current_storage=<%s> | "
-                    "stash storage type changed since snapshot was created, stash data may be inaccessible",
-                    self.session_id,
-                    snapshot_type,
-                    context_manager.stash.storage_type_name,
-                )
-            return
+        try:
+            location = stash_data.get("location")
+            if location == "external":
+                snapshot_type = stash_data.get("storage_type", "")
+                if snapshot_type and snapshot_type != context_manager.stash.storage_type_name:
+                    logger.warning(
+                        "session_id=<%s>, snapshot_storage=<%s>, current_storage=<%s> | "
+                        "stash storage type changed since snapshot was created, stash data may be inaccessible",
+                        self.session_id,
+                        snapshot_type,
+                        context_manager.stash.storage_type_name,
+                    )
+                return
 
-        if location == "inline":
-            entries = stash_data.get("entries", {})
-            await context_manager.stash.load_snapshot(entries)
+            if location == "inline":
+                entries = stash_data.get("entries", {})
+                await context_manager.stash.load_snapshot(entries)
+        except Exception:
+            logger.warning(
+                "session_id=<%s> | failed to restore stash data from snapshot, continuing without stash",
+                self.session_id,
+            )
 
     async def _delete_stash_data(self) -> None:
-        """Delete all stash data during session deletion."""
+        """Delete all stash data during session deletion.
+
+        Storage errors are logged and swallowed so a stash failure never prevents session deletion.
+        """
         if self._agent_stash is not None:
-            await self._agent_stash.clear()
-            await self._agent_stash.clear_session()
+            try:
+                await self._agent_stash.clear_session()
+            except Exception:
+                logger.warning(
+                    "session_id=<%s> | failed to delete stash data during session deletion",
+                    self.session_id,
+                )
