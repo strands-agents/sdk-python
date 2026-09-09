@@ -473,12 +473,12 @@ agent = Agent(tools=[tool])
 
 ### MCP Client
 
-Lets your agent connect to Model Context Protocol servers at runtime, list the tools they expose, invoke one, and disconnect. The factory takes a developer-set allowlist of exact URLs; the model can only connect to servers on that list, never to an arbitrary URL of its choosing.
+Lets your agent connect to Model Context Protocol servers at runtime, list the tools they expose, invoke one, and disconnect. The factory takes a developer-set allowlist of server configurations; the model can only initiate connections to servers on that list.
 
 _Supported in: all platforms (Python)._
 
 :::caution[Security Warning]
-An MCP server is arbitrary code behind a network endpoint. If the model can point the tool at any URL, a prompt-injection attacker can reach out to their own MCP server, run tools there, and route the result back through your agent. The allowlist is mandatory and must be non-empty. The tool also enforces an SSRF guard that rejects hosts resolving to private, loopback, link-local, cloud-metadata, and other non-public addresses, and refuses to follow HTTP redirects, but the allowlist is the primary control. Only allowlist URLs whose DNS you trust.
+The allowlist controls which servers the model may connect to. For HTTP servers, treat this like any network request — egress control belongs at the encapsulation layer. For stdio servers, the allowlisted command is spawned as a local process with access to the host filesystem, environment variables, and network. Only allowlist commands you would run directly on the host.
 :::
 
 **Example:**
@@ -490,7 +490,10 @@ An MCP server is arbitrary code behind a network endpoint. If the model can poin
 from strands import Agent
 from strands.vended_tools import make_mcp_client
 
-mcp_client = make_mcp_client(allowed_urls=["https://mcp.example.com/mcp"])
+mcp_client = make_mcp_client(servers=[
+    {"url": "https://mcp.example.com/mcp"},
+    {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]},
+])
 agent = Agent(tools=[mcp_client])
 agent("Connect to the MCP server and list its tools.")
 ```
