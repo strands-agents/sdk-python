@@ -120,5 +120,4 @@ describe('Agent contextManager', () => {
       expect(plugins.get('strands:context-manager')).toBeInstanceOf(ContextManager)
     })
   })
-
 })

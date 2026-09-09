@@ -511,10 +511,12 @@ export class EmergencyTruncateStrategy extends BaseOffloadStrategy {
 
   override async apply(context: ContextState): Promise<boolean> {
     if (context.messages.length <= 3) return false
-    const tokens = await context.agent.model.countTokens(context.messages)
-    const utilization = context.agent.model.estimateUtilization(tokens)
-    if (utilization < 1.0) return false
-    return this._applyPerMessage({ ...context, utilization })
+    if (!context.overflow) {
+      const tokens = await context.agent.model.countTokens(context.messages)
+      const utilization = context.agent.model.estimateUtilization(tokens)
+      if (utilization < 1.0) return false
+    }
+    return this._applyPerMessage(context)
   }
 
   /** Drop the oldest 20% of non-head messages each pass. */

@@ -189,6 +189,35 @@ describe('ContextManager', () => {
       expect(messages.length).toBe(originalLength)
     })
 
+    it('emergency truncate fires when estimate undercounts on overflow', async () => {
+      const messages = [
+        new Message({ role: 'user', content: [new TextBlock('system')] }),
+        new Message({ role: 'assistant', content: [new TextBlock('response 1')] }),
+        new Message({ role: 'user', content: [new TextBlock('msg 2')] }),
+        new Message({ role: 'assistant', content: [new TextBlock('response 2')] }),
+        new Message({ role: 'user', content: [new TextBlock('msg 3')] }),
+        new Message({ role: 'assistant', content: [new TextBlock('response 3')] }),
+        new Message({ role: 'user', content: [new TextBlock('msg 4')] }),
+        new Message({ role: 'assistant', content: [new TextBlock('response 4')] }),
+      ]
+
+      const strategy = { name: 'noop', apply: async () => false }
+      const cm = new ContextManager({ strategies: [strategy] })
+      const agent = makeMockAgent({
+        messages,
+        countTokens: async () => 100,
+        estimateUtilization: () => 0.5,
+      })
+      await cm.initAgent(agent)
+
+      const originalLength = messages.length
+      const event = makeOverflowEvent(agent)
+      await invokeTrackedHook(agent, event)
+
+      expect(messages.length).toBeLessThan(originalLength)
+      expect(event.retry).toBe(true)
+    })
+
     it('caps retries at 3 and stops setting retry', async () => {
       const strategy = { name: 'noop', apply: async () => false }
       const cm = new ContextManager({ strategies: [strategy] })

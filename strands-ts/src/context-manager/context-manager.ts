@@ -222,6 +222,9 @@ export class ContextManager implements Plugin {
         if (acted) {
           anyActed = true
           strategyContext.utilization = agent.model.estimateUtilization(await agent.model.countTokens(messages))
+          if (strategyContext.overflow && strategyContext.utilization < 1.0) {
+            strategyContext.overflow = false
+          }
           logger.debug(`strategy=<${strategy.name}>, agentId=<${agent.id}> | strategy applied`)
         }
       } catch (error) {
