@@ -44,6 +44,16 @@ export default defineConfig({
         },
       },
       {
+        // turndown's CJS build conditionally requires @mixmark-io/domino for Node; browsers
+        // never reach that branch. Mark it external so Vite doesn't try to bundle it.
+        optimizeDeps: {
+          exclude: ['@mixmark-io/domino'],
+        },
+        build: {
+          rollupOptions: {
+            external: ['@mixmark-io/domino'],
+          },
+        },
         test: {
           include: [
             'src/**/__tests__/**/*.test.ts',
