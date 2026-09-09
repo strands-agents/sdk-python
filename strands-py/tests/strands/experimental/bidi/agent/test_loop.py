@@ -629,7 +629,71 @@ async def test_tool_result_send_timeout_does_not_block_reconnect(loop, agent, ag
     assert len(tru_sent_events) == 2
     assert isinstance(tru_sent_events[0], ToolResultEvent)
     assert isinstance(tru_sent_events[1], BidiTextInputEvent)
+    assert set(loop._running_tools) == {tool_use_key}
+
+    await loop._clear_recovered_tool_results(loop._generation)
     assert loop._running_tools == {}
+
+    await loop.stop()
+
+
+@pytest.mark.asyncio
+async def test_semantic_recovery_coalesces_late_exact_reissue(loop, agent, agenerator):
+    """An exact reissue before the recovery response completes reuses the retained result."""
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
+    await loop.start()
+    loop._reconnect_timer.cancel()
+
+    original: ToolUse = {"toolUseId": "old", "name": "time_tool", "input": {}}
+    original_key = await loop._register_tool_use(original, loop._generation)
+    assert original_key is not None
+    result = ToolResultEvent(ToolResult(toolUseId="old", status="success", content=[{"text": "12:00"}]))
+
+    loop._generation += 1
+    assert await loop._deliver_tool_result(original_key, result) is True
+    assert set(loop._running_tools) == {original_key}
+
+    reissue: ToolUse = {"toolUseId": "new", "name": "time_tool", "input": {}}
+    assert await loop._register_tool_use(reissue, loop._generation) is None
+
+    for _ in range(10):
+        await asyncio.sleep(0)
+        if original_key not in loop._running_tools:
+            break
+
+    tru_sent_events = [call.args[0] for call in agent.model.send.await_args_list]
+    assert len(tru_sent_events) == 2
+    assert isinstance(tru_sent_events[0], BidiTextInputEvent)
+    assert isinstance(tru_sent_events[1], ToolResultEvent)
+    assert tru_sent_events[1].tool_result["toolUseId"] == "new"
+    assert loop._running_tools == {}
+
+    await loop.stop()
+
+
+@pytest.mark.asyncio
+async def test_response_complete_expires_unclaimed_semantic_recovery(loop, agent, agenerator):
+    """A recovered result expires when its prompted response completes without a reissue."""
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
+    await loop.start()
+    loop._reconnect_timer.cancel()
+
+    original: ToolUse = {"toolUseId": "old", "name": "time_tool", "input": {}}
+    original_key = await loop._register_tool_use(original, loop._generation)
+    assert original_key is not None
+    result = ToolResultEvent(ToolResult(toolUseId="old", status="success", content=[{"text": "12:00"}]))
+
+    loop._generation += 1
+    assert await loop._deliver_tool_result(original_key, result) is True
+    assert set(loop._running_tools) == {original_key}
+
+    complete = BidiResponseCompleteEvent(response_id="recovery", stop_reason="complete")
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator([complete]))
+    await loop._run_model(loop._generation)
+
+    assert loop._running_tools == {}
+    later: ToolUse = {"toolUseId": "later", "name": "time_tool", "input": {}}
+    assert await loop._register_tool_use(later, loop._generation) == (loop._generation, "later")
 
     await loop.stop()
 
@@ -1249,6 +1313,9 @@ async def test_bidi_agent_loop_tool_result_recovers_after_reconnect(loop, agent,
     assert isinstance(tru_recovery_event, BidiTextInputEvent)
     assert '"tool": "time_tool"' in tru_recovery_event.text
     assert "t1" not in tru_recovery_event.text
+    assert set(loop._running_tools) == {tool_use_key}
+
+    await loop._clear_recovered_tool_results(loop._generation)
     assert loop._running_tools == {}
 
 

@@ -129,6 +129,7 @@ class _RunningTool:
     match_generation: int
     replacement_key: _ToolUseKey | None = None
     result_event: ToolResultEvent | None = None
+    recovery_generation: int | None = None
 
 
 class _BidiAgentLoop:
@@ -755,6 +756,17 @@ class _BidiAgentLoop:
 
             return retained_results
 
+    async def _clear_recovered_tool_results(self, generation: int) -> None:
+        """Discard semantic recovery results after the response they prompted completes."""
+        async with self._tool_lock:
+            recovered_keys = [
+                tool_use_key
+                for tool_use_key, running_tool in self._running_tools.items()
+                if running_tool.recovery_generation == generation and running_tool.replacement_key is None
+            ]
+            for tool_use_key in recovered_keys:
+                self._running_tools.pop(tool_use_key)
+
     async def _run_tool_result_delivery(
         self,
         original_key: _ToolUseKey,
@@ -869,8 +881,10 @@ class _BidiAgentLoop:
             self._generation,
         )
         async with self._tool_lock:
-            self._running_tools.pop(original_key, None)
-        return False
+            if self._running_tools.get(original_key) is not running_tool:
+                return False
+            running_tool.recovery_generation = self._generation
+        return True
 
     async def _retain_tool_result(self, original_key: _ToolUseKey, running_tool: _RunningTool) -> None:
         """Keep a timed-out result eligible for an exact reissue on the next connection."""
@@ -878,6 +892,7 @@ class _BidiAgentLoop:
             if self._running_tools.get(original_key) is running_tool:
                 running_tool.match_generation = self._generation
                 running_tool.replacement_key = None
+                running_tool.recovery_generation = None
 
     async def _run_model(self, generation: int) -> None:
         """Task for running the model.
@@ -962,6 +977,7 @@ class _BidiAgentLoop:
                     # transcript arriving after completion does not re-open the turn.
                     self._awaiting_response = False
                     self._update_turn_state()
+                    await self._clear_recovered_tool_results(generation)
 
                 elif isinstance(event, BidiTranscriptStreamEvent):
                     if event["role"] == "user":
