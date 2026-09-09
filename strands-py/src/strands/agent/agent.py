@@ -1897,6 +1897,7 @@ class Agent(AgentBase, LocalAgent):
             model_id=model_id,
             tools=self.tool_names,
             system_prompt=self.system_prompt,
+            system_prompt_content=self.system_prompt_content,
             custom_trace_attributes=self.trace_attributes,
             tools_config=self.tool_registry.get_all_tools_config(),
         )
