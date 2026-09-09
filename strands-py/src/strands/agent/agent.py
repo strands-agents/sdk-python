@@ -404,6 +404,12 @@ class Agent(AgentBase, LocalAgent):
             context_manager, conversation_manager, plugins
         )
 
+        from .._context_manager.context_manager import ContextManager as _ContextManager
+
+        self._context_manager: ContextManager | None = (
+            context_manager if isinstance(context_manager, _ContextManager) else None
+        )
+
         self.conversation_manager: ConversationManager
         if self.model.stateful:
             self.conversation_manager = NullConversationManager()
@@ -761,6 +767,11 @@ class Agent(AgentBase, LocalAgent):
     def storage(self) -> Storage | None:
         """Default storage backend for agent subsystems."""
         return self._storage
+
+    @property
+    def context_manager(self) -> "ContextManager | None":
+        """The ContextManager plugin, if one is registered on this agent."""
+        return self._context_manager
 
     @property
     def session_id(self) -> str:

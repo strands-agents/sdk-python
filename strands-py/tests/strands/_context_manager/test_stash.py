@@ -4,7 +4,6 @@ import json
 import unittest.mock
 
 import pytest
-
 from strands._context_manager.stash import Stash, _BytesEncoder, _format_stash_refs
 from strands.storage.in_memory_storage import InMemoryStorage
 from strands.types.content import ContentBlock, Message
@@ -240,3 +239,94 @@ class TestStoreMessageErrorHandling:
         )
         message = Message(role="user", content=[block])
         await stash.store_message(message)
+
+
+class TestStorageTypeName:
+    """Tests for storage_type_name property."""
+
+    def test_returns_class_name_of_base_storage(self):
+        storage = InMemoryStorage()
+        stash = Stash(storage, "s", "a")
+        assert stash.storage_type_name == "InMemoryStorage"
+
+
+class TestTakeSnapshot:
+    """Tests for take_snapshot — serializing all entries."""
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_dict_when_no_entries(self, stash):
+        result = await stash.take_snapshot()
+        assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_returns_all_stored_entries(self, stash):
+        await stash.store("tool-1", 0, json.dumps({"text": "hello"}).encode("utf-8"))
+        await stash.store("tool-2", 0, json.dumps({"text": "world"}).encode("utf-8"))
+        result = await stash.take_snapshot()
+        assert result == {"tool-1_0": {"text": "hello"}, "tool-2_0": {"text": "world"}}
+
+
+class TestLoadSnapshot:
+    """Tests for load_snapshot — restoring entries from a snapshot."""
+
+    @pytest.mark.asyncio
+    async def test_restores_entries(self, stash):
+        entries = {"tool-1_0": {"text": "hello"}, "tool-2_0": {"text": "world"}}
+        await stash.load_snapshot(entries)
+        assert await stash.retrieve("tool-1_0") == {"text": "hello"}
+        assert await stash.retrieve("tool-2_0") == {"text": "world"}
+
+    @pytest.mark.asyncio
+    async def test_round_trip(self, stash):
+        await stash.store("tool-1", 0, json.dumps({"text": "original"}).encode("utf-8"))
+        snapshot = await stash.take_snapshot()
+
+        new_stash = Stash(InMemoryStorage(), "test-session", "test-agent")
+        await new_stash.load_snapshot(snapshot)
+        assert await new_stash.retrieve("tool-1_0") == {"text": "original"}
+
+
+class TestClear:
+    """Tests for clear — deleting all entries in the agent namespace."""
+
+    @pytest.mark.asyncio
+    async def test_deletes_all_entries(self, stash):
+        await stash.store("tool-1", 0, json.dumps({"text": "a"}).encode("utf-8"))
+        await stash.store("tool-2", 0, json.dumps({"text": "b"}).encode("utf-8"))
+        await stash.clear()
+        assert await stash.list() == []
+
+    @pytest.mark.asyncio
+    async def test_clear_on_empty_stash(self, stash):
+        await stash.clear()
+        assert await stash.list() == []
+
+
+class TestClearSession:
+    """Tests for clear_session — deleting all stash data for the session."""
+
+    @pytest.mark.asyncio
+    async def test_deletes_entries_across_agents(self):
+        storage = InMemoryStorage()
+        stash_a = Stash(storage, "sess-1", "agent-a")
+        stash_b = Stash(storage, "sess-1", "agent-b")
+        await stash_a.store("tool-1", 0, json.dumps({"text": "a"}).encode("utf-8"))
+        await stash_b.store("tool-1", 0, json.dumps({"text": "b"}).encode("utf-8"))
+
+        await stash_a.clear_session()
+
+        assert await stash_a.list() == []
+        assert await stash_b.list() == []
+
+    @pytest.mark.asyncio
+    async def test_does_not_affect_other_sessions(self):
+        storage = InMemoryStorage()
+        stash_s1 = Stash(storage, "sess-1", "agent-a")
+        stash_s2 = Stash(storage, "sess-2", "agent-a")
+        await stash_s1.store("tool-1", 0, json.dumps({"text": "s1"}).encode("utf-8"))
+        await stash_s2.store("tool-1", 0, json.dumps({"text": "s2"}).encode("utf-8"))
+
+        await stash_s1.clear_session()
+
+        assert await stash_s1.list() == []
+        assert await stash_s2.list() == ["tool-1_0"]
