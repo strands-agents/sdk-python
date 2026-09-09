@@ -8,6 +8,7 @@ import json
 import logging
 import time
 import warnings
+from collections import deque
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, cast
@@ -64,47 +65,67 @@ _MODEL_RESTART_TURN_TIMEOUT_S = 10
 # Do not let provider I/O hold the transition lock beyond the reconnect alignment budget.
 _MODEL_SEND_TIMEOUT_S = _MODEL_RESTART_TURN_TIMEOUT_S
 
-# Limit one synthetic recovery turn independently of provider context-window size.
-_MAX_TOOL_RECOVERY_BYTES = 50 * 1024
+# Keep a synthetic recovery turn short enough for a realtime voice response.
+_MAX_TOOL_RECOVERY_BYTES = 8 * 1024
 _TOOL_RECOVERY_PREFIX = (
     "A tool requested before reconnection has completed. "
     "Use this result to answer the user without invoking the tool again: "
 )
+_TOOL_RECOVERY_TRUNCATED = " [truncated for voice recovery]"
 _ToolUseKey = tuple[int, str]
+
+
+def _serialize_tool_recovery(payload: dict[str, Any]) -> str:
+    return f"{_TOOL_RECOVERY_PREFIX}{json.dumps(payload, ensure_ascii=False, sort_keys=True)}"
 
 
 def _format_tool_recovery(tool_use: ToolUse, tool_result: ToolResult) -> str:
     """Format one bounded semantic tool-result recovery turn."""
+    content_blocks: list[dict[str, Any]] = []
     for content in tool_result["content"]:
-        if "text" not in content and "json" not in content:
-            raise ValueError(
-                f"tool_use_id=<{tool_use['toolUseId']}>, content_types=<{list(content)}> | "
-                "content type not supported for bidi tool recovery"
-            )
+        if "text" in content:
+            content_blocks.append({"text": content["text"]})
+        elif "json" in content:
+            content_blocks.append({"json": content["json"]})
+        else:
+            content_types = ",".join(sorted(content)) or "unknown"
+            content_blocks.append({"text": f"[{content_types} omitted from voice recovery]"})
 
     try:
-        payload = json.dumps(
-            {
-                "tool": tool_use["name"],
-                "arguments": tool_use["input"],
-                "status": tool_result["status"],
-                "result": tool_result["content"],
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-        )
+        payload: dict[str, Any] = {
+            "tool": tool_use["name"],
+            "arguments": tool_use["input"],
+            "status": tool_result["status"],
+            "result": content_blocks,
+        }
+        recovery = _serialize_tool_recovery(payload)
     except (TypeError, ValueError) as error:
         raise ValueError(
             f"tool_use_id=<{tool_use['toolUseId']}> | tool recovery content is not JSON serializable"
         ) from error
 
-    recovery = f"{_TOOL_RECOVERY_PREFIX}{payload}"
-    recovery_bytes = len(recovery.encode("utf-8"))
-    if recovery_bytes > _MAX_TOOL_RECOVERY_BYTES:
-        raise ValueError(
-            f"tool_use_id=<{tool_use['toolUseId']}>, recovery_bytes=<{recovery_bytes}>, "
-            f"max_recovery_bytes=<{_MAX_TOOL_RECOVERY_BYTES}> | tool recovery content exceeds size limit"
-        )
+    if len(recovery.encode("utf-8")) <= _MAX_TOOL_RECOVERY_BYTES:
+        return recovery
+
+    result_text = json.dumps(content_blocks, ensure_ascii=False, sort_keys=True)
+    payload["result"] = [{"text": _TOOL_RECOVERY_TRUNCATED}]
+    if len(_serialize_tool_recovery(payload).encode("utf-8")) > _MAX_TOOL_RECOVERY_BYTES:
+        payload["arguments"] = "[omitted from voice recovery]"
+
+    low = 0
+    high = len(result_text)
+    while low < high:
+        midpoint = (low + high + 1) // 2
+        payload["result"] = [{"text": f"{result_text[:midpoint]}{_TOOL_RECOVERY_TRUNCATED}"}]
+        if len(_serialize_tool_recovery(payload).encode("utf-8")) <= _MAX_TOOL_RECOVERY_BYTES:
+            low = midpoint
+        else:
+            high = midpoint - 1
+
+    payload["result"] = [{"text": f"{result_text[:low]}{_TOOL_RECOVERY_TRUNCATED}"}]
+    recovery = _serialize_tool_recovery(payload)
+    if len(recovery.encode("utf-8")) > _MAX_TOOL_RECOVERY_BYTES:
+        raise ValueError(f"tool_use_id=<{tool_use['toolUseId']}> | tool recovery metadata exceeds size limit")
 
     return recovery
 
@@ -123,13 +144,37 @@ class _ReaderError:
 
 @dataclass
 class _RunningTool:
-    """A running tool call that may span a reconnect."""
+    """A logical tool call that may span connections.
+
+    States are represented by the optional fields: running has no result; coalesced has a
+    replacement key; completed has a result; failed delivery advances
+    ``reissue_after_generation``; semantic recovery records its generation while ordered
+    queues associate it with a provider response.
+    Running calls may accept an exact reissue on any newer generation. Completed calls may
+    accept one only on the generation immediately after ``reissue_after_generation``.
+    """
 
     tool_use: ToolUse
-    match_generation: int
+    reissue_after_generation: int
     replacement_key: _ToolUseKey | None = None
     result_event: ToolResultEvent | None = None
     recovery_generation: int | None = None
+
+
+def _can_coalesce_tool_use(
+    original_key: _ToolUseKey,
+    running_tool: _RunningTool,
+    tool_use: ToolUse,
+    generation: int,
+) -> bool:
+    """Return whether a provider tool call is an exact reconnect reissue."""
+    if original_key[0] >= generation:
+        return False
+    if running_tool.replacement_key is not None and running_tool.replacement_key[0] >= generation:
+        return False
+    if running_tool.tool_use["name"] != tool_use["name"] or running_tool.tool_use["input"] != tool_use["input"]:
+        return False
+    return running_tool.result_event is None or running_tool.reissue_after_generation == generation - 1
 
 
 class _BidiAgentLoop:
@@ -143,6 +188,11 @@ class _BidiAgentLoop:
         _invocation_state: Optional context to pass to tools during execution.
             This allows passing custom data (user_id, session_id, database connections, etc.)
             that tools can access via their invocation_state parameter.
+        _connection_lock: Serializes provider sends with connection replacement.
+        _tool_lock: Protects running-tool continuity state.
+        _running_tools: Logical tool calls that are executing or awaiting delivery.
+        _pending_recovery_responses: Recovery turns awaiting provider response IDs.
+        _bound_recovery_responses: Recovery turns awaiting matching response completion.
         _send_gate: Gate the sending of events to the model.
             Blocks while the agent is reconnecting the model connection.
     """
@@ -201,6 +251,8 @@ class _BidiAgentLoop:
         self._response_active = False
         self._awaiting_response = False
         self._running_tools: dict[_ToolUseKey, _RunningTool] = {}
+        self._pending_recovery_responses: deque[_ToolUseKey] = deque()
+        self._bound_recovery_responses: deque[tuple[str, _ToolUseKey]] = deque()
         self._turn_complete = asyncio.Event()
         self._turn_complete.set()
 
@@ -288,6 +340,8 @@ class _BidiAgentLoop:
         finally:
             self._send_gate.clear()
             self._running_tools.clear()
+            self._pending_recovery_responses.clear()
+            self._bound_recovery_responses.clear()
             if self._session_span:
                 _telemetry.end_session_span(
                     self._tracer,
@@ -327,6 +381,8 @@ class _BidiAgentLoop:
                     continue
 
                 if isinstance(event, BidiTextInputEvent):
+                    # Record before provider I/O because a timed-out send has an unknown outcome;
+                    # reconnect replay then converges provider context with local history.
                     message: Message = {"role": event.role, "content": [{"text": event.text}]}
                     await self._agent._append_messages(message)
                     if event.role == "user":
@@ -685,7 +741,7 @@ class _BidiAgentLoop:
             self._current_cache_read_tokens += cache_read
 
     async def _register_tool_use(self, tool_use: ToolUse, generation: int) -> _ToolUseKey | None:
-        """Register a tool call or coalesce one exact previous-generation reissue."""
+        """Register a tool call or coalesce one exact reissue."""
         async with self._tool_lock:
             if generation != self._generation:
                 return None
@@ -699,13 +755,11 @@ class _BidiAgentLoop:
             matches = [
                 (original_key, running)
                 for original_key, running in self._running_tools.items()
-                if running.match_generation == generation - 1
-                and running.replacement_key is None
-                and running.tool_use["name"] == tool_use["name"]
-                and running.tool_use["input"] == tool_use["input"]
+                if _can_coalesce_tool_use(original_key, running, tool_use, generation)
             ]
             if len(matches) == 1:
                 original_key, running_tool = matches[0]
+                self._discard_recovery_tracking(original_key)
                 running_tool.replacement_key = tool_use_key
                 logger.info(
                     "tool_name=<%s>, original_tool_use_id=<%s>, matched_tool_use_id=<%s> | "
@@ -730,7 +784,10 @@ class _BidiAgentLoop:
                         len(matches),
                     )
 
-                self._running_tools[tool_use_key] = _RunningTool(tool_use=tool_use, match_generation=generation)
+                self._running_tools[tool_use_key] = _RunningTool(
+                    tool_use=tool_use,
+                    reissue_after_generation=generation,
+                )
                 return tool_use_key
 
         self._task_pool.create(self._run_tool_result_delivery(*completed_match))
@@ -746,26 +803,55 @@ class _BidiAgentLoop:
                 tool_result_event = running_tool.result_event
                 if tool_result_event is None or running_tool.replacement_key is not None:
                     continue
-                if running_tool.match_generation < self._generation - 1:
+                if running_tool.reissue_after_generation < self._generation - 1:
                     stale_keys.append(tool_use_key)
-                elif running_tool.match_generation == self._generation - 1:
+                elif running_tool.reissue_after_generation == self._generation - 1:
                     retained_results.append((tool_use_key, tool_result_event))
 
             for tool_use_key in stale_keys:
+                self._discard_recovery_tracking(tool_use_key)
                 self._running_tools.pop(tool_use_key)
 
             return retained_results
 
-    async def _clear_recovered_tool_results(self, generation: int) -> None:
-        """Discard semantic recovery results after the response they prompted completes."""
+    def _discard_recovery_tracking(self, tool_use_key: _ToolUseKey) -> None:
+        """Discard response associations for one logical tool call with the tool lock held."""
+        self._pending_recovery_responses = deque(
+            pending_key for pending_key in self._pending_recovery_responses if pending_key != tool_use_key
+        )
+        self._bound_recovery_responses = deque(
+            bound for bound in self._bound_recovery_responses if bound[1] != tool_use_key
+        )
+
+    async def _bind_recovery_response(self, generation: int, response_id: str) -> None:
+        """Associate the next model response with one semantic recovery turn."""
         async with self._tool_lock:
-            recovered_keys = [
-                tool_use_key
-                for tool_use_key, running_tool in self._running_tools.items()
-                if running_tool.recovery_generation == generation and running_tool.replacement_key is None
-            ]
-            for tool_use_key in recovered_keys:
+            while self._pending_recovery_responses:
+                tool_use_key = self._pending_recovery_responses.popleft()
+                running_tool = self._running_tools.get(tool_use_key)
+                if (
+                    running_tool is None
+                    or running_tool.recovery_generation != generation
+                    or running_tool.replacement_key is not None
+                ):
+                    continue
+                self._bound_recovery_responses.append((response_id, tool_use_key))
+                return
+
+    async def _clear_recovered_tool_result(self, response_id: str) -> None:
+        """Discard the semantic recovery result consumed by one completed response."""
+        async with self._tool_lock:
+            for _ in range(len(self._bound_recovery_responses)):
+                bound_response_id, tool_use_key = self._bound_recovery_responses.popleft()
+                running_tool = self._running_tools.get(tool_use_key)
+                if running_tool is None or running_tool.replacement_key is not None:
+                    continue
+                if bound_response_id != response_id:
+                    self._bound_recovery_responses.append((bound_response_id, tool_use_key))
+                    continue
+                self._discard_recovery_tracking(tool_use_key)
                 self._running_tools.pop(tool_use_key)
+                return
 
     async def _run_tool_result_delivery(
         self,
@@ -776,9 +862,14 @@ class _BidiAgentLoop:
         try:
             await self._deliver_tool_result(original_key, tool_result_event)
         except Exception as error:
-            async with self._tool_lock:
-                self._running_tools.pop(original_key, None)
-            await self._event_queue.put(error)
+            retained = await self._retain_tool_result(original_key)
+            logger.warning(
+                "tool_use_id=<%s>, retained=<%s>, error=<%s> | background tool result delivery failed",
+                original_key[1],
+                retained,
+                error,
+                exc_info=True,
+            )
 
     async def _deliver_tool_result(
         self,
@@ -816,6 +907,14 @@ class _BidiAgentLoop:
                 _MODEL_SEND_TIMEOUT_S,
             )
             return False
+        except Exception as error:
+            logger.warning(
+                "tool_use_id=<%s>, mode=<%s>, error=<%s> | tool result delivery failed",
+                original_key[1],
+                mode,
+                error,
+            )
+            return False
         return True
 
     async def _deliver_tool_result_on_connection(
@@ -841,7 +940,7 @@ class _BidiAgentLoop:
                 content=tool_result["content"],
             )
             if not await self._send_tool_delivery(ToolResultEvent(result), original_key, "native"):
-                await self._retain_tool_result(original_key, running_tool)
+                await self._retain_tool_result(original_key)
                 return True
             self._awaiting_response = True
             self._update_turn_state()
@@ -853,6 +952,7 @@ class _BidiAgentLoop:
                 self._generation,
             )
             async with self._tool_lock:
+                self._discard_recovery_tracking(original_key)
                 self._running_tools.pop(original_key, None)
             return False
 
@@ -865,11 +965,12 @@ class _BidiAgentLoop:
                 error,
             )
             async with self._tool_lock:
+                self._discard_recovery_tracking(original_key)
                 self._running_tools.pop(original_key, None)
             return False
 
         if not await self._send_tool_delivery(BidiTextInputEvent(text=recovery), original_key, "recovery"):
-            await self._retain_tool_result(original_key, running_tool)
+            await self._retain_tool_result(original_key)
             return True
         self._awaiting_response = True
         self._update_turn_state()
@@ -883,16 +984,22 @@ class _BidiAgentLoop:
         async with self._tool_lock:
             if self._running_tools.get(original_key) is not running_tool:
                 return False
+            self._discard_recovery_tracking(original_key)
             running_tool.recovery_generation = self._generation
+            self._pending_recovery_responses.append(original_key)
         return True
 
-    async def _retain_tool_result(self, original_key: _ToolUseKey, running_tool: _RunningTool) -> None:
-        """Keep a timed-out result eligible for an exact reissue on the next connection."""
+    async def _retain_tool_result(self, original_key: _ToolUseKey) -> bool:
+        """Keep a failed result delivery eligible for an exact reissue after reconnect."""
         async with self._tool_lock:
-            if self._running_tools.get(original_key) is running_tool:
-                running_tool.match_generation = self._generation
-                running_tool.replacement_key = None
-                running_tool.recovery_generation = None
+            running_tool = self._running_tools.get(original_key)
+            if running_tool is None:
+                return False
+            self._discard_recovery_tracking(original_key)
+            running_tool.reissue_after_generation = self._generation
+            running_tool.replacement_key = None
+            running_tool.recovery_generation = None
+            return True
 
     async def _run_model(self, generation: int) -> None:
         """Task for running the model.
@@ -943,6 +1050,7 @@ class _BidiAgentLoop:
                     self._task_pool.create(self._run_tool(event["current_tool_use"], original_tool_use_key))
 
                 if isinstance(event, BidiResponseStartEvent):
+                    await self._bind_recovery_response(generation, event.response_id)
                     if response_span:
                         _telemetry.end_response_span(
                             self._tracer,
@@ -977,7 +1085,7 @@ class _BidiAgentLoop:
                     # transcript arriving after completion does not re-open the turn.
                     self._awaiting_response = False
                     self._update_turn_state()
-                    await self._clear_recovered_tool_results(generation)
+                    await self._clear_recovered_tool_result(event.response_id)
 
                 elif isinstance(event, BidiTranscriptStreamEvent):
                     if event["role"] == "user":

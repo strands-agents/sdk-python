@@ -326,6 +326,8 @@ class BidiAgent(LocalAgent):
             RuntimeError: If start has not been called.
             ValueError: If invalid input type.
             TimeoutError: If the provider does not accept the event within the send timeout.
+                Timed-out text remains in message history because delivery has an unknown
+                outcome and reconnect replay must be able to converge provider context.
 
         Example:
             await agent.send("Hello")
@@ -456,6 +458,8 @@ class BidiAgent(LocalAgent):
                     try:
                         await self.send(event)
                     except asyncio.TimeoutError:
+                        if not isinstance(event, BidiAudioInputEvent):
+                            raise
                         logger.warning(
                             "event_type=<%s> | input event delivery timed out",
                             type(event).__name__,
