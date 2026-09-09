@@ -440,7 +440,10 @@ class BidiAgent(LocalAgent):
 
             # Using custom audio config:
             model = BedrockNovaSonicModel(
-                provider_config={"audio": {"input_rate": 48000, "output_rate": 24000}}
+                audio={
+                    "input_rate": 48000,
+                    "output_rate": 24000,
+                }
             )
             audio_io = BidiAudioIO()
             agent = BidiAgent(model=model, tools=[calculator])
