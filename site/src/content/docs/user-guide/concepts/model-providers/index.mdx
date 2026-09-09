@@ -13,6 +13,7 @@ import PageLink from '@components/PageLink.astro'
 export const allDocs = await getCollection('docs')
 export const officialProviders = getIntegrationEntries(allDocs, 'model-provider', false)
 export const communityProviders = getIntegrationEntries(allDocs, 'model-provider', true)
+export const firstPartyCount = officialProviders.filter((p) => !p.id.includes('custom_model_provider')).length
 
 export const providerColumns = [
   { header: "Provider" },
@@ -28,13 +29,14 @@ export const renderCell = (item, col) => [
 
 ## What are Model Providers?
 
-A model provider is a service or platform that hosts and serves large language
-models through an API. The Strands Agents SDK is provider-agnostic: the same agent
-code runs against any supported provider, so you can switch providers or run
-several in one application without rewriting your agent. First-party providers
-include Amazon Bedrock, Anthropic, OpenAI, and Google; community packages add more,
-and the [custom provider interface](./custom_model_provider.mdx) covers anything
-else.
+The Strands Agents SDK is provider-agnostic: the same agent code runs against any
+of {firstPartyCount} first-party model providers, {communityProviders.length} community
+providers, or anything you connect through the
+[custom provider interface](./custom_model_provider.mdx), so you can switch
+providers or run several in one application without rewriting your agent. A model
+provider is a service or platform that hosts and serves large language models
+through an API. First-party providers include Amazon Bedrock, Anthropic, OpenAI,
+and Google.
 
 ## Supported Providers
 
@@ -51,6 +53,36 @@ The following providers are built and maintained by the Strands community. Brows
 <SimpleTable data={communityProviders} columns={providerColumns}>
   {renderCell}
 </SimpleTable>
+
+## Provider capabilities
+
+To pick a provider for a specific workload, compare what each provider integration
+implements in the Python SDK:
+
+| Provider | Tool calling | Tool choice | Structured output | Vision | Prompt caching |
+|---|:-:|:-:|:-:|:-:|:-:|
+| [Amazon Bedrock](./amazon-bedrock.mdx) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| [Anthropic](./anthropic.mdx) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| [Google](./google.mdx) | ✅ | ✅ | ✅ | ✅ | Implicit only |
+| [LiteLLM](./litellm.mdx) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| [llama.cpp](./llamacpp.mdx) | ✅ | ❌ | ✅ | ✅ | ✅ |
+| [Llama API](./llamaapi.mdx) | ✅ | ❌ | ❌ | ✅ | ❌ |
+| [Mistral AI](./mistral.mdx) | ✅ | ❌ | ✅ | ✅ | ✅ |
+| [Ollama](./ollama.mdx) | ✅ | ❌ | ✅ | ✅ | ❌ |
+| [OpenAI](./openai.mdx) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| [OpenAI Responses API](./openai-responses.mdx) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| [Amazon SageMaker](./sagemaker.mdx) | ✅ | ❌ | ✅ | ❌ | ❌ |
+| [Writer](./writer.mdx) | ✅ | ❌ | ✅ | ✅ | ❌ |
+
+A capability in this table means the provider integration implements it; the model
+you select must also support the feature. [Amazon Nova](./amazon-nova.mdx) models
+run through the Amazon Bedrock provider and share its row. Providers that connect
+through the OpenAI provider's compatible-endpoint support (Cohere, Crusoe,
+Fireworks AI, Nebius Token Factory, OpenRouter, OVHcloud AI Endpoints) inherit the
+OpenAI row, subject to what each endpoint accepts. LiteLLM passes requests to the
+underlying provider, so each capability also depends on the model behind it.
+[Vercel](./vercel.mdx) is TypeScript-only; TypeScript capabilities for every
+provider are documented on the provider's page.
 
 ## Getting Started
 
@@ -120,6 +152,20 @@ response = agent("What can you help me with?")
 ```
 </Tab>
 </Tabs>
+
+## How Strands compares to Pydantic AI and LiteLLM
+
+Provider-agnostic agent code is an ecosystem pattern, not a Strands-only feature.
+[Pydantic AI](https://ai.pydantic.dev) is another agent framework that takes the
+same approach: it selects a provider through a `provider:model` string and
+maintains its own first-party provider list. [LiteLLM](https://docs.litellm.ai)
+solves a different problem one layer lower: it is a model abstraction layer, not
+an agent framework, and exposes more than 100 providers behind a single
+OpenAI-compatible API. The two layers compose. Strands ships LiteLLM as a
+first-party provider ([LiteLLM](./litellm.mdx)), so when you need a provider that
+is not in the tables above, you keep your agent, tools, and hooks and point
+`LiteLLMModel` at it. Prefer a native provider when one exists: its typed
+configuration and the capabilities in the table above are maintained with the SDK.
 
 ## Next Steps
 
