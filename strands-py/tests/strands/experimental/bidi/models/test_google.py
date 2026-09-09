@@ -27,6 +27,7 @@ from strands.experimental.bidi.types.events import (
     BidiResponseCompleteEvent,
     BidiResponseStartEvent,
     BidiTextInputEvent,
+    BidiTranscriptCompleteEvent,
     BidiTranscriptStreamEvent,
     BidiUsageEvent,
 )
@@ -724,11 +725,9 @@ async def test_event_conversion(mock_genai_client, model, live_message, server_c
     text_event = text_events[0]
     assert isinstance(text_event, BidiTranscriptStreamEvent)
     assert text_event.get("type") == "bidi_transcript_stream"
-    assert text_event.text == "Hello from Gemini"
+    assert text_event.delta == "Hello from Gemini"
     assert text_event.role == "assistant"
-    assert text_event.is_final is True
-    assert text_event.delta == {"text": "Hello from Gemini"}
-    assert text_event.current_transcript == "Hello from Gemini"
+    assert text_event.delta == "Hello from Gemini"
 
     # Test multiple text parts (should concatenate)
     mock_model_turn_multi = unittest.mock.Mock()
@@ -740,8 +739,7 @@ async def test_event_conversion(mock_genai_client, model, live_message, server_c
     assert len(multi_text_events) == 1
     multi_text_event = multi_text_events[0]
     assert isinstance(multi_text_event, BidiTranscriptStreamEvent)
-    assert multi_text_event.text == "Hello from Gemini"  # Concatenated with space
-
+    assert multi_text_event.delta == "Hello from Gemini"  # Concatenated with space
     # Test audio output (base64 encoded)
     mock_audio = live_message(data=b"audio_data")
 
@@ -948,6 +946,86 @@ async def test_interruption_emitted_alongside_other_server_content(
     events = model._convert_gemini_live_event(message, _TurnState())
 
     assert [type(event) for event in events] == [BidiInterruptionEvent, BidiTranscriptStreamEvent]
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_interruption_preserves_user_transcription_already_in_progress(
+    mock_genai_client, model, live_message, server_content
+):
+    """A delayed interruption marker must not discard earlier fragments from the same utterance."""
+    _, _, _ = mock_genai_client
+    await model.start()
+    turn_state = _TurnState(response_open=True)
+
+    first = unittest.mock.Mock(text="Just one", finished=False)
+    second = unittest.mock.Mock(text=" second", finished=False)
+
+    model._convert_gemini_live_event(
+        live_message(server_content=server_content(input_transcription=first)),
+        turn_state,
+    )
+    events = model._convert_gemini_live_event(
+        live_message(server_content=server_content(interrupted=True, input_transcription=second)),
+        turn_state,
+    )
+
+    assert [type(event) for event in events] == [BidiInterruptionEvent, BidiTranscriptStreamEvent]
+    assert turn_state.input_transcript == "Just one second"
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_transcription_fragments_complete_at_turn_boundary(
+    mock_genai_client,
+    model,
+    live_message,
+    server_content,
+):
+    """Input and output fragments produce complete transcripts at turn completion."""
+    _, _, _ = mock_genai_client
+    await model.start()
+    turn_state = _TurnState()
+
+    first_input = unittest.mock.Mock(text="how ", finished=False)
+    second_input = unittest.mock.Mock(text="are you?", finished=False)
+
+    model._convert_gemini_live_event(
+        live_message(server_content=server_content(input_transcription=first_input)),
+        turn_state,
+    )
+    model._convert_gemini_live_event(
+        live_message(server_content=server_content(input_transcription=second_input)),
+        turn_state,
+    )
+
+    assert turn_state.input_transcript == "how are you?"
+
+    first_output = unittest.mock.Mock(text="I am ", finished=False)
+    second_output = unittest.mock.Mock(text="doing well.", finished=False)
+
+    model._convert_gemini_live_event(
+        live_message(server_content=server_content(output_transcription=first_output)),
+        turn_state,
+    )
+    model._convert_gemini_live_event(
+        live_message(server_content=server_content(output_transcription=second_output)),
+        turn_state,
+    )
+
+    assert turn_state.output_transcript == "I am doing well."
+
+    completed = model._convert_gemini_live_event(
+        live_message(server_content=server_content(turn_complete=True)),
+        turn_state,
+    )
+    assert completed == [
+        BidiTranscriptCompleteEvent("how are you?", "user"),
+        BidiTranscriptCompleteEvent("I am doing well.", "assistant"),
+        BidiResponseCompleteEvent(response_id=unittest.mock.ANY, stop_reason="complete"),
+    ]
 
     await model.stop()
 
