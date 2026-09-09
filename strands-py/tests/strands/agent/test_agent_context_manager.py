@@ -100,3 +100,22 @@ class TestContextManagerErrors:
     def test_raises_with_unsupported_value(self, mock_model):
         with pytest.raises(ValueError, match="Unsupported context_manager value"):
             Agent(model=mock_model, context_manager="manual")
+
+
+class TestContextManagerProperty:
+    """Tests for the Agent.context_manager property."""
+
+    def test_returns_none_when_no_context_manager(self, mock_model):
+        agent = Agent(model=mock_model)
+        assert agent.context_manager is None
+
+    def test_returns_context_manager_instance(self, mock_model):
+        from strands._context_manager.context_manager import ContextManager
+
+        cm = ContextManager()
+        agent = Agent(model=mock_model, context_manager=cm)
+        assert agent.context_manager is cm
+
+    def test_returns_none_for_auto_mode(self, mock_model):
+        agent = Agent(model=mock_model, context_manager="auto")
+        assert agent.context_manager is None

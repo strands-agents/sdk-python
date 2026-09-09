@@ -382,3 +382,47 @@ class TestStrategyInitFallback:
         cm = ContextManager(strategies=[strategy])
         cm.init_agent(mock_agent)
         assert strategy.initialized is True
+
+
+class TestStashProperty:
+    """Tests for the stash property."""
+
+    def test_stash_is_none_before_init(self):
+        cm = ContextManager()
+        assert cm.stash is None
+
+    def test_stash_is_set_after_init(self, mock_agent):
+        mock_agent.session_id = "test-session"
+        mock_agent.storage = None
+        cm = ContextManager()
+        cm.init_agent(mock_agent)
+        assert cm.stash is not None
+
+    def test_stash_is_none_when_disabled(self, mock_agent):
+        cm = ContextManager(stash=False)
+        cm.init_agent(mock_agent)
+        assert cm.stash is None
+
+
+class TestStashIsDurable:
+    """Tests for the stash_is_durable property."""
+
+    def test_false_with_in_memory_storage(self, mock_agent):
+        mock_agent.session_id = "test-session"
+        mock_agent.storage = None
+        cm = ContextManager()
+        cm.init_agent(mock_agent)
+        assert cm.stash_is_durable is False
+
+    def test_true_with_non_in_memory_storage(self, mock_agent):
+        from strands.storage.local_file_storage import LocalFileStorage
+
+        mock_agent.session_id = "test-session"
+        mock_agent.storage = LocalFileStorage(base_dir="/tmp/test-stash-durable")
+        cm = ContextManager(stash=True)
+        cm.init_agent(mock_agent)
+        assert cm.stash_is_durable is True
+
+    def test_false_before_init(self):
+        cm = ContextManager()
+        assert cm.stash_is_durable is False

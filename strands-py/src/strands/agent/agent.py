@@ -763,6 +763,16 @@ class Agent(AgentBase, LocalAgent):
         return self._storage
 
     @property
+    def context_manager(self) -> "ContextManager | None":
+        """The ContextManager plugin, if one is registered on this agent."""
+        from .._context_manager.context_manager import ContextManager as _ContextManager
+
+        plugin = self._plugin_registry._plugins.get("strands:context-manager")
+        if isinstance(plugin, _ContextManager):
+            return plugin
+        return None
+
+    @property
     def session_id(self) -> str:
         """Identifier for the current conversation session.
 
