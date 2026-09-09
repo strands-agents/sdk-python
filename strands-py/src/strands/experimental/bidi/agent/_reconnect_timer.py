@@ -79,15 +79,22 @@ class BidiReconnectTimer:
 
         The warning fires ``warning_lead_s`` before the deadline. When the lead is zero
         or exceeds the deadline, the warning is emitted immediately and the remaining
-        wait runs down to the deadline.
+        wait runs down to the deadline. The deadline countdown continues while warning
+        delivery is backpressured, but the deadline callback still follows the warning.
         """
         warning_at_s = max(deadline_s - warning_lead_s, 0)
 
         await self._sleep(warning_at_s)
         time_left_s = deadline_s - warning_at_s
-        await self._on_warning(time_left_s)
+        deadline_sleep: asyncio.Future[None] = asyncio.ensure_future(self._sleep(deadline_s - warning_at_s))
+        try:
+            await self._on_warning(time_left_s)
+            await deadline_sleep
+        finally:
+            if not deadline_sleep.done():
+                deadline_sleep.cancel()
+            await asyncio.gather(deadline_sleep, return_exceptions=True)
 
-        await self._sleep(deadline_s - warning_at_s)
         # Detach before the callback re-arms this timer; cancelling a live self-reference
         # would abort the reconnect the callback runs.
         self._task = None

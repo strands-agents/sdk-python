@@ -7,7 +7,7 @@ import pytest
 from pydantic import BaseModel
 
 from strands.experimental.bidi import Restartable
-from strands.experimental.bidi.models.model import BidiModel
+from strands.experimental.bidi.models.model import AudioCapable, AudioConfig, BidiModel
 from strands.experimental.bidi.types.events import BidiInputEvent, BidiOutputEvent
 from strands.models import Model
 from strands.types._events import ToolResultEvent
@@ -48,6 +48,17 @@ class _TestBidiModel(BidiModel):
         pass
 
 
+class _AudioBidiModel(_TestBidiModel, AudioCapable):
+    @property
+    def audio_config(self) -> AudioConfig:
+        return {
+            "input_rate": 16000,
+            "output_rate": 24000,
+            "channels": 1,
+            "format": "pcm",
+        }
+
+
 class _TestRestartableBidiModel(_TestBidiModel):
     async def restart(
         self,
@@ -63,12 +74,34 @@ def test_model_is_model():
     assert isinstance(_TestBidiModel(), Model)
 
 
+def test_audio_capable_identifies_audio_models():
+    assert isinstance(_AudioBidiModel(), AudioCapable)
+    assert not isinstance(_TestBidiModel(), AudioCapable)
+
+
 def test_update_config():
     model = _TestBidiModel()
 
     model.update_config(model_id="updated-model")
 
     assert model.get_config() == {"model_id": "updated-model"}
+
+
+@pytest.mark.parametrize(
+    ("model_config", "invalid_key"),
+    [
+        pytest.param({"model": "test-model"}, "model", id="model"),
+        pytest.param({"connection": {"restart_after": 30}}, "restart_after", id="connection"),
+    ],
+)
+def test_validate_config_warns_invalid_keys(model_config, invalid_key):
+    with pytest.warns(UserWarning, match=invalid_key):
+        _TestBidiModel._validate_config(model_config)
+
+
+def test_validate_audio_config_warns_invalid_keys():
+    with pytest.warns(UserWarning, match="input_rte"):
+        _AudioBidiModel._validate_audio_config({"input_rte": 48000})
 
 
 def test_get_config_returns_copy():
