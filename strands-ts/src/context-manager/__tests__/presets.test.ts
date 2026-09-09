@@ -66,6 +66,12 @@ describe('presets', () => {
       expect(result[0]!.name).toBe('offload:drop')
       expect(result[1]!.name).toBe('offload:summarize')
     })
+
+    it('throws for unknown preset string', () => {
+      expect(() => resolveStrategies(['proactiveSummarisation' as any])).toThrow(
+        'Unknown strategy preset: "proactiveSummarisation"'
+      )
+    })
   })
 
   describe('ContextManager.from', () => {

@@ -65,7 +65,10 @@ export function resolveStrategies(entries: (ContextStrategy | StrategyPresetName
   const strategies: ContextStrategy[] = []
   for (const entry of entries) {
     if (typeof entry === 'string') {
-      strategies.push(...resolvePreset(entry))
+      if (!STRATEGY_PRESET_NAMES.includes(entry as StrategyPresetName)) {
+        throw new Error(`Unknown strategy preset: "${entry}". Valid presets: ${STRATEGY_PRESET_NAMES.join(', ')}`)
+      }
+      strategies.push(...resolvePreset(entry as StrategyPresetName))
     } else {
       strategies.push(entry)
     }
