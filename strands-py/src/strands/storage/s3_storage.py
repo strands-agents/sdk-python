@@ -88,7 +88,10 @@ class S3Storage:
             raise StorageError(f"Failed to write '{key}' to S3") from error
 
         if self._search_strategy is not None:
-            await self._search_strategy.index(self, normalized, data)
+            try:
+                await self._search_strategy.index(self, normalized, data)
+            except Exception as error:
+                raise StorageError(f"Wrote '{key}' but indexing failed") from error
 
     async def read(self, key: str) -> bytes | None:
         """Read an S3 object.

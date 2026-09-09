@@ -5,6 +5,7 @@ from __future__ import annotations
 import builtins
 import os
 import uuid
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, overload
 
@@ -14,7 +15,7 @@ from .storage import _NAMESPACED, _normalize_key, _normalize_prefix
 
 if TYPE_CHECKING:
     from ..sandbox.base import Sandbox
-    from .search.types import SearchStrategy
+    from .search.types import SandboxSafeSearchStrategy, SearchStrategy
     from .storage import StorageSearchResult
 
 _TMP_MARKER = ".__strands_tmp"
@@ -36,15 +37,21 @@ class LocalFileStorage:
     """
 
     @overload
-    def __init__(self, base_dir: str = ..., *, sandbox: Sandbox, search_strategy: None = ...) -> None: ...
-
-    @overload
     def __init__(
-        self, base_dir: str = ..., *, search_strategy: SearchStrategy[LocalFileStorage] | None = ...
+        self,
+        base_dir: str = ...,
+        *,
+        sandbox: Sandbox,
+        search_strategy: SandboxSafeSearchStrategy[LocalFileStorage] | None = ...,
     ) -> None: ...
 
     @overload
-    def __init__(self, base_dir: str = ...) -> None: ...
+    def __init__(
+        self,
+        base_dir: str = ...,
+        *,
+        search_strategy: SearchStrategy[LocalFileStorage] | None = ...,
+    ) -> None: ...
 
     def __init__(
         self,
@@ -57,14 +64,17 @@ class LocalFileStorage:
 
         Args:
             base_dir: Root directory under which all keys are stored.
-            sandbox: Optional sandbox to route I/O through. Cannot be combined
-                with ``search_strategy`` — sandboxed storage skips indexing to
-                preserve isolation.
+            sandbox: Optional sandbox to route I/O through. Sandboxed writes
+                skip indexing to preserve isolation. Only sandbox-safe strategies
+                (those with ``requires_host_fs = False``) are accepted.
             search_strategy: Optional search strategy. When set, ``write()``
                 automatically indexes entries and ``search()`` delegates to the
-                strategy instead of the default keyword scan. Cannot be combined
-                with ``sandbox``.
+                strategy instead of the default keyword scan.
         """
+        if sandbox is not None and getattr(search_strategy, "requires_host_fs", False):
+            raise ValueError(
+                f"{type(search_strategy).__name__} requires host filesystem access and cannot be used with a sandbox"
+            )
         self._base_dir = os.path.normpath(base_dir)
         self._sandbox = sandbox
         self._search_strategy = search_strategy
@@ -77,7 +87,8 @@ class LocalFileStorage:
     def for_sandbox(self, sandbox: Sandbox) -> LocalFileStorage:
         """Return a copy bound to the given sandbox.
 
-        If already bound to the same sandbox, returns self.
+        Preserves the search strategy if it is sandbox-safe. Drops it with a
+        warning if the strategy requires host filesystem access.
 
         Args:
             sandbox: Sandbox to bind to.
@@ -87,7 +98,15 @@ class LocalFileStorage:
         """
         if self._sandbox is sandbox:
             return self
-        bound = LocalFileStorage(self._base_dir, sandbox=sandbox)
+        strategy = self._search_strategy
+        if strategy is not None and getattr(strategy, "requires_host_fs", False):
+            warnings.warn(
+                f"{type(strategy).__name__} requires host filesystem access and is not compatible with sandboxed"
+                " storage — dropping search strategy, falling back to keyword search",
+                stacklevel=2,
+            )
+            strategy = None
+        bound = LocalFileStorage(self._base_dir, sandbox=sandbox, search_strategy=strategy)  # type: ignore[arg-type]
         if getattr(self, "_namespaced", None) is _NAMESPACED:
             bound._namespaced = _NAMESPACED  # type: ignore[attr-defined]
         return bound
@@ -132,7 +151,10 @@ class LocalFileStorage:
             raise StorageError(f"Failed to write '{key}'") from error
 
         if self._search_strategy is not None:
-            await self._search_strategy.index(self, normalized, data)
+            try:
+                await self._search_strategy.index(self, normalized, data)
+            except Exception as error:
+                raise StorageError(f"Wrote '{key}' but indexing failed") from error
 
     async def read(self, key: str) -> bytes | None:
         """Read the file corresponding to key.
@@ -248,7 +270,7 @@ class LocalFileStorage:
         """
         normalized = _normalize_prefix(prefix).rstrip("/")
         sub_dir = os.path.join(self._base_dir, *normalized.split("/")) if normalized else self._base_dir
-        scoped = LocalFileStorage(sub_dir, sandbox=self._sandbox, search_strategy=self._search_strategy)
+        scoped = LocalFileStorage(sub_dir, sandbox=self._sandbox, search_strategy=self._search_strategy)  # type: ignore[arg-type]
         scoped._namespaced = _NAMESPACED  # type: ignore[attr-defined]
         return scoped
 
@@ -274,9 +296,10 @@ class LocalFileStorage:
         if not narrow_dir.exists():
             return keys
 
-        for dirpath, _, filenames in os.walk(narrow_dir):
+        for dirpath, dirnames, filenames in os.walk(narrow_dir):
+            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
             for filename in filenames:
-                if _TMP_MARKER in filename:
+                if _TMP_MARKER in filename or filename.startswith("."):
                     continue
                 full_path = os.path.join(dirpath, filename)
                 rel = os.path.relpath(full_path, self._base_dir)
@@ -301,7 +324,7 @@ class LocalFileStorage:
             return
 
         for entry in entries:
-            if _TMP_MARKER in entry.name:
+            if _TMP_MARKER in entry.name or entry.name.startswith("."):
                 continue
             full_path = directory / entry.name
             if entry.is_dir:

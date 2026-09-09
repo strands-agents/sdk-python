@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from typing_extensions import TypeVar
 
@@ -51,4 +51,26 @@ class SearchStrategy(Protocol[S]):
         Returns:
             Matched keys with relevance scores, ranked best-first.
         """
+        ...
+
+
+class SandboxSafeSearchStrategy(Protocol[S]):
+    """A search strategy that works inside a sandbox.
+
+    Strategies that operate purely through the :class:`Storage` API (e.g.
+    keyword scan) are sandbox-safe. Strategies that persist state on the
+    host filesystem (e.g. BM25 with a SQLite index) are not.
+
+    Declare ``requires_host_fs: Literal[False] = False`` on a strategy
+    class to mark it as sandbox-safe.
+    """
+
+    requires_host_fs: Literal[False]
+
+    async def index(self, storage: S, key: str, data: bytes, **kwargs: Any) -> None:
+        """Index a single entry for future searches."""
+        ...
+
+    async def search(self, storage: S, query: str, **kwargs: Any) -> list[StorageSearchResult]:
+        """Search content in storage matching query."""
         ...

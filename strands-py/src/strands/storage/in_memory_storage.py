@@ -57,7 +57,12 @@ class InMemoryStorage:
             self._store[normalized] = bytes(data)
 
         if self._search_strategy is not None:
-            await self._search_strategy.index(self, normalized, data)
+            try:
+                await self._search_strategy.index(self, normalized, data)
+            except Exception as error:
+                from ..types.exceptions import StorageError
+
+                raise StorageError(f"Wrote '{key}' but indexing failed") from error
 
     async def read(self, key: str) -> bytes | None:
         """Retrieve the bytes previously stored under key.

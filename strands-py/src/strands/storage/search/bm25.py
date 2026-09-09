@@ -20,7 +20,7 @@ import hashlib
 import os
 import sqlite3
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from ..storage import StorageSearchResult
 from .keyword import tokenize
@@ -215,6 +215,8 @@ class Bm25SearchStrategy:
         ```
     """
 
+    requires_host_fs: Literal[True] = True
+
     def __init__(self, config: Bm25SearchStrategyConfig | None = None) -> None:
         """Initialize the BM25 search strategy.
 
@@ -243,11 +245,11 @@ class Bm25SearchStrategy:
         if key.rsplit("/", maxsplit=1)[-1].startswith("."):
             return
 
-        conn = self._ensure_connection(storage)
         content = data.decode("utf-8", errors="replace")
         content_hash = hashlib.md5(data, usedforsecurity=False).hexdigest()
 
         async with self._lock:
+            conn = self._ensure_connection(storage)
             if self._hashes.get(key) == content_hash:
                 return
             await asyncio.to_thread(self._upsert, conn, key, content, content_hash)
@@ -266,13 +268,13 @@ class Bm25SearchStrategy:
         Raises:
             RuntimeError: If the SQLite build lacks FTS5 support.
         """
-        conn = self._ensure_connection(storage)
-
         fts_query = _build_query(query)
         if not fts_query:
             return []
 
-        return await asyncio.to_thread(self._query, conn, fts_query)
+        async with self._lock:
+            conn = self._ensure_connection(storage)
+            return await asyncio.to_thread(self._query, conn, fts_query)
 
     async def close(self) -> None:
         """Close the SQLite connection and release resources."""
@@ -318,12 +320,9 @@ class Bm25SearchStrategy:
 
     def _upsert(self, conn: sqlite3.Connection, key: str, content: str, content_hash: str) -> None:
         """Insert or replace a single document in the FTS5 index."""
-        if key in self._hashes:
-            conn.execute("DELETE FROM documents WHERE key = ?", (key,))
-            conn.execute("DELETE FROM doc_hashes WHERE key = ?", (key,))
-
+        conn.execute("DELETE FROM documents WHERE key = ?", (key,))
         conn.execute("INSERT INTO documents (key, content) VALUES (?, ?)", (key, content))
-        conn.execute("INSERT INTO doc_hashes (key, hash) VALUES (?, ?)", (key, content_hash))
+        conn.execute("INSERT OR REPLACE INTO doc_hashes (key, hash) VALUES (?, ?)", (key, content_hash))
         conn.commit()
         self._hashes[key] = content_hash
 

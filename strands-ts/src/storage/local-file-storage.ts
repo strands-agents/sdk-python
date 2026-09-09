@@ -67,7 +67,7 @@ export class LocalFileStorage implements Storage {
    */
   forSandbox(sandbox: Sandbox): LocalFileStorage {
     if (this._sandbox) return this
-    return new LocalFileStorage(this._baseDir, sandbox)
+    return new LocalFileStorage(this._baseDir, sandbox, this._searchStrategy)
   }
 
   /**

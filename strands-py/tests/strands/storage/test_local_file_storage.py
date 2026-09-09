@@ -319,21 +319,44 @@ class TestLocalFileStorage:
     @pytest.mark.asyncio
     async def test_sandbox_write_skips_indexing(self, tmp_path):
         strategy = AsyncMock()
+        strategy.requires_host_fs = False
         sandbox = MagicMock()
         sandbox.write_file = AsyncMock()
         storage = LocalFileStorage(str(tmp_path), sandbox=sandbox, search_strategy=strategy)
         await storage.write("key.txt", b"data")
         strategy.index.assert_not_awaited()
 
-    def test_for_sandbox_drops_search_strategy(self, tmp_path):
+    def test_for_sandbox_preserves_search_strategy(self, tmp_path):
         strategy = AsyncMock()
+        strategy.requires_host_fs = False
         storage = LocalFileStorage(str(tmp_path), search_strategy=strategy)
         sandbox = MagicMock()
         bound = storage.for_sandbox(sandbox)
-        assert bound._search_strategy is None
+        assert bound._search_strategy is strategy
 
     def test_namespace_preserves_search_strategy(self, tmp_path):
         strategy = AsyncMock()
         storage = LocalFileStorage(str(tmp_path), search_strategy=strategy)
         ns = storage.namespace("scope")
         assert ns._search_strategy is strategy
+
+    def test_rejects_host_fs_strategy_with_sandbox(self, tmp_path):
+        strategy = MagicMock()
+        strategy.requires_host_fs = True
+        sandbox = MagicMock()
+        with pytest.raises(ValueError, match="requires host filesystem access"):
+            LocalFileStorage(str(tmp_path), sandbox=sandbox, search_strategy=strategy)
+
+    def test_for_sandbox_drops_host_fs_strategy_with_warning(self, tmp_path):
+        import warnings
+
+        strategy = MagicMock()
+        strategy.requires_host_fs = True
+        storage = LocalFileStorage(str(tmp_path), search_strategy=strategy)
+        sandbox = MagicMock()
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            bound = storage.for_sandbox(sandbox)
+        assert bound._search_strategy is None
+        assert len(caught) == 1
+        assert "requires host filesystem access" in str(caught[0].message)
