@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from strands.agent import AgentResult
 from strands.agent.agent import Agent
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.experimental.hooks.events import BidiAgentInitializedEvent
@@ -17,7 +18,9 @@ from strands.hooks.events import (
     MultiAgentInitializedEvent,
 )
 from strands.hooks.registry import HookRegistry
+from strands.interrupt import Interrupt
 from strands.multiagent import GraphBuilder, Swarm
+from strands.multiagent.base import Status
 from strands.session.snapshot_session_manager import (
     SnapshotSessionManager,
     _deserialize_snapshot,
@@ -123,6 +126,141 @@ def test_swarm_snapshot_is_persisted_after_run(storage):
     raw = asyncio.run(storage.read(key))
     assert raw is not None
     assert _deserialize_snapshot(raw).data["state"]["type"] == "swarm"
+
+
+def test_interrupted_graph_restores_before_applying_response(storage, agenerator):
+    """A fresh Graph applies an interrupt response after restoring the persisted interrupt state."""
+    interrupt = Interrupt(id="approval", name="approval", reason="approval required")
+    interrupted_agent = Agent(model=_model("unused"), agent_id="n1")
+    interrupted_agent._interrupt_state.interrupts[interrupt.id] = interrupt
+    interrupted_agent._interrupt_state.activate()
+    interrupted_agent.stream_async = Mock(
+        return_value=agenerator(
+            [
+                {
+                    "result": AgentResult(
+                        message={},
+                        stop_reason="interrupt",
+                        state={},
+                        metrics=None,
+                        interrupts=[interrupt],
+                    )
+                }
+            ]
+        )
+    )
+
+    def _graph(agent, manager):
+        builder = GraphBuilder()
+        builder.add_node(agent, "n1")
+        builder.set_graph_id("g1")
+        builder.set_session_manager(manager)
+        return builder.build()
+
+    first = _graph(interrupted_agent, SnapshotSessionManager("mm", storage=storage))
+    interrupted_result = asyncio.run(first.invoke_async("go"))
+    assert interrupted_result.status == Status.INTERRUPTED
+
+    resumed_agent = Agent(model=_model("unused"), agent_id="n1")
+    resumed_agent.stream_async = Mock(
+        return_value=agenerator(
+            [
+                {
+                    "result": AgentResult(
+                        message={"role": "assistant", "content": [{"text": "done"}]},
+                        stop_reason="end_turn",
+                        state={},
+                        metrics=None,
+                    )
+                }
+            ]
+        )
+    )
+    resumed = _graph(resumed_agent, SnapshotSessionManager("mm", storage=storage))
+    responses = [{"interruptResponse": {"interruptId": interrupt.id, "response": "approved"}}]
+
+    result = asyncio.run(resumed.invoke_async(responses))
+
+    assert result.status == Status.COMPLETED
+    resumed_agent.stream_async.assert_called_once_with(responses, invocation_state={})
+
+
+def test_interrupted_swarm_restores_before_applying_response(storage, agenerator):
+    """A fresh Swarm applies an interrupt response after restoring the persisted interrupt state."""
+    interrupt = Interrupt(id="approval", name="approval", reason="approval required")
+    interrupted_agent = Agent(model=_model("unused"), agent_id="n1")
+    interrupted_agent._interrupt_state.interrupts[interrupt.id] = interrupt
+    interrupted_agent._interrupt_state.activate()
+    interrupted_agent.stream_async = Mock(
+        return_value=agenerator(
+            [
+                {
+                    "result": AgentResult(
+                        message={},
+                        stop_reason="interrupt",
+                        state={},
+                        metrics=None,
+                        interrupts=[interrupt],
+                    )
+                }
+            ]
+        )
+    )
+
+    first = Swarm(
+        nodes=[interrupted_agent],
+        session_manager=SnapshotSessionManager("mm-swarm", storage=storage),
+        id="sw1",
+    )
+    interrupted_result = asyncio.run(first.invoke_async("go"))
+    assert interrupted_result.status == Status.INTERRUPTED
+
+    resumed_agent = Agent(model=_model("unused"), agent_id="n1")
+    resumed_agent.stream_async = Mock(
+        return_value=agenerator(
+            [
+                {
+                    "result": AgentResult(
+                        message={"role": "assistant", "content": [{"text": "done"}]},
+                        stop_reason="end_turn",
+                        state={},
+                        metrics=None,
+                    )
+                }
+            ]
+        )
+    )
+    resumed = Swarm(
+        nodes=[resumed_agent],
+        session_manager=SnapshotSessionManager("mm-swarm", storage=storage),
+        id="sw1",
+    )
+    responses = [{"interruptResponse": {"interruptId": interrupt.id, "response": "approved"}}]
+
+    result = asyncio.run(resumed.invoke_async(responses))
+
+    assert result.status == Status.COMPLETED
+    resumed_agent.stream_async.assert_called_once_with(responses, invocation_state={})
+
+
+@pytest.mark.asyncio
+async def test_failed_restore_is_retried_before_marking_orchestrator_restored(storage):
+    """A transient restore failure leaves the orchestrator eligible for restore on the next invocation."""
+    manager = SnapshotSessionManager("mm", storage=storage)
+    manager._restore_multi_agent = AsyncMock(side_effect=[RuntimeError("transient read failure"), True])  # type: ignore[method-assign]
+    orchestrator = Mock()
+    orchestrator.id = "g1"
+    event = BeforeMultiAgentInvocationEvent(orchestrator)
+
+    with pytest.raises(RuntimeError, match="transient read failure"):
+        await manager._on_before_multi_agent_invocation(event)
+
+    assert orchestrator.id not in manager._multi_agent_restored_ids
+
+    await manager._on_before_multi_agent_invocation(event)
+
+    assert orchestrator.id in manager._multi_agent_restored_ids
+    assert manager._restore_multi_agent.await_count == 2
 
 
 def test_load_snapshot_restores_mid_run_state(storage):
