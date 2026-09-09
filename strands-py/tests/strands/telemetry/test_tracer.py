@@ -2592,6 +2592,45 @@ class TestSpanAttributeRedaction:
             }
             assert call_kwargs.get("tool.result") == "[REDACTED]"
 
+    def test_agent_span_system_prompt_redacted(self, mock_tracer, monkeypatch):
+        """The agent span's system prompt is policed under gen_ai.system_instructions."""
+        monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_unredacted_attributes=")
+        with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+            tracer = Tracer()
+            tracer.tracer = mock_tracer
+            mock_span = mock.MagicMock()
+            mock_tracer.start_span.return_value = mock_span
+
+            tracer.start_agent_span(
+                messages=self._user_message(),
+                agent_name="Strands Agents",
+                system_prompt="confidential system prompt",
+            )
+
+            set_attrs_call = mock_span.set_attributes.call_args_list[0][0][0]
+            assert set_attrs_call["system_prompt"] == "[REDACTED]"
+
+    def test_agent_span_system_prompt_allowlisted(self, mock_tracer, monkeypatch):
+        """Allowlisting gen_ai.system_instructions keeps the agent span's system prompt verbatim."""
+        monkeypatch.setenv(
+            "OTEL_SEMCONV_STABILITY_OPT_IN",
+            "gen_ai_unredacted_attributes=gen_ai.system_instructions",
+        )
+        with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+            tracer = Tracer()
+            tracer.tracer = mock_tracer
+            mock_span = mock.MagicMock()
+            mock_tracer.start_span.return_value = mock_span
+
+            tracer.start_agent_span(
+                messages=self._user_message(),
+                agent_name="Strands Agents",
+                system_prompt="confidential system prompt",
+            )
+
+            set_attrs_call = mock_span.set_attributes.call_args_list[0][0][0]
+            assert set_attrs_call["system_prompt"] == "confidential system prompt"
+
 
 class TestSpanAttributesOnly:
     """Tests for the gen_ai_span_attributes_only opt-in.
