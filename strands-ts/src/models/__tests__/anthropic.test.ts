@@ -2360,6 +2360,49 @@ describe('AnthropicModel', () => {
       })
     })
 
+    it('reports the cumulative usage from message_delta and keeps message_start values it omits', async () => {
+      const client = createMockClient(async function* () {
+        yield {
+          type: 'message_start',
+          message: {
+            role: 'assistant',
+            usage: {
+              input_tokens: 2230,
+              output_tokens: 25,
+              cache_read_input_tokens: 100,
+              cache_creation_input_tokens: 7,
+            },
+          },
+        }
+        yield {
+          type: 'message_delta',
+          delta: { stop_reason: 'end_turn' },
+          usage: {
+            input_tokens: 11768,
+            output_tokens: 115,
+            cache_read_input_tokens: null,
+            cache_creation_input_tokens: null,
+          },
+        }
+        yield { type: 'message_stop' }
+      })
+
+      const events = await collectIterator(
+        new AnthropicModel({ client }).stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })])
+      )
+
+      expect(events).toContainEqual({
+        type: 'modelMetadataEvent',
+        usage: {
+          inputTokens: 11768,
+          outputTokens: 115,
+          totalTokens: 11883,
+          cacheReadInputTokens: 100,
+          cacheWriteInputTokens: 7,
+        },
+      })
+    })
+
     it('does not synthesize a stop event when the stream ends without message_stop', async () => {
       const client = createMockClient(async function* () {
         yield { type: 'message_start', message: { role: 'assistant', usage: { input_tokens: 1 } } }

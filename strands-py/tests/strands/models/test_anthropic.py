@@ -2708,6 +2708,22 @@ async def test_stream_pause_turn_without_snapshot_ends_turn(anthropic_client, mo
     assert "paused server-side tool turn not resumed" in caplog.text
 
 
+@pytest.mark.asyncio
+async def test_stream_pause_turn_keeps_usage_when_last_snapshot_unavailable(anthropic_client, model, alist):
+    anthropic_client.messages.stream.side_effect = [
+        generate_mock_stream_context(paused_stream_events(), final_message=paused_final_message([])),
+        generate_mock_stream_context(
+            web_search_stream_events(), final_message=AssertionError("message snapshot is not available")
+        ),
+    ]
+
+    chunks = await alist(model.stream([{"role": "user", "content": [{"text": "hi"}]}]))
+
+    assert anthropic_client.messages.stream.call_count == 2
+    assert chunks[-2] == {"messageStop": {"stopReason": "end_turn"}}
+    assert chunks[-1]["metadata"]["usage"] == {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15}
+
+
 def test_format_request_with_citations_content(model, model_id, max_tokens):
     messages = [
         {

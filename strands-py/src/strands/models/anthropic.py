@@ -986,7 +986,7 @@ class AnthropicModel(Model):
                     # Build dict directly to avoid Pydantic serialization warnings
                     # when the message contains ParsedTextBlock objects (issue #1746)
                     yield self.format_chunk({"type": "message_stop", "message": {"stop_reason": stop_reason}})
-                if message_snapshot is not None:
+                if usage:
                     yield self.format_chunk({"type": "metadata", "usage": usage})
                 break
 

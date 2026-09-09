@@ -75,6 +75,15 @@ function validateAnthropicTools(anthropicTools: Anthropic.ToolUnion[]): void {
   }
 }
 
+/**
+ * Copies the numeric fields of an Anthropic usage object; `null` fields leave the existing value in place.
+ */
+function mergeUsage(target: Record<string, number>, source: object): void {
+  for (const [key, value] of Object.entries(source)) {
+    if (typeof value === 'number') target[key] = value
+  }
+}
+
 export interface AnthropicModelConfig extends BaseModelConfig {
   /**
    * Maximum number of tokens the model can generate in a response.
@@ -233,22 +242,14 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
 
         let stopReason = 'endTurn'
         let messageStopped = false
-        let outputTokens = 0
+        const responseUsage: Record<string, number> = {}
 
         const serverToolBlockIndexes = new Set<number>()
 
         for await (const event of stream) {
           switch (event.type) {
             case 'message_start': {
-              usage.inputTokens += event.message.usage.input_tokens
-
-              const rawUsage = event.message.usage as unknown as Record<string, number | undefined>
-              if (rawUsage.cache_creation_input_tokens !== undefined) {
-                usage.cacheWriteInputTokens = (usage.cacheWriteInputTokens ?? 0) + rawUsage.cache_creation_input_tokens
-              }
-              if (rawUsage.cache_read_input_tokens !== undefined) {
-                usage.cacheReadInputTokens = (usage.cacheReadInputTokens ?? 0) + rawUsage.cache_read_input_tokens
-              }
+              mergeUsage(responseUsage, event.message.usage)
 
               if (continuations === 0) {
                 yield {
@@ -349,8 +350,8 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
 
             case 'message_delta':
               if (event.usage) {
-                // Cumulative within one response; only the final value counts toward the total.
-                outputTokens = event.usage.output_tokens
+                // Cumulative within one response; fields Anthropic omits keep their message_start value.
+                mergeUsage(responseUsage, event.usage)
               }
               if (event.delta.stop_reason) {
                 stopReason = this._mapStopReason(event.delta.stop_reason)
@@ -365,7 +366,14 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
 
         // A stream that ends without message_stop is incomplete; emit no stop event so the caller can tell.
         if (!messageStopped) return
-        usage.outputTokens += outputTokens
+        usage.inputTokens += responseUsage.input_tokens ?? 0
+        usage.outputTokens += responseUsage.output_tokens ?? 0
+        if (responseUsage.cache_creation_input_tokens !== undefined) {
+          usage.cacheWriteInputTokens = (usage.cacheWriteInputTokens ?? 0) + responseUsage.cache_creation_input_tokens
+        }
+        if (responseUsage.cache_read_input_tokens !== undefined) {
+          usage.cacheReadInputTokens = (usage.cacheReadInputTokens ?? 0) + responseUsage.cache_read_input_tokens
+        }
 
         if (stopReason === 'pauseTurn') {
           if (continuations < MAX_PAUSE_TURN_CONTINUATIONS) {
