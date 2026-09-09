@@ -230,6 +230,7 @@ export function repairAlternation(messages: Message[]): void {
       messages[writeIndex - 1] = new Message({
         role: prev.role,
         content: [...prev.content, ...current.content],
+        trackingId: prev.trackingId,
       })
     } else {
       messages[writeIndex] = current

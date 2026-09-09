@@ -36,6 +36,17 @@ class TestGetContextWindowLimit:
         assert get_context_window_limit("eu.anthropic.claude-sonnet-4-6") == 1_000_000
         assert get_context_window_limit("ap.anthropic.claude-sonnet-4-6") == 1_000_000
 
+    def test_strips_nested_bedrock_prefixes(self):
+        # Guards against nested Bedrock prefixes failing model metadata lookup (#4220)
+        assert get_context_window_limit("us.openai.gpt-5.6-luna") == 1_050_000
+        assert get_context_window_limit("global.openai.gpt-5.6-luna") == 1_050_000
+        assert (
+            get_context_window_limit(
+                "arn:aws:bedrock:eu-west-2:123456789012:inference-profile/global.openai.gpt-5.6-luna"
+            )
+            == 1_050_000
+        )
+
     def test_strips_any_prefix_as_fallback(self):
         # Any prefix before the first dot is stripped if direct lookup fails
         assert get_context_window_limit("custom.anthropic.claude-sonnet-4-6") == 1_000_000
