@@ -2506,6 +2506,32 @@ def test_format_request_with_params_tools(anthropic_client, model_id, max_tokens
     ]
 
 
+@pytest.mark.parametrize("tool_choice", [{"any": {}}, {"tool": {"name": "test_tool"}}])
+def test_format_request_forced_tool_choice_omits_server_tools(
+    anthropic_client, model_id, max_tokens, messages, tool_choice
+):
+    tool_spec = {"description": "d", "name": "test_tool", "inputSchema": {"json": {}}}
+    model = AnthropicModel(
+        model_id=model_id, max_tokens=max_tokens, anthropic_tools=[WEB_SEARCH_TOOL], params={"tools": [WEB_SEARCH_TOOL]}
+    )
+
+    request = model.format_request(messages, [tool_spec], tool_choice=tool_choice)
+
+    assert request["tools"] == [{"name": "test_tool", "description": "d", "input_schema": {}}]
+    assert request["tool_choice"]["type"] == next(iter(tool_choice))
+
+
+def test_format_request_auto_tool_choice_keeps_server_tools(
+    anthropic_client, model_id, max_tokens, messages, tool_spec
+):
+    model = AnthropicModel(model_id=model_id, max_tokens=max_tokens, anthropic_tools=[WEB_SEARCH_TOOL])
+
+    request = model.format_request(messages, [tool_spec], tool_choice={"auto": {}})
+
+    assert request["tools"][-1] == WEB_SEARCH_TOOL
+    assert request["tool_choice"] == {"type": "auto"}
+
+
 def test_format_request_tools_cache_lands_on_server_tool_without_mutating_config(
     anthropic_client, model_id, max_tokens, messages, tool_spec
 ):
@@ -2677,21 +2703,18 @@ async def test_stream_continues_paused_server_tool_turn(anthropic_client, model,
 
 
 @pytest.mark.asyncio
-async def test_stream_pause_turn_continuation_limit(anthropic_client, model, alist, caplog):
-    caplog.set_level(logging.WARNING, logger="strands.models.anthropic")
+async def test_stream_pause_turn_continuation_limit(anthropic_client, model, alist):
     limit = strands.models.anthropic._MAX_PAUSE_TURN_CONTINUATIONS
     anthropic_client.messages.stream.side_effect = [
         generate_mock_stream_context(paused_stream_events(), final_message=paused_final_message([]))
         for _ in range(limit + 1)
     ]
 
-    chunks = await alist(model.stream([{"role": "user", "content": [{"text": "hi"}]}]))
+    with pytest.raises(RuntimeError, match=f"did not complete after {limit} continuations"):
+        await alist(model.stream([{"role": "user", "content": [{"text": "hi"}]}]))
 
+    assert limit == 10
     assert anthropic_client.messages.stream.call_count == limit + 1
-    assert [chunk for chunk in chunks if "messageStart" in chunk] == [{"messageStart": {"role": "assistant"}}]
-    assert chunks[-2] == {"messageStop": {"stopReason": "end_turn"}}
-    assert chunks[-1]["metadata"]["usage"]["inputTokens"] == 10 * (limit + 1)
-    assert "paused server-side tool turn not resumed" in caplog.text
 
 
 @pytest.mark.asyncio

@@ -57,7 +57,7 @@ _SERVER_TOOL_BLOCK_TYPES = frozenset(
 
 # Anthropic pauses a long server-side tool turn with stop_reason=pause_turn and expects the paused
 # assistant message to be sent back as-is to resume it. Bounds how many times stream() does so.
-_MAX_PAUSE_TURN_CONTINUATIONS = 5
+_MAX_PAUSE_TURN_CONTINUATIONS = 10
 
 _IMAGE_MEDIA_TYPES = {
     "gif": "image/gif",
@@ -502,9 +502,11 @@ class AnthropicModel(Model):
         ]
 
         params = self.config.get("params") or {}
-        # Copied so the cache_control below never lands on the caller's config.
-        tools.extend(dict(tool) for tool in self.config.get("anthropic_tools") or [])
-        tools.extend(dict(tool) for tool in params.get("tools") or [])
+        # Forcing a tool means this turn must call a function tool, so server tools are left out.
+        if tool_choice is None or "auto" in tool_choice:
+            # Copied so the cache_control below never lands on the caller's config.
+            tools.extend(dict(tool) for tool in self.config.get("anthropic_tools") or [])
+            tools.extend(dict(tool) for tool in params.get("tools") or [])
 
         # A cache_control on the final tool caches all of them, so one cache point suffices.
         if tools and (cache_control := self._resolve_tools_cache()):
@@ -901,6 +903,7 @@ class AnthropicModel(Model):
         Raises:
             ContextWindowOverflowException: If the input exceeds the model's context window.
             ModelThrottledException: If the request is throttled by Anthropic.
+            RuntimeError: If a paused server-side tool turn is still paused after the continuation limit.
         """
         logger.debug("formatting request")
         request = self.format_request(
@@ -965,7 +968,11 @@ class AnthropicModel(Model):
                                 usage[key] = usage.get(key, 0) + value
 
                 if stop_reason == "pause_turn":
-                    if message_snapshot is not None and continuations < _MAX_PAUSE_TURN_CONTINUATIONS:
+                    if continuations >= _MAX_PAUSE_TURN_CONTINUATIONS:
+                        raise RuntimeError(
+                            f"server-side tool turn did not complete after {continuations} continuations"
+                        )
+                    if message_snapshot is not None:
                         continuations += 1
                         block_index_offset = next_block_index
                         request = {

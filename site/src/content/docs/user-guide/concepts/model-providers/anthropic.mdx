@@ -249,7 +249,8 @@ Web search results are surfaced as citations on the response text when Claude ca
 Limitations:
 
 - The raw server-tool blocks (search results, fetched pages, code output) are not kept in the conversation history, so on a later turn the model cannot refer back to them and will call the tool again if it needs them.
-- When Anthropic pauses a long-running server-tool turn, the model provider resumes it automatically (up to 5 times per request) before the response reaches the agent loop.
+- When Anthropic pauses a long-running server-tool turn, the model provider resumes it automatically, up to 10 times per request, before the response reaches the agent loop. If the turn is still paused after that, the provider raises an error.
+- Server tools are not sent when a specific tool call is forced (`tool_choice` of `any` or `tool`), which includes structured output; the model can only use them on turns where it is free to choose.
 - Server-tool calls are billed separately by Anthropic and are not included in Strands usage metrics.
 
 ### Prompt Caching

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import Anthropic from '@anthropic-ai/sdk'
 import { isNode } from '../../__fixtures__/environment.js'
 import { AnthropicModel } from '../anthropic.js'
-import { ContextWindowOverflowError, ModelThrottledError } from '../../errors.js'
+import { ContextWindowOverflowError, ModelError, ModelThrottledError } from '../../errors.js'
 import { collectGenerator, collectIterator } from '../../__fixtures__/model-test-helpers.js'
 import {
   Message,
@@ -2216,6 +2216,40 @@ describe('AnthropicModel', () => {
       expect(captured.request.tools).toEqual([FUNCTION_TOOL, WEB_SEARCH_TOOL])
     })
 
+    it.each([{ any: {} }, { tool: { name: 'calc' } }])(
+      'omits server tools when a tool is forced with %j',
+      async (toolChoice) => {
+        const { captured, mockClient } = setupCapture()
+        const provider = new AnthropicModel({
+          client: mockClient,
+          anthropicTools: [WEB_SEARCH_TOOL],
+          params: { tools: [WEB_SEARCH_TOOL] },
+        })
+
+        await collectIterator(
+          provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })], {
+            toolSpecs: [FUNCTION_TOOL_SPEC],
+            toolChoice,
+          })
+        )
+
+        expect(captured.request.tools).toEqual([FUNCTION_TOOL])
+        expect(captured.request.tool_choice.type).toBe(Object.keys(toolChoice)[0])
+      }
+    )
+
+    it('applies toolChoice when only server tools are configured', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, anthropicTools: [WEB_SEARCH_TOOL] })
+
+      await collectIterator(
+        provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })], { toolChoice: { auto: {} } })
+      )
+
+      expect(captured.request.tools).toEqual([WEB_SEARCH_TOOL])
+      expect(captured.request.tool_choice).toEqual({ type: 'auto' })
+    })
+
     it('rejects function tool definitions in anthropicTools', () => {
       const functionTool = { name: 'f', input_schema: { type: 'object' as const } }
 
@@ -2312,21 +2346,17 @@ describe('AnthropicModel', () => {
       expect(first.tools).toEqual([FUNCTION_TOOL, WEB_SEARCH_TOOL])
     })
 
-    it('stops resuming a paused turn after the continuation limit', async () => {
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    it('throws once a paused turn exceeds the continuation limit', async () => {
       const stream = vi.fn(() => withFinalMessage(pausedStream()))
       const client = { messages: { stream } } as unknown as Anthropic
 
-      const { result, items: events } = await collectGenerator(
-        new AnthropicModel({ client }).streamAggregated([new Message({ role: 'user', content: [new TextBlock('Hi')] })])
-      )
+      await expect(
+        collectIterator(
+          new AnthropicModel({ client }).stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })])
+        )
+      ).rejects.toThrow(new ModelError('server-side tool turn did not complete after 10 continuations'))
 
-      expect(stream).toHaveBeenCalledTimes(6)
-      expect(events.filter((event) => event.type === 'modelMessageStartEvent')).toHaveLength(1)
-      expect(result.stopReason).toBe('endTurn')
-      expect(result.metadata?.usage?.inputTokens).toBe(60)
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('paused server-side tool turn not resumed'))
-      warnSpy.mockRestore()
+      expect(stream).toHaveBeenCalledTimes(11)
     })
 
     it('treats message_delta usage as cumulative within a response and sums across continuations', async () => {

@@ -12,7 +12,7 @@ import {
 import type { Message, ContentBlock, SystemPrompt } from '../types/messages.js'
 import type { ModelStreamEvent } from '../models/streaming.js'
 import { createEmptyUsage } from '../models/streaming.js'
-import { ContextWindowOverflowError, ModelThrottledError, normalizeError } from '../errors.js'
+import { ContextWindowOverflowError, ModelError, ModelThrottledError, normalizeError } from '../errors.js'
 import type { Citation } from '../types/citations.js'
 import type { ImageBlock, DocumentBlock } from '../types/media.js'
 import { encodeBase64 } from '../types/media.js'
@@ -51,7 +51,7 @@ const SERVER_TOOL_BLOCK_TYPES = new Set([
  */
 // Anthropic pauses a long server-side tool turn with stop_reason=pause_turn and expects the paused
 // assistant message to be sent back as-is to resume it. Bounds how many times stream() does so.
-const MAX_PAUSE_TURN_CONTINUATIONS = 5
+const MAX_PAUSE_TURN_CONTINUATIONS = 10
 
 const ANTHROPIC_CACHE_TYPE = 'ephemeral' as const
 
@@ -376,18 +376,17 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
         }
 
         if (stopReason === 'pauseTurn') {
-          if (continuations < MAX_PAUSE_TURN_CONTINUATIONS) {
-            continuations++
-            const pausedMessage = await stream.finalMessage()
-            request = {
-              ...request,
-              messages: [...request.messages, { role: 'assistant', content: pausedMessage.content }],
-            }
-            logger.debug(`continuation=<${continuations}> | resuming paused server-side tool turn`)
-            continue
+          if (continuations >= MAX_PAUSE_TURN_CONTINUATIONS) {
+            throw new ModelError(`server-side tool turn did not complete after ${continuations} continuations`)
           }
-          logger.warn(`continuations=<${continuations}> | paused server-side tool turn not resumed, ending turn`)
-          stopReason = 'endTurn'
+          continuations++
+          const pausedMessage = await stream.finalMessage()
+          request = {
+            ...request,
+            messages: [...request.messages, { role: 'assistant', content: pausedMessage.content }],
+          }
+          logger.debug(`continuation=<${continuations}> | resuming paused server-side tool turn`)
+          continue
         }
 
         usage.totalTokens = usage.inputTokens + usage.outputTokens
@@ -551,10 +550,13 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
       description: tool.description,
       input_schema: tool.inputSchema as Anthropic.Tool.InputSchema,
     }))
-    // Copied so the cache_control below never lands on the caller's config.
-    const paramsTools = (this._config.params?.tools as Anthropic.ToolUnion[] | undefined) ?? []
-    tools.push(...(this._config.anthropicTools ?? []).map((tool) => ({ ...tool })))
-    tools.push(...paramsTools.map((tool) => ({ ...tool })))
+    // Forcing a tool means this turn must call a function tool, so server tools are left out.
+    if (!options?.toolChoice || 'auto' in options.toolChoice) {
+      // Copied so the cache_control below never lands on the caller's config.
+      const paramsTools = (this._config.params?.tools as Anthropic.ToolUnion[] | undefined) ?? []
+      tools.push(...(this._config.anthropicTools ?? []).map((tool) => ({ ...tool })))
+      tools.push(...paramsTools.map((tool) => ({ ...tool })))
+    }
 
     // A cache_control on the last tool caches all of them, so one cache point suffices.
     const toolsCache = this._cacheSection('toolsTTL')
@@ -563,7 +565,7 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
       lastTool.cache_control = this._formatCacheControl(toolsCache.ttl)
     }
 
-    if (options?.toolSpecs?.length && options.toolChoice) {
+    if (tools.length > 0 && options?.toolChoice) {
       if ('auto' in options.toolChoice) {
         request.tool_choice = { type: 'auto' }
       } else if ('any' in options.toolChoice) {
