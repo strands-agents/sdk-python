@@ -151,6 +151,7 @@ async function fetchOnce(url: string, maxBytes: number, signal: AbortSignal | nu
   }
 
   if (!response.ok) {
+    await response.body?.cancel()
     throw new Error(`HTTP ${response.status} ${response.statusText}: GET ${url}`)
   }
 

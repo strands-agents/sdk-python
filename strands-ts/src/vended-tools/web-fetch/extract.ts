@@ -14,13 +14,6 @@ import type TurndownService from 'turndown'
 
 import { logger } from '../../logging/logger.js'
 
-class TurndownMissingError extends Error {
-  constructor() {
-    super("web_fetch requires the 'turndown' package. Install it with: npm install turndown")
-    this.name = 'TurndownMissingError'
-  }
-}
-
 // Elements whose entire subtree is discarded.
 const DROPPED_ELEMENTS = [
   'script',
@@ -47,26 +40,16 @@ function _stripInvisible(value: string): string {
   return value.replace(/^[\p{Cc}\p{Cf}\p{Zs}]+/u, '')
 }
 
-// Cache the configured service so rules are registered once across all calls.
-let _turndownServicePromise: Promise<TurndownService> | null = null
-
-async function buildTurndownService(): Promise<TurndownService> {
-  if (_turndownServicePromise) return _turndownServicePromise
-  _turndownServicePromise = _createTurndownService().catch((error) => {
-    // Don't cache failures — allow retry on next call (e.g. after install).
-    _turndownServicePromise = null
-    throw error
-  })
-  return _turndownServicePromise
+async function loadTurndown(): Promise<typeof TurndownService> {
+  try {
+    return (await import('turndown')).default
+  } catch (cause) {
+    throw new Error("web_fetch requires the 'turndown' package. Install it with: npm install turndown", { cause })
+  }
 }
 
 async function _createTurndownService(): Promise<TurndownService> {
-  let Turndown: typeof TurndownService
-  try {
-    Turndown = (await import('turndown')).default
-  } catch {
-    throw new TurndownMissingError()
-  }
+  const Turndown = await loadTurndown()
 
   const td = new Turndown({
     headingStyle: 'atx',
@@ -127,6 +110,9 @@ async function _createTurndownService(): Promise<TurndownService> {
   return td
 }
 
+// Cache the configured service so rules are registered once across all calls.
+let _turndownServicePromise: Promise<TurndownService> | null = null
+
 /**
  * Convert HTML to markdown suitable for a model to read.
  *
@@ -138,15 +124,12 @@ async function _createTurndownService(): Promise<TurndownService> {
  * @returns The converted markdown string, or the original HTML if conversion failed.
  */
 export async function htmlToMarkdown(html: string): Promise<string> {
+  _turndownServicePromise ??= _createTurndownService()
+  const td = await _turndownServicePromise
   try {
-    const td = await buildTurndownService()
     const markdown = td.turndown(html).trim()
     return markdown ? markdown + '\n' : ''
   } catch (error) {
-    // Let the missing-dep error propagate
-    if (error instanceof TurndownMissingError) {
-      throw error
-    }
     logger.warn(`error=<${error}> | html_to_markdown failed, returning raw html`)
     return html
   }
