@@ -15,7 +15,7 @@ import asyncio
 import base64
 import concurrent.futures
 import json
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import ANY, AsyncMock, Mock, patch
 
 import pytest
 import pytest_asyncio
@@ -29,7 +29,6 @@ from strands.experimental.bidi.models.bedrock import (
     BedrockNovaSonicModel,
     _BedrockAWSCRTHTTPClient,
     _BedrockAWSCRTHTTPResponse,
-    _observe_request_writer,
 )
 from strands.experimental.bidi.models.model import BidiModelTimeoutError
 from strands.experimental.bidi.types.events import (
@@ -150,6 +149,7 @@ async def test_crt_transport_observes_completed_request_writer():
     event_loop = asyncio.get_running_loop()
     original_exception_handler = event_loop.get_exception_handler()
     event_loop.set_exception_handler(lambda _loop, context: exception_contexts.append(context))
+    transport = object.__new__(_BedrockAWSCRTHTTPClient)
 
     async def write_request_body():
         raise from_code(2080)
@@ -161,11 +161,14 @@ async def test_crt_transport_observes_completed_request_writer():
 
     try:
         writer_task = asyncio.create_task(write_request_body())
-        writer_task.add_done_callback(_observe_request_writer)
+        writer_task.add_done_callback(transport._observe_request_writer)
         failed_writer_task = asyncio.create_task(fail_request_body())
-        failed_writer_task.add_done_callback(_observe_request_writer)
-        await asyncio.sleep(0)
-        await asyncio.sleep(0)
+        failed_writer_task.add_done_callback(transport._observe_request_writer)
+        await asyncio.gather(
+            writer_task,
+            failed_writer_task,
+            return_exceptions=True,
+        )
     finally:
         event_loop.set_exception_handler(original_exception_handler)
 
@@ -197,13 +200,12 @@ async def test_crt_transport_attaches_request_writer_observer():
                 "_await_response",
                 new=AsyncMock(return_value=base_response),
             ) as await_response,
-            patch("strands.experimental.bidi.models.bedrock._observe_request_writer", observer),
+            patch.object(transport, "_observe_request_writer", observer),
         ):
             response = await transport._await_response(stream)
 
         writer_task.cancel()
         await asyncio.gather(writer_task, return_exceptions=True)
-        await asyncio.sleep(0)
     finally:
         if not writer_task.done():
             writer_task.cancel()
@@ -215,12 +217,27 @@ async def test_crt_transport_attaches_request_writer_observer():
 
 
 @pytest.mark.asyncio
+async def test_crt_response_streams_chunks_until_end():
+    """Yield response chunks until CRT reports end-of-stream."""
+    stream = Mock()
+    stream.get_next_response_chunk = AsyncMock(side_effect=[b"first", b"second", b""])
+    response = _BedrockAWSCRTHTTPResponse(status=200, fields=Mock(), stream=stream)
+
+    chunks = [chunk async for chunk in response.chunks()]
+
+    assert chunks == [b"first", b"second"]
+    assert stream.get_next_response_chunk.await_count == 3
+
+
+@pytest.mark.asyncio
 async def test_crt_response_read_survives_reader_cancellation():
     """Keep the CRT chunk future live until stream shutdown resolves it."""
     pending_chunk: concurrent.futures.Future[bytes] = concurrent.futures.Future()
+    read_started = asyncio.Event()
     read_finished = asyncio.Event()
 
     async def get_next_response_chunk():
+        read_started.set()
         try:
             return await asyncio.wrap_future(pending_chunk)
         finally:
@@ -231,7 +248,7 @@ async def test_crt_response_read_survives_reader_cancellation():
     response = _BedrockAWSCRTHTTPResponse(status=200, fields=Mock(), stream=stream)
     reader_task = asyncio.create_task(response.chunks().__anext__())
 
-    await asyncio.sleep(0)
+    await read_started.wait()
     reader_task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await reader_task
@@ -240,6 +257,51 @@ async def test_crt_response_read_survives_reader_cancellation():
     assert not pending_chunk.cancelled()
     pending_chunk.set_result(b"")
     await asyncio.wait_for(read_finished.wait(), timeout=0.5)
+
+
+@pytest.mark.asyncio
+async def test_crt_response_reports_cancelled_read_failure():
+    """Report a background CRT read that fails after its caller is cancelled."""
+    pending_chunk: concurrent.futures.Future[bytes] = concurrent.futures.Future()
+    read_started = asyncio.Event()
+    exception_contexts = []
+    exception_reported = asyncio.Event()
+    event_loop = asyncio.get_running_loop()
+    original_exception_handler = event_loop.get_exception_handler()
+
+    def record_exception(_loop, context):
+        exception_contexts.append(context)
+        exception_reported.set()
+
+    async def get_next_response_chunk():
+        read_started.set()
+        return await asyncio.wrap_future(pending_chunk)
+
+    stream = Mock()
+    stream.get_next_response_chunk = get_next_response_chunk
+    response = _BedrockAWSCRTHTTPResponse(status=200, fields=Mock(), stream=stream)
+    reader_task = asyncio.create_task(response.chunks().__anext__())
+    read_error = RuntimeError("response read failed")
+
+    event_loop.set_exception_handler(record_exception)
+    try:
+        await read_started.wait()
+        reader_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await reader_task
+
+        pending_chunk.set_exception(read_error)
+        await asyncio.wait_for(exception_reported.wait(), timeout=0.5)
+    finally:
+        event_loop.set_exception_handler(original_exception_handler)
+
+    assert exception_contexts == [
+        {
+            "message": "bedrock HTTP/2 response reader failed after cancellation",
+            "exception": read_error,
+            "task": ANY,
+        }
+    ]
 
 
 # Audio Configuration Tests

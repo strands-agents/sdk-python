@@ -94,36 +94,35 @@ def _is_http_stream_completed_error(error: BaseException) -> bool:
     return isinstance(error, RuntimeError) and "AWS_ERROR_HTTP_STREAM_HAS_COMPLETED" in str(error)
 
 
-def _observe_request_writer(task: asyncio.Task[Any]) -> None:
-    """Consume a CRT request-writer result and report unexpected failures."""
-    if task.cancelled():
-        return
-
-    error = task.exception()
-    if error is None:
-        return
-    if _is_http_stream_completed_error(error):
-        logger.debug("error=<%s> | request writer stopped after HTTP/2 stream completion", error)
-        return
-
-    task.get_loop().call_exception_handler(
-        {
-            "message": "bedrock HTTP/2 request writer failed",
-            "exception": error,
-            "task": task,
-        }
-    )
-
-
 class _BedrockAWSCRTHTTPClient(AWSCRTHTTPClient):
     """Observe CRT request writers so their terminal results are always consumed."""
 
     async def _await_response(self, stream: Any) -> AWSCRTHTTPResponse:
         writer_task = getattr(stream, "_writer", None)
         if isinstance(writer_task, asyncio.Task):
-            writer_task.add_done_callback(_observe_request_writer)
+            writer_task.add_done_callback(self._observe_request_writer)
         response = await super()._await_response(stream)
         return _BedrockAWSCRTHTTPResponse(status=response.status, fields=response.fields, stream=stream)
+
+    def _observe_request_writer(self, task: asyncio.Task[Any]) -> None:
+        """Consume a CRT request-writer result and report unexpected failures."""
+        if task.cancelled():
+            return
+
+        error = task.exception()
+        if error is None:
+            return
+        if _is_http_stream_completed_error(error):
+            logger.debug("error=<%s> | request writer stopped after HTTP/2 stream completion", error)
+            return
+
+        task.get_loop().call_exception_handler(
+            {
+                "message": "bedrock HTTP/2 request writer failed",
+                "exception": error,
+                "task": task,
+            }
+        )
 
 
 class _BedrockAWSCRTHTTPResponse(AWSCRTHTTPResponse):
@@ -133,11 +132,12 @@ class _BedrockAWSCRTHTTPResponse(AWSCRTHTTPResponse):
         while True:
             read_task = asyncio.create_task(self._stream.get_next_response_chunk())
             try:
-                chunk = await asyncio.shield(read_task)
+                await asyncio.wait({read_task})
             except asyncio.CancelledError:
                 read_task.add_done_callback(self._observe_cancelled_read)
                 raise
 
+            chunk = read_task.result()
             if not chunk:
                 return
             yield chunk
