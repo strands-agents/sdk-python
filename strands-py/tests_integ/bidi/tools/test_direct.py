@@ -104,5 +104,6 @@ def test_bidi_agent_tool_direct_call_with_file_session(weather_tool, tmp_path):
         for message in restored_manager.list_messages("bidi-session", restored_agent.agent_id)
     ]
     exp_messages = list(enumerate(restored_agent.messages))
+    # Two calls, each recording a user prompt, tool use, tool result, and assistant acknowledgement.
     assert len(exp_messages) == 8
     assert tru_messages == exp_messages
