@@ -575,14 +575,13 @@ class SnapshotSessionManager(SessionManager):
         location = stash_data.get("location")
         if location == "external":
             snapshot_type = stash_data.get("storage_type", "")
-            current_type = cm.stash.storage_type_name
-            if snapshot_type and current_type and snapshot_type != current_type:
+            if snapshot_type and snapshot_type != cm.stash.storage_type_name:
                 logger.warning(
                     "session_id=<%s>, snapshot_storage=<%s>, current_storage=<%s> | "
                     "stash storage type changed since snapshot was created, stash data may be inaccessible",
                     self.session_id,
                     snapshot_type,
-                    current_type,
+                    cm.stash.storage_type_name,
                 )
             return
 
