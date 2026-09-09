@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Offload } from '../offload/index.js'
+import { getOldestMatches, buildToolNameMap } from '../offload/base.js'
 import { Message, TextBlock, ToolResultBlock, ToolUseBlock } from '../../../types/messages.js'
 import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
 import type { Agent } from '../../../agent/agent.js'
@@ -593,9 +594,52 @@ describe('Message-level drop vs truncate markers', () => {
 
     await strategy.apply(context)
 
-    const markerMsg = messages.find((m) => m.content.some((b) => b instanceof TextBlock && b.text.includes('elided')))
-    expect(markerMsg).toBeDefined()
-    const markerText = (markerMsg!.content[0] as TextBlock).text
+    const allText = messages.flatMap((m) =>
+      m.content.filter((b) => b instanceof TextBlock).map((b) => (b as TextBlock).text)
+    )
+    const markerText = allText.find((t) => t.includes('elided'))
+    expect(markerText).toBeDefined()
     expect(markerText).toMatch(/\[\.\.\. \d+ messages? elided \.\.\.\]/)
+  })
+})
+
+describe('getOldestMatches with ratio preserveRecent', () => {
+  function makeMessages(count: number): Message[] {
+    return Array.from(
+      { length: count },
+      (_, index) =>
+        new Message({ role: index % 2 === 0 ? 'user' : 'assistant', content: [new TextBlock(`msg-${index}`)] })
+    )
+  }
+
+  it('integer preserveRecent keeps absolute count', () => {
+    const messages = makeMessages(10)
+    const toolNameMap = buildToolNameMap(messages)
+    const result = getOldestMatches(messages, '*', 3, toolNameMap, undefined, undefined)
+    expect(result).toHaveLength(7)
+  })
+
+  it('decimal preserveRecent keeps ratio of matches', () => {
+    const messages = makeMessages(10)
+    const toolNameMap = buildToolNameMap(messages)
+    // 0.7 = keep 70% of 10 = ceil(7) = 7 preserved, 3 returned
+    const result = getOldestMatches(messages, '*', 0.7, toolNameMap, undefined, undefined)
+    expect(result).toHaveLength(3)
+  })
+
+  it('decimal preserveRecent rounds up', () => {
+    const messages = makeMessages(3)
+    const toolNameMap = buildToolNameMap(messages)
+    // 0.5 of 3 = ceil(1.5) = 2 preserved, 1 returned
+    const result = getOldestMatches(messages, '*', 0.5, toolNameMap, undefined, undefined)
+    expect(result).toHaveLength(1)
+  })
+
+  it('decimal preserveRecent of 0.99 preserves almost all', () => {
+    const messages = makeMessages(10)
+    const toolNameMap = buildToolNameMap(messages)
+    // 0.99 of 10 = ceil(9.9) = 10 preserved, 0 returned
+    const result = getOldestMatches(messages, '*', 0.99, toolNameMap, undefined, undefined)
+    expect(result).toHaveLength(0)
   })
 })

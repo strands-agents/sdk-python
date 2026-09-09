@@ -15,8 +15,30 @@ import type { Storage } from '../storage/storage.js'
 import { logger } from '../logging/logger.js'
 import type { ContextManagerConfig, ContextStrategy, ContextState } from './types.js'
 import { EmergencyTruncateStrategy, Offload } from './strategies/offload/index.js'
+import { resolveStrategies } from './presets.js'
 import { Stash } from './stash.js'
 import { createRetrievalTool, trackRetrievalToolUseIds } from './retrieval-tool.js'
+
+const AUTO_TRUNCATE_THRESHOLD = 1_500
+const AGENTIC_TRUNCATE_THRESHOLD = 8_000
+const TRUNCATE_PREVIEW_TOKENS = 750
+const AUTO_SUMMARIZE_UTILIZATION = 0.85
+
+/** @internal */
+export const CONTEXT_MANAGER_PRESETS = ['auto', 'agentic'] as const
+
+/** @internal */
+export type ContextManagerPreset = (typeof CONTEXT_MANAGER_PRESETS)[number]
+
+/**
+ * Supported values for the `contextManager` parameter.
+ *
+ * - `"auto"`: Managed context with proactive compression + offloading.
+ * - `"agentic"`: Model-driven context management via injected tools.
+ * - `ContextManagerConfig`: Custom strategy pipeline and stash configuration.
+ * - `false`: Explicitly disable all context management (no compression, no offloading).
+ */
+export type ContextManagerStrategy = ContextManagerPreset | ContextManagerConfig | false
 
 /**
  * Manages context reduction for an agent's conversation.
@@ -43,17 +65,55 @@ export class ContextManager implements Plugin {
   private _retrievalTool: Tool | undefined
 
   constructor(config?: ContextManagerConfig) {
-    this._strategies = [
-      ...(config?.strategies ?? [
-        Offload.truncate('toolResults').when({ threshold: 2500 }),
-        Offload.summarize('*').when({ threshold: 1000, utilization: 0.85 }),
-      ]),
-      new EmergencyTruncateStrategy(),
-    ]
+    const userStrategies = config?.strategies
+      ? resolveStrategies(config.strategies)
+      : [
+          Offload.truncate('toolResults', { previewTokens: TRUNCATE_PREVIEW_TOKENS }).when({
+            threshold: AUTO_TRUNCATE_THRESHOLD,
+          }),
+          Offload.summarize('*').when({ utilization: AUTO_SUMMARIZE_UTILIZATION, preserveRecent: 4 }),
+        ]
+    this._strategies = [...userStrategies, new EmergencyTruncateStrategy()]
     const stashConfig = config?.stash
     const stashObj = typeof stashConfig === 'object' ? stashConfig : undefined
     this._stashStorage = stashConfig === false ? false : stashObj?.storage
     this._enableRetrievalTool = stashConfig !== false && stashObj?.retrievalTool !== false
+  }
+
+  /**
+   * Resolves a `ContextManagerStrategy` value into a `ContextManager` instance.
+   *
+   * @param strategy - A preset string, config object, false, or undefined
+   * @returns A ContextManager for preset strings and configs; undefined for false/undefined
+   */
+  static from(strategy: ContextManagerStrategy | undefined): ContextManager | undefined {
+    if (strategy === false || strategy === undefined) return undefined
+    if (strategy === 'auto') {
+      return new ContextManager({
+        strategies: [
+          Offload.truncate('toolResults', { previewTokens: TRUNCATE_PREVIEW_TOKENS }).when({
+            threshold: AUTO_TRUNCATE_THRESHOLD,
+          }),
+          Offload.summarize('*').when({ utilization: AUTO_SUMMARIZE_UTILIZATION, preserveRecent: 4 }),
+        ],
+      })
+    }
+    if (strategy === 'agentic') {
+      return new ContextManager({
+        strategies: [
+          Offload.truncate('toolResults', { previewTokens: TRUNCATE_PREVIEW_TOKENS }).when({
+            threshold: AGENTIC_TRUNCATE_THRESHOLD,
+          }),
+          Offload.summarize('*').when({ utilization: 1, preserveRecent: 4 }),
+        ],
+      })
+    }
+    if (typeof strategy === 'string') {
+      throw new Error(
+        `Unknown contextManager preset: "${strategy}". Valid presets: ${CONTEXT_MANAGER_PRESETS.map((s) => `"${s}"`).join(', ')}`
+      )
+    }
+    return new ContextManager(strategy)
   }
 
   getTools(): Tool[] {
