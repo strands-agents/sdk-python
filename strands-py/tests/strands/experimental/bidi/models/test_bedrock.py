@@ -13,6 +13,7 @@ if sys.version_info < (3, 12):
 
 import asyncio
 import base64
+import concurrent.futures
 import json
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -20,12 +21,14 @@ import pytest
 import pytest_asyncio
 from aws_sdk_bedrock_runtime.models import ModelTimeoutException, ValidationException
 from awscrt.exceptions import from_code
+from smithy_http.aio.crt import AWSCRTHTTPClient
 
 from strands.experimental.bidi.models.bedrock import (
     NOVA_SONIC_V1_MODEL_ID,
     NOVA_SONIC_V2_MODEL_ID,
     BedrockNovaSonicModel,
     _BedrockAWSCRTHTTPClient,
+    _BedrockAWSCRTHTTPResponse,
     _observe_request_writer,
 )
 from strands.experimental.bidi.models.model import BidiModelTimeoutError
@@ -176,6 +179,67 @@ async def test_crt_transport_observes_completed_request_writer():
             "task": failed_writer_task,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_crt_transport_attaches_request_writer_observer():
+    """Attach the request-writer observer through the Smithy response hook."""
+    writer_task = asyncio.create_task(asyncio.sleep(60))
+    stream = Mock(_writer=writer_task)
+    base_response = Mock(status=200, fields=Mock())
+    observer = Mock()
+    transport = object.__new__(_BedrockAWSCRTHTTPClient)
+
+    try:
+        with (
+            patch.object(
+                AWSCRTHTTPClient,
+                "_await_response",
+                new=AsyncMock(return_value=base_response),
+            ) as await_response,
+            patch("strands.experimental.bidi.models.bedrock._observe_request_writer", observer),
+        ):
+            response = await transport._await_response(stream)
+
+        writer_task.cancel()
+        await asyncio.gather(writer_task, return_exceptions=True)
+        await asyncio.sleep(0)
+    finally:
+        if not writer_task.done():
+            writer_task.cancel()
+            await asyncio.gather(writer_task, return_exceptions=True)
+
+    await_response.assert_awaited_once_with(stream)
+    observer.assert_called_once_with(writer_task)
+    assert isinstance(response, _BedrockAWSCRTHTTPResponse)
+
+
+@pytest.mark.asyncio
+async def test_crt_response_read_survives_reader_cancellation():
+    """Keep the CRT chunk future live until stream shutdown resolves it."""
+    pending_chunk: concurrent.futures.Future[bytes] = concurrent.futures.Future()
+    read_finished = asyncio.Event()
+
+    async def get_next_response_chunk():
+        try:
+            return await asyncio.wrap_future(pending_chunk)
+        finally:
+            read_finished.set()
+
+    stream = Mock()
+    stream.get_next_response_chunk = get_next_response_chunk
+    response = _BedrockAWSCRTHTTPResponse(status=200, fields=Mock(), stream=stream)
+    reader_task = asyncio.create_task(response.chunks().__anext__())
+
+    await asyncio.sleep(0)
+    reader_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await reader_task
+
+    # Guards against CRT resolving a concurrent future that task cancellation already cancelled.
+    assert not pending_chunk.cancelled()
+    pending_chunk.set_result(b"")
+    await asyncio.wait_for(read_finished.wait(), timeout=0.5)
 
 
 # Audio Configuration Tests

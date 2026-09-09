@@ -122,7 +122,38 @@ class _BedrockAWSCRTHTTPClient(AWSCRTHTTPClient):
         writer_task = getattr(stream, "_writer", None)
         if isinstance(writer_task, asyncio.Task):
             writer_task.add_done_callback(_observe_request_writer)
-        return await super()._await_response(stream)
+        response = await super()._await_response(stream)
+        return _BedrockAWSCRTHTTPResponse(status=response.status, fields=response.fields, stream=stream)
+
+
+class _BedrockAWSCRTHTTPResponse(AWSCRTHTTPResponse):
+    """Keep CRT response reads alive until the stream resolves them."""
+
+    async def chunks(self) -> AsyncGenerator[bytes, None]:
+        while True:
+            read_task = asyncio.create_task(self._stream.get_next_response_chunk())
+            try:
+                chunk = await asyncio.shield(read_task)
+            except asyncio.CancelledError:
+                read_task.add_done_callback(self._observe_cancelled_read)
+                raise
+
+            if not chunk:
+                return
+            yield chunk
+
+    def _observe_cancelled_read(self, task: asyncio.Task[bytes]) -> None:
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error is not None:
+            task.get_loop().call_exception_handler(
+                {
+                    "message": "bedrock HTTP/2 response reader failed after cancellation",
+                    "exception": error,
+                    "task": task,
+                }
+            )
 
 
 class BedrockNovaSonicModel(BidiModel, AudioCapable):

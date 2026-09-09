@@ -208,24 +208,13 @@ class _BidiAgentLoop:
         self._invocation_state = {}
 
         async def stop_tasks() -> None:
-            async def drain_events() -> None:
-                while True:
-                    await self._event_queue.get()
-
-            # Keep consuming only while the reader exits so queue backpressure cannot force the timeout fallback.
-            drain_task = asyncio.create_task(drain_events())
-            try:
-                await self._wait_for_model_task(self._model_task)
-            finally:
-                drain_task.cancel()
-                await asyncio.gather(drain_task, return_exceptions=True)
             await self._task_pool.cancel()
 
         async def stop_model() -> None:
             await self._agent.model.stop()
 
         try:
-            await stop_all(stop_model, stop_tasks)
+            await stop_all(stop_tasks, stop_model)
         finally:
             if self._session_span:
                 _telemetry.end_session_span(
@@ -617,12 +606,12 @@ class _BidiAgentLoop:
 
         try:
             async for event in self._agent.model.receive():
-                if not self._started or generation != self._generation:
+                if generation != self._generation:
                     return
                 await self._event_queue.put(event)
-                # The put can suspend on the full queue across a reconnect or shutdown; re-check
-                # before applying an event from a connection that is no longer active.
-                if not self._started or generation != self._generation:
+                # The put can suspend on the full queue across a reconnect; re-check so a stale
+                # event from the closed connection is not applied to the new connection's state.
+                if generation != self._generation:
                     return
 
                 if isinstance(event, BidiResponseStartEvent):
@@ -698,9 +687,9 @@ class _BidiAgentLoop:
 
         except Exception as error:
             model_error = error
-            # Tag live-reader errors so receive() can drop them if a reconnect supersedes the
-            # connection while the bounded queue put is suspended.
-            if self._started and generation == self._generation:
+            # Tag with this reader's generation so receive() drops it if superseded. The put can
+            # suspend on a full queue across a swap, which the pre-put check alone can't fence.
+            if generation == self._generation:
                 await self._event_queue.put(_ReaderError(generation, error))
         finally:
             if response_span:
