@@ -226,7 +226,6 @@ class Bm25SearchStrategy:
         self._config = config or Bm25SearchStrategyConfig()
         self._conn: sqlite3.Connection | None = None
         self._storage_path: str | None = None
-        self._hashes: dict[str, str] = {}
         self._lock = asyncio.Lock()
 
     async def index(self, storage: LocalFileStorage, key: str, data: bytes, **kwargs: Any) -> None:
@@ -250,8 +249,6 @@ class Bm25SearchStrategy:
 
         async with self._lock:
             conn = self._ensure_connection(storage)
-            if self._hashes.get(key) == content_hash:
-                return
             await asyncio.to_thread(self._upsert, conn, key, content, content_hash)
 
     async def search(self, storage: LocalFileStorage, query: str, **kwargs: Any) -> list[StorageSearchResult]:
@@ -282,7 +279,6 @@ class Bm25SearchStrategy:
             self._conn.close()
             self._conn = None
             self._storage_path = None
-            self._hashes.clear()
 
     def _ensure_connection(self, storage: LocalFileStorage) -> sqlite3.Connection:
         """Lazily initialize the SQLite connection from the storage backend."""
@@ -293,14 +289,13 @@ class Bm25SearchStrategy:
 
         if self._conn is not None:
             self._conn.close()
-            self._hashes.clear()
 
         os.makedirs(storage_path, exist_ok=True)
         db_path = self._config.db_path
         if db_path is None:
             parent = os.path.dirname(os.path.abspath(storage_path))
             basename = os.path.basename(os.path.abspath(storage_path))
-            db_path = os.path.join(parent, f".{basename}-fts5.sqlite")
+            db_path = os.path.join(parent, f".__strands_{basename}-fts5.sqlite")
 
         conn = sqlite3.connect(db_path, check_same_thread=False)
         try:
@@ -311,20 +306,19 @@ class Bm25SearchStrategy:
         conn.execute("CREATE TABLE IF NOT EXISTS doc_hashes (key TEXT PRIMARY KEY, hash TEXT NOT NULL)")
         conn.commit()
 
-        cursor = conn.execute("SELECT key, hash FROM doc_hashes")
-        self._hashes = {row[0]: row[1] for row in cursor.fetchall()}
-
         self._conn = conn
         self._storage_path = storage_path
         return conn
 
     def _upsert(self, conn: sqlite3.Connection, key: str, content: str, content_hash: str) -> None:
         """Insert or replace a single document in the FTS5 index."""
+        row = conn.execute("SELECT hash FROM doc_hashes WHERE key = ?", (key,)).fetchone()
+        if row and row[0] == content_hash:
+            return
         conn.execute("DELETE FROM documents WHERE key = ?", (key,))
         conn.execute("INSERT INTO documents (key, content) VALUES (?, ?)", (key, content))
         conn.execute("INSERT OR REPLACE INTO doc_hashes (key, hash) VALUES (?, ?)", (key, content_hash))
         conn.commit()
-        self._hashes[key] = content_hash
 
     @staticmethod
     def _query(conn: sqlite3.Connection, fts_query: str) -> list[StorageSearchResult]:

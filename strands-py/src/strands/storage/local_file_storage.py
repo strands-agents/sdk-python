@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from .search.types import SandboxSafeSearchStrategy, SearchStrategy
     from .storage import StorageSearchResult
 
-_TMP_MARKER = ".__strands_tmp"
+_INTERNAL_PREFIX = ".__strands_"
 
 
 class LocalFileStorage:
@@ -134,7 +134,7 @@ class LocalFileStorage:
             parent = os.path.dirname(path)
             os.makedirs(parent, exist_ok=True)
 
-            tmp_path = os.path.join(parent, f"{_TMP_MARKER}_{uuid.uuid4().hex}")
+            tmp_path = os.path.join(parent, f"{_INTERNAL_PREFIX}tmp_{uuid.uuid4().hex}")
             try:
                 with open(tmp_path, "wb") as f:
                     f.write(data)
@@ -296,10 +296,9 @@ class LocalFileStorage:
         if not narrow_dir.exists():
             return keys
 
-        for dirpath, dirnames, filenames in os.walk(narrow_dir):
-            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+        for dirpath, _, filenames in os.walk(narrow_dir):
             for filename in filenames:
-                if _TMP_MARKER in filename or filename.startswith("."):
+                if filename.startswith(_INTERNAL_PREFIX):
                     continue
                 full_path = os.path.join(dirpath, filename)
                 rel = os.path.relpath(full_path, self._base_dir)
@@ -324,7 +323,7 @@ class LocalFileStorage:
             return
 
         for entry in entries:
-            if _TMP_MARKER in entry.name or entry.name.startswith("."):
+            if entry.name.startswith(_INTERNAL_PREFIX):
                 continue
             full_path = directory / entry.name
             if entry.is_dir:
