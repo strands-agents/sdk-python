@@ -20,6 +20,7 @@ from ._defaults import DEFAULT_CONTEXT_WINDOW_LIMIT
 
 if TYPE_CHECKING:
     from ..agent.agent import Agent
+    from ..agent.agent_metadata import AgentMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -151,10 +152,10 @@ class CacheConfig:
             duration and is honored as written; True derives the duration from ``ttl``; False disables it.
             A hand-placed system cache point is honored rather than doubled.
         cache_key: Stable identity a prompt-cache-routing provider (OpenAI, LiteLLM, Mistral) uses as its
-            cache key. Left unset, it is derived per request as ``strands-<session_id>`` if the agent has 
+            cache key. Left unset, it is derived per request as ``strands-<session_id>`` if the agent has
             a session manager, so repeat runs of a session share a cache prefix with no key management.
-            Set it to pin your own key, and set it to ``""`` to opt out of routing entirely. The resolved key
-            (whether set or derived from the session id) is transmitted to the provider.
+            Set it to a string to pin your own key, or ``False`` to opt out of routing entirely. The
+            resolved key (whether set or derived from the session id) is transmitted to the provider.
         tools_ttl: Cache the tool definitions, auto-injecting a cache point on the tool block so repeated calls
             with the same tools hit the cache. A TTL string (e.g. "1h") sets this section's own
             duration and is honored as written; True derives the duration from ``ttl``; False disables it.
@@ -165,7 +166,7 @@ class CacheConfig:
     strategy: Literal["auto", "anthropic"] = "auto"
     ttl: str | None = None
     system_prompt_ttl: bool | str = True
-    cache_key: str | None = None
+    cache_key: str | Literal[False] | None = None
     tools_ttl: bool | str | None = None
 
 
@@ -180,21 +181,6 @@ class CacheToolsConfig:
 
     type: str = "default"
     ttl: str | None = None
-
-
-@dataclass(frozen=True, kw_only=True)
-class AgentMetadata:
-    """Read-only view of agent metadata passed to a model on ``stream()``.
-
-    Populated by the agent per request. Because it is rebuilt for every request, a single model instance shared across
-    agents sees each agent's own identity rather than a value baked in at construction.
-
-    Attributes:
-        session_id: The agent's persisted session id, set only when a session manager is attached;
-            None for an ephemeral agent.
-    """
-
-    session_id: str | None = None
 
 
 class Model(abc.ABC):
@@ -276,7 +262,7 @@ class Model(abc.ABC):
         system_prompt_content: list[SystemContentBlock] | None = None,
         invocation_state: dict[str, Any] | None = None,
         cancel_signal: threading.Event | None = None,
-        agent_metadata: AgentMetadata | None = None,
+        agent_metadata: "AgentMetadata | None" = None,
         **kwargs: Any,
     ) -> AsyncIterable[StreamEvent]:
         """Stream conversation with the model.

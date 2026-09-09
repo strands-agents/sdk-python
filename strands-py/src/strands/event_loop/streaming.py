@@ -9,7 +9,8 @@ import warnings
 from collections.abc import AsyncGenerator, AsyncIterable
 from typing import Any
 
-from ..models.model import AgentMetadata, Model
+from ..agent.agent_metadata import AgentMetadata
+from ..models.model import Model
 from ..tools import InvalidToolUseNameException
 from ..tools.tools import validate_tool_use_name
 from ..types._events import (

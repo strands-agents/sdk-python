@@ -8,7 +8,8 @@
  * @internal
  */
 
-import type { AgentMetadata, CacheConfig } from '../model.js'
+import type { CacheConfig } from '../model.js'
+import type { AgentMetadata } from '../../agent/agent-metadata.js'
 import { logger } from '../../logging/logger.js'
 import { warnOnce } from '../../logging/warn-once.js'
 
@@ -57,12 +58,13 @@ function hasPlacementConfig(cacheConfig: CacheConfig): boolean {
 /**
  * Resolves the prompt-cache routing key: the configured value wins, else derive from the session.
  *
- * Returns the configured `cacheKey` whenever it is set (including `''`, an explicit opt-out);
- * otherwise `strands-<sessionId>` when the agent carries a session id, else undefined.
+ * Returns the configured `cacheKey` when it names one; `cacheKey === false` is an explicit opt-out
+ * (undefined). Left unset, `strands-<sessionId>` when the agent carries a session id, else undefined.
  *
  * @internal
  */
 function resolveCacheKey(cacheConfig: CacheConfig, agentMetadata: AgentMetadata | undefined): string | undefined {
+  if (cacheConfig.cacheKey === false) return undefined
   if (cacheConfig.cacheKey !== undefined) return cacheConfig.cacheKey
   if (agentMetadata?.sessionId !== undefined) return `strands-${agentMetadata.sessionId}`
   return undefined
@@ -72,8 +74,7 @@ function resolveCacheKey(cacheConfig: CacheConfig, agentMetadata: AgentMetadata 
  * Resolves a `CacheConfig` into OpenAI caching values.
  *
  * The routing key is the configured `cacheKey`, or `strands-<sessionId>` derived from the agent's
- * session when no `cacheKey` is set. An empty `cacheKey` is carried through here and treated as an
- * opt-out where the key is written.
+ * session when no `cacheKey` is set. `cacheKey === false` opts out, resolving to no key.
  *
  * @internal
  */
@@ -118,9 +119,9 @@ export function warnUnsupportedRetention(ttl: string): void {
  * ignored, and the placement fields (`strategy`, `toolsTTL`, `systemPromptTTL`, `messagesTTL`) have no
  * effect here.
  *
- * The prompt-cache routing key resolves as: the configured `cacheKey` wins when set (including `''`
- * as an explicit opt-out); otherwise it falls back to `strands-<sessionId>` when the agent carries a
- * session id. A falsy result (`''` or undefined) emits no key.
+ * The prompt-cache routing key resolves as: the configured `cacheKey` wins when set to a string,
+ * `false` opts out; otherwise it falls back to `strands-<sessionId>` when the agent carries a
+ * session id. A falsy result (empty or undefined) emits no key.
  *
  * @param request - The request being assembled; mutated in place.
  * @param cacheConfig - The provider's configured cache settings, if any.

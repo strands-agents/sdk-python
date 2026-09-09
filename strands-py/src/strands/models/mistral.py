@@ -13,6 +13,7 @@ from mistralai.client import Mistral
 from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
+from ..agent.agent_metadata import AgentMetadata
 from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StopReason, StreamEvent
@@ -25,7 +26,7 @@ from ._validation import (
     warn_on_cache_config_not_supported,
     warn_on_tool_choice_not_supported,
 )
-from .model import AgentMetadata, BaseModelConfig, CacheConfig, Model
+from .model import BaseModelConfig, CacheConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +40,9 @@ def _apply_cache_config(
 ) -> None:
     """Map a CacheConfig onto a Mistral request.
 
-    The prompt-cache routing key resolves as: the configured ``cache_key`` wins when set (including
-    ``""`` as an explicit opt-out); otherwise it falls back to ``strands-<session_id>`` when the agent
-    carries a session id. A falsy result (``""`` or None) emits no key. Mistral exposes no retention or
+    The prompt-cache routing key resolves as: the configured ``cache_key`` wins when set to a string,
+    ``cache_key=False`` opts out; otherwise it falls back to ``strands-<session_id>`` when the agent
+    carries a session id. A falsy result (empty or None) emits no key. Mistral exposes no retention or
     placement controls, so every other ``CacheConfig`` field is a no-op and warned.
 
     Args:

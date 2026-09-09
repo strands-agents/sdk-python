@@ -1300,12 +1300,12 @@ describe('OpenAIModel', () => {
       expect(captured.request.prompt_cache_key).toBe('tenant-42')
     })
 
-    it('treats an empty cacheKey as an opt-out even with an agent metadata session', async () => {
+    it('treats a false cacheKey as an opt-out even with an agent metadata session', async () => {
       const captured: { request: any } = { request: null }
       const provider = new OpenAIModel({
         api: 'chat',
         client: createMockClientWithCapture(captured),
-        cacheConfig: { cacheKey: '' },
+        cacheConfig: { cacheKey: false },
       })
 
       await collectIterator(

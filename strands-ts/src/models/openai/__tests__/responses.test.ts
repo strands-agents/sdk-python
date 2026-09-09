@@ -318,8 +318,8 @@ describe("OpenAIModel (api: 'responses')", () => {
       expect(req.prompt_cache_key).toBe('tenant-42')
     })
 
-    it('treats an empty cacheKey as an opt-out even with an agent metadata session', async () => {
-      const req = await runOnce({ cacheConfig: { cacheKey: '' } }, [mkUserMessage()], {
+    it('treats a false cacheKey as an opt-out even with an agent metadata session', async () => {
+      const req = await runOnce({ cacheConfig: { cacheKey: false } }, [mkUserMessage()], {
         agentMetadata: { sessionId: 's1' },
       })
       expect(req.prompt_cache_key).toBeUndefined()

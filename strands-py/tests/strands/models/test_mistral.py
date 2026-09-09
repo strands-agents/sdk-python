@@ -5,7 +5,8 @@ import pydantic
 import pytest
 
 import strands
-from strands.models import AgentMetadata, CacheConfig
+from strands.agent import AgentMetadata
+from strands.models import CacheConfig
 from strands.models.mistral import MistralModel
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 
@@ -176,9 +177,9 @@ def test_configured_cache_key_wins_over_agent_session(model_id, max_tokens, mess
     assert request["prompt_cache_key"] == "tenant-42"
 
 
-def test_empty_cache_key_opts_out_of_agent_session(model_id, max_tokens, messages):
-    """cache_key="" is an explicit opt-out: no key is emitted even with a session to derive from."""
-    model = MistralModel(model_id=model_id, max_tokens=max_tokens, cache_config=CacheConfig(cache_key=""))
+def test_false_cache_key_opts_out_of_agent_session(model_id, max_tokens, messages):
+    """cache_key=False is an explicit opt-out: no key is emitted even with a session to derive from."""
+    model = MistralModel(model_id=model_id, max_tokens=max_tokens, cache_config=CacheConfig(cache_key=False))
 
     request = model.format_request(messages, agent_metadata=AgentMetadata(session_id="s1"))
 

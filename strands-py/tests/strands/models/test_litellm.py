@@ -6,7 +6,8 @@ import pytest
 from litellm.exceptions import ContextWindowExceededError
 
 import strands
-from strands.models import AgentMetadata, CacheConfig
+from strands.agent import AgentMetadata
+from strands.models import CacheConfig
 from strands.models.litellm import LiteLLMModel
 from strands.types.exceptions import ContextWindowOverflowException
 

@@ -101,13 +101,13 @@ async def test_session_backed_agent_routes_and_reuses_prompt_cache_key(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("model_class,resource_class_fn", _cache_model_params())
-async def test_cache_key_empty_string_opts_out(model_class, resource_class_fn, monkeypatch, tmp_path):
-    """``cache_key=""`` sends no ``prompt_cache_key`` even with a session attached."""
+async def test_cache_key_false_opts_out(model_class, resource_class_fn, monkeypatch, tmp_path):
+    """``cache_key=False`` sends no ``prompt_cache_key`` even with a session attached."""
     captured = _spy_outbound_cache_key(monkeypatch, resource_class_fn())
     model = model_class(
         model_id=MODEL_ID,
         client_args={"api_key": os.getenv("OPENAI_API_KEY")},
-        cache_config=CacheConfig(cache_key=""),
+        cache_config=CacheConfig(cache_key=False),
     )
     session_manager = FileSessionManager(session_id=SESSION_ID, storage_dir=str(tmp_path))
     agent = Agent(model=model, system_prompt="Answer with just the number.", session_manager=session_manager)

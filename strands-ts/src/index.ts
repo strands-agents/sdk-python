@@ -13,6 +13,7 @@ export { StateStore } from './state-store.js'
 
 // Agent types
 export { AgentResult } from './types/agent.js'
+export type { AgentMetadata } from './agent/agent-metadata.js'
 export type { AgentConfig, ToolList, ToolExecutorStrategy } from './agent/agent.js'
 export type { BackgroundTasksConfig } from './background-tasks/types.js'
 export type { AgentAsToolOptions } from './agent/agent-as-tool.js'
@@ -188,7 +189,7 @@ export {
 } from './models/streaming.js'
 
 // Model provider types
-export type { AgentMetadata, BaseModelConfig, CountTokensOptions, StreamOptions, CacheConfig } from './models/model.js'
+export type { BaseModelConfig, CountTokensOptions, StreamOptions, CacheConfig } from './models/model.js'
 
 export { Model } from './models/model.js'
 

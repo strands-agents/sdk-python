@@ -1659,20 +1659,20 @@ def test_session_id_delegates_to_session_manager():
     assert agent.session_id == "my-session"
 
 
-def test_get_agent_metadata_carries_session_id_with_manager():
+def test_metadata_carries_session_id_with_manager():
     session_manager = RepositorySessionManager(session_id="my-session", session_repository=MockedSessionRepository())
     agent = Agent(model=MockedModelProvider([]), session_manager=session_manager)
 
-    assert agent._get_agent_metadata().session_id == "my-session"
+    assert agent._metadata.session_id == "my-session"
 
 
-def test_get_agent_metadata_omits_session_id_without_manager():
+def test_metadata_omits_session_id_without_manager():
     agent = Agent(model=MockedModelProvider([]))
 
-    assert agent._get_agent_metadata().session_id is None
+    assert agent._metadata.session_id is None
 
 
-def test_get_agent_metadata_shared_across_agents_on_same_session():
+def test_metadata_shared_across_agents_on_same_session():
     agent1 = Agent(
         model=MockedModelProvider([]),
         session_manager=RepositorySessionManager(session_id="shared", session_repository=MockedSessionRepository()),
@@ -1682,7 +1682,7 @@ def test_get_agent_metadata_shared_across_agents_on_same_session():
         session_manager=RepositorySessionManager(session_id="shared", session_repository=MockedSessionRepository()),
     )
 
-    assert agent1._get_agent_metadata().session_id == agent2._get_agent_metadata().session_id == "shared"
+    assert agent1._metadata.session_id == agent2._metadata.session_id == "shared"
 
 
 def _text_response(agenerator):

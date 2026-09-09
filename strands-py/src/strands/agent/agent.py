@@ -67,7 +67,7 @@ from ..interventions.handler import InterventionHandler
 from ..interventions.registry import InterventionRegistry
 from ..memory import MemoryManager, MemoryManagerConfig
 from ..models.bedrock import BedrockModel
-from ..models.model import AgentMetadata, Model, _ModelPlugin
+from ..models.model import Model, _ModelPlugin
 from ..models.routing import ModelRouter
 from ..plugins import Plugin
 from ..plugins.registry import _PluginRegistry
@@ -99,6 +99,7 @@ from ..types.traces import AttributeValue
 from . import _continuation
 from ._agent_as_tool import _AgentAsTool
 from ._concurrency import _ConcurrencyController
+from .agent_metadata import AgentMetadata
 from .agent_result import AgentResult
 from .base import AgentBase
 from .conversation_manager import (
@@ -740,7 +741,8 @@ class Agent(AgentBase, LocalAgent):
         """
         return self._session_id
 
-    def _get_agent_metadata(self) -> AgentMetadata:
+    @property
+    def _metadata(self) -> AgentMetadata:
         """Build the agent metadata view passed to the model on stream()."""
         session_id = getattr(self._session_manager, "session_id", None) or None
         return AgentMetadata(session_id=session_id)

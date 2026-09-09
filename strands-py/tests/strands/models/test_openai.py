@@ -8,7 +8,8 @@ import pydantic
 import pytest
 
 import strands
-from strands.models import AgentMetadata, CacheConfig
+from strands.agent import AgentMetadata
+from strands.models import CacheConfig
 from strands.models.openai import OpenAIModel
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 
@@ -755,9 +756,9 @@ def test_configured_cache_key_wins_over_agent_metadata(openai_client, model_id, 
     assert request["prompt_cache_key"] == "tenant-42"
 
 
-def test_empty_cache_key_opts_out_of_agent_metadata(openai_client, model_id, messages):
+def test_false_cache_key_opts_out_of_agent_metadata(openai_client, model_id, messages):
     _ = openai_client
-    model = OpenAIModel(model_id=model_id, cache_config=CacheConfig(cache_key=""))
+    model = OpenAIModel(model_id=model_id, cache_config=CacheConfig(cache_key=False))
 
     request = model.format_request(messages, agent_metadata=AgentMetadata(session_id="s1"))
 

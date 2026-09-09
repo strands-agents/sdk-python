@@ -8,8 +8,9 @@ OpenAI caches prompt prefixes automatically server-side and routes reads on a ca
 import warnings
 from typing import Any
 
+from ..agent.agent_metadata import AgentMetadata
 from ._validation import warn_on_cache_config_not_supported
-from .model import AgentMetadata, CacheConfig
+from .model import CacheConfig
 
 # OpenAI's prompt_cache_retention accepts only these literals. ttl maps through only on an exact
 # match - the SDK never guesses a conversion from an arbitrary duration string.
@@ -22,9 +23,11 @@ _RETENTION_LITERALS = frozenset({"in_memory", "24h"})
 def _resolve_cache_key(cache_config: CacheConfig, agent_metadata: AgentMetadata | None) -> str | None:
     """Resolve the prompt-cache routing key: configured value wins, else derive from the session.
 
-    Returns the configured ``cache_key`` whenever it is set (including ``""``, an explicit opt-out);
-    otherwise ``strands-<session_id>`` when the agent carries a session id, else None.
+    Returns the configured ``cache_key`` when it names one; ``cache_key=False`` is an explicit opt-out
+    (no key). Left unset, it derives ``strands-<session_id>`` when the agent carries a session id, else None.
     """
+    if cache_config.cache_key is False:
+        return None
     if cache_config.cache_key is not None:
         return cache_config.cache_key
     if agent_metadata is not None and agent_metadata.session_id is not None:
@@ -43,9 +46,9 @@ def apply_cache_config(
     each such no-op is surfaced through ``warnings.warn`` (deduped per call site by the standard
     library's default filter), matching the config-validation warnings in ``_validation.py``.
 
-    The prompt-cache routing key resolves as: the configured ``cache_key`` wins when set (including
-    ``""`` as an explicit opt-out); otherwise it falls back to ``strands-<session_id>`` when the agent
-    carries a session id. A falsy result (``""`` or None) emits no key.
+    The prompt-cache routing key resolves as: the configured ``cache_key`` wins when set to a string,
+    ``cache_key=False`` opts out; otherwise it falls back to ``strands-<session_id>`` when the agent
+    carries a session id. A falsy result (empty or None) emits no key.
 
     Args:
         request: The request dict being assembled; mutated in place.

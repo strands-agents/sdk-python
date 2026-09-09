@@ -13,6 +13,7 @@ import { CitationsBlock } from '../types/citations.js'
 import type { Citation, CitationGeneratedContent } from '../types/citations.js'
 import type { StateStore } from '../state-store.js'
 import type { ToolChoice, ToolSpec } from '../tools/types.js'
+import type { AgentMetadata } from '../agent/agent-metadata.js'
 import {
   ModelContentBlockDeltaEvent,
   ModelContentBlockStartEvent,
@@ -119,24 +120,12 @@ export interface CacheConfig {
   /**
    * Stable identity a prompt-cache-routing provider (OpenAI, LiteLLM) uses as its cache key. Left
    * unset, it is derived per request as `strands-<sessionId>` whenever the agent has a session
-   * manager, so repeat runs of a session share a cache prefix with no key management. Set it to pin
-   * your own key; set it to `''` to opt out of routing entirely. The resolved key (whether set or
-   * derived from the session id) is transmitted to the provider. Because the derived key is resolved
-   * per request, it is not reflected in `getConfig()`.
+   * manager, so repeat runs of a session share a cache prefix with no key management. Set it to a
+   * string to pin your own key; set it to `false` to opt out of routing entirely. The resolved key
+   * (whether set or derived from the session id) is transmitted to the provider. Because the derived
+   * key is resolved per request, it is not reflected in `getConfig()`.
    */
-  cacheKey?: string
-}
-
-/**
- * Read-only view of agent metadata passed to a model on `stream()`.
- *
- * Populated by the agent per request. Because it is rebuilt for every request, a single
- * model instance shared across agents sees each agent's own identity rather than a value
- * baked in at construction.
- */
-export interface AgentMetadata {
-  /** The agent's persisted session id; present only when a session manager is attached. */
-  sessionId?: string
+  cacheKey?: string | false
 }
 
 /**

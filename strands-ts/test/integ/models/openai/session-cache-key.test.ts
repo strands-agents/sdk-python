@@ -118,11 +118,11 @@ describe.skipIf(openai.skip)('OpenAIModel (chat) session prompt cache key', () =
     await assertDerivesAndReusesKey(model, captured)
   })
 
-  it('sends no key when cacheKey is empty', async () => {
+  it('sends no key when cacheKey is false', async () => {
     const captured: (string | undefined)[] = []
     const model = openai.createModel({
       modelId: MODEL_ID,
-      cacheConfig: { cacheKey: '' },
+      cacheConfig: { cacheKey: false },
       clientConfig: { fetch: makeSpyFetch(captured) },
     })
     await assertOptsOut(model, captured)
@@ -148,11 +148,11 @@ describe.skipIf(openaiResponses.skip)('OpenAIModel (responses) session prompt ca
     await assertDerivesAndReusesKey(model, captured)
   })
 
-  it('sends no key when cacheKey is empty', async () => {
+  it('sends no key when cacheKey is false', async () => {
     const captured: (string | undefined)[] = []
     const model = openaiResponses.createModel({
       modelId: MODEL_ID,
-      cacheConfig: { cacheKey: '' },
+      cacheConfig: { cacheKey: false },
       clientConfig: { fetch: makeSpyFetch(captured) },
     })
     await assertOptsOut(model, captured)
