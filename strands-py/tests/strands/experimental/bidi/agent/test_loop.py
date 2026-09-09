@@ -78,6 +78,40 @@ async def test_stop_closes_model_before_cancelling_reader(loop, agent):
 
 
 @pytest.mark.asyncio
+async def test_stop_unblocks_reader_when_event_queue_is_full(loop, agent):
+    """Shutdown must release a reader blocked on event backpressure."""
+    closed = asyncio.Event()
+    second_event_ready = asyncio.Event()
+    reader_cancelled = False
+
+    async def receive():
+        nonlocal reader_cancelled
+        try:
+            yield BidiTextInputEvent(text="pending")
+            second_event_ready.set()
+            yield BidiTextInputEvent(text="blocked")
+            await closed.wait()
+            raise OSError("connection closed")
+        except asyncio.CancelledError:
+            reader_cancelled = True
+            raise
+
+    async def stop():
+        closed.set()
+
+    agent.model.receive = receive
+    agent.model.stop.side_effect = stop
+
+    await loop.start()
+    await second_event_ready.wait()
+    await asyncio.sleep(0)
+    await asyncio.wait_for(loop.stop(), timeout=0.5)
+
+    # Guards shutdown latency when the maxsize-1 queue has stopped being consumed.
+    assert reader_cancelled is False
+
+
+@pytest.mark.asyncio
 async def test_bidi_agent_loop_receive_restart_connection(loop, agent, agenerator):
     timeout_error = BidiModelTimeoutError("test timeout", test_restart_config=1)
     text_event = BidiTextInputEvent(text="test after restart")

@@ -142,7 +142,7 @@ def test___init__rejects_boto_session_and_region(model_id, boto_session):
 
 @pytest.mark.asyncio
 async def test_crt_transport_observes_completed_request_writer():
-    """Treat a completed HTTP/2 stream as a normal request-writer shutdown."""
+    """Treat a completed HTTP/2 stream as a terminal request-writer result."""
     exception_contexts = []
     event_loop = asyncio.get_running_loop()
     original_exception_handler = event_loop.get_exception_handler()

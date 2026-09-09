@@ -88,7 +88,7 @@ _AWS_ERROR_HTTP_STREAM_HAS_COMPLETED = 2080
 
 
 def _is_http_stream_completed_error(error: BaseException) -> bool:
-    """Return whether a CRT write lost the normal shutdown race."""
+    """Return whether a CRT write observed an already-completed HTTP stream."""
     if getattr(error, "code", None) == _AWS_ERROR_HTTP_STREAM_HAS_COMPLETED:
         return True
     return isinstance(error, RuntimeError) and "AWS_ERROR_HTTP_STREAM_HAS_COMPLETED" in str(error)
@@ -116,7 +116,7 @@ def _observe_request_writer(task: asyncio.Task[Any]) -> None:
 
 
 class _BedrockAWSCRTHTTPClient(AWSCRTHTTPClient):
-    """Observe CRT request writers so normal shutdown cannot leak task errors."""
+    """Observe CRT request writers so their terminal results are always consumed."""
 
     async def _await_response(self, stream: Any) -> AWSCRTHTTPResponse:
         writer_task = getattr(stream, "_writer", None)
