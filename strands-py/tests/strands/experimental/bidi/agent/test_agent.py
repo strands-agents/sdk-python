@@ -345,7 +345,7 @@ async def test_bidi_agent_run_surfaces_timed_out_text_input(agent, monkeypatch):
     run_task = asyncio.create_task(agent.run(inputs=[input_], outputs=[output]))
     await asyncio.wait_for(send_started.wait(), timeout=0.5)
 
-    with pytest.raises(asyncio.TimeoutError):
+    with pytest.raises(TimeoutError):
         await asyncio.wait_for(run_task, timeout=0.5)
     assert agent.messages[0]["content"] == [{"text": "important request"}]
 
@@ -362,7 +362,7 @@ async def test_bidi_agent_send_surfaces_provider_timeout(agent, monkeypatch):
     await agent.start()
 
     event = BidiAudioInputEvent(audio="dGVzdA==", format="pcm", sample_rate=16000, channels=1)
-    with pytest.raises(asyncio.TimeoutError):
+    with pytest.raises(TimeoutError):
         await agent.send(event)
 
     await agent.stop()

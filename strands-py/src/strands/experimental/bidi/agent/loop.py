@@ -66,7 +66,7 @@ _MODEL_RESTART_TURN_TIMEOUT_S = 10
 _MODEL_SEND_TIMEOUT_S = _MODEL_RESTART_TURN_TIMEOUT_S
 
 # Keep a synthetic recovery turn short enough for a realtime voice response.
-_MAX_TOOL_RECOVERY_BYTES = 8 * 1024
+_MAX_TOOL_RESULT_RECOVERY_BYTES = 8 * 1024
 _TOOL_RECOVERY_PREFIX = (
     "A tool requested before reconnection has completed. "
     "Use this result to answer the user without invoking the tool again: "
@@ -79,7 +79,7 @@ def _serialize_tool_recovery(payload: dict[str, Any]) -> str:
     return f"{_TOOL_RECOVERY_PREFIX}{json.dumps(payload, ensure_ascii=False, sort_keys=True)}"
 
 
-def _format_tool_recovery(tool_use: ToolUse, tool_result: ToolResult) -> str:
+def _format_tool_result_recovery(tool_use: ToolUse, tool_result: ToolResult) -> str:
     """Format one bounded semantic tool-result recovery turn."""
     content_blocks: list[dict[str, Any]] = []
     for content in tool_result["content"]:
@@ -104,12 +104,12 @@ def _format_tool_recovery(tool_use: ToolUse, tool_result: ToolResult) -> str:
             f"tool_use_id=<{tool_use['toolUseId']}> | tool recovery content is not JSON serializable"
         ) from error
 
-    if len(recovery.encode("utf-8")) <= _MAX_TOOL_RECOVERY_BYTES:
+    if len(recovery.encode("utf-8")) <= _MAX_TOOL_RESULT_RECOVERY_BYTES:
         return recovery
 
     result_text = json.dumps(content_blocks, ensure_ascii=False, sort_keys=True)
     payload["result"] = [{"text": _TOOL_RECOVERY_TRUNCATED}]
-    if len(_serialize_tool_recovery(payload).encode("utf-8")) > _MAX_TOOL_RECOVERY_BYTES:
+    if len(_serialize_tool_recovery(payload).encode("utf-8")) > _MAX_TOOL_RESULT_RECOVERY_BYTES:
         payload["arguments"] = "[omitted from voice recovery]"
 
     low = 0
@@ -117,14 +117,14 @@ def _format_tool_recovery(tool_use: ToolUse, tool_result: ToolResult) -> str:
     while low < high:
         midpoint = (low + high + 1) // 2
         payload["result"] = [{"text": f"{result_text[:midpoint]}{_TOOL_RECOVERY_TRUNCATED}"}]
-        if len(_serialize_tool_recovery(payload).encode("utf-8")) <= _MAX_TOOL_RECOVERY_BYTES:
+        if len(_serialize_tool_recovery(payload).encode("utf-8")) <= _MAX_TOOL_RESULT_RECOVERY_BYTES:
             low = midpoint
         else:
             high = midpoint - 1
 
     payload["result"] = [{"text": f"{result_text[:low]}{_TOOL_RECOVERY_TRUNCATED}"}]
     recovery = _serialize_tool_recovery(payload)
-    if len(recovery.encode("utf-8")) > _MAX_TOOL_RECOVERY_BYTES:
+    if len(recovery.encode("utf-8")) > _MAX_TOOL_RESULT_RECOVERY_BYTES:
         raise ValueError(f"tool_use_id=<{tool_use['toolUseId']}> | tool recovery metadata exceeds size limit")
 
     return recovery
@@ -146,8 +146,8 @@ class _ReaderError:
 class _RunningTool:
     """A logical tool call that may span connections.
 
-    States are represented by the optional fields: running has no result; coalesced has a
-    replacement key; completed has a result; failed delivery advances
+    States are represented by the optional fields: running has no result; a matched reissue
+    has a replacement key; completed has a result; failed delivery advances
     ``reissue_after_generation``; semantic recovery records its generation while ordered
     queues associate it with a provider response.
     Running calls may accept an exact reissue on any newer generation. Completed calls may
@@ -161,7 +161,7 @@ class _RunningTool:
     recovery_generation: int | None = None
 
 
-def _can_coalesce_tool_use(
+def _is_tool_reissue_candidate(
     original_key: _ToolUseKey,
     running_tool: _RunningTool,
     tool_use: ToolUse,
@@ -723,7 +723,7 @@ class _BidiAgentLoop:
             self._current_cache_read_tokens += cache_read
 
     async def _register_tool_use(self, tool_use: ToolUse, generation: int) -> _ToolUseKey | None:
-        """Register a tool call or coalesce one exact reissue."""
+        """Register a new tool call or match an exact reconnect reissue."""
         async with self._tool_lock:
             if generation != self._generation:
                 return None
@@ -734,36 +734,36 @@ class _BidiAgentLoop:
             ):
                 return None
 
-            matches = [
+            reissue_candidates = [
                 (original_key, running)
                 for original_key, running in self._running_tools.items()
-                if _can_coalesce_tool_use(original_key, running, tool_use, generation)
+                if _is_tool_reissue_candidate(original_key, running, tool_use, generation)
             ]
-            if len(matches) == 1:
-                original_key, running_tool = matches[0]
+            if len(reissue_candidates) == 1:
+                original_key, running_tool = reissue_candidates[0]
                 self._discard_recovery_tracking(original_key)
                 running_tool.replacement_key = tool_use_key
                 logger.info(
                     "tool_name=<%s>, original_tool_use_id=<%s>, matched_tool_use_id=<%s> | "
-                    "coalescing matching tool use after reconnect",
+                    "matched reconnect tool reissue to existing tool call",
                     tool_use["name"],
                     original_key[1],
                     tool_use_key[1],
                 )
                 if running_tool.result_event is None:
                     return None
-                completed_match = (original_key, running_tool.result_event)
+                completed_reissue = (original_key, running_tool.result_event)
 
             else:
-                if matches:
-                    matched_tool_use_ids = ",".join(original_key[1] for original_key, _ in matches)
+                if reissue_candidates:
+                    matched_tool_use_ids = ",".join(original_key[1] for original_key, _ in reissue_candidates)
                     logger.warning(
                         "tool_name=<%s>, tool_use_id=<%s>, matched_tool_use_ids=<%s>, match_count=<%d> | "
                         "ambiguous tool use after reconnect | executing independently",
                         tool_use["name"],
                         tool_use["toolUseId"],
                         matched_tool_use_ids,
-                        len(matches),
+                        len(reissue_candidates),
                     )
 
                 self._running_tools[tool_use_key] = _RunningTool(
@@ -772,7 +772,7 @@ class _BidiAgentLoop:
                 )
                 return tool_use_key
 
-        self._task_pool.create(self._run_tool_result_delivery(*completed_match))
+        self._task_pool.create(self._run_tool_result_delivery(*completed_reissue))
         return None
 
     async def _prepare_tool_result_recovery(self) -> list[tuple[_ToolUseKey, ToolResultEvent]]:
@@ -870,7 +870,10 @@ class _BidiAgentLoop:
 
     async def _send_model_event(self, event: BidiInputEvent | ToolResultEvent) -> None:
         """Send one event without allowing provider I/O to block connection replacement indefinitely."""
-        await asyncio.wait_for(self._agent.model.send(event), timeout=_MODEL_SEND_TIMEOUT_S)
+        try:
+            await asyncio.wait_for(self._agent.model.send(event), timeout=_MODEL_SEND_TIMEOUT_S)
+        except asyncio.TimeoutError as error:
+            raise TimeoutError("provider did not accept the event within the send timeout") from error
 
     async def _send_tool_delivery(
         self,
@@ -881,7 +884,7 @@ class _BidiAgentLoop:
         """Send one tool result without allowing provider I/O to block reconnect indefinitely."""
         try:
             await self._send_model_event(event)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(
                 "tool_use_id=<%s>, mode=<%s>, timeout_s=<%s> | tool result delivery timed out",
                 original_key[1],
@@ -939,7 +942,7 @@ class _BidiAgentLoop:
             return False
 
         try:
-            recovery = _format_tool_recovery(running_tool.tool_use, tool_result)
+            recovery = _format_tool_result_recovery(running_tool.tool_use, tool_result)
         except ValueError as error:
             logger.warning(
                 "tool_use_id=<%s>, error=<%s> | tool result recovery unavailable | result retained in history",
@@ -950,6 +953,13 @@ class _BidiAgentLoop:
                 self._discard_recovery_tracking(original_key)
                 self._running_tools.pop(original_key, None)
             return False
+
+        async with self._tool_lock:
+            if self._running_tools.get(original_key) is not running_tool:
+                return False
+            self._discard_recovery_tracking(original_key)
+            running_tool.recovery_generation = self._generation
+            self._pending_recovery_responses.append(original_key)
 
         if not await self._send_tool_delivery(BidiTextInputEvent(text=recovery), original_key, "recovery"):
             await self._retain_tool_result(original_key)
@@ -963,12 +973,6 @@ class _BidiAgentLoop:
             original_key[0],
             self._generation,
         )
-        async with self._tool_lock:
-            if self._running_tools.get(original_key) is not running_tool:
-                return False
-            self._discard_recovery_tracking(original_key)
-            running_tool.recovery_generation = self._generation
-            self._pending_recovery_responses.append(original_key)
         return True
 
     async def _retain_tool_result(self, original_key: _ToolUseKey) -> bool:

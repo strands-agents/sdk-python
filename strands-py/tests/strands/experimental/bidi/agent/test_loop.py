@@ -8,7 +8,11 @@ import pytest_asyncio
 
 from strands import tool
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.agent.loop import _MAX_TOOL_RECOVERY_BYTES, _format_tool_recovery, _ReaderError
+from strands.experimental.bidi.agent.loop import (
+    _MAX_TOOL_RESULT_RECOVERY_BYTES,
+    _format_tool_result_recovery,
+    _ReaderError,
+)
 from strands.experimental.bidi.models import BidiModel, BidiModelTimeoutError
 from strands.experimental.bidi.types.events import (
     BidiAudioStreamEvent,
@@ -708,7 +712,7 @@ async def test_send_timeout_does_not_block_reconnect(loop, agent, agenerator, mo
     await send_started.wait()
     restart_task = asyncio.create_task(loop._restart_connection(None, loop._generation))
 
-    with pytest.raises(asyncio.TimeoutError):
+    with pytest.raises(TimeoutError):
         await send_task
     assert await asyncio.wait_for(restart_task, timeout=1) is True
 
@@ -780,7 +784,7 @@ async def test_tool_result_send_timeout_does_not_block_reconnect(loop, agent, ag
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("status", ["success", "error"])
-async def test_semantic_recovery_coalesces_late_exact_reissue(loop, agent, agenerator, status):
+async def test_semantic_recovery_matches_late_exact_reissue(loop, agent, agenerator, status):
     """An exact reissue before the recovery response completes reuses the retained result."""
     agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
     await loop.start()
@@ -1582,7 +1586,7 @@ async def test_bidi_agent_loop_tool_result_recovers_after_reconnect(loop, agent,
     assert loop._running_tools == {}
 
 
-def test_format_tool_recovery_is_deterministic_and_omits_provider_id():
+def test_format_tool_result_recovery_is_deterministic_and_omits_provider_id():
     tool_use: ToolUse = {
         "toolUseId": "provider-id",
         "name": "weather",
@@ -1594,7 +1598,7 @@ def test_format_tool_recovery_is_deterministic_and_omits_provider_id():
         "content": [{"json": {"temperature": 68}}, {"text": "clear"}],
     }
 
-    tru_recovery = _format_tool_recovery(tool_use, tool_result)
+    tru_recovery = _format_tool_result_recovery(tool_use, tool_result)
     exp_recovery = (
         "A tool requested before reconnection has completed. "
         "Use this result to answer the user without invoking the tool again: "
@@ -1606,7 +1610,7 @@ def test_format_tool_recovery_is_deterministic_and_omits_provider_id():
     assert "provider-id" not in tru_recovery
 
 
-def test_format_tool_recovery_omits_unsupported_content():
+def test_format_tool_result_recovery_omits_unsupported_content():
     tool_use: ToolUse = {"toolUseId": "t1", "name": "image_tool", "input": {}}
     tool_result: ToolResult = {
         "toolUseId": "t1",
@@ -1617,14 +1621,14 @@ def test_format_tool_recovery_omits_unsupported_content():
         ],
     }
 
-    tru_recovery = _format_tool_recovery(tool_use, tool_result)
+    tru_recovery = _format_tool_result_recovery(tool_use, tool_result)
 
     assert "supported result" in tru_recovery
     assert "[image omitted from voice recovery]" in tru_recovery
     assert "bytes" not in tru_recovery
 
 
-def test_format_tool_recovery_rejects_non_serializable_content():
+def test_format_tool_result_recovery_rejects_non_serializable_content():
     tool_use: ToolUse = {"toolUseId": "t1", "name": "json_tool", "input": {}}
     tool_result: ToolResult = {
         "toolUseId": "t1",
@@ -1633,20 +1637,20 @@ def test_format_tool_recovery_rejects_non_serializable_content():
     }
 
     with pytest.raises(ValueError, match="tool recovery content is not JSON serializable"):
-        _format_tool_recovery(tool_use, tool_result)
+        _format_tool_result_recovery(tool_use, tool_result)
 
 
-def test_format_tool_recovery_truncates_oversized_content():
+def test_format_tool_result_recovery_truncates_oversized_content():
     tool_use: ToolUse = {"toolUseId": "t1", "name": "large_tool", "input": {}}
     tool_result: ToolResult = {
         "toolUseId": "t1",
         "status": "success",
-        "content": [{"text": "é" * (_MAX_TOOL_RECOVERY_BYTES // 2)}],
+        "content": [{"text": "é" * (_MAX_TOOL_RESULT_RECOVERY_BYTES // 2)}],
     }
 
-    tru_recovery = _format_tool_recovery(tool_use, tool_result)
+    tru_recovery = _format_tool_result_recovery(tool_use, tool_result)
 
-    assert len(tru_recovery.encode("utf-8")) <= _MAX_TOOL_RECOVERY_BYTES
+    assert len(tru_recovery.encode("utf-8")) <= _MAX_TOOL_RESULT_RECOVERY_BYTES
     assert "[truncated for voice recovery]" in tru_recovery
 
 
@@ -1691,7 +1695,7 @@ async def test_tool_result_recovery_omits_unsupported_content(loop, agent, agene
 
 
 @pytest.mark.asyncio
-async def test_bidi_agent_loop_coalesces_matching_tool_ids_after_reconnect(loop, agent, agenerator):
+async def test_bidi_agent_loop_matches_tool_reissue_after_reconnect(loop, agent, agenerator):
     """One exact replacement-connection call receives the running tool's result."""
     agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
     await loop.start()
@@ -1718,7 +1722,7 @@ async def test_bidi_agent_loop_coalesces_matching_tool_ids_after_reconnect(loop,
 
 
 @pytest.mark.asyncio
-async def test_bidi_agent_loop_coalesces_only_one_reissue_per_generation(loop, agent, agenerator):
+async def test_bidi_agent_loop_matches_only_one_reissue_per_generation(loop, agent, agenerator):
     """A second identical call on the replacement connection remains an independent execution."""
     agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
     await loop.start()
@@ -1741,7 +1745,7 @@ async def test_bidi_agent_loop_coalesces_only_one_reissue_per_generation(loop, a
 
 
 @pytest.mark.asyncio
-async def test_bidi_agent_loop_does_not_coalesce_different_arguments(loop, agent, agenerator):
+async def test_bidi_agent_loop_does_not_match_different_arguments(loop, agent, agenerator):
     """Calls with different arguments remain independent across a reconnect."""
     agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
     await loop.start()
@@ -1761,7 +1765,7 @@ async def test_bidi_agent_loop_does_not_coalesce_different_arguments(loop, agent
 
 
 @pytest.mark.asyncio
-async def test_bidi_agent_loop_coalesces_running_tool_across_multiple_generations(loop, agent, agenerator):
+async def test_bidi_agent_loop_matches_running_tool_across_multiple_generations(loop, agent, agenerator):
     """A tool still running after multiple reconnects is not executed again."""
     agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
     await loop.start()
@@ -1813,7 +1817,7 @@ async def test_bidi_agent_loop_updates_running_tool_reissue_on_each_generation(l
 
 
 @pytest.mark.asyncio
-async def test_bidi_agent_loop_completed_tool_does_not_coalesce_after_recovery_window(loop, agent, agenerator):
+async def test_bidi_agent_loop_completed_tool_does_not_match_after_recovery_window(loop, agent, agenerator):
     """A completed result cannot satisfy a genuinely later identical tool call."""
     agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
     await loop.start()
@@ -1860,7 +1864,7 @@ async def test_bidi_agent_loop_preserves_distinct_same_connection_tool_calls(loo
 
 @pytest.mark.asyncio
 async def test_bidi_agent_loop_executes_ambiguous_reissue_independently(loop, agent, agenerator, caplog):
-    """Multiple exact older-generation matches are not coalesced arbitrarily."""
+    """Multiple exact older-generation matches are not associated arbitrarily."""
     agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
     await loop.start()
 

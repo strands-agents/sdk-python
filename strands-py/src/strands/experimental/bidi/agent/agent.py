@@ -57,7 +57,7 @@ _DEFAULT_AGENT_NAME = "Strands Agents"
 _DEFAULT_AGENT_ID = "default"
 
 
-class _InputPumpStopped(Exception):
+class _AgentStoppedDuringInput(Exception):
     """Signal that an input send ended because the agent stopped."""
 
 
@@ -460,7 +460,7 @@ class BidiAgent(LocalAgent):
                     event = await input_()
                     try:
                         await self.send(event)
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         if not isinstance(event, BidiAudioInputEvent):
                             raise
                         logger.warning(
@@ -470,7 +470,7 @@ class BidiAgent(LocalAgent):
                     except RuntimeError:
                         if self._started:
                             raise
-                        raise _InputPumpStopped from None
+                        raise _AgentStoppedDuringInput from None
 
             async with _TaskGroup() as task_group:
                 for input_ in inputs:
@@ -494,7 +494,7 @@ class BidiAgent(LocalAgent):
                 async with _TaskGroup() as task_group:
                     inputs_task = task_group.create_task(run_inputs())
                     task_group.create_task(run_outputs(inputs_task))
-            except _InputPumpStopped:
+            except _AgentStoppedDuringInput:
                 pass
 
         finally:
