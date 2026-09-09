@@ -6,6 +6,7 @@ import uuid
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+
 from strands.agent.agent import Agent
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.experimental.hooks.events import BidiAgentInitializedEvent
@@ -20,7 +21,6 @@ from strands.session.snapshot_session_manager import (
 from strands.storage import LocalFileStorage
 from strands.types.content import ContentBlock
 from strands.types.exceptions import ContextWindowOverflowException, SnapshotException
-
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 
@@ -832,15 +832,15 @@ class TestSnapshotStashIntegration:
         from strands._context_manager.context_manager import ContextManager
         from strands.storage.in_memory_storage import InMemoryStorage
 
-        cm = ContextManager(stash={"storage": InMemoryStorage()})
+        context_manager = ContextManager(stash={"storage": InMemoryStorage()})
         manager = SnapshotSessionManager("s1", storage=storage)
-        agent = Agent(model=_model("hi"), session_manager=manager, context_manager=cm, agent_id="a1")
+        agent = Agent(model=_model("hi"), session_manager=manager, context_manager=context_manager, agent_id="a1")
         agent("go")
 
         # Manually store something in the stash so save has content to inline
         import asyncio
 
-        asyncio.run(cm.stash.load_snapshot({"ref-1": {"text": "stashed content"}}))
+        asyncio.run(context_manager.stash.load_snapshot({"ref-1": {"text": "stashed content"}}))
         manager.sync_agent(agent)
 
         # Restore into a new agent and verify stash round-trips
@@ -860,13 +860,13 @@ class TestSnapshotStashIntegration:
         from strands.storage import LocalFileStorage
 
         stash_storage = LocalFileStorage(f"{temp_dir}/stash")
-        cm = ContextManager(stash={"storage": stash_storage})
+        context_manager = ContextManager(stash={"storage": stash_storage})
         session_storage = LocalFileStorage(f"{temp_dir}/session")
         manager = SnapshotSessionManager("s1", storage=session_storage)
-        agent = Agent(model=_model("hi"), session_manager=manager, context_manager=cm, agent_id="a1")
+        agent = Agent(model=_model("hi"), session_manager=manager, context_manager=context_manager, agent_id="a1")
         agent("go")
 
-        asyncio.run(cm.stash.load_snapshot({"ref-1": {"text": "durable"}}))
+        asyncio.run(context_manager.stash.load_snapshot({"ref-1": {"text": "durable"}}))
         manager.sync_agent(agent)
 
         # Read the raw snapshot and verify it has an external ref
@@ -900,13 +900,13 @@ class TestSnapshotStashIntegration:
         from strands._context_manager.context_manager import ContextManager
         from strands.storage.in_memory_storage import InMemoryStorage
 
-        cm = ContextManager(stash={"storage": InMemoryStorage()})
+        context_manager = ContextManager(stash={"storage": InMemoryStorage()})
         manager = SnapshotSessionManager("s1", storage=storage)
-        agent = Agent(model=_model("hi"), session_manager=manager, context_manager=cm, agent_id="a1")
+        agent = Agent(model=_model("hi"), session_manager=manager, context_manager=context_manager, agent_id="a1")
         agent("go")
 
         # Ensure the stash is empty before saving
-        asyncio.run(cm.stash.clear())
+        asyncio.run(context_manager.stash.clear())
         manager.sync_agent(agent)
 
         key = _on_disk_key("s1", "a1")
@@ -940,10 +940,10 @@ class TestSnapshotStashIntegration:
         asyncio.run(storage.write(key, _serialize_snapshot(snapshot)))
 
         # Restore into agent with InMemoryStorage stash
-        cm = ContextManager(stash={"storage": InMemoryStorage()})
+        context_manager = ContextManager(stash={"storage": InMemoryStorage()})
         manager = SnapshotSessionManager("s1", storage=storage)
         with caplog.at_level(logging.WARNING, logger="strands.session.snapshot_session_manager"):
-            Agent(model=_model("x"), session_manager=manager, context_manager=cm, agent_id="a1")
+            Agent(model=_model("x"), session_manager=manager, context_manager=context_manager, agent_id="a1")
 
         assert any("stash storage type changed" in record.message for record in caplog.records)
 
@@ -956,18 +956,18 @@ class TestSnapshotStashIntegration:
 
         session_storage = LocalFileStorage(f"{temp_dir}/session")
         stash_mem = InMemoryStorage()
-        cm = ContextManager(stash={"storage": stash_mem})
+        context_manager = ContextManager(stash={"storage": stash_mem})
         manager = SnapshotSessionManager("s1", storage=session_storage)
-        agent = Agent(model=_model("hi"), session_manager=manager, context_manager=cm, agent_id="a1")
+        agent = Agent(model=_model("hi"), session_manager=manager, context_manager=context_manager, agent_id="a1")
         agent("go")
 
         # Put data in the stash
-        await cm.stash.load_snapshot({"ref-1": {"text": "data"}})
-        assert await cm.stash.list() != []
+        await context_manager.stash.load_snapshot({"ref-1": {"text": "data"}})
+        assert await context_manager.stash.list() != []
 
         await manager.delete_session()
 
-        assert await cm.stash.list() == []
+        assert await context_manager.stash.list() == []
 
     def test_no_context_manager_save_restore_works(self, storage):
         """Save/restore works normally when no ContextManager is present."""

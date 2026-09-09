@@ -307,9 +307,9 @@ class SnapshotSessionManager(SessionManager):
         """
         if self._storage is None:
             self._storage = _resolve_storage(agent.storage if agent.storage is not None else LocalFileStorage())
-        cm = agent.context_manager
-        if cm is not None:
-            self._agent_stash = cm.stash
+        context_manager = agent.context_manager
+        if context_manager is not None:
+            self._agent_stash = context_manager.stash
         run_async(lambda: self._initialize_async(agent))
 
     def sync_agent(self, agent: "Agent", **kwargs: Any) -> None:
@@ -544,18 +544,18 @@ class SnapshotSessionManager(SessionManager):
         If the stash storage is durable, writes a lightweight external reference.
         If ephemeral (e.g. InMemoryStorage), serializes all entries inline.
         """
-        cm = agent.context_manager
-        if cm is None or cm.stash is None:
+        context_manager = agent.context_manager
+        if context_manager is None or context_manager.stash is None:
             return
 
-        if cm.stash_is_durable:
+        if context_manager.stash_is_durable:
             snapshot.data["stash"] = {
                 "location": "external",
-                "storage_type": cm.stash.storage_type_name,
+                "storage_type": context_manager.stash.storage_type_name,
             }
             return
 
-        entries = await cm.stash.take_snapshot()
+        entries = await context_manager.stash.take_snapshot()
         if entries:
             snapshot.data["stash"] = {
                 "location": "inline",
@@ -568,26 +568,26 @@ class SnapshotSessionManager(SessionManager):
         if stash_data is None:
             return
 
-        cm = agent.context_manager
-        if cm is None or cm.stash is None:
+        context_manager = agent.context_manager
+        if context_manager is None or context_manager.stash is None:
             return
 
         location = stash_data.get("location")
         if location == "external":
             snapshot_type = stash_data.get("storage_type", "")
-            if snapshot_type and snapshot_type != cm.stash.storage_type_name:
+            if snapshot_type and snapshot_type != context_manager.stash.storage_type_name:
                 logger.warning(
                     "session_id=<%s>, snapshot_storage=<%s>, current_storage=<%s> | "
                     "stash storage type changed since snapshot was created, stash data may be inaccessible",
                     self.session_id,
                     snapshot_type,
-                    cm.stash.storage_type_name,
+                    context_manager.stash.storage_type_name,
                 )
             return
 
         if location == "inline":
             entries = stash_data.get("entries", {})
-            await cm.stash.load_snapshot(entries)
+            await context_manager.stash.load_snapshot(entries)
 
     async def _delete_stash_data(self) -> None:
         """Delete all stash data during session deletion."""

@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock
 
 import pytest
+
 from strands import Agent, Plugin
 from strands.agent.conversation_manager import SlidingWindowConversationManager, SummarizingConversationManager
 from strands.vended_plugins.context_offloader import ContextOffloader, InMemoryStorage
@@ -111,9 +112,9 @@ class TestContextManagerProperty:
     def test_returns_context_manager_instance(self, mock_model):
         from strands._context_manager.context_manager import ContextManager
 
-        cm = ContextManager()
-        agent = Agent(model=mock_model, context_manager=cm)
-        assert agent.context_manager is cm
+        context_manager = ContextManager()
+        agent = Agent(model=mock_model, context_manager=context_manager)
+        assert agent.context_manager is context_manager
 
     def test_returns_none_for_auto_mode(self, mock_model):
         agent = Agent(model=mock_model, context_manager="auto")
