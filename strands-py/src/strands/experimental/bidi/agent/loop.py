@@ -62,7 +62,7 @@ _MODEL_RESTART_WARNING_S = 10
 _MODEL_RESTART_TURN_TIMEOUT_S = 10
 
 # Do not let provider I/O hold the transition lock beyond the reconnect alignment budget.
-_TOOL_RESULT_SEND_TIMEOUT_S = _MODEL_RESTART_TURN_TIMEOUT_S
+_MODEL_SEND_TIMEOUT_S = _MODEL_RESTART_TURN_TIMEOUT_S
 
 # Limit one synthetic recovery turn independently of provider context-window size.
 _MAX_TOOL_RECOVERY_BYTES = 50 * 1024
@@ -268,7 +268,8 @@ class _BidiAgentLoop:
         logger.debug("agent loop stopping")
 
         self._started = False
-        self._send_gate.clear()
+        # Wake sends waiting behind a reconnect so they can observe the stopped state.
+        self._send_gate.set()
         self._reconnect_timer.cancel()
         # Unblock a deadline callback waiting on a turn boundary (it is past the timer's cancel);
         # once released it re-checks _started and no-ops.
@@ -284,6 +285,7 @@ class _BidiAgentLoop:
         try:
             await stop_all(stop_tasks, stop_model)
         finally:
+            self._send_gate.clear()
             self._running_tools.clear()
             if self._session_span:
                 _telemetry.end_session_span(
@@ -312,21 +314,29 @@ class _BidiAgentLoop:
         if not self._started:
             raise RuntimeError("loop not started | call start before sending")
 
-        if not self._send_gate.is_set():
-            logger.debug("waiting for model send signal")
+        while True:
+            if not self._started:
+                raise RuntimeError("loop stopped before event could be sent")
             await self._send_gate.wait()
 
-        if isinstance(event, BidiTextInputEvent):
-            message: Message = {"role": event.role, "content": [{"text": event.text}]}
-            await self._agent._append_messages(message)
-            if event.role == "user":
-                # A user text turn owes a response, same as a finished audio turn. Mark it so a
-                # proactive reconnect waits for the reply instead of swapping mid-turn; without
-                # this, a text-driven session always looks idle and the turn can be cut.
-                self._awaiting_response = True
-                self._update_turn_state()
+            async with self._connection_lock:
+                if not self._started:
+                    raise RuntimeError("loop stopped before event could be sent")
+                if not self._send_gate.is_set():
+                    continue
 
-        await self._agent.model.send(event)
+                if isinstance(event, BidiTextInputEvent):
+                    message: Message = {"role": event.role, "content": [{"text": event.text}]}
+                    await self._agent._append_messages(message)
+                    if event.role == "user":
+                        # A user text turn owes a response, same as a finished audio turn. Mark it so a
+                        # proactive reconnect waits for the reply instead of swapping mid-turn; without
+                        # this, a text-driven session always looks idle and the turn can be cut.
+                        self._awaiting_response = True
+                        self._update_turn_state()
+
+                await self._send_model_event(event)
+                return
 
     async def receive(self) -> AsyncGenerator[BidiOutputEvent, None]:
         """Receive model and tool call events.
@@ -569,10 +579,12 @@ class _BidiAgentLoop:
         try:
             previous_reader = self._model_task
             self._generation += 1
-            await self._prune_stale_tool_results()
             await self._restart_model(restart_kwargs)
             await self._wait_for_model_task(previous_reader)
+            retained_results = await self._prepare_tool_result_recovery()
             self._model_task = self._task_pool.create(self._run_model(self._generation))
+            for tool_use_key, tool_result_event in retained_results:
+                self._task_pool.create(self._run_tool_result_delivery(tool_use_key, tool_result_event))
         except Exception as exception:
             restart_exception = exception
         finally:
@@ -723,18 +735,25 @@ class _BidiAgentLoop:
         self._task_pool.create(self._run_tool_result_delivery(*completed_match))
         return None
 
-    async def _prune_stale_tool_results(self) -> None:
-        """Drop unclaimed completed results after their next-generation recovery window."""
+    async def _prepare_tool_result_recovery(self) -> list[tuple[_ToolUseKey, ToolResultEvent]]:
+        """Prune expired results and return those eligible for recovery on this connection."""
         async with self._tool_lock:
-            stale_keys = [
-                tool_use_key
-                for tool_use_key, running_tool in self._running_tools.items()
-                if running_tool.result_event is not None
-                and running_tool.replacement_key is None
-                and running_tool.match_generation < self._generation - 1
-            ]
+            stale_keys: list[_ToolUseKey] = []
+            retained_results: list[tuple[_ToolUseKey, ToolResultEvent]] = []
+
+            for tool_use_key, running_tool in self._running_tools.items():
+                tool_result_event = running_tool.result_event
+                if tool_result_event is None or running_tool.replacement_key is not None:
+                    continue
+                if running_tool.match_generation < self._generation - 1:
+                    stale_keys.append(tool_use_key)
+                elif running_tool.match_generation == self._generation - 1:
+                    retained_results.append((tool_use_key, tool_result_event))
+
             for tool_use_key in stale_keys:
                 self._running_tools.pop(tool_use_key)
+
+            return retained_results
 
     async def _run_tool_result_delivery(
         self,
@@ -755,13 +774,18 @@ class _BidiAgentLoop:
         tool_result_event: ToolResultEvent,
     ) -> bool:
         """Wait out reconnect activity, then deliver the completed tool result."""
-        while self._started:
+        while True:
             await self._send_gate.wait()
             async with self._connection_lock:
+                if not self._started:
+                    return False
                 if not self._send_gate.is_set():
                     continue
                 return await self._deliver_tool_result_on_connection(original_key, tool_result_event)
-        return False
+
+    async def _send_model_event(self, event: BidiInputEvent | ToolResultEvent) -> None:
+        """Send one event without allowing provider I/O to block connection replacement indefinitely."""
+        await asyncio.wait_for(self._agent.model.send(event), timeout=_MODEL_SEND_TIMEOUT_S)
 
     async def _send_tool_delivery(
         self,
@@ -771,13 +795,13 @@ class _BidiAgentLoop:
     ) -> bool:
         """Send one tool result without allowing provider I/O to block reconnect indefinitely."""
         try:
-            await asyncio.wait_for(self._agent.model.send(event), timeout=_TOOL_RESULT_SEND_TIMEOUT_S)
+            await self._send_model_event(event)
         except asyncio.TimeoutError:
             logger.warning(
                 "tool_use_id=<%s>, mode=<%s>, timeout_s=<%s> | tool result delivery timed out",
                 original_key[1],
                 mode,
-                _TOOL_RESULT_SEND_TIMEOUT_S,
+                _MODEL_SEND_TIMEOUT_S,
             )
             return False
         return True

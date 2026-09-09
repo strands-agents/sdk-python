@@ -523,17 +523,39 @@ async def test_tool_result_rechecks_send_gate_after_connection_lock(loop, agent,
 
 
 @pytest.mark.asyncio
-async def test_tool_result_send_timeout_does_not_block_reconnect(loop, agent, agenerator, monkeypatch, caplog):
-    """A stalled provider send releases the connection lock so reconnect can proceed."""
+async def test_send_rechecks_gate_after_connection_lock(loop, agent, agenerator):
+    """Ordinary input waits for the replacement connection when the gate closes before lock acquisition."""
     agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
     await loop.start()
     loop._reconnect_timer.cancel()
-    monkeypatch.setattr("strands.experimental.bidi.agent.loop._TOOL_RESULT_SEND_TIMEOUT_S", 0.01)
 
-    tool_use: ToolUse = {"toolUseId": "t1", "name": "time_tool", "input": {}}
-    tool_use_key = await loop._register_tool_use(tool_use, loop._generation)
-    assert tool_use_key is not None
-    tool_result: ToolResult = {"toolUseId": "t1", "status": "success", "content": [{"text": "12:00"}]}
+    await loop._connection_lock.acquire()
+    send_task = asyncio.create_task(loop.send(BidiTextInputEvent(text="hello")))
+    try:
+        await asyncio.sleep(0)
+        loop._send_gate.clear()
+        loop._connection_lock.release()
+        await asyncio.sleep(0)
+
+        agent.model.send.assert_not_awaited()
+
+        loop._send_gate.set()
+        await asyncio.wait_for(send_task, timeout=2)
+        agent.model.send.assert_awaited_once()
+        assert len(agent.messages) == 1
+    finally:
+        loop._send_gate.set()
+        await asyncio.gather(send_task, return_exceptions=True)
+        await loop.stop()
+
+
+@pytest.mark.asyncio
+async def test_send_timeout_does_not_block_reconnect(loop, agent, agenerator, monkeypatch):
+    """A stalled ordinary send releases the connection lock so reconnect can proceed."""
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
+    await loop.start()
+    loop._reconnect_timer.cancel()
+    monkeypatch.setattr("strands.experimental.bidi.agent.loop._MODEL_SEND_TIMEOUT_S", 0.01)
 
     send_started = asyncio.Event()
 
@@ -542,16 +564,72 @@ async def test_tool_result_send_timeout_does_not_block_reconnect(loop, agent, ag
         await asyncio.Event().wait()
 
     agent.model.send.side_effect = stalled_send
+    send_task = asyncio.create_task(loop.send(BidiTextInputEvent(text="hello")))
+    await send_started.wait()
+    restart_task = asyncio.create_task(loop._restart_connection(None, loop._generation))
+
+    with pytest.raises(asyncio.TimeoutError):
+        await send_task
+    assert await asyncio.wait_for(restart_task, timeout=1) is True
+
+    await loop.stop()
+
+
+@pytest.mark.asyncio
+async def test_send_waiting_for_reconnect_exits_when_loop_stops(loop, agent, agenerator):
+    """Stopping the loop wakes an input blocked behind the reconnect gate."""
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
+    await loop.start()
+    loop._reconnect_timer.cancel()
+    loop._send_gate.clear()
+
+    send_task = asyncio.create_task(loop.send(BidiTextInputEvent(text="hello")))
+    await asyncio.sleep(0)
+    await loop.stop()
+
+    with pytest.raises(RuntimeError, match="loop stopped before event could be sent"):
+        await asyncio.wait_for(send_task, timeout=0.5)
+
+
+@pytest.mark.asyncio
+async def test_tool_result_send_timeout_does_not_block_reconnect(loop, agent, agenerator, monkeypatch, caplog):
+    """A stalled tool-result send releases reconnect and retries on the replacement connection."""
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
+    await loop.start()
+    loop._reconnect_timer.cancel()
+    monkeypatch.setattr("strands.experimental.bidi.agent.loop._MODEL_SEND_TIMEOUT_S", 0.01)
+
+    tool_use: ToolUse = {"toolUseId": "t1", "name": "time_tool", "input": {}}
+    tool_use_key = await loop._register_tool_use(tool_use, loop._generation)
+    assert tool_use_key is not None
+    tool_result: ToolResult = {"toolUseId": "t1", "status": "success", "content": [{"text": "12:00"}]}
+
+    send_started = asyncio.Event()
+    retry_complete = asyncio.Event()
+    tru_sent_events = []
+
+    async def send(event):
+        tru_sent_events.append(event)
+        if len(tru_sent_events) == 1:
+            send_started.set()
+            await asyncio.Event().wait()
+        retry_complete.set()
+
+    agent.model.send.side_effect = send
     with caplog.at_level(logging.WARNING, logger="strands.experimental.bidi.agent.loop"):
         delivery_task = asyncio.create_task(loop._deliver_tool_result(tool_use_key, ToolResultEvent(tool_result)))
         await send_started.wait()
         restart_task = asyncio.create_task(loop._restart_connection(None, loop._generation))
         tru_retained, tru_restarted = await asyncio.wait_for(asyncio.gather(delivery_task, restart_task), timeout=1)
+        await asyncio.wait_for(retry_complete.wait(), timeout=0.5)
 
     assert "mode=<native>, timeout_s=<0.01> | tool result delivery timed out" in caplog.text
     assert tru_retained is True
     assert tru_restarted is True
-    assert tool_use_key in loop._running_tools
+    assert len(tru_sent_events) == 2
+    assert isinstance(tru_sent_events[0], ToolResultEvent)
+    assert isinstance(tru_sent_events[1], BidiTextInputEvent)
+    assert loop._running_tools == {}
 
     await loop.stop()
 
@@ -564,7 +642,7 @@ async def test_tool_result_recovery_timeout_is_delivered_to_next_exact_reissue(
     agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
     await loop.start()
     loop._reconnect_timer.cancel()
-    monkeypatch.setattr("strands.experimental.bidi.agent.loop._TOOL_RESULT_SEND_TIMEOUT_S", 0.01)
+    monkeypatch.setattr("strands.experimental.bidi.agent.loop._MODEL_SEND_TIMEOUT_S", 0.01)
 
     tool_use: ToolUse = {"toolUseId": "old", "name": "time_tool", "input": {}}
     tool_use_key = await loop._register_tool_use(tool_use, loop._generation)
@@ -674,7 +752,9 @@ async def test_background_tool_result_delivery_error_reaches_consumer(loop, agen
 
 
 @pytest.mark.asyncio
-async def test_reconnect_prunes_only_unclaimed_completed_results_after_recovery_window(loop, agent, agenerator):
+async def test_prepare_tool_result_recovery_prunes_only_unclaimed_results_after_recovery_window(
+    loop, agent, agenerator
+):
     """Expired completed results are removed without dropping active or claimed calls."""
     agent.model.receive = unittest.mock.Mock(side_effect=lambda: agenerator([]))
     await loop.start()
@@ -695,13 +775,16 @@ async def test_reconnect_prunes_only_unclaimed_completed_results_after_recovery_
         loop._running_tools[completed_key].result_event = result
         loop._running_tools[claimed_key].result_event = result
 
-    await loop._restart_connection(None, loop._generation)
+    loop._generation += 1
+    tru_retained_results = await loop._prepare_tool_result_recovery()
+    assert {tool_use_key for tool_use_key, _ in tru_retained_results} == {completed_key, claimed_key}
     assert set(loop._running_tools) == {completed_key, active_key, claimed_key}
 
     async with loop._tool_lock:
         loop._running_tools[claimed_key].replacement_key = (loop._generation, "claimed-new")
 
-    await loop._restart_connection(None, loop._generation)
+    loop._generation += 1
+    assert await loop._prepare_tool_result_recovery() == []
     assert set(loop._running_tools) == {active_key, claimed_key}
 
     await loop.stop()
