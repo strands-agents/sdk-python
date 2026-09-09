@@ -208,13 +208,14 @@ class _BidiAgentLoop:
         self._invocation_state = {}
 
         async def stop_tasks() -> None:
+            await self._wait_for_model_task(self._model_task)
             await self._task_pool.cancel()
 
         async def stop_model() -> None:
             await self._agent.model.stop()
 
         try:
-            await stop_all(stop_tasks, stop_model)
+            await stop_all(stop_model, stop_tasks)
         finally:
             if self._session_span:
                 _telemetry.end_session_span(

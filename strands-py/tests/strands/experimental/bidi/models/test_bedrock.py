@@ -19,11 +19,14 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 import pytest_asyncio
 from aws_sdk_bedrock_runtime.models import ModelTimeoutException, ValidationException
+from awscrt.exceptions import from_code
 
 from strands.experimental.bidi.models.bedrock import (
     NOVA_SONIC_V1_MODEL_ID,
     NOVA_SONIC_V2_MODEL_ID,
     BedrockNovaSonicModel,
+    _BedrockAWSCRTHTTPClient,
+    _observe_request_writer,
 )
 from strands.experimental.bidi.models.model import BidiModelTimeoutError
 from strands.experimental.bidi.types.events import (
@@ -112,6 +115,7 @@ async def test_start_sets_strands_user_agent_on_bedrock_runtime_client(model_id,
         assert mock_cls.call_count == 1
         config = mock_cls.call_args.kwargs["config"]
         assert config.user_agent_extra == "strands-agents"
+        assert isinstance(config.transport, _BedrockAWSCRTHTTPClient)
 
 
 @pytest.mark.asyncio
@@ -134,6 +138,44 @@ async def test_invalid_region_rejected(model_id, region):
 def test___init__rejects_boto_session_and_region(model_id, boto_session):
     with pytest.raises(ValueError, match="Cannot specify both 'boto_session' and 'region'"):
         BedrockNovaSonicModel(model_id=model_id, boto_session=boto_session, region="us-east-1")
+
+
+@pytest.mark.asyncio
+async def test_crt_transport_observes_completed_request_writer():
+    """Treat a completed HTTP/2 stream as a normal request-writer shutdown."""
+    exception_contexts = []
+    event_loop = asyncio.get_running_loop()
+    original_exception_handler = event_loop.get_exception_handler()
+    event_loop.set_exception_handler(lambda _loop, context: exception_contexts.append(context))
+
+    async def write_request_body():
+        raise from_code(2080)
+
+    unexpected_error = RuntimeError("unexpected writer failure")
+
+    async def fail_request_body():
+        raise unexpected_error
+
+    try:
+        writer_task = asyncio.create_task(write_request_body())
+        writer_task.add_done_callback(_observe_request_writer)
+        failed_writer_task = asyncio.create_task(fail_request_body())
+        failed_writer_task.add_done_callback(_observe_request_writer)
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+    finally:
+        event_loop.set_exception_handler(original_exception_handler)
+
+    # Guards against an unobserved writer task during normal shutdown (awslabs/aws-crt-python#762).
+    assert writer_task.done()
+    assert failed_writer_task.done()
+    assert exception_contexts == [
+        {
+            "message": "bedrock HTTP/2 request writer failed",
+            "exception": unexpected_error,
+            "task": failed_writer_task,
+        }
+    ]
 
 
 # Audio Configuration Tests

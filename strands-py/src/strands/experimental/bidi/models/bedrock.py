@@ -42,7 +42,7 @@ from boto3.session import Session
 from smithy_aws_core.identity.static import StaticCredentialsResolver
 from smithy_core.aio.eventstream import DuplexEventStream
 from smithy_core.shapes import ShapeID
-from smithy_http.aio.crt import AWSCRTHTTPClient
+from smithy_http.aio.crt import AWSCRTHTTPClient, AWSCRTHTTPResponse
 from typing_extensions import Unpack
 
 from ....models._validation import validate_region
@@ -84,6 +84,45 @@ _MAX_HISTORY_MESSAGE_BYTES = 50 * 1024  # 50KB per message
 _MAX_HISTORY_TOTAL_BYTES = 200 * 1024  # 200KB total history
 
 _STRANDS_USER_AGENT_EXTRA = "strands-agents"
+_AWS_ERROR_HTTP_STREAM_HAS_COMPLETED = 2080
+
+
+def _is_http_stream_completed_error(error: BaseException) -> bool:
+    """Return whether a CRT write lost the normal shutdown race."""
+    if getattr(error, "code", None) == _AWS_ERROR_HTTP_STREAM_HAS_COMPLETED:
+        return True
+    return isinstance(error, RuntimeError) and "AWS_ERROR_HTTP_STREAM_HAS_COMPLETED" in str(error)
+
+
+def _observe_request_writer(task: asyncio.Task[Any]) -> None:
+    """Consume a CRT request-writer result and report unexpected failures."""
+    if task.cancelled():
+        return
+
+    error = task.exception()
+    if error is None:
+        return
+    if _is_http_stream_completed_error(error):
+        logger.debug("error=<%s> | request writer stopped after HTTP/2 stream completion", error)
+        return
+
+    task.get_loop().call_exception_handler(
+        {
+            "message": "bedrock HTTP/2 request writer failed",
+            "exception": error,
+            "task": task,
+        }
+    )
+
+
+class _BedrockAWSCRTHTTPClient(AWSCRTHTTPClient):
+    """Observe CRT request writers so normal shutdown cannot leak task errors."""
+
+    async def _await_response(self, stream: Any) -> AWSCRTHTTPResponse:
+        writer_task = getattr(stream, "_writer", None)
+        if isinstance(writer_task, asyncio.Task):
+            writer_task.add_done_callback(_observe_request_writer)
+        return await super()._await_response(stream)
 
 
 class BedrockNovaSonicModel(BidiModel, AudioCapable):
@@ -212,7 +251,7 @@ class BedrockNovaSonicModel(BidiModel, AudioCapable):
             aws_access_key_id=credentials.access_key,
             aws_secret_access_key=credentials.secret_key,
             aws_session_token=credentials.token,
-            transport=AWSCRTHTTPClient(),
+            transport=_BedrockAWSCRTHTTPClient(),
             user_agent_extra=_STRANDS_USER_AGENT_EXTRA,
         )
 
