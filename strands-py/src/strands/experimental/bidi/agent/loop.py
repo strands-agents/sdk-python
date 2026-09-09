@@ -569,6 +569,7 @@ class _BidiAgentLoop:
         try:
             previous_reader = self._model_task
             self._generation += 1
+            await self._prune_stale_tool_results()
             await self._restart_model(restart_kwargs)
             await self._wait_for_model_task(previous_reader)
             self._model_task = self._task_pool.create(self._run_model(self._generation))
@@ -719,8 +720,34 @@ class _BidiAgentLoop:
                 self._running_tools[tool_use_key] = _RunningTool(tool_use=tool_use, match_generation=generation)
                 return tool_use_key
 
-        await self._deliver_tool_result(*completed_match)
+        self._task_pool.create(self._run_tool_result_delivery(*completed_match))
         return None
+
+    async def _prune_stale_tool_results(self) -> None:
+        """Drop unclaimed completed results after their next-generation recovery window."""
+        async with self._tool_lock:
+            stale_keys = [
+                tool_use_key
+                for tool_use_key, running_tool in self._running_tools.items()
+                if running_tool.result_event is not None
+                and running_tool.replacement_key is None
+                and running_tool.match_generation < self._generation - 1
+            ]
+            for tool_use_key in stale_keys:
+                self._running_tools.pop(tool_use_key)
+
+    async def _run_tool_result_delivery(
+        self,
+        original_key: _ToolUseKey,
+        tool_result_event: ToolResultEvent,
+    ) -> None:
+        """Deliver a retained result without blocking the model reader."""
+        try:
+            await self._deliver_tool_result(original_key, tool_result_event)
+        except Exception as error:
+            async with self._tool_lock:
+                self._running_tools.pop(original_key, None)
+            await self._event_queue.put(error)
 
     async def _deliver_tool_result(
         self,

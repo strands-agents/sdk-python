@@ -11,6 +11,7 @@ from strands.experimental.bidi import BidiAgent
 from strands.experimental.bidi.agent.loop import _MAX_TOOL_RECOVERY_BYTES, _format_tool_recovery, _ReaderError
 from strands.experimental.bidi.models import BidiModel, BidiModelTimeoutError
 from strands.experimental.bidi.types.events import (
+    BidiAudioStreamEvent,
     BidiConnectionCloseEvent,
     BidiConnectionRestartEvent,
     BidiConnectionWarningEvent,
@@ -571,11 +572,13 @@ async def test_tool_result_recovery_timeout_is_delivered_to_next_exact_reissue(
     loop._generation += 1
 
     tru_sent_events = []
+    redelivery_complete = asyncio.Event()
 
     async def send(event):
         tru_sent_events.append(event)
         if len(tru_sent_events) == 1:
             await asyncio.Event().wait()
+        redelivery_complete.set()
 
     agent.model.send.side_effect = send
 
@@ -594,6 +597,7 @@ async def test_tool_result_recovery_timeout_is_delivered_to_next_exact_reissue(
         loop._generation += 1
         reissue: ToolUse = {"toolUseId": "new", "name": "time_tool", "input": {}}
         assert await loop._register_tool_use(reissue, loop._generation) is None
+        await asyncio.wait_for(redelivery_complete.wait(), timeout=0.5)
     finally:
         drain_task.cancel()
 
@@ -602,6 +606,103 @@ async def test_tool_result_recovery_timeout_is_delivered_to_next_exact_reissue(
     assert isinstance(tru_sent_events[1], ToolResultEvent)
     assert tru_sent_events[1].tool_result["toolUseId"] == "new"
     assert loop._running_tools == {}
+
+    await loop.stop()
+
+
+@pytest.mark.asyncio
+async def test_completed_reissue_delivery_does_not_block_model_reader(loop, agent, agenerator):
+    """A retained-result send runs independently of subsequent model output."""
+    reissue: ToolUse = {"toolUseId": "new", "name": "time_tool", "input": {}}
+    reissue_event = ToolUseStreamEvent(current_tool_use=reissue, delta="")
+    audio_event = BidiAudioStreamEvent(audio="dGVzdA==", format="pcm", sample_rate=24000, channels=1)
+
+    async def replacement_events():
+        yield reissue_event
+        yield audio_event
+
+    agent.model.receive = unittest.mock.Mock(side_effect=[agenerator([]), replacement_events()])
+    await loop.start()
+    loop._reconnect_timer.cancel()
+
+    original: ToolUse = {"toolUseId": "old", "name": "time_tool", "input": {}}
+    original_key = await loop._register_tool_use(original, loop._generation)
+    assert original_key is not None
+    result = ToolResultEvent(ToolResult(toolUseId="old", status="success", content=[{"text": "12:00"}]))
+    async with loop._tool_lock:
+        loop._running_tools[original_key].result_event = result
+
+    send_started = asyncio.Event()
+    release_send = asyncio.Event()
+
+    async def delayed_send(_event):
+        send_started.set()
+        await release_send.wait()
+
+    agent.model.send.side_effect = delayed_send
+
+    try:
+        await loop._restart_connection(None, loop._generation)
+        await asyncio.wait_for(send_started.wait(), timeout=0.5)
+        tru_event = await asyncio.wait_for(loop.receive().__anext__(), timeout=0.5)
+        assert tru_event is audio_event
+    finally:
+        release_send.set()
+        await loop.stop()
+
+
+@pytest.mark.asyncio
+async def test_background_tool_result_delivery_error_reaches_consumer(loop, agent, agenerator):
+    """A retained-result send failure is surfaced through the loop event queue."""
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator([]))
+    await loop.start()
+    loop._reconnect_timer.cancel()
+
+    tool_use: ToolUse = {"toolUseId": "old", "name": "time_tool", "input": {}}
+    tool_use_key = await loop._register_tool_use(tool_use, loop._generation)
+    assert tool_use_key is not None
+    result = ToolResultEvent(ToolResult(toolUseId="old", status="success", content=[{"text": "12:00"}]))
+    agent.model.send.side_effect = OSError("delivery failed")
+
+    loop._task_pool.create(loop._run_tool_result_delivery(tool_use_key, result))
+
+    with pytest.raises(OSError, match="delivery failed"):
+        await asyncio.wait_for(loop.receive().__anext__(), timeout=0.5)
+    assert tool_use_key not in loop._running_tools
+
+    await loop.stop()
+
+
+@pytest.mark.asyncio
+async def test_reconnect_prunes_only_unclaimed_completed_results_after_recovery_window(loop, agent, agenerator):
+    """Expired completed results are removed without dropping active or claimed calls."""
+    agent.model.receive = unittest.mock.Mock(side_effect=lambda: agenerator([]))
+    await loop.start()
+    loop._reconnect_timer.cancel()
+
+    completed: ToolUse = {"toolUseId": "completed", "name": "time_tool", "input": {}}
+    active: ToolUse = {"toolUseId": "active", "name": "time_tool", "input": {"active": True}}
+    claimed: ToolUse = {"toolUseId": "claimed", "name": "time_tool", "input": {"claimed": True}}
+    completed_key = await loop._register_tool_use(completed, loop._generation)
+    active_key = await loop._register_tool_use(active, loop._generation)
+    claimed_key = await loop._register_tool_use(claimed, loop._generation)
+    assert completed_key is not None
+    assert active_key is not None
+    assert claimed_key is not None
+
+    result = ToolResultEvent(ToolResult(toolUseId="completed", status="success", content=[{"text": "12:00"}]))
+    async with loop._tool_lock:
+        loop._running_tools[completed_key].result_event = result
+        loop._running_tools[claimed_key].result_event = result
+
+    await loop._restart_connection(None, loop._generation)
+    assert set(loop._running_tools) == {completed_key, active_key, claimed_key}
+
+    async with loop._tool_lock:
+        loop._running_tools[claimed_key].replacement_key = (loop._generation, "claimed-new")
+
+    await loop._restart_connection(None, loop._generation)
+    assert set(loop._running_tools) == {active_key, claimed_key}
 
     await loop.stop()
 
