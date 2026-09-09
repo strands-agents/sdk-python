@@ -15,9 +15,12 @@ Features:
 
 import abc
 import logging
-from collections.abc import AsyncIterable
-from typing import Any, NoReturn, Protocol, TypedDict, cast, runtime_checkable
+from collections.abc import AsyncIterable, Mapping
+from typing import Any, NoReturn, Protocol, TypedDict, runtime_checkable
 
+from typing_extensions import Unpack
+
+from ....models._validation import validate_config_keys
 from ....models.model import Model
 from ....types._events import ToolResultEvent
 from ....types.content import Messages
@@ -82,22 +85,29 @@ class BidiModel(Model, abc.ABC):
             reporting deltas may omit it.
     """
 
-    config: Any
+    config: BidiModelConfig
     model_id: str
     connection_config: BidiConnectionConfig
     usage_is_cumulative: bool
 
-    def update_config(self, **model_config: Any) -> None:
+    @staticmethod
+    def _validate_config(model_config: Mapping[str, Any]) -> None:
+        """Validate shared bidirectional model configuration."""
+        validate_config_keys(model_config, BidiModelConfig)
+        validate_config_keys(model_config.get("connection", {}), BidiConnectionConfig)
+
+    def update_config(self, **model_config: Unpack[BidiModelConfig]) -> None:  # type: ignore[override]
         """Update the model configuration with the provided arguments.
 
         Args:
             **model_config: Configuration overrides.
         """
+        self._validate_config(model_config)
         self.config.update(model_config)
 
-    def get_config(self) -> dict[str, Any]:
+    def get_config(self) -> BidiModelConfig:
         """Return a copy of the model configuration."""
-        return cast(dict[str, Any], self.config).copy()
+        return self.config.copy()
 
     def structured_output(self, *args: Any, **kwargs: Any) -> NoReturn:
         """Raise because bidirectional models do not support structured output."""
@@ -212,6 +222,11 @@ class BidiModelTimeoutError(Exception):
 @runtime_checkable
 class AudioCapable(Protocol):
     """Protocol for models that support audio input and output."""
+
+    @staticmethod
+    def _validate_audio_config(audio: Mapping[str, Any] | None) -> None:
+        """Validate shared audio configuration."""
+        validate_config_keys(audio or {}, AudioConfig)
 
     @property
     def audio_config(self) -> AudioConfig:
