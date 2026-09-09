@@ -38,7 +38,7 @@ function heuristicCountTokens(messages: Message[]): number {
   return total
 }
 
-function makeContext(messages: Message[], utilization = 0.5): ContextState {
+function makeContext(messages: Message[], utilization = 0.5, overflow?: boolean): ContextState {
   const agent = createMockAgent({
     messages,
     extra: { model: { countTokens: async (msgs: Message[]) => heuristicCountTokens(msgs) } } as Partial<Agent>,
@@ -47,6 +47,7 @@ function makeContext(messages: Message[], utilization = 0.5): ContextState {
     messages,
     agent,
     utilization,
+    ...(overflow ? { overflow: true } : {}),
   }
 }
 
@@ -600,6 +601,38 @@ describe('Message-level drop vs truncate markers', () => {
     const markerText = allText.find((t) => t.includes('elided'))
     expect(markerText).toBeDefined()
     expect(markerText).toMatch(/\[\.\.\. \d+ messages? elided \.\.\.\]/)
+  })
+})
+
+describe('overflow bypass', () => {
+  it('message-level strategy fires on low utilization when overflow is set', async () => {
+    const messages = [
+      new Message({ role: 'user', content: [new TextBlock('q1')] }),
+      new Message({ role: 'assistant', content: [new TextBlock('a1')] }),
+      new Message({ role: 'user', content: [new TextBlock('q2')] }),
+      new Message({ role: 'assistant', content: [new TextBlock('a2')] }),
+    ]
+    const strategy = Offload.drop('*').when({ utilization: 0.85 })
+    const context = makeContext(messages, 0.5, true)
+
+    const acted = await strategy.apply(context)
+    expect(acted).toBe(true)
+    expect(messages.length).toBeLessThan(4)
+  })
+
+  it('message-level strategy skips on low utilization without overflow', async () => {
+    const messages = [
+      new Message({ role: 'user', content: [new TextBlock('q1')] }),
+      new Message({ role: 'assistant', content: [new TextBlock('a1')] }),
+      new Message({ role: 'user', content: [new TextBlock('q2')] }),
+      new Message({ role: 'assistant', content: [new TextBlock('a2')] }),
+    ]
+    const strategy = Offload.drop('*').when({ utilization: 0.85 })
+    const context = makeContext(messages, 0.5)
+
+    const acted = await strategy.apply(context)
+    expect(acted).toBe(false)
+    expect(messages.length).toBe(4)
   })
 })
 

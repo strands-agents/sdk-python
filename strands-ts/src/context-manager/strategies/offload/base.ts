@@ -331,7 +331,7 @@ export abstract class BaseOffloadStrategy implements ContextStrategy {
   async apply(context: ContextState): Promise<boolean> {
     if (context.stash) this._stash = context.stash
     if (this._isMessageLevel) {
-      if (context.utilization < this._utilizationThreshold!) return false
+      if (!context.overflow && context.utilization < this._utilizationThreshold!) return false
       return this._applyPerMessage(context)
     }
 

@@ -49,6 +49,13 @@ export interface ContextState {
   /** Current context utilization ratio (0-1+). Above 1.0 means overflow. */
   utilization: number
 
+  /**
+   * Set when running in response to a `ContextWindowOverflowError`.
+   * Strategies should bypass utilization gates when true — the provider
+   * already rejected the request, so the estimate is not trustworthy.
+   */
+  overflow?: boolean
+
   /** L1 stash for persisting offloaded content. Present when storage is configured. */
   stash?: Stash
 }

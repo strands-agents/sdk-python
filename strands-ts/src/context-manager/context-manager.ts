@@ -169,7 +169,7 @@ export class ContextManager implements Plugin {
         return
       }
 
-      const acted = await this._runStrategies(event.agent)
+      const acted = await this._runStrategies(event.agent, undefined, true)
       if (!acted) {
         logger.warn(`agentId=<${event.agent.id}> | no strategy made progress, skipping retry`)
         return
@@ -199,7 +199,11 @@ export class ContextManager implements Plugin {
     return this._stashIsDurable
   }
 
-  private async _runStrategies(agent: LocalAgent, precomputedInputTokens?: number): Promise<boolean> {
+  private async _runStrategies(
+    agent: LocalAgent,
+    precomputedInputTokens?: number,
+    overflow?: boolean
+  ): Promise<boolean> {
     const messages = agent.messages
     const inputTokens = precomputedInputTokens ?? (await agent.model.countTokens(messages))
 
@@ -207,6 +211,7 @@ export class ContextManager implements Plugin {
       messages,
       agent,
       utilization: agent.model.estimateUtilization(inputTokens),
+      ...(overflow ? { overflow: true } : {}),
       ...(this._stash ? { stash: this._stash } : {}),
     }
 
