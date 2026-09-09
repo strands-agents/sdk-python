@@ -6,7 +6,6 @@ import uuid
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-
 from strands.agent.agent import Agent
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.experimental.hooks.events import BidiAgentInitializedEvent
@@ -21,6 +20,7 @@ from strands.session.snapshot_session_manager import (
 from strands.storage import LocalFileStorage
 from strands.types.content import ContentBlock
 from strands.types.exceptions import ContextWindowOverflowException, SnapshotException
+
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 

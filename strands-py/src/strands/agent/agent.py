@@ -404,6 +404,12 @@ class Agent(AgentBase, LocalAgent):
             context_manager, conversation_manager, plugins
         )
 
+        from .._context_manager.context_manager import ContextManager as _ContextManager
+
+        self._context_manager: ContextManager | None = (
+            context_manager if isinstance(context_manager, _ContextManager) else None
+        )
+
         self.conversation_manager: ConversationManager
         if self.model.stateful:
             self.conversation_manager = NullConversationManager()
@@ -765,12 +771,7 @@ class Agent(AgentBase, LocalAgent):
     @property
     def context_manager(self) -> "ContextManager | None":
         """The ContextManager plugin, if one is registered on this agent."""
-        from .._context_manager.context_manager import ContextManager as _ContextManager
-
-        plugin = self._plugin_registry._plugins.get("strands:context-manager")
-        if isinstance(plugin, _ContextManager):
-            return plugin
-        return None
+        return self._context_manager
 
     @property
     def session_id(self) -> str:

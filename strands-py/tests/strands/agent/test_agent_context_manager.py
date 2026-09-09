@@ -3,7 +3,6 @@
 from unittest.mock import MagicMock
 
 import pytest
-
 from strands import Agent, Plugin
 from strands.agent.conversation_manager import SlidingWindowConversationManager, SummarizingConversationManager
 from strands.vended_plugins.context_offloader import ContextOffloader, InMemoryStorage
