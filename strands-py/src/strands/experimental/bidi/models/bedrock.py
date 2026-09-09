@@ -42,7 +42,7 @@ from boto3.session import Session
 from smithy_aws_core.identity.static import StaticCredentialsResolver
 from smithy_core.aio.eventstream import DuplexEventStream
 from smithy_core.shapes import ShapeID
-from smithy_http.aio.crt import AWSCRTHTTPClient
+from smithy_http.aio.crt import AWSCRTHTTPClient, AWSCRTHTTPResponse
 from typing_extensions import Unpack
 
 from ....models._validation import validate_region
@@ -84,6 +84,76 @@ _MAX_HISTORY_MESSAGE_BYTES = 50 * 1024  # 50KB per message
 _MAX_HISTORY_TOTAL_BYTES = 200 * 1024  # 200KB total history
 
 _STRANDS_USER_AGENT_EXTRA = "strands-agents"
+_AWS_ERROR_HTTP_STREAM_HAS_COMPLETED = 2080
+
+
+def _is_http_stream_completed_error(error: BaseException) -> bool:
+    """Return whether a CRT write observed an already-completed HTTP stream."""
+    if getattr(error, "code", None) == _AWS_ERROR_HTTP_STREAM_HAS_COMPLETED:
+        return True
+    return isinstance(error, RuntimeError) and "AWS_ERROR_HTTP_STREAM_HAS_COMPLETED" in str(error)
+
+
+class _BedrockAWSCRTHTTPClient(AWSCRTHTTPClient):
+    """Observe CRT request writers so their terminal results are always consumed."""
+
+    async def _await_response(self, stream: Any) -> AWSCRTHTTPResponse:
+        writer_task = getattr(stream, "_writer", None)
+        if isinstance(writer_task, asyncio.Task):
+            writer_task.add_done_callback(self._observe_request_writer)
+        response = await super()._await_response(stream)
+        return _BedrockAWSCRTHTTPResponse(status=response.status, fields=response.fields, stream=stream)
+
+    def _observe_request_writer(self, task: asyncio.Task[Any]) -> None:
+        """Consume a CRT request-writer result and report unexpected failures."""
+        if task.cancelled():
+            return
+
+        error = task.exception()
+        if error is None:
+            return
+        if _is_http_stream_completed_error(error):
+            logger.debug("error=<%s> | request writer stopped after HTTP/2 stream completion", error)
+            return
+
+        task.get_loop().call_exception_handler(
+            {
+                "message": "bedrock HTTP/2 request writer failed",
+                "exception": error,
+                "task": task,
+            }
+        )
+
+
+class _BedrockAWSCRTHTTPResponse(AWSCRTHTTPResponse):
+    """Keep CRT response reads alive until the stream resolves them."""
+
+    async def chunks(self) -> AsyncGenerator[bytes, None]:
+        while True:
+            read_task = asyncio.create_task(self._stream.get_next_response_chunk())
+            try:
+                await asyncio.wait({read_task})
+            except asyncio.CancelledError:
+                read_task.add_done_callback(self._observe_cancelled_read)
+                raise
+
+            chunk = read_task.result()
+            if not chunk:
+                return
+            yield chunk
+
+    def _observe_cancelled_read(self, task: asyncio.Task[bytes]) -> None:
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error is not None:
+            task.get_loop().call_exception_handler(
+                {
+                    "message": "bedrock HTTP/2 response reader failed after cancellation",
+                    "exception": error,
+                    "task": task,
+                }
+            )
 
 
 class BedrockNovaSonicModel(BidiModel, AudioCapable):
@@ -212,7 +282,7 @@ class BedrockNovaSonicModel(BidiModel, AudioCapable):
             aws_access_key_id=credentials.access_key,
             aws_secret_access_key=credentials.secret_key,
             aws_session_token=credentials.token,
-            transport=AWSCRTHTTPClient(),
+            transport=_BedrockAWSCRTHTTPClient(),
             user_agent_extra=_STRANDS_USER_AGENT_EXTRA,
         )
 
