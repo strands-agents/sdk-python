@@ -47,9 +47,10 @@ export type ContextManagerStrategy = ContextManagerPreset | ContextManagerConfig
  * The emergency truncation is always appended as the final strategy — it recomputes
  * utilization and only fires if the window is still overflowing after user strategies.
  *
- * The ContextManager is a first-class agent component — pass it via the
- * `contextManager` parameter on the Agent constructor. When present, it owns
- * overflow recovery — no separate ConversationManager is needed.
+ * Configured through the Agent's `contextManager` parameter — pass a preset
+ * string (`'auto'`, `'agentic'`) or a `ContextManagerConfig`; the Agent
+ * constructs and registers the manager. When present, it owns overflow
+ * recovery and proactive compression — no separate ConversationManager is needed.
  *
  * @experimental
  */
@@ -89,14 +90,7 @@ export class ContextManager implements Plugin {
   static from(strategy: ContextManagerStrategy | undefined): ContextManager | undefined {
     if (strategy === false || strategy === undefined) return undefined
     if (strategy === 'auto') {
-      return new ContextManager({
-        strategies: [
-          Offload.truncate('toolResults', { previewTokens: TRUNCATE_PREVIEW_TOKENS }).when({
-            threshold: AUTO_TRUNCATE_THRESHOLD,
-          }),
-          Offload.summarize('*').when({ utilization: AUTO_SUMMARIZE_UTILIZATION, preserveRecent: 4 }),
-        ],
-      })
+      return new ContextManager()
     }
     if (strategy === 'agentic') {
       return new ContextManager({
