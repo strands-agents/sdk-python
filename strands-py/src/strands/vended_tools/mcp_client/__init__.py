@@ -1,7 +1,7 @@
 """Agent-callable MCP client tool for connecting to Model Context Protocol servers at runtime.
 
 Provides :func:`make_mcp_client` (a factory that returns a tool bound to a developer-set
-URL allowlist) for use cases where the agent, not the developer, decides which server to
+server allowlist) for use cases where the agent, not the developer, decides which server to
 talk to at runtime. Developer-wired MCP clients remain the primary path
 (``strands.tools.mcp.MCPClient``); this tool is the agent-facing shim.
 
@@ -10,7 +10,7 @@ Example Usage:
     from strands import Agent
     from strands.vended_tools import make_mcp_client
 
-    mcp_client_tool = make_mcp_client(allowed_urls=["https://mcp.example.com/mcp"])
+    mcp_client_tool = make_mcp_client(servers=[{"url": "https://mcp.example.com/mcp"}])
     agent = Agent(tools=[mcp_client_tool])
     ```
 """
