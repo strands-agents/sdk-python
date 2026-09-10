@@ -6,7 +6,7 @@ The tool exposes four commands — ``connect``, ``list_tools``, ``call_tool``,
 ``disconnect`` — letting an agent open a connection to an MCP server, discover its
 tools, invoke one, and close the connection. Each server is configured with a
 :class:`~strands.tools.mcp.MCPServerConfig`; all fields are forwarded to
-:class:`~strands.tools.mcp.MCPClient`. Sessions are isolated per agent.
+:class:`~strands.tools.mcp.MCPClient`. One connection is held per agent at a time.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from ...tools.decorator import tool
 from ...tools.mcp.mcp_client import MCPClient, MCPServerConfig
 from ...tools.mcp.mcp_types import MCPToolResult
 from ...types.tools import ToolContext, ToolSpec
-from .types import MCP_CLIENT_DESCRIPTION, Command, ConnectOutput, _Session
+from .types import MCP_CLIENT_DESCRIPTION, Command
 
 if TYPE_CHECKING:
     from ...tools.decorator import DecoratedFunctionTool
@@ -61,23 +61,21 @@ def make_mcp_client(
     """
     server_map = _validate_servers(servers)
 
-    # Combine the description constant with the list of permitted servers
     if description is None:
         permitted = ", ".join(f"'{s}'" for s in sorted(server_map))
         description = f"{MCP_CLIENT_DESCRIPTION} Permitted servers: {permitted}."
 
-    # Per-agent session tables using WeakKeyDictionary so agents can be garbage collected normally.
-    sessions: weakref.WeakKeyDictionary[Any, dict[str, _Session]] = weakref.WeakKeyDictionary()
+    # One MCPClient per agent. WeakKeyDictionary so agents can be garbage collected normally.
+    clients: weakref.WeakKeyDictionary[Any, MCPClient] = weakref.WeakKeyDictionary()
 
     @tool(name=name, description=description, context="tool_context")
     async def mcp_client_tool(
         command: Command,
         tool_context: ToolContext,
         server: str | None = None,
-        session_id: str | None = None,
         tool_name: str | None = None,
         arguments: dict[str, Any] | None = None,
-    ) -> ConnectOutput | list[ToolSpec] | MCPToolResult | str:
+    ) -> list[ToolSpec] | MCPToolResult | str:
         """Manage a runtime MCP client connection.
 
         Args:
@@ -85,43 +83,39 @@ def make_mcp_client(
             tool_context: Injected by the framework. Not user-facing.
             server: Server to connect to for ``connect``. For HTTP servers, a URL; for stdio servers,
                 the full command invocation. Must match the developer-set allowlist verbatim.
-            session_id: Identifier returned by ``connect``, required for the other three commands.
             tool_name: Tool name to invoke, required for ``call_tool``.
             arguments: Arguments to pass to the invoked tool, for ``call_tool``.
+
+        Raises:
+            MCPClientToolError: If a required argument is missing, the server is not on the allowlist,
+                no connection is active, or the connection fails to start.
         """
         agent = tool_context.agent
 
         if command == "connect":
             if not server:
                 raise MCPClientToolError("`server` is required for command='connect'")
-            return await _handle_connect(
-                sessions,
-                agent,
-                server_map=server_map,
-                server=server,
-            )
+            return await _handle_connect(clients, agent, server_map=server_map, server=server)
 
-        # All other commands require an active session.
-        if not session_id:
-            raise MCPClientToolError("`session_id` is required")
-        session = sessions.get(agent, {}).get(session_id)
-        if session is None:
-            raise MCPClientToolError(f"No active session for id {session_id!r}")
+        client = clients.get(agent)
+        if client is None:
+            raise MCPClientToolError("No active connection. Call 'connect' first.")
 
         if command == "list_tools":
-            return await _handle_list_tools(session)
+            return await _handle_list_tools(client)
 
         if command == "call_tool":
             if not tool_name:
                 raise MCPClientToolError("`tool_name` is required for command='call_tool'")
-            return await session.client.call_tool_async(
+            return await client.call_tool_async(
                 tool_use_id=str(uuid4()),
                 name=tool_name,
                 arguments=arguments,
                 cancel_signal=tool_context.cancel_signal,
             )
+
         if command == "disconnect":
-            return await _handle_disconnect(session, sessions, agent, session_id)
+            return await _handle_disconnect(clients, agent)
 
         raise MCPClientToolError(f"Unknown command: {command}")
 
@@ -131,13 +125,11 @@ def make_mcp_client(
 # ---- Internals ----------------------------------------------------------------
 
 
-def _close_agent_sessions(agent_sessions: dict[str, _Session]) -> None:
-    """Close all open MCP sessions for a single agent."""
-    for session_id, session in list(agent_sessions.items()):
-        thread = threading.Thread(target=session.client.stop, args=(None, None, None), daemon=True)
-        thread.start()
-        thread.join(timeout=1.0)
-        logger.debug("session_id=<%s> | closed MCP session during GC", session_id)
+def _stop_client_on_gc(client: MCPClient) -> None:
+    """Stop an MCPClient from a GC finalizer; runs stop() in a daemon thread with a 1 s cap."""
+    thread = threading.Thread(target=client.stop, args=(None, None, None), daemon=True)
+    thread.start()
+    thread.join(timeout=1.0)
 
 
 def _validate_servers(servers: list[MCPServerConfig]) -> dict[str, MCPServerConfig]:
@@ -165,12 +157,12 @@ def _validate_servers(servers: list[MCPServerConfig]) -> dict[str, MCPServerConf
             )
         url = config.get("url")
         command = config.get("command")
-        if url and command:
-            raise ValueError(
-                f"Server config has both 'url' ({url!r}) and 'command' ({command!r}); "
-                "provide one or the other, or set 'transport' explicitly"
-            )
         if url:
+            if command:
+                raise ValueError(
+                    f"Server config has both 'url' ({url!r}) and 'command' ({command!r}); "
+                    "provide one or the other"
+                )
             parsed = urlsplit(url)
             if parsed.scheme.lower() not in _ALLOWED_SCHEMES:
                 raise ValueError(
@@ -214,70 +206,65 @@ def _canonicalise_url(url: str) -> str:
 
 
 async def _handle_connect(
-    sessions: dict[Any, dict[str, _Session]],
+    clients: weakref.WeakKeyDictionary[Any, MCPClient],
     agent: Any,
     *,
     server_map: dict[str, MCPServerConfig],
     server: str,
-) -> ConnectOutput:
+) -> str:
     is_http = server.lower().startswith(("http://", "https://"))
     try:
         key = _canonicalise_url(server) if is_http else server
     except ValueError:
         permitted = ", ".join(sorted(server_map))
         raise MCPClientToolError(f"Server {server!r} is not a valid URL. Permitted servers: {permitted}") from None
+
     if key not in server_map:
         permitted = ", ".join(sorted(server_map))
         raise MCPClientToolError(f"Server {server!r} is not on the allowlist. Permitted servers: {permitted}")
 
+    # Stop any existing connection before opening a new one.
+    existing = clients.get(agent)
+    if existing is not None:
+        await _handle_disconnect(clients, agent)
+
     config = cast(dict[str, Any], server_map[key])
-    clients = MCPClient.load_servers({"vended": config})
-    if not clients:
-        raise MCPClientToolError(f"Server {server!r} failed to initialise; check the server config")
-    client = clients[0]
+    loaded = MCPClient.load_servers({"vended": config})
+    client = loaded[0]
 
     try:
-        # Push blocking start() off the event loop so concurrent tool invocations are not serialised.
         await asyncio.to_thread(client.start)
-        session_id = str(uuid4())
-        agent_sessions = sessions.get(agent)
-        if agent_sessions is None:
-            agent_sessions = {}
-            sessions[agent] = agent_sessions
-            weakref.finalize(agent, _close_agent_sessions, agent_sessions)
-        agent_sessions[session_id] = _Session(client=client, key=key)
+        clients[agent] = client
+        weakref.finalize(agent, _stop_client_on_gc, client)
     except BaseException:
-        # Cancellation during start() or the session-table write — stop the client before re-raising.
         try:
             client.stop(None, None, None)
         except Exception:
             logger.debug("failed to stop MCP client after connect failure", exc_info=True)
         raise
 
-    logger.debug("session_id=<%s>, server=<%s> | opened MCP session", session_id, key)
-    return ConnectOutput(session_id=session_id, server=key)
+    logger.debug("server=<%s> | opened MCP connection", key)
+    return f"Successfully connected to {key}"
 
 
-async def _handle_list_tools(session: _Session) -> list[ToolSpec]:
-    """Return the tool list from the client, including server-side names so call_tool can invoke them directly."""
+async def _handle_list_tools(client: MCPClient) -> list[ToolSpec]:
+    """Return the tool list from the client, using server-side names so call_tool can invoke them directly."""
     agent_tools = await asyncio.to_thread(
-        lambda: session.client._list_all_tools_sync()  # noqa: SLF001
+        lambda: client._list_all_tools_sync()  # noqa: SLF001
     )
     return [{**t.tool_spec, "name": t.mcp_tool.name} for t in agent_tools]
 
 
 async def _handle_disconnect(
-    session: _Session,
-    sessions: dict[Any, dict[str, _Session]],
+    clients: weakref.WeakKeyDictionary[Any, MCPClient],
     agent: Any,
-    session_id: str,
 ) -> str:
-    try:
-        await asyncio.to_thread(session.client.stop, None, None, None)
-    except RuntimeError:
-        logger.debug("session_id=<%s> | MCP connection was already closed", session_id)
-    finally:
-        agent_sessions = sessions.get(agent)
-        if agent_sessions is not None:
-            agent_sessions.pop(session_id, None)
-    return f"Session successfully disconnected: {session_id}"
+    client = clients.get(agent)
+    if client is not None:
+        try:
+            await asyncio.to_thread(client.stop, None, None, None)
+        except RuntimeError:
+            logger.debug("MCP connection was already closed")
+        finally:
+            clients.pop(agent, None)
+    return "Successfully disconnected"
