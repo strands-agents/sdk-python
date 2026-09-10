@@ -475,6 +475,8 @@ agent = Agent(tools=[tool])
 
 Lets your agent connect to Model Context Protocol servers at runtime, list the tools they expose, invoke one, and disconnect. The factory takes a developer-set allowlist of server configurations; the model can only initiate connections to servers on that list.
 
+The tool exposes four commands: `connect` (opens a connection to an allowlisted server), `list_tools` (returns the tools the server exposes), `call_tool` (invokes a tool by name), and `disconnect` (closes the connection). Only one server can be connected at a time — connecting to a new server automatically closes the current one.
+
 _Supported in: all platforms (Python)._
 
 :::caution[Security Warning]
@@ -495,7 +497,10 @@ mcp_client = make_mcp_client(servers=[
     {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]},
 ])
 agent = Agent(tools=[mcp_client])
-agent("Connect to the MCP server and list its tools.")
+agent(
+    "Connect to https://mcp.example.com/mcp, list its tools, "
+    "call the echo tool with message 'hello', then disconnect."
+)
 ```
 
 </Tab>

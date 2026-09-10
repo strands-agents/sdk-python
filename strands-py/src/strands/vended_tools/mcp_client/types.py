@@ -14,7 +14,7 @@ MCP_CLIENT_DESCRIPTION = (
     "'list_tools' returns the tools the connected server exposes, including their names and input schemas. "
     "'call_tool' invokes a named tool on the connected server and returns its result. "
     "'disconnect' closes the connection. "
-    "Only one server can be connected at a time. "
-    "Avoid reconnecting to the same server unless the connection has been explicitly disconnected."
+    "Only one server can be connected at a time: connecting to a different server closes the current connection, "
+    "and reconnecting to the same server restarts it and discards its state. Disconnect when done."
 )
 """Description for the mcp_client tool shown to the model."""

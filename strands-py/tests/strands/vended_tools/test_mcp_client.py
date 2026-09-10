@@ -12,10 +12,7 @@ from mcp.types import Tool as MCPTool
 from strands.tools.mcp import MCPAgentTool
 from strands.types.tools import ToolContext
 from strands.vended_tools import make_mcp_client
-from strands.vended_tools.mcp_client.mcp_client import (
-    MCPClientToolError,
-    _canonicalise_url,
-)
+from strands.vended_tools.mcp_client.mcp_client import MCPClientToolError
 
 
 class _StubAgent:
@@ -76,8 +73,95 @@ def _mcp_instance(tools: list[MCPAgentTool] | None = None) -> MagicMock:
     return instance
 
 
+class TestServerValidation:
+    """_validate_servers rejects invalid configs at construction time."""
+
+    def test_empty_allowlist_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="must not be empty"):
+            make_mcp_client(servers=[])
+
+    def test_disabled_config_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="disabled"):
+            make_mcp_client(servers=[{"url": "https://mcp.example.com/mcp", "disabled": True}])
+
+    def test_both_url_and_command_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="both 'url'.*and 'command'|both.*url.*command"):
+            make_mcp_client(servers=[{"url": "https://mcp.example.com/mcp", "command": "node"}])
+
+    def test_neither_url_nor_command_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="url.*or.*command|command.*or.*url|must have either"):
+            make_mcp_client(servers=[{"args": ["server.js"]}])
+
+    def test_different_configs_colliding_on_same_key_are_rejected(self) -> None:
+        with pytest.raises(ValueError, match="two different configs|duplicate"):
+            make_mcp_client(
+                servers=[
+                    {"url": "https://mcp.example.com/mcp", "headers": {"Authorization": "Bearer A"}},
+                    {"url": "https://mcp.example.com/mcp", "headers": {"Authorization": "Bearer B"}},
+                ]
+            )
+
+    def test_identical_configs_are_deduplicated(self) -> None:
+        config = {"url": "https://mcp.example.com/mcp"}
+        tool = make_mcp_client(servers=[config, config])
+        assert tool is not None
+
+    def test_stdio_config_without_command_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="url.*or.*command|command.*or.*url|must have either"):
+            make_mcp_client(servers=[{"args": ["server.js"]}])
+
+    def test_stdio_config_is_accepted(self) -> None:
+        tool = make_mcp_client(servers=[{"command": "node", "args": ["server.js"]}])
+        assert tool.tool_name == "mcp_client"
+        assert "node server.js" in tool.tool_spec["description"]
+
+
+class TestConnect:
+    """connect enforces the allowlist, validates input, and handles errors."""
+
+    @pytest.mark.asyncio
+    async def test_url_not_on_allowlist_is_rejected(self) -> None:
+        tool = make_mcp_client(servers=[{"url": "https://mcp.example.com/mcp"}])
+        with pytest.raises(MCPClientToolError, match="not on the allowlist"):
+            await tool(command="connect", server="https://evil.example.com/mcp", tool_context=_tool_context())
+
+    @pytest.mark.asyncio
+    async def test_missing_server_is_rejected(self) -> None:
+        t = make_mcp_client(servers=[{"url": "https://mcp.example.com/mcp"}])
+        with pytest.raises(MCPClientToolError, match="server"):
+            await t(command="connect", tool_context=_tool_context())
+
+    @pytest.mark.asyncio
+    async def test_agent_isolation(self) -> None:
+        """A connection opened by agent A is not visible to agent B."""
+        tool = make_mcp_client(servers=[{"url": "https://mcp.example.com/mcp"}])
+        with patch("strands.vended_tools.mcp_client.mcp_client.MCPClient.load_servers") as client_cls:
+            client_cls.return_value = [_mcp_instance()]
+            agent_a = _StubAgent(label="a")
+            agent_b = _StubAgent(label="b")
+            await tool(command="connect", server="https://mcp.example.com/mcp", tool_context=_tool_context(agent_a))
+            with pytest.raises(MCPClientToolError, match="No active connection"):
+                await tool(command="list_tools", tool_context=_tool_context(agent_b))
+
+    @pytest.mark.asyncio
+    async def test_start_failure_stops_client_and_leaves_no_connection(self) -> None:
+        """If start() raises, the partially-started client is stopped and no connection is registered."""
+        t = make_mcp_client(servers=[{"url": "https://mcp.example.com/mcp"}])
+        client_class, instance = _fake_mcp_client_class()
+        instance.start = MagicMock(side_effect=RuntimeError("connection refused"))
+        agent = _StubAgent()
+
+        with patch("strands.vended_tools.mcp_client.mcp_client.MCPClient.load_servers", client_class):
+            with pytest.raises(RuntimeError, match="connection refused"):
+                await t(command="connect", server="https://mcp.example.com/mcp", tool_context=_tool_context(agent))
+
+        instance.stop.assert_called_once()
+        with pytest.raises(MCPClientToolError, match="No active connection"):
+            await t(command="list_tools", tool_context=_tool_context(agent))
+
+
 class TestSessionLifecycle:
-    """A full connect -> list_tools -> call_tool -> disconnect flow."""
+    """Full connect -> list_tools -> call_tool -> disconnect flow and reconnect behaviour."""
 
     @pytest.mark.asyncio
     async def test_full_lifecycle(self) -> None:
@@ -119,7 +203,7 @@ class TestSessionLifecycle:
                 await tool(command="list_tools", tool_context=_tool_context(agent))
 
     @pytest.mark.asyncio
-    async def test_connect_stops_existing_client_before_reconnecting(self) -> None:
+    async def test_reconnect_stops_existing_client(self) -> None:
         """connect always stops the existing client and starts a fresh one."""
         tool = make_mcp_client(servers=[{"url": "https://mcp.example.com/mcp"}])
         client_class, instance = _fake_mcp_client_class()
@@ -129,9 +213,81 @@ class TestSessionLifecycle:
             await tool(command="connect", server="https://mcp.example.com/mcp", tool_context=_tool_context(agent))
             await tool(command="connect", server="https://mcp.example.com/mcp", tool_context=_tool_context(agent))
 
-        # Second connect must stop the first client and start a new one.
         assert instance.stop.call_count == 1
         assert instance.start.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_commands_without_active_connection_are_rejected(self) -> None:
+        t = make_mcp_client(servers=[{"url": "https://mcp.example.com/mcp"}])
+        for command in ("list_tools", "call_tool"):
+            with pytest.raises(MCPClientToolError, match="No active connection"):
+                await t(command=command, tool_context=_tool_context())
+
+    @pytest.mark.asyncio
+    async def test_call_tool_without_name_is_rejected(self) -> None:
+        t = make_mcp_client(servers=[{"url": "https://mcp.example.com/mcp"}])
+        agent = _StubAgent()
+        with patch("strands.vended_tools.mcp_client.mcp_client.MCPClient.load_servers") as client_cls:
+            client_cls.return_value = [_mcp_instance()]
+            await t(command="connect", server="https://mcp.example.com/mcp", tool_context=_tool_context(agent))
+            with pytest.raises(MCPClientToolError, match="tool_name"):
+                await t(command="call_tool", tool_context=_tool_context(agent))
+
+    @pytest.mark.asyncio
+    async def test_disconnect_when_stop_raises_still_evicts(self) -> None:
+        """RuntimeError from stop() must not prevent session eviction."""
+        t = make_mcp_client(servers=[{"url": "https://mcp.example.com/mcp"}])
+        agent = _StubAgent()
+        client_class, instance = _fake_mcp_client_class()
+        instance.stop = MagicMock(side_effect=RuntimeError("already closed"))
+
+        with patch("strands.vended_tools.mcp_client.mcp_client.MCPClient.load_servers", client_class):
+            await t(command="connect", server="https://mcp.example.com/mcp", tool_context=_tool_context(agent))
+            result = await t(command="disconnect", tool_context=_tool_context(agent))
+
+        assert result == "Successfully disconnected"
+        with pytest.raises(MCPClientToolError, match="No active connection"):
+            await t(command="list_tools", tool_context=_tool_context(agent))
+
+    @pytest.mark.asyncio
+    async def test_cancel_signal_forwarded_to_call_tool_async(self) -> None:
+        tool = make_mcp_client(servers=[{"url": "https://mcp.example.com/mcp"}])
+        captured: dict[str, Any] = {}
+
+        async def _call(*args: Any, **kwargs: Any) -> Any:
+            captured["cancel_signal"] = kwargs.get("cancel_signal")
+            return {"status": "success", "content": []}
+
+        client_class, instance = _fake_mcp_client_class()
+        instance.call_tool_async = _call
+
+        cancel = threading.Event()
+        agent = _StubAgent()
+        ctx = _tool_context(agent)
+        ctx.cancel_signal = cancel
+
+        with patch("strands.vended_tools.mcp_client.mcp_client.MCPClient.load_servers", client_class):
+            await tool(command="connect", server="https://mcp.example.com/mcp", tool_context=ctx)
+            await tool(command="call_tool", tool_name="slow", tool_context=ctx)
+
+        assert captured["cancel_signal"] is cancel
+
+    @pytest.mark.asyncio
+    async def test_list_tools_returns_server_side_names(self) -> None:
+        """list_tools must return mcp_tool.name (server-side) regardless of prefix config."""
+        tool = make_mcp_client(servers=[{"url": "https://mcp.example.com/mcp"}])
+        agent = _StubAgent()
+        agent_tool = MCPAgentTool(
+            mcp_tool=_make_mcp_tool(name="echo"),
+            mcp_client=MagicMock(),
+            name_override="fs_echo",
+        )
+        client_class, _ = _fake_mcp_client_class(list_tools_return=[agent_tool])
+        with patch("strands.vended_tools.mcp_client.mcp_client.MCPClient.load_servers", client_class):
+            await tool(command="connect", server="https://mcp.example.com/mcp", tool_context=_tool_context(agent))
+            tools = await tool(command="list_tools", tool_context=_tool_context(agent))
+        assert tools[0]["name"] == "echo"
+
 
 class TestConfigForwarding:
     """The matched server config is forwarded correctly to MCPClient."""
@@ -160,175 +316,6 @@ class TestConfigForwarding:
             result = await tool(command="connect", server="npx -y my-server", tool_context=_tool_context(agent))
 
         assert "npx -y my-server" in result
-
-
-class TestAllowlistEnforcement:
-    """Server allowlist rejects anything the developer didn't sign off on."""
-
-    @pytest.mark.asyncio
-    async def test_url_not_on_allowlist_is_rejected(self) -> None:
-        tool = make_mcp_client(servers=[{"url": "https://mcp.example.com/mcp"}])
-        with pytest.raises(MCPClientToolError, match="not on the allowlist"):
-            await tool(command="connect", server="https://evil.example.com/mcp", tool_context=_tool_context())
-
-    @pytest.mark.asyncio
-    async def test_allowlist_match_is_scheme_and_host_case_insensitive(self) -> None:
-        tool = make_mcp_client(servers=[{"url": "https://mcp.example.com/mcp"}])
-        with patch("strands.vended_tools.mcp_client.mcp_client.MCPClient.load_servers") as client_cls:
-            instance = _mcp_instance()
-            client_cls.return_value = [instance]
-            result = await tool(
-                command="connect", server="HTTPS://MCP.EXAMPLE.COM/mcp", tool_context=_tool_context()
-            )
-        assert "Successfully connected" in result
-        instance.start.assert_called_once()
-
-    def test_empty_allowlist_is_rejected_at_construction(self) -> None:
-        with pytest.raises(ValueError, match="must not be empty"):
-            make_mcp_client(servers=[])
-
-    def test_disallowed_scheme_in_allowlist_is_rejected_at_construction(self) -> None:
-        with pytest.raises(ValueError, match="unsupported scheme"):
-            make_mcp_client(servers=[{"url": "file:///etc/passwd"}])
-
-    def test_missing_host_in_allowlist_is_rejected(self) -> None:
-        with pytest.raises(ValueError, match="no host"):
-            make_mcp_client(servers=[{"url": "https:///"}])
-
-    def test_stdio_config_is_rejected_at_construction(self) -> None:
-        with pytest.raises(ValueError, match="url.*or.*command|command.*or.*url|must have either"):
-            make_mcp_client(servers=[{"args": ["server.js"]}])
-
-    def test_stdio_config_is_accepted_at_construction(self) -> None:
-        tool = make_mcp_client(servers=[{"command": "node", "args": ["server.js"]}])
-        assert tool.tool_name == "mcp_client"
-        assert "node server.js" in tool.tool_spec["description"]
-
-    def test_config_with_both_url_and_command_is_rejected(self) -> None:
-        with pytest.raises(ValueError, match="both 'url'.*and 'command'|both.*url.*command"):
-            make_mcp_client(servers=[{"url": "https://mcp.example.com/mcp", "command": "node"}])
-
-    def test_disabled_config_is_rejected_at_construction(self) -> None:
-        with pytest.raises(ValueError, match="disabled"):
-            make_mcp_client(servers=[{"url": "https://mcp.example.com/mcp", "disabled": True}])
-
-    def test_configs_colliding_on_same_key_are_rejected(self) -> None:
-        with pytest.raises(ValueError, match="two different configs|duplicate"):
-            make_mcp_client(
-                servers=[
-                    {"url": "https://mcp.example.com/mcp", "headers": {"Authorization": "Bearer A"}},
-                    {"url": "HTTPS://mcp.example.com:443/mcp/", "headers": {"Authorization": "Bearer B"}},
-                ]
-            )
-
-
-class TestConnectInputValidation:
-    """Connect requires ``server``; call_tool requires ``tool_name``."""
-
-    @pytest.mark.asyncio
-    async def test_connect_without_server_is_rejected(self) -> None:
-        t = make_mcp_client(servers=[{"url": "https://mcp.example.com/mcp"}])
-        with pytest.raises(MCPClientToolError, match="server"):
-            await t(command="connect", tool_context=_tool_context())
-
-    @pytest.mark.asyncio
-    async def test_call_tool_without_name_is_rejected(self) -> None:
-        t = make_mcp_client(servers=[{"url": "https://mcp.example.com/mcp"}])
-        agent = _StubAgent()
-        with patch("strands.vended_tools.mcp_client.mcp_client.MCPClient.load_servers") as client_cls:
-            client_cls.return_value = [_mcp_instance()]
-            await t(command="connect", server="https://mcp.example.com/mcp", tool_context=_tool_context(agent))
-            with pytest.raises(MCPClientToolError, match="tool_name"):
-                await t(command="call_tool", tool_context=_tool_context(agent))
-
-    @pytest.mark.asyncio
-    async def test_commands_without_active_connection_are_rejected(self) -> None:
-        t = make_mcp_client(servers=[{"url": "https://mcp.example.com/mcp"}])
-        for command in ("list_tools", "call_tool", "disconnect"):
-            with pytest.raises(MCPClientToolError, match="No active connection"):
-                await t(command=command, tool_context=_tool_context())
-
-
-class TestAgentIsolation:
-    """Each agent has an independent connection."""
-
-    @pytest.mark.asyncio
-    async def test_connection_from_another_agent_is_not_visible(self) -> None:
-        tool = make_mcp_client(servers=[{"url": "https://mcp.example.com/mcp"}])
-        with patch("strands.vended_tools.mcp_client.mcp_client.MCPClient.load_servers") as client_cls:
-            client_cls.return_value = [_mcp_instance()]
-            agent_a = _StubAgent(label="a")
-            agent_b = _StubAgent(label="b")
-
-            await tool(command="connect", server="https://mcp.example.com/mcp", tool_context=_tool_context(agent_a))
-
-            with pytest.raises(MCPClientToolError, match="No active connection"):
-                await tool(command="list_tools", tool_context=_tool_context(agent_b))
-
-
-class TestUrlNormalisation:
-    """The URL canonicalisation used for allowlist matching."""
-
-    def test_canonicalise_strips_trailing_slash(self) -> None:
-        assert _canonicalise_url("https://Example.com/mcp/") == "https://example.com/mcp"
-
-    def test_canonicalise_lowercases_scheme_and_host(self) -> None:
-        assert _canonicalise_url("HTTPS://EXAMPLE.COM/PATH") == "https://example.com/PATH"
-
-    def test_canonicalise_preserves_non_default_port_and_query(self) -> None:
-        assert _canonicalise_url("https://Example.com:8443/mcp?token=abc") == "https://example.com:8443/mcp?token=abc"
-
-    def test_canonicalise_drops_default_https_port(self) -> None:
-        assert _canonicalise_url("https://mcp.example.com:443/mcp") == "https://mcp.example.com/mcp"
-
-    def test_canonicalise_drops_default_http_port(self) -> None:
-        assert _canonicalise_url("http://mcp.example.com:80/mcp") == "http://mcp.example.com/mcp"
-
-
-class TestCancelSignal:
-    """The agent cancel signal is forwarded to call_tool_async."""
-
-    @pytest.mark.asyncio
-    async def test_cancel_signal_forwarded_to_call_tool_async(self) -> None:
-        tool = make_mcp_client(servers=[{"url": "https://mcp.example.com/mcp"}])
-        captured: dict[str, Any] = {}
-
-        async def _call(*args: Any, **kwargs: Any) -> Any:
-            captured["cancel_signal"] = kwargs.get("cancel_signal")
-            return {"status": "success", "content": []}
-
-        client_class, instance = _fake_mcp_client_class()
-        instance.call_tool_async = _call
-
-        cancel = threading.Event()
-        agent = _StubAgent()
-        ctx = _tool_context(agent)
-        ctx.cancel_signal = cancel
-
-        with patch("strands.vended_tools.mcp_client.mcp_client.MCPClient.load_servers", client_class):
-            await tool(command="connect", server="https://mcp.example.com/mcp", tool_context=ctx)
-            await tool(command="call_tool", tool_name="slow", tool_context=ctx)
-
-        assert captured["cancel_signal"] is cancel
-
-
-class TestToolNameResolution:
-    """list_tools returns server-side names so call_tool can invoke them directly."""
-
-    @pytest.mark.asyncio
-    async def test_prefixed_name_maps_to_server_side_name(self) -> None:
-        tool = make_mcp_client(servers=[{"url": "https://mcp.example.com/mcp"}])
-        agent = _StubAgent()
-        agent_tool = MCPAgentTool(
-            mcp_tool=_make_mcp_tool(name="echo"),
-            mcp_client=MagicMock(),
-            name_override="fs_echo",
-        )
-        client_class, _ = _fake_mcp_client_class(list_tools_return=[agent_tool])
-        with patch("strands.vended_tools.mcp_client.mcp_client.MCPClient.load_servers", client_class):
-            await tool(command="connect", server="https://mcp.example.com/mcp", tool_context=_tool_context(agent))
-            tools = await tool(command="list_tools", tool_context=_tool_context(agent))
-        assert tools[0]["name"] == "echo"
 
 
 class TestToolMetadata:

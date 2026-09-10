@@ -16,7 +16,6 @@ import logging
 import threading
 import weakref
 from typing import TYPE_CHECKING, Any, cast
-from urllib.parse import urlsplit
 from uuid import uuid4
 
 from ...tools.decorator import tool
@@ -29,9 +28,6 @@ if TYPE_CHECKING:
     from ...tools.decorator import DecoratedFunctionTool
 
 logger = logging.getLogger(__name__)
-
-_DEFAULT_SCHEME_PORTS = {"http": 80, "https": 443}
-_ALLOWED_SCHEMES = frozenset(_DEFAULT_SCHEME_PORTS)
 
 
 class MCPClientToolError(RuntimeError):
@@ -125,24 +121,17 @@ def make_mcp_client(
 # ---- Internals ----------------------------------------------------------------
 
 
-def _stop_client_on_gc(client: MCPClient) -> None:
-    """Stop an MCPClient from a GC finalizer; runs stop() in a daemon thread with a 1 s cap."""
-    thread = threading.Thread(target=client.stop, args=(None, None, None), daemon=True)
-    thread.start()
-    thread.join(timeout=1.0)
-
-
 def _validate_servers(servers: list[MCPServerConfig]) -> dict[str, MCPServerConfig]:
     """Validate server configs and return a map keyed by server identifier.
 
-    For HTTP entries the key is the canonicalised URL; for stdio entries it is
+    For HTTP entries the key is the URL verbatim; for stdio entries it is
     the full command invocation (``command`` + space-joined ``args``).
 
     Returns:
         A dict keyed by server identifier mapping to the original config.
 
     Raises:
-        ValueError: If ``servers`` is empty, or an HTTP entry has an invalid URL.
+        ValueError: If ``servers`` is empty or a config entry is invalid.
     """
     if not servers:
         raise ValueError("`servers` must not be empty; the mcp_client tool requires at least one server")
@@ -160,17 +149,9 @@ def _validate_servers(servers: list[MCPServerConfig]) -> dict[str, MCPServerConf
         if url:
             if command:
                 raise ValueError(
-                    f"Server config has both 'url' ({url!r}) and 'command' ({command!r}); "
-                    "provide one or the other"
+                    f"Server config has both 'url' ({url!r}) and 'command' ({command!r}); provide one or the other"
                 )
-            parsed = urlsplit(url)
-            if parsed.scheme.lower() not in _ALLOWED_SCHEMES:
-                raise ValueError(
-                    f"Server URL {url!r} has unsupported scheme {parsed.scheme!r}; only http and https are supported"
-                )
-            if not parsed.hostname:
-                raise ValueError(f"Server URL {url!r} has no host")
-            key = _canonicalise_url(url)
+            key = url
         elif command:
             key = " ".join([command] + list(config.get("args") or []))
         else:
@@ -185,24 +166,15 @@ def _validate_servers(servers: list[MCPServerConfig]) -> dict[str, MCPServerConf
     return server_map
 
 
-def _canonicalise_url(url: str) -> str:
-    """Canonicalise a URL for allowlist matching.
+def _stop_client_on_gc(client: MCPClient) -> None:
+    """Stop an MCPClient when its owning agent is garbage-collected.
 
-    Lowercase scheme/host, strip the trailing slash on the path, drop the port when it
-    matches the scheme default (so ``https://host`` and ``https://host:443`` match), and
-    drop userinfo and fragment.
+    Runs ``stop()`` on a daemon thread with a 1 s join cap so a wedged transport
+    cannot stall the garbage collector thread indefinitely.
     """
-    parsed = urlsplit(url)
-    scheme = parsed.scheme.lower()
-    host = (parsed.hostname or "").lower()
-    # Re-bracket IPv6 addresses stripped by urlsplit
-    if ":" in host:
-        host = f"[{host}]"
-    default_port = _DEFAULT_SCHEME_PORTS.get(scheme)
-    port = f":{parsed.port}" if parsed.port and parsed.port != default_port else ""
-    path = parsed.path.rstrip("/")
-    query = f"?{parsed.query}" if parsed.query else ""
-    return f"{scheme}://{host}{port}{path}{query}"
+    thread = threading.Thread(target=client.stop, args=(None, None, None), daemon=True)
+    thread.start()
+    thread.join(timeout=1.0)
 
 
 async def _handle_connect(
@@ -212,14 +184,7 @@ async def _handle_connect(
     server_map: dict[str, MCPServerConfig],
     server: str,
 ) -> str:
-    is_http = server.lower().startswith(("http://", "https://"))
-    try:
-        key = _canonicalise_url(server) if is_http else server
-    except ValueError:
-        permitted = ", ".join(sorted(server_map))
-        raise MCPClientToolError(f"Server {server!r} is not a valid URL. Permitted servers: {permitted}") from None
-
-    if key not in server_map:
+    if server not in server_map:
         permitted = ", ".join(sorted(server_map))
         raise MCPClientToolError(f"Server {server!r} is not on the allowlist. Permitted servers: {permitted}")
 
@@ -228,27 +193,35 @@ async def _handle_connect(
     if existing is not None:
         await _handle_disconnect(clients, agent)
 
-    config = cast(dict[str, Any], server_map[key])
+    config = cast(dict[str, Any], server_map[server])
     loaded = MCPClient.load_servers({"vended": config})
     client = loaded[0]
 
     try:
         await asyncio.to_thread(client.start)
+        # Read after start() so concurrent connects each see and stop the other's client.
+        previous = clients.get(agent)
         clients[agent] = client
         weakref.finalize(agent, _stop_client_on_gc, client)
     except BaseException:
+        # start() failed or task was cancelled — stop the partially-started client before re-raising.
         try:
             client.stop(None, None, None)
         except Exception:
             logger.debug("failed to stop MCP client after connect failure", exc_info=True)
         raise
 
-    logger.debug("server=<%s> | opened MCP connection", key)
-    return f"Successfully connected to {key}"
+    if previous is not None:
+        try:
+            await asyncio.to_thread(previous.stop, None, None, None)
+        except RuntimeError:
+            logger.debug("previous MCP connection was already closed")
+
+    logger.debug("server=<%s> | opened MCP connection", server)
+    return f"Successfully connected to {server}"
 
 
 async def _handle_list_tools(client: MCPClient) -> list[ToolSpec]:
-    """Return the tool list from the client, using server-side names so call_tool can invoke them directly."""
     agent_tools = await asyncio.to_thread(
         lambda: client._list_all_tools_sync()  # noqa: SLF001
     )
